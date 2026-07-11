@@ -1,0 +1,70 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tex-mcp-web"
+version = "0.6.1"
+description = "Agentic-first review tool for LaTeX papers: live PDF preview + comment queue, designed for Claude Code as author"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    { name = "Alex Towell", email = "lex@metafunctor.com" }
+]
+keywords = ["tex", "latex", "pdf", "watcher", "viewer", "review", "annotation", "claude", "mcp"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Text Processing :: Markup :: LaTeX",
+]
+
+dependencies = [
+    "watchdog>=3.0.0",
+    "aiohttp>=3.9.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+mcp = ["mcp>=1.0", "httpx"]
+image = ["pymupdf>=1.23.0"]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+    "pytest-cov>=4.0",
+    "pymupdf>=1.23.0",
+]
+
+[project.scripts]
+tex-mcp-web = "tex_mcp_web.cli:main"
+tex-mcp = "tex_mcp_web.cli:main_mcp"
+tex-web = "tex_mcp_web.cli:main_serve"
+
+[project.urls]
+Homepage = "https://github.com/kiyoshi/tex-mcp-web"
+Repository = "https://github.com/kiyoshi/tex-mcp-web"
+
+[tool.hatch.build.targets.wheel]
+packages = ["tex_mcp_web"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-v --cov=tex_mcp_web --cov-report=term-missing"
+
+[tool.coverage.run]
+source = ["tex_mcp_web"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]

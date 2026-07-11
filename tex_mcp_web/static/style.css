@@ -1,0 +1,583 @@
+/* tex-mcp-web — viewer + comments sidebar
+   Design priority: get out of the way of the PDF, make comments scannable. */
+
+:root {
+  --bg: #fafaf7;
+  --bg-elev: #ffffff;
+  --bg-pdf: #efeee9;
+  --fg: #1a1a1a;
+  --fg-dim: #5a5a5a;
+  --border: #d8d6cf;
+  --accent: #4a6fa5;
+  --accent-soft: #d6e0ee;
+  --warn: #b08a1a;
+  --err: #b73838;
+  --ok: #3a7a3a;
+  --highlight: rgba(252, 220, 0, 0.45);
+  --highlight-hover: rgba(252, 192, 0, 0.7);
+  --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+  --sans: -apple-system, "Helvetica Neue", system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  font-family: var(--sans);
+  font-size: 14px;
+  color: var(--fg);
+  background: var(--bg);
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* ----- topbar ----- */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.5rem 1rem;
+  background: var(--bg-elev);
+  border-bottom: 1px solid var(--border);
+}
+.topbar h1 {
+  font-size: 1.05rem;
+  margin: 0;
+  font-weight: 600;
+}
+.topbar .status {
+  flex: 1;
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  color: var(--fg-dim);
+}
+.topbar .sep { margin: 0 0.4rem; opacity: 0.5; }
+.topbar .actions { display: flex; gap: 0.5rem; }
+.topbar button {
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  border-radius: 3px;
+}
+.topbar button:hover { background: var(--accent-soft); }
+
+/* ----- layout ----- */
+.layout {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  flex: 1;
+  min-height: 0;
+}
+#pdf-pane {
+  position: relative;
+  /* Both axes: zoomed-in pages overflow horizontally too. */
+  overflow: auto;
+  background: var(--bg-pdf);
+}
+#sidebar {
+  border-left: 1px solid var(--border);
+  background: var(--bg-elev);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* ----- pdf ----- */
+#pdf-canvas-host {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem;
+  /* Host grows with the widest page: flex centering inside an overflowing
+     scroll container would otherwise clip the left edge unreachably. */
+  min-width: max-content;
+}
+.pdf-page {
+  position: relative;
+  background: white;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+}
+.pdf-canvas {
+  display: block;
+  position: absolute;
+  inset: 0;
+}
+.text-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: auto;
+  line-height: 1;
+  color: transparent;
+}
+.text-layer span,
+.text-layer br {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0 0;
+}
+.text-layer ::selection {
+  background: var(--highlight);
+}
+.annotation-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.annotation-mark {
+  position: absolute;
+  background: var(--highlight);
+  border-bottom: 2px solid var(--accent);
+  pointer-events: auto;
+  cursor: pointer;
+  text-decoration: none;
+}
+.annotation-mark:hover {
+  background: var(--highlight-hover);
+}
+
+/* Live rectangle while shift-dragging to select an arbitrary region. */
+.region-drag {
+  position: absolute;
+  border: 2px dashed var(--accent);
+  background: rgba(74, 111, 165, 0.10);
+  pointer-events: none;
+  z-index: 5;
+}
+
+/* ----- selection toolbar (floats above selection) ----- */
+#selection-toolbar {
+  position: absolute;
+  z-index: 10;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  padding: 0.25rem 0.5rem;
+  border-radius: 3px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+  display: flex;
+  gap: 0.5rem;
+  /* Keep the toolbar's own text out of drag selections. */
+  user-select: none;
+  /* The box itself must not block drags on the text beneath it —
+     only the button is interactive. */
+  pointer-events: none;
+}
+#selection-toolbar button {
+  border: none;
+  background: var(--accent);
+  color: white;
+  padding: 0.3rem 0.7rem;
+  border-radius: 3px;
+  pointer-events: auto;
+}
+.hidden { display: none !important; }
+
+/* ----- sidebar tabs ----- */
+.sidebar-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+.tab-btn {
+  flex: 1;
+  padding: 0.5rem;
+  border: none;
+  background: none;
+  border-bottom: 2px solid transparent;
+  color: var(--fg-dim);
+}
+.tab-btn.active {
+  color: var(--fg);
+  border-bottom-color: var(--accent);
+  background: var(--bg-elev);
+}
+.tab-pane {
+  display: none;
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.5rem;
+  min-height: 0;
+}
+.tab-pane.active { display: block; }
+
+.placeholder {
+  color: var(--fg-dim);
+  font-style: italic;
+  text-align: center;
+  padding: 1rem;
+}
+
+/* ----- comments list ----- */
+.filter-row {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+.filter-row select {
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg);
+}
+.comments-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.cmt {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.5rem;
+  background: var(--bg);
+}
+.cmt.status-resolved { opacity: 0.6; }
+.cmt.status-dismissed { opacity: 0.4; }
+.cmt.is-focused {
+  /* j/k keyboard focus indicator */
+  box-shadow: 0 0 0 2px var(--accent), 0 0 0 4px var(--accent-soft);
+}
+
+.cmt-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.25rem;
+  flex-wrap: wrap;
+  font-size: 0.85rem;
+}
+.cmt-toggle {
+  border: none;
+  background: none;
+  font-size: 0.9rem;
+  padding: 0;
+  width: 1.2rem;
+}
+.cmt-id {
+  font-family: var(--mono);
+  color: var(--fg-dim);
+  font-size: 0.78rem;
+}
+.cmt-status {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--fg-dim);
+}
+.cmt-anchor {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: none;
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+}
+.cmt-anchor:hover { background: var(--accent); color: white; }
+.stale {
+  background: var(--err);
+  color: white;
+  font-size: 0.7rem;
+  padding: 0.05rem 0.3rem;
+  border-radius: 3px;
+}
+.cmt-preview {
+  font-size: 0.9rem;
+  white-space: pre-wrap;
+}
+.cmt-thread {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  border-top: 1px dashed var(--border);
+  padding-top: 0.5rem;
+}
+.thread-entry {
+  border-left: 2px solid var(--border);
+  padding-left: 0.5rem;
+}
+.thread-entry.author-claude { border-left-color: var(--accent); }
+.thread-entry.author-human { border-left-color: var(--ok); }
+.thread-meta {
+  font-size: 0.75rem;
+  color: var(--fg-dim);
+  font-family: var(--mono);
+}
+.thread-text {
+  font-size: 0.9rem;
+  white-space: pre-wrap;
+  margin: 0.2rem 0;
+}
+.thread-edits {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin-top: 0.2rem;
+}
+.edit {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--fg-dim);
+}
+.cmt-actions {
+  display: flex;
+  gap: 0.3rem;
+  margin-top: 0.5rem;
+  flex-wrap: wrap;
+}
+.cmt-actions button {
+  font-size: 0.8rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  border-radius: 3px;
+}
+.cmt-actions .cmt-resolve { background: var(--ok); color: white; border: none; }
+.cmt-actions .cmt-dismiss { background: var(--bg); }
+.cmt-actions .cmt-delete { color: var(--err); }
+
+/* ----- suggested rewrite (structured edit shown alongside text) ----- */
+.cmt-suggestion {
+  margin: 0.4rem 0;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.cmt-suggestion .sugg-old,
+.cmt-suggestion .sugg-new {
+  display: flex;
+  gap: 0.4rem;
+  padding: 0.3rem 0.5rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.cmt-suggestion .sugg-old { background: rgba(183, 56, 56, 0.08); }
+.cmt-suggestion .sugg-new {
+  background: rgba(58, 122, 58, 0.08);
+  border-top: 1px solid var(--border);
+}
+.cmt-suggestion .sugg-marker {
+  color: var(--fg-dim);
+  font-weight: bold;
+  flex-shrink: 0;
+  width: 1ch;
+}
+.cmt-suggestion .sugg-text { flex: 1; }
+
+/* ----- compose-dialog suggestion section (collapsible) ----- */
+.compose-suggestion {
+  border-top: 1px dashed var(--border);
+  padding-top: 0.5rem;
+}
+.compose-suggestion summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--fg-dim);
+  user-select: none;
+}
+.compose-suggestion[open] summary { color: var(--fg); }
+.compose-suggestion .compose-field-label {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--fg-dim);
+  margin: 0.4rem 0 0.15rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.compose-suggestion textarea {
+  width: 100%;
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  padding: 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  resize: vertical;
+}
+
+/* ----- inline comment form (reply / resolve / dismiss) ----- */
+.cmt-form {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.cmt-form-input {
+  width: 100%;
+  font-family: var(--sans);
+  font-size: 0.9rem;
+  padding: 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  resize: vertical;
+}
+.cmt-form.mode-resolve .cmt-form-input { border-left: 3px solid var(--ok); }
+.cmt-form.mode-dismiss .cmt-form-input { border-left: 3px solid var(--fg-dim); }
+.cmt-form-actions {
+  display: flex;
+  gap: 0.4rem;
+  justify-content: flex-end;
+}
+.cmt-form-actions button {
+  font-size: 0.8rem;
+  padding: 0.25rem 0.7rem;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  border-radius: 3px;
+}
+.cmt-form-actions .cmt-form-submit {
+  background: var(--accent);
+  color: white;
+  border: none;
+}
+.cmt-form.mode-resolve .cmt-form-submit { background: var(--ok); }
+
+/* ----- compile error banner (top of comments tab) ----- */
+.error-banner {
+  margin-bottom: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.err-item {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border);
+  padding: 0.4rem 0.5rem;
+  border-radius: 3px;
+  background: var(--bg);
+}
+.err-item.err-error { border-left-color: var(--err); }
+.err-item.err-warning { border-left-color: var(--warn); }
+.err-loc {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--fg-dim);
+}
+.err-msg { font-size: 0.88rem; margin: 0.2rem 0; }
+.err-context {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  background: var(--bg-pdf);
+  padding: 0.4rem;
+  margin: 0.2rem 0 0;
+  border-radius: 3px;
+  white-space: pre;
+  overflow-x: auto;
+}
+
+/* ----- paper info ----- */
+.paper-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.5rem;
+  background: var(--bg);
+  border-radius: 3px;
+  margin-bottom: 1rem;
+}
+.paper-summary > div { font-size: 0.85rem; }
+.paper-info h4 {
+  margin: 0.5rem 0 0.25rem;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+  letter-spacing: 0.05em;
+}
+.paper-sections {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.paper-section {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 0.5rem;
+  align-items: baseline;
+  padding: 0.2rem 0.4rem;
+  border-radius: 3px;
+}
+.paper-section:hover { background: var(--accent-soft); }
+.paper-section.level-subsection .paper-section-title { padding-left: 1rem; }
+.paper-section.level-subsubsection .paper-section-title { padding-left: 2rem; }
+.paper-section-title { font-size: 0.9rem; }
+.paper-section-loc {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--fg-dim);
+}
+.comment-section-btn {
+  font-size: 0.75rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+}
+.comment-section-btn:hover { background: var(--accent); color: white; }
+
+/* ----- compose dialog ----- */
+dialog {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1rem;
+  background: var(--bg-elev);
+  max-width: 500px;
+  width: 90%;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
+#compose-form { display: flex; flex-direction: column; gap: 0.5rem; }
+#compose-form h3 { margin: 0; font-size: 1rem; }
+.compose-anchor {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  color: var(--fg-dim);
+  background: var(--bg);
+  padding: 0.4rem;
+  border-radius: 3px;
+  margin: 0;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+#compose-text {
+  font-family: var(--sans);
+  font-size: 0.95rem;
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  resize: vertical;
+}
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+.dialog-actions button {
+  padding: 0.4rem 0.8rem;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+.dialog-actions button[type="submit"] {
+  background: var(--accent);
+  color: white;
+  border: none;
+}

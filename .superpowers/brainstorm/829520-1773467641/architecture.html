@@ -1,0 +1,85 @@
+<h2>Architecture Approach</h2>
+<p class="subtitle">How should the pieces fit together? Three approaches to the same vision.</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Evolutionary — Grow What's There</h3>
+      <p>Keep the current architecture (aiohttp + in-memory state). Add CodeMirror extensions for autocomplete. Add SQLite for compile history. Enrich the existing MCP tools with richer context. Add a WebSocket "user focus" channel that reports cursor/selection/scroll to the MCP layer.</p>
+      <div class="pros-cons">
+        <div class="pros">
+          <h4>Pros</h4>
+          <ul>
+            <li>Smallest diff — builds on working code</li>
+            <li>No migration pain</li>
+            <li>Can ship incrementally (editor first, then history, then MCP)</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <h4>Cons</h4>
+          <ul>
+            <li>server.py is already 1800 lines — grows further</li>
+            <li>MCP ↔ HTTP ↔ WebSocket layering gets complex</li>
+            <li>No clean boundary between "editor features" and "viewer features"</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Modular Refactor — Split Then Grow</h3>
+      <p>First, decompose server.py into focused modules: editor routes, viewer routes, MCP bridge, compilation engine, persistence layer. Then add features into clean slots. SQLite persistence as a proper layer. MCP context channel as a dedicated WebSocket listener. CodeMirror extensions as a separate JS module.</p>
+      <div class="pros-cons">
+        <div class="pros">
+          <h4>Pros</h4>
+          <ul>
+            <li>Each new feature has a clear home</li>
+            <li>MCP bridge becomes a first-class module with its own tests</li>
+            <li>Easier to reason about — each module fits in context</li>
+            <li>SQLite layer is clean (not bolted onto in-memory state)</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <h4>Cons</h4>
+          <ul>
+            <li>Upfront refactoring cost before new features</li>
+            <li>Risk of breaking existing functionality during decomposition</li>
+            <li>~2-3 sessions of refactoring before visible user-facing progress</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Hybrid — Feature-Driven Decomposition</h3>
+      <p>Don't refactor upfront. Instead, as each feature is built (editor, history, MCP context), extract the relevant code into its own module <em>as part of that feature work</em>. First feature (editor autocomplete) extracts editor concerns. Second feature (SQLite) creates the persistence layer. Third feature (MCP context) creates the awareness module. Same end state as B, but the refactoring pays for itself immediately.</p>
+      <div class="pros-cons">
+        <div class="pros">
+          <h4>Pros</h4>
+          <ul>
+            <li>Every session delivers user-facing value</li>
+            <li>Refactoring is justified by the feature it enables</li>
+            <li>Same clean end state as B</li>
+            <li>Lower risk — each extraction is small and tested</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <h4>Cons</h4>
+          <ul>
+            <li>Intermediate states may be messy (half-extracted)</li>
+            <li>Requires discipline to actually extract vs just adding</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p style="margin-top:2rem;color:#888;font-size:0.9rem;"><strong>My recommendation: C (Hybrid).</strong> You get user-facing progress every session, and the architecture improves as a side effect of building features rather than as an upfront tax. The key risk (not actually extracting) is mitigated by the fact that each feature <em>needs</em> the extraction to be implementable cleanly.</p>

@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>tex-web</title>
+<link rel="stylesheet" href="/static/style.css?v=local4">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.mjs" type="module"></script>
+</head>
+<body>
+<div id="app">
+  <header class="topbar">
+    <h1>tex-web</h1>
+    <div class="status">
+      <span id="compile-status">idle</span>
+      <span class="sep">·</span>
+      <span id="error-count">0 errors</span>
+      <span class="sep">·</span>
+      <span id="comment-count">0 open</span>
+    </div>
+    <div class="actions">
+      <button id="recompile-btn" type="button">Recompile</button>
+      <button id="paper-comment-btn" type="button" title="Add a paper-level comment">+ Note</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section id="pdf-pane">
+      <div id="pdf-canvas-host">
+        <p class="placeholder">No PDF yet — waiting for first compile…</p>
+      </div>
+      <div id="selection-toolbar" class="hidden">
+        <button id="comment-selection-btn" type="button">Comment on selection</button>
+      </div>
+    </section>
+
+    <aside id="sidebar">
+      <div class="sidebar-tabs">
+        <button class="tab-btn active" data-tab="comments">Comments</button>
+        <button class="tab-btn" data-tab="paper">Paper</button>
+      </div>
+
+      <div id="tab-comments" class="tab-pane active">
+        <div id="error-banner" class="error-banner hidden"></div>
+        <div class="filter-row">
+          <select id="comment-filter">
+            <option value="open" selected>open</option>
+            <option value="resolved">resolved</option>
+            <option value="dismissed">dismissed</option>
+            <option value="all">all</option>
+          </select>
+        </div>
+        <div id="comments-list" class="comments-list"></div>
+      </div>
+
+      <div id="tab-paper" class="tab-pane">
+        <div id="paper-info" class="paper-info"><p class="placeholder">Loading…</p></div>
+      </div>
+    </aside>
+  </main>
+</div>
+
+<dialog id="compose-dialog">
+  <form method="dialog" id="compose-form">
+    <h3 id="compose-title">New comment</h3>
+    <p id="compose-anchor" class="compose-anchor"></p>
+    <textarea id="compose-text" rows="4" required placeholder="leave a comment for Claude Code…"></textarea>
+    <details id="compose-suggestion-details" class="compose-suggestion">
+      <summary>Suggest a rewrite (optional)</summary>
+      <label class="compose-field-label">Original</label>
+      <textarea id="compose-suggestion-old" rows="3" placeholder="the text as currently written"></textarea>
+      <label class="compose-field-label">Replacement</label>
+      <textarea id="compose-suggestion-new" rows="3" placeholder="the text as you'd like it to read"></textarea>
+    </details>
+    <div class="dialog-actions">
+      <button type="button" id="compose-cancel">Cancel</button>
+      <button type="submit" id="compose-submit">Post</button>
+    </div>
+  </form>
+</dialog>
+
+<script type="module" src="/static/viewer.js?v=local4"></script>
+</body>
+</html>
