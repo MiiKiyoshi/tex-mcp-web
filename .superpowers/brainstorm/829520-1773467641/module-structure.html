@@ -1,0 +1,122 @@
+<h2>Module Structure After v0.3.0</h2>
+<p class="subtitle">How the codebase looks after all three features land. New modules in green, modified in yellow, unchanged in gray.</p>
+
+<div class="mockup">
+  <div class="mockup-header">Python Modules — texwatch/</div>
+  <div class="mockup-body" style="font-family:monospace;font-size:0.85rem;line-height:1.8;padding:1.5rem;">
+    <div style="color:#888">__init__.py                    — version</div>
+    <div style="color:#888">config.py                      — .texwatch.yaml loading</div>
+    <div style="color:#888">workspace.py                   — project discovery</div>
+    <div style="color:#888">watcher.py                     — watchdog integration</div>
+    <div style="color:#888">compiler.py                    — subprocess execution, log parsing</div>
+    <div style="color:#888">synctex.py                     — SyncTeX parsing</div>
+    <div style="color:#888">structure.py                   — sections, TODOs, word count</div>
+    <div style="color:#888">bibliography.py                — bib parsing, citation cross-ref</div>
+    <div style="color:#888">environments.py                — LaTeX environment parsing</div>
+    <div style="color:#888">digest.py                      — document metadata</div>
+    <div style="color:#888">changes.py                     — section-level diffs</div>
+    <div style="color:#4a9;">persistence.py                 — SQLite compile history (NEW)</div>
+    <div style="color:#4a9;">awareness.py                   — user focus tracking, highlights, annotations, screenshots (NEW)</div>
+    <div style="color:#4a9;">labels.py                      — \label parsing + /labels endpoint logic (NEW)</div>
+    <div style="color:#da3;">server.py                      — HTTP/WS routes (SLIMMED — delegates to persistence, awareness)</div>
+    <div style="color:#da3;">mcp_server.py                  — MCP tools (ENRICHED — user_focus, highlights, annotations)</div>
+    <div style="color:#da3;">cli.py                         — lightweight CLI (SLIMMED — no feature parity with MCP)</div>
+  </div>
+</div>
+
+<div style="margin-top:2rem;"></div>
+
+<div class="mockup">
+  <div class="mockup-header">JavaScript Modules — texwatch/static/</div>
+  <div class="mockup-body" style="font-family:monospace;font-size:0.85rem;line-height:1.8;padding:1.5rem;">
+    <div style="color:#888">viewer.js                      — PDF.js wrapper, SyncTeX UI</div>
+    <div style="color:#888">filetree.js                    — file tree widget</div>
+    <div style="color:#888">dashboard.js                   — multi-project dashboard</div>
+    <div style="color:#4a9;">autocomplete.js                — 4 completion providers (commands, envs, citations, refs) (NEW)</div>
+    <div style="color:#4a9;">snippets.js                    — snippet definitions + expansion (NEW)</div>
+    <div style="color:#4a9;">awareness.js                   — focus reporting, highlight/annotation rendering (NEW)</div>
+    <div style="color:#da3;">editor.js                      — CodeMirror setup (MODIFIED — loads autocomplete, snippets, awareness)</div>
+  </div>
+</div>
+
+<div style="margin-top:2rem;"></div>
+
+<div class="mockup">
+  <div class="mockup-header">Data Flow — Claude Code ↔ texwatch ↔ Browser</div>
+  <div class="mockup-body" style="padding:1.5rem;">
+    <pre style="font-size:0.8rem;line-height:1.6;color:#ccc;margin:0;">
+┌─────────────┐         MCP (stdio)          ┌──────────────────┐
+│ Claude Code │◄────────────────────────────►│  mcp_server.py   │
+│  (terminal) │  • texwatch (dashboard+focus) │                  │
+│             │  • texwatch_goto              │  HTTP client to   │
+│             │  • texwatch_compile           │  local server     │
+│             │  • texwatch_capture (viewport)│                  │
+│             │  • texwatch_highlight         │                  │
+│             │  • texwatch_source            │                  │
+│             │  • texwatch_write_source      │                  │
+│             │  • texwatch_project           │                  │
+└─────────────┘                               └────────┬─────────┘
+                                                       │ HTTP
+                                                       ▼
+┌─────────────┐      WebSocket (bidi)         ┌──────────────────┐
+│   Browser   │◄────────────────────────────►│   server.py      │
+│             │                               │                  │
+│ editor.js   │──► focus, selection, cursor   │  awareness.py    │
+│ awareness.js│──► pdf_viewport, visible_lines│  persistence.py  │
+│ viewer.js   │◄── highlights, annotations    │  labels.py       │
+│ autocomplete│◄── /labels, /bibliography     │                  │
+│             │                               │  history.db      │
+└─────────────┘                               └──────────────────┘
+    </pre>
+  </div>
+</div>
+
+<div style="margin-top:2rem;"></div>
+
+<div class="mockup">
+  <div class="mockup-header">MCP Tool Changes</div>
+  <div class="mockup-body" style="padding:1.5rem;font-size:0.9rem;line-height:1.7;">
+    <table style="width:100%;border-collapse:collapse;color:#ccc;">
+      <tr style="border-bottom:1px solid #444;">
+        <th style="text-align:left;padding:0.5rem;">Tool</th>
+        <th style="text-align:left;padding:0.5rem;">Change</th>
+      </tr>
+      <tr style="border-bottom:1px solid #333;">
+        <td style="padding:0.5rem;font-family:monospace;">texwatch</td>
+        <td style="padding:0.5rem;">Dashboard response gains <code>user_focus</code>, <code>recent_compiles</code>, and optional viewport screenshot</td>
+      </tr>
+      <tr style="border-bottom:1px solid #333;">
+        <td style="padding:0.5rem;font-family:monospace;">texwatch_capture</td>
+        <td style="padding:0.5rem;">New modes: <code>viewport</code> (what user sees), <code>region</code> (bbox crop)</td>
+      </tr>
+      <tr style="border-bottom:1px solid #333;">
+        <td style="padding:0.5rem;font-family:monospace;color:#4a9;">texwatch_highlight</td>
+        <td style="padding:0.5rem;color:#4a9;">NEW — highlight ranges + gutter annotations in the editor</td>
+      </tr>
+      <tr style="border-bottom:1px solid #333;">
+        <td style="padding:0.5rem;font-family:monospace;">texwatch_goto</td>
+        <td style="padding:0.5rem;">Extended: accepts <code>file</code> parameter to open a different file</td>
+      </tr>
+      <tr style="border-bottom:1px solid #333;">
+        <td style="padding:0.5rem;font-family:monospace;">texwatch_history</td>
+        <td style="padding:0.5rem;">Repurposed: queries SQLite compile timeline instead of file snapshots</td>
+      </tr>
+      <tr style="border-bottom:1px solid #333;">
+        <td style="padding:0.5rem;font-family:monospace;">texwatch_source</td>
+        <td style="padding:0.5rem;">Unchanged</td>
+      </tr>
+      <tr style="border-bottom:1px solid #333;">
+        <td style="padding:0.5rem;font-family:monospace;">texwatch_write_source</td>
+        <td style="padding:0.5rem;">Unchanged</td>
+      </tr>
+      <tr style="border-bottom:1px solid #333;">
+        <td style="padding:0.5rem;font-family:monospace;">texwatch_compile</td>
+        <td style="padding:0.5rem;">Unchanged</td>
+      </tr>
+      <tr>
+        <td style="padding:0.5rem;font-family:monospace;">texwatch_project</td>
+        <td style="padding:0.5rem;">Unchanged</td>
+      </tr>
+    </table>
+  </div>
+</div>
