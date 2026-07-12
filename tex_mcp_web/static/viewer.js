@@ -467,7 +467,7 @@ function updateSelectionToolbar() {
   const pane = $("#pdf-pane");
   const paneRect = pane.getBoundingClientRect();
   const left = pane.scrollLeft + rect.left - paneRect.left;
-  const top = pane.scrollTop + rect.top - paneRect.top - 36;
+  const top = pane.scrollTop + rect.top - paneRect.top - 28;
   tb.style.left = `${Math.max(pane.scrollLeft + 4, left)}px`;
   tb.style.top = `${Math.max(pane.scrollTop + 4, top)}px`;
   tb.dataset.region = JSON.stringify(region);
@@ -730,7 +730,9 @@ function anchorLabel(anchor) {
 
 function updateCommentCount() {
   const open = state.comments.filter((c) => c.status === "open").length;
-  $("#comment-count").textContent = `${open} open`;
+  const badge = $("#comments-tab-count");
+  badge.textContent = String(open);
+  badge.classList.toggle("hidden", open === 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -815,18 +817,19 @@ function renderErrorBanner() {
   const banner = $("#error-banner");
   clear(banner);
   if (state.errors.length === 0 && state.warnings.length === 0) {
-    banner.classList.add("hidden");
+    banner.appendChild(placeholder("No errors or warnings."));
     return;
   }
-  banner.classList.remove("hidden");
   const items = [
     ...state.errors.map((e) => ({ ...e, level: "error" })),
     ...state.warnings.map((w) => ({ ...w, level: "warning" })),
   ];
   for (const e of items) {
     const children = [
-      h("div", { class: "err-loc",
-        text: `${e.file || ""}${e.line ? ":" + e.line : ""}` }),
+      h("div", { class: "err-loc" },
+        h("span", { class: `err-level err-level-${e.level}`, text: e.level.toUpperCase() }),
+        h("span", { text: `${e.file || ""}${e.line ? ":" + e.line : ""}` }),
+      ),
       h("div", { class: "err-msg", text: e.message || "" }),
     ];
     if (e.context && e.context.length > 0) {
@@ -841,52 +844,30 @@ async function refreshPaper() {
     const resp = await fetch("/paper");
     const data = await resp.json();
     state.paper = data;
-    renderPaper();
+    $("#main-file").textContent = data.main_file || "—";
+    renderSections();
   } catch (err) {
     console.warn("refreshPaper failed:", err);
   }
 }
 
-function renderPaper() {
-  const info = $("#paper-info");
-  clear(info);
+function renderSections() {
+  const host = $("#sections-list");
+  clear(host);
   if (!state.paper) {
-    info.appendChild(placeholder("Loading…"));
+    host.appendChild(placeholder("Loading…"));
     return;
   }
-  const p = state.paper;
-  const compile = p.last_compile || {};
-  const compileText =
-    compile.success === true
-      ? "✓ success"
-      : compile.success === false
-        ? "✗ failed"
-        : "— (none yet)";
-  const duration =
-    typeof compile.duration_seconds === "number"
-      ? ` · ${compile.duration_seconds.toFixed(2)}s`
-      : "";
-
-  const summary = h("div", { class: "paper-summary" },
-    h("div", null,
-      h("strong", { text: "Main: " }),
-      p.main_file || "?"),
-    h("div", null,
-      h("strong", { text: "Last compile: " }),
-      compileText + duration),
-    h("div", null,
-      h("strong", { text: "Sections: " }),
-      String(p.sections?.length || 0)),
-  );
-  info.appendChild(summary);
-  info.appendChild(h("h4", { text: "Sections" }));
-
   const list = h("ul", { class: "paper-sections" });
-  for (const s of p.sections || []) {
+  for (const s of state.paper.sections || []) {
     list.appendChild(
       h("li", { class: `paper-section level-${s.level}` },
-        h("span", { class: "paper-section-title", text: s.title }),
-        h("span", { class: "paper-section-loc", text: `${s.file}:${s.line}` }),
+        h("span", {
+          class: "paper-section-title",
+          text: s.number ? `${s.number} ${s.title}` : s.title,
+          title: `${s.file}:${s.line}`,
+          onclick: () => jumpToSource(s.file, s.line),
+        }),
         h("button", {
           class: "comment-section-btn",
           type: "button",
@@ -897,7 +878,7 @@ function renderPaper() {
       ),
     );
   }
-  info.appendChild(list);
+  host.appendChild(list);
 }
 
 // ---------------------------------------------------------------------------
@@ -936,8 +917,14 @@ function connectWS() {
 function applyCompileResult(r) {
   state.errors = r.errors || [];
   state.warnings = r.warnings || [];
-  $("#compile-status").textContent = r.success ? "✓ ok" : "✗ failed";
-  $("#error-count").textContent = `${state.errors.length} errors`;
+  const duration =
+    typeof r.duration_seconds === "number" ? ` · ${r.duration_seconds.toFixed(1)}s` : "";
+  $("#compile-status").textContent = (r.success ? "✓ ok" : "✗ failed") + duration;
+  const badge = $("#compile-tab-count");
+  const total = state.errors.length + state.warnings.length;
+  badge.textContent = String(total);
+  badge.classList.toggle("hidden", total === 0);
+  badge.classList.toggle("has-errors", state.errors.length > 0);
   renderErrorBanner();
 }
 
@@ -976,25 +963,26 @@ function jumpToPage(pageNum) {
   if (p) p.wrap.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
+async function jumpToSource(file, line) {
+  try {
+    const params = new URLSearchParams({ file, line: String(line) });
+    const resp = await fetch(`/synctex/source-to-pdf?${params}`);
+    if (resp.ok) {
+      const data = await resp.json();
+      if (data.page) jumpToPage(data.page);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
 async function jumpToComment(cid) {
   const c = state.comments.find((x) => x.id === cid);
   if (!c) return;
   if (c.anchor.kind === "pdf_region") {
     jumpToPage(c.anchor.page);
   } else if (c.resolved_source) {
-    try {
-      const params = new URLSearchParams({
-        file: c.resolved_source.file,
-        line: String(c.resolved_source.line_start),
-      });
-      const resp = await fetch(`/synctex/source-to-pdf?${params}`);
-      if (resp.ok) {
-        const data = await resp.json();
-        if (data.page) jumpToPage(data.page);
-      }
-    } catch {
-      /* ignore */
-    }
+    await jumpToSource(c.resolved_source.file, c.resolved_source.line_start);
   }
 }
 
@@ -1057,11 +1045,37 @@ function focusComment(c) {
   node?.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
+function attachSidebarToggle() {
+  const layout = document.querySelector(".layout");
+  const btn = $("#sidebar-toggle-btn");
+  const apply = (collapsed) => {
+    layout.classList.toggle("sidebar-collapsed", collapsed);
+    btn.classList.toggle("active", collapsed);
+    localStorage.setItem("sidebarCollapsed", collapsed ? "1" : "0");
+  };
+  btn.addEventListener("click", () =>
+    apply(!layout.classList.contains("sidebar-collapsed")),
+  );
+  document.addEventListener("keydown", (ev) => {
+    const tag = (ev.target.tagName || "").toUpperCase();
+    if (tag === "TEXTAREA" || tag === "INPUT" || tag === "SELECT") return;
+    if (ev.target.isContentEditable) return;
+    if (document.querySelector("dialog[open]")) return;
+    if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
+    if (ev.key === "\\") {
+      ev.preventDefault();
+      apply(!layout.classList.contains("sidebar-collapsed"));
+    }
+  });
+  apply(localStorage.getItem("sidebarCollapsed") === "1");
+}
+
 function init() {
   attachSelectionListener();
   attachRegionDragListener();
   attachZoomHandler();
   attachKeyboardNav();
+  attachSidebarToggle();
 
   $("#recompile-btn").addEventListener("click", () => fetch("/compile", { method: "POST" }));
   $("#paper-comment-btn").addEventListener("click", () =>

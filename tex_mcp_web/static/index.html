@@ -4,23 +4,19 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>tex-web</title>
-<link rel="stylesheet" href="/static/style.css?v=local4">
+<link rel="stylesheet" href="/static/style.css?v=local12">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.mjs" type="module"></script>
 </head>
 <body>
 <div id="app">
   <header class="topbar">
     <h1>tex-web</h1>
-    <div class="status">
-      <span id="compile-status">idle</span>
-      <span class="sep">·</span>
-      <span id="error-count">0 errors</span>
-      <span class="sep">·</span>
-      <span id="comment-count">0 open</span>
-    </div>
+    <span id="main-file" class="main-file">—</span>
+    <span id="compile-status" class="compile-status">idle</span>
     <div class="actions">
       <button id="recompile-btn" type="button">Recompile</button>
       <button id="paper-comment-btn" type="button" title="Add a paper-level comment">+ Note</button>
+      <button id="sidebar-toggle-btn" type="button" title="Toggle sidebar (\)">⇥</button>
     </div>
   </header>
 
@@ -36,12 +32,12 @@
 
     <aside id="sidebar">
       <div class="sidebar-tabs">
-        <button class="tab-btn active" data-tab="comments">Comments</button>
-        <button class="tab-btn" data-tab="paper">Paper</button>
+        <button class="tab-btn" data-tab="sections">Sections</button>
+        <button class="tab-btn active" data-tab="comments">Comments<span id="comments-tab-count" class="tab-count hidden"></span></button>
+        <button class="tab-btn" data-tab="compile">Compile<span id="compile-tab-count" class="tab-count hidden"></span></button>
       </div>
 
       <div id="tab-comments" class="tab-pane active">
-        <div id="error-banner" class="error-banner hidden"></div>
         <div class="filter-row">
           <select id="comment-filter">
             <option value="open" selected>open</option>
@@ -53,8 +49,12 @@
         <div id="comments-list" class="comments-list"></div>
       </div>
 
-      <div id="tab-paper" class="tab-pane">
-        <div id="paper-info" class="paper-info"><p class="placeholder">Loading…</p></div>
+      <div id="tab-compile" class="tab-pane">
+        <div id="error-banner" class="error-banner"></div>
+      </div>
+
+      <div id="tab-sections" class="tab-pane">
+        <div id="sections-list"><p class="placeholder">Loading…</p></div>
       </div>
     </aside>
   </main>
@@ -79,6 +79,6 @@
   </form>
 </dialog>
 
-<script type="module" src="/static/viewer.js?v=local4"></script>
+<script type="module" src="/static/viewer.js?v=local12"></script>
 </body>
 </html>

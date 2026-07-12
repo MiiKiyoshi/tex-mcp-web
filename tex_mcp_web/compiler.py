@@ -138,6 +138,25 @@ def _get_compiler_command(compiler: str, main_file: Path, work_dir: Path) -> lis
         raise ValueError(f"Unknown compiler: {compiler}")
 
 
+def _unwrap_log(log_output: str) -> str:
+    """Rejoin log lines that TeX hard-wrapped at max_print_line (79 chars).
+
+    Without this, messages like "... \\author macro! on\ninput line 96."
+    are cut at the wrap point and lose their tail.
+    """
+    lines = log_output.splitlines()
+    out: list[str] = []
+    buf = ""
+    for line in lines:
+        buf += line
+        if len(line) < 79:
+            out.append(buf)
+            buf = ""
+    if buf:
+        out.append(buf)
+    return "\n".join(out)
+
+
 def _parse_errors(log_output: str, main_file: str) -> list[CompileMessage]:
     """Parse errors from LaTeX log output."""
     errors = []
@@ -349,8 +368,9 @@ async def compile_tex(
             errors = _parse_pandoc_errors(stderr_text) if not success else []
             warnings = []
         else:
-            errors = _parse_errors(log_output, str(main_file.name))
-            warnings = _parse_warnings(log_output, str(main_file.name))
+            unwrapped = _unwrap_log(log_output)
+            errors = _parse_errors(unwrapped, str(main_file.name))
+            warnings = _parse_warnings(unwrapped, str(main_file.name))
 
         # Enrich errors and warnings with surrounding source lines
         enrich_error_context(errors, work_dir)
