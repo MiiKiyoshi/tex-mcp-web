@@ -32,8 +32,8 @@ The `[mcp]` extra adds the MCP server for Claude Code; `[image]` adds PDF-region
 
 ```bash
 cd my-paper/
-tex-mcp-web init       # writes .tex-mcp-web.yaml (configures main file, port)
-tex-mcp-web            # starts the daemon at http://localhost:8765
+tex-mcp-web init --main main.tex   # writes .tex-mcp-web.yaml (main file, port)
+tex-web                            # starts the daemon at http://localhost:8765
 ```
 
 In the browser:
@@ -43,13 +43,22 @@ In the browser:
 - **Shift-click-drag** to draw a rectangle around any region (figures, equations, whitespace) where text selection doesn't reach. Same `pdf_region` anchor; the agent can render exactly that region with `image(comment_id=...)`.
 - **Suggest a rewrite** alongside any comment: the compose dialog has an optional `{old, new}` block. When you select text first, "old" pre-fills with the selected text, so you only type the replacement. The agent gets a structured edit it can apply directly.
 - **"+ Note"** in the top bar for a paper-level comment ("the abstract is too long").
-- **Paper tab** lists sections with **"+ comment"** buttons for section-level comments.
+- **Sections tab** is the table of contents: numbered headings, click to jump, **"+ comment"** for section-level comments.
+- **Compile tab** lists compile errors and warnings; tab badges carry the open-comment and error/warning counts.
 - **Reply / Resolve / Dismiss** are inline forms in each comment, not modals.
-- **Keyboard navigation**: `j` / `k` step through comments, `r` opens a reply form, `R` opens resolve, `d` opens dismiss, `Esc` cancels.
+- **Keyboard navigation**: `j` / `k` step through comments, `r` opens a reply form, `R` opens resolve, `d` opens dismiss, `Esc` cancels, `\` collapses the sidebar.
+- **Ctrl/Cmd + wheel** zooms the PDF around the cursor.
 
 ## The Claude Code workflow
 
-`tex-mcp-web` auto-registers an MCP server in `.mcp.json` when it starts, exposing **7 tools**:
+Register the MCP server from the paper directory (it locates `.tex-mcp-web.yaml` by searching upward from its working directory):
+
+```bash
+cd my-paper/
+claude mcp add tex-mcp -- tex-mcp
+```
+
+This exposes **7 tools**:
 
 | Tool | What it does |
 |---|---|
@@ -108,7 +117,8 @@ tex-mcp-web                 # serve (default)
 tex-mcp-web init            # scaffold .tex-mcp-web.yaml
 tex-mcp-web compile         # one-shot compile, structured errors
 tex-mcp-web goto "Methods"  # tell the running viewer to scroll
-tex-mcp             # run the MCP server (stdio)
+tex-web                     # alias for `tex-mcp-web serve`
+tex-mcp                     # run the MCP server (stdio)
 ```
 
 That's the whole CLI. Comment management lives in the browser (for humans) and in the MCP tools (for the agent). There is no `tex-mcp-web comment add` from the shell because nobody types that.
@@ -120,7 +130,6 @@ The framing shifted from "human reviews; agent dispatches" to "review goes both 
 - **Suggested rewrites.** Comments now optionally carry a structured `{old, new}` block. The agent applies the rewrite directly instead of parsing prose. Browser pre-fills "old" with the selected PDF text so the human only types the replacement.
 - **`audit(focus=...)`** primes agent-initiated review. The agent reads the paper, files findings back as `author="claude"` comments, and the human steps through them.
 - **Refactor: anchors resolve themselves.** The dispatch that used to live in three switch statements (`server._resolve_anchor`, `imaging.resolve_image_target`, staleness check) is now methods on each anchor type. Adding a new anchor kind is a 30-line addition to one file.
-- **Renamed from `texwatch`.** The old name reflected the v0.3.0 "TeX watcher" product; the v0.6.0 product is a corpus of marginal annotations, which is what the Greek *tex-mcp-web* literally meant.
 
 ## What changed in v0.5.x
 
