@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 
 import pytest
+import yaml
 
 from tex_mcp_web.cli import main
 
@@ -47,6 +48,38 @@ def test_init_force_overwrites(project_dir):
     main(["init", "--main", "main.tex"])
     rc = main(["init", "--main", "other.tex", "--force"])
     assert rc == 0
+
+
+def test_config_requires_init(project_dir, capsys):
+    rc = main(["config", "port"])
+    assert rc == 1
+
+
+def test_config_set_and_get(project_dir, capsys):
+    main(["init", "--main", "main.tex"])
+    capsys.readouterr()
+    assert main(["config", "port", "9000"]) == 0
+    capsys.readouterr()
+    assert main(["config", "port"]) == 0
+    assert capsys.readouterr().out.strip() == "9000"
+    data = yaml.safe_load((project_dir / ".tex-mcp-web.yaml").read_text())
+    assert data["port"] == 9000
+    assert data["main"] == "main.tex"  # other keys untouched
+
+
+def test_config_list_value_roundtrip(project_dir, capsys):
+    main(["init", "--main", "main.tex"])
+    capsys.readouterr()
+    assert main(["config", "watch", "*.tex, *.bib"]) == 0
+    capsys.readouterr()
+    main(["config", "watch"])
+    assert capsys.readouterr().out.strip() == "*.tex,*.bib"
+
+
+def test_config_rejects_unknown_key_and_compiler(project_dir, capsys):
+    main(["init", "--main", "main.tex"])
+    assert main(["config", "bogus", "1"]) == 1
+    assert main(["config", "compiler", "nope"]) == 1
 
 
 def test_compile_command_returns_nonzero_when_no_compiler(project_dir, capsys, monkeypatch):

@@ -25,6 +25,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from .config import DEFAULT_PORT
+
 try:
     from mcp.server.fastmcp import FastMCP
     from mcp.types import ImageContent, TextContent
@@ -197,7 +199,7 @@ def _comment_add(
 # ---------------------------------------------------------------------------
 
 
-def create_server(daemon_port: int = 8765) -> "FastMCP":
+def create_server(daemon_port: int = DEFAULT_PORT) -> "FastMCP":
     _check_deps()
     mcp = FastMCP("tex-mcp-web")
 
@@ -678,7 +680,7 @@ def parse_goto_target(target: str, default_file: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def main(port: int = 8765) -> None:
+def main(port: int = DEFAULT_PORT) -> None:
     """Run the MCP server with stdio transport."""
     _check_deps()
     mcp = create_server(daemon_port=port)

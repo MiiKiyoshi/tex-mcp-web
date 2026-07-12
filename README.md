@@ -116,6 +116,8 @@ Four kinds, with different staleness behavior:
 ```
 tex-mcp-web                 # serve (default)
 tex-mcp-web init            # scaffold .tex-mcp-web.yaml
+tex-mcp-web config          # print .tex-mcp-web.yaml
+tex-mcp-web config port 9000   # set a value (main/port/compiler/watch/ignore/page_limit)
 tex-mcp-web compile         # one-shot compile, structured errors
 tex-mcp-web goto "Methods"  # tell the running viewer to scroll
 tex-web                     # alias for `tex-mcp-web serve`
