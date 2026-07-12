@@ -136,6 +136,23 @@ class TexFileHandler(FileSystemEventHandler):
             logger.info(f"File created: {src_path}")
             self._schedule_callback(src_path)
 
+    def on_moved(self, event: FileSystemEvent) -> None:
+        """Handle file move.
+
+        Editors and agent tools that save atomically (write to a temp file,
+        then rename over the target) surface as moved events, not modified.
+        """
+        if event.is_directory:
+            return
+        dest_path = getattr(event, "dest_path", None)
+        if not dest_path:
+            return
+        if isinstance(dest_path, bytes):
+            dest_path = dest_path.decode("utf-8", errors="replace")
+        if self._should_process(dest_path):
+            logger.info(f"File moved into place: {dest_path}")
+            self._schedule_callback(dest_path)
+
     def update_debounce(self, last_compile_seconds: float) -> None:
         """Adapt debounce interval based on compilation speed.
 
