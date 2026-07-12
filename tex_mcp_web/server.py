@@ -172,6 +172,7 @@ def structure_to_dict(
         sections.append(
             {
                 "level": s.level,
+                "number": s.number,
                 "title": s.title,
                 "file": s.file,
                 "line": s.line,
