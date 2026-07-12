@@ -6,6 +6,8 @@ from typing import Any
 
 import yaml
 
+DEFAULT_PORT = 8765
+
 
 @dataclass
 class Config:
@@ -29,7 +31,7 @@ class Config:
     watch: list[str] = field(default_factory=lambda: ["*.tex", "*.bib", "*.md", "*.txt"])
     ignore: list[str] = field(default_factory=list)
     compiler: str = "auto"
-    port: int = 8765
+    port: int = DEFAULT_PORT
     page_limit: int | None = None
     snippets: dict[str, str] = field(default_factory=dict)
     config_path: Path | None = None
@@ -42,7 +44,7 @@ class Config:
             watch=data.get("watch", ["*.tex", "*.bib", "*.md", "*.txt"]),
             ignore=data.get("ignore", []),
             compiler=data.get("compiler", "auto"),
-            port=data.get("port", 8765),
+            port=data.get("port", DEFAULT_PORT),
             page_limit=data.get("page_limit"),
             snippets=data.get("snippets", {}),
             config_path=config_path,
@@ -118,7 +120,7 @@ def create_config(
     watch: list[str] | None = None,
     ignore: list[str] | None = None,
     compiler: str = "auto",
-    port: int = 8765,
+    port: int = DEFAULT_PORT,
     output_path: Path | None = None,
 ) -> Path:
     """Create a new .tex-mcp-web.yaml configuration file.

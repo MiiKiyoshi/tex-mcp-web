@@ -3,6 +3,7 @@
 Subcommands:
     serve      run the daemon (default if no subcommand)
     init       scaffold .tex-mcp-web.yaml
+    config     get/set values in .tex-mcp-web.yaml
     compile    one-shot compile, print structured errors
     goto       tell a running daemon to scroll the viewer
     mcp        run the MCP server (stdio transport)
@@ -20,7 +21,7 @@ import json
 import logging
 import sys
 
-from .config import create_config, find_config, load_config
+from .config import DEFAULT_PORT, create_config, find_config, load_config
 
 
 # ---------------------------------------------------------------------------
@@ -62,8 +63,66 @@ def cmd_init(args: argparse.Namespace) -> int:
         print(f"Config already exists: {existing}", file=sys.stderr)
         print("Use --force to overwrite.", file=sys.stderr)
         return 1
-    path = create_config(main=args.main, port=args.port or 8765)
+    path = create_config(main=args.main, port=args.port or DEFAULT_PORT)
     print(f"Wrote {path}", file=sys.stderr)
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# config
+# ---------------------------------------------------------------------------
+
+
+_CONFIG_KEYS = ("main", "port", "compiler", "watch", "ignore", "page_limit")
+
+
+def cmd_config(args: argparse.Namespace) -> int:
+    import yaml
+
+    from .config import DEFAULT_CONFIG_NAME
+
+    path = find_config()
+    if path is None:
+        print(f"No {DEFAULT_CONFIG_NAME} found; run `tex-mcp-web init` first.", file=sys.stderr)
+        return 1
+    with open(path) as f:
+        data = yaml.safe_load(f) or {}
+
+    if args.key is None:
+        print(f"# {path}")
+        print(yaml.dump(data, default_flow_style=False, sort_keys=False), end="")
+        return 0
+
+    if args.key not in _CONFIG_KEYS:
+        print(f"unknown key {args.key!r}; one of: {', '.join(_CONFIG_KEYS)}", file=sys.stderr)
+        return 1
+
+    if args.value is None:
+        if args.key not in data:
+            print(f"{args.key} is not set in {path}", file=sys.stderr)
+            return 1
+        v = data[args.key]
+        print(",".join(v) if isinstance(v, list) else v)
+        return 0
+
+    value: object = args.value
+    if args.key in ("port", "page_limit"):
+        value = int(args.value)
+    elif args.key in ("watch", "ignore"):
+        value = [p.strip() for p in args.value.split(",") if p.strip()]
+    elif args.key == "compiler":
+        from .compiler import ALLOWED_COMPILERS
+
+        if args.value not in ALLOWED_COMPILERS:
+            print(
+                f"unknown compiler {args.value!r}; one of: {', '.join(sorted(ALLOWED_COMPILERS))}",
+                file=sys.stderr,
+            )
+            return 1
+    data[args.key] = value
+    with open(path, "w") as f:
+        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+    print(f"{args.key} = {value}  ({path})", file=sys.stderr)
     return 0
 
 
@@ -171,7 +230,7 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("-v", "--verbose", action="store_true", help="DEBUG logging")
-    parser.add_argument("--port", type=int, help="HTTP port (default: from config or 8765)")
+    parser.add_argument("--port", type=int, help="HTTP port (default: from config)")
 
     sub = parser.add_subparsers(dest="cmd")
 
@@ -183,6 +242,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--main", default="paper.tex")
     p.add_argument("--force", action="store_true")
     p.set_defaults(func=cmd_init)
+
+    p = sub.add_parser("config", help="get/set values in .tex-mcp-web.yaml")
+    p.add_argument("key", nargs="?", help=f"one of: {', '.join(_CONFIG_KEYS)}")
+    p.add_argument("value", nargs="?", help="new value (lists comma-separated); omit to print")
+    p.set_defaults(func=cmd_config)
 
     p = sub.add_parser("compile", help="one-shot compile")
     p.add_argument("--main", help="main .tex file (overrides config)")
