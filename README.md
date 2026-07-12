@@ -51,12 +51,13 @@ In the browser:
 
 ## The Claude Code workflow
 
-Register the MCP server from the paper directory (it locates `.tex-mcp-web.yaml` by searching upward from its working directory):
+Register the MCP server once, globally:
 
 ```bash
-cd my-paper/
-claude mcp add tex-mcp -- tex-mcp
+claude mcp add --scope user tex-mcp -- tex-mcp
 ```
+
+The server locates `.tex-mcp-web.yaml` by searching upward from Claude Code's working directory, so the same registration serves every paper: open Claude Code in a paper directory and the tools point at that paper.
 
 This exposes **7 tools**:
 
