@@ -124,7 +124,7 @@ class TestFindConfig:
 
     def test_find_in_current_dir(self, tmp_path):
         """Test finding config in current directory."""
-        config_path = tmp_path / ".tex_mcp_web.yaml"
+        config_path = tmp_path / ".tex-mcp-web.yaml"
         config_path.write_text("main: test.tex\n")
 
         result = find_config(tmp_path)
@@ -132,7 +132,7 @@ class TestFindConfig:
 
     def test_find_in_parent_dir(self, tmp_path):
         """Test finding config in parent directory."""
-        config_path = tmp_path / ".tex_mcp_web.yaml"
+        config_path = tmp_path / ".tex-mcp-web.yaml"
         config_path.write_text("main: test.tex\n")
 
         subdir = tmp_path / "subdir"
@@ -152,7 +152,7 @@ class TestLoadConfig:
 
     def test_load_existing_config(self, tmp_path):
         """Test loading existing config file."""
-        config_path = tmp_path / ".tex_mcp_web.yaml"
+        config_path = tmp_path / ".tex-mcp-web.yaml"
         config_path.write_text(
             yaml.dump(
                 {
@@ -171,7 +171,7 @@ class TestLoadConfig:
 
     def test_load_with_cli_override(self, tmp_path):
         """Test CLI argument overrides config file."""
-        config_path = tmp_path / ".tex_mcp_web.yaml"
+        config_path = tmp_path / ".tex-mcp-web.yaml"
         config_path.write_text(yaml.dump({"main": "config.tex"}))
 
         config = load_config(config_path, main_file="cli.tex")
@@ -190,7 +190,7 @@ class TestCreateConfig:
 
     def test_create_default(self, tmp_path):
         """Test creating config with defaults."""
-        output_path = tmp_path / ".tex_mcp_web.yaml"
+        output_path = tmp_path / ".tex-mcp-web.yaml"
         result = create_config(output_path=output_path)
 
         assert result == output_path
@@ -209,7 +209,7 @@ class TestCreateConfig:
 
     def test_create_custom(self, tmp_path):
         """Test creating config with custom values."""
-        output_path = tmp_path / ".tex_mcp_web.yaml"
+        output_path = tmp_path / ".tex-mcp-web.yaml"
         create_config(
             main="thesis.tex",
             watch=["*.tex", "chapters/**/*.tex"],
@@ -266,7 +266,7 @@ class TestHelperFunctions:
 
     def test_get_watch_dir_with_config_path(self, tmp_path):
         """Test get_watch_dir with config_path set."""
-        config = Config(main="test.tex", config_path=tmp_path / ".tex_mcp_web.yaml")
+        config = Config(main="test.tex", config_path=tmp_path / ".tex-mcp-web.yaml")
         assert get_watch_dir(config) == tmp_path
 
     def test_get_watch_dir_without_config_path(self):
@@ -276,6 +276,6 @@ class TestHelperFunctions:
 
     def test_get_main_file(self, tmp_path):
         """Test get_main_file returns absolute path."""
-        config = Config(main="document.tex", config_path=tmp_path / ".tex_mcp_web.yaml")
+        config = Config(main="document.tex", config_path=tmp_path / ".tex-mcp-web.yaml")
         result = get_main_file(config)
         assert result == tmp_path / "document.tex"
