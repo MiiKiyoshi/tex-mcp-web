@@ -2,6 +2,8 @@
 
 **Agentic-first PDF review for LaTeX papers, with Claude Code as the author.**
 
+Hard fork of [queelius/scholia](https://github.com/queelius/scholia) v0.6.1 (MIT). Renamed and independently developed since.
+
 You read the rendered PDF in your browser. You drop comments on paragraphs, sections, or the paper as a whole. Claude Code reads the queue (via MCP), edits the source, and replies with what changed. The PDF rebuilds in front of you. Repeat until done.
 
 ## Why this exists
@@ -21,9 +23,10 @@ That's it. Three responsibilities. Anything that re-implements something the age
 Requires Python 3.10+ and `latexmk` (or `pdflatex`/`xelatex`/`lualatex`/`pandoc`) on your `PATH`.
 
 ```bash
-pip install tex-mcp-web
-pip install tex-mcp-web[mcp]   # adds MCP server for Claude Code
+pip install "tex-mcp-web[mcp] @ git+https://github.com/MiiKiyoshi/tex-mcp-web"
 ```
+
+The `[mcp]` extra adds the MCP server for Claude Code; `[image]` adds PDF-region rendering (pymupdf). Plain `tex-mcp-web @ git+...` installs the web viewer only.
 
 ## Quick start
 
