@@ -55,44 +55,47 @@ class TestStripComment:
 class TestParseSections:
     def test_simple(self):
         result = _parse_sections(r"\section{Introduction}", "main.tex")
-        assert result == [Section(level="section", title="Introduction", file="main.tex", line=1)]
+        assert result == [
+            (Section(level="section", title="Introduction", file="main.tex", line=1), False)
+        ]
 
     def test_levels(self):
         for level in ("chapter", "section", "subsection", "subsubsection"):
             result = _parse_sections(rf"\{level}{{Title}}", "f.tex")
-            assert result[0].level == level
+            assert result[0][0].level == level
 
     def test_starred(self):
         result = _parse_sections(r"\section*{Acknowledgments}", "f.tex")
-        assert result[0].title == "Acknowledgments"
+        assert result[0][0].title == "Acknowledgments"
+        assert result[0][1] is True
 
     def test_optional_short_title(self):
         result = _parse_sections(r"\section[Short]{Long Title}", "f.tex")
-        assert result[0].title == "Long Title"
+        assert result[0][0].title == "Long Title"
 
     def test_nested_braces_in_title(self):
         result = _parse_sections(r"\section{The $O(n^{2})$ Algorithm}", "f.tex")
-        assert result[0].title == "The $O(n^{2})$ Algorithm"
+        assert result[0][0].title == "The $O(n^{2})$ Algorithm"
 
     def test_section_picks_up_following_label(self):
         content = "\\section{Methods}\n\\label{sec:methods}\n"
         result = _parse_sections(content, "f.tex")
-        assert result[0].label == "sec:methods"
+        assert result[0][0].label == "sec:methods"
 
     def test_section_without_label(self):
         content = "\\section{Methods}\nsome prose\n"
         result = _parse_sections(content, "f.tex")
-        assert result[0].label is None
+        assert result[0][0].label is None
 
     def test_commented_section_ignored(self):
         result = _parse_sections("% \\section{Old}\n\\section{New}\n", "f.tex")
         assert len(result) == 1
-        assert result[0].title == "New"
+        assert result[0][0].title == "New"
 
     def test_multiple_sections(self):
         content = "\\section{A}\n\\subsection{B}\n\\subsubsection{C}\n"
         result = _parse_sections(content, "f.tex")
-        assert [(s.line, s.level) for s in result] == [
+        assert [(s.line, s.level) for s, _ in result] == [
             (1, "section"),
             (2, "subsection"),
             (3, "subsubsection"),
@@ -186,6 +189,37 @@ class TestParseStructureMainFile:
         files = {s.file for s in ds.sections}
         assert files == {"paper.tex"}
         assert "paper-variant.tex" not in files
+
+    def test_sections_follow_input_order(self, tmp_path: Path):
+        """Sections come out in \\input order, not stack-pop (reverse) order."""
+        (tmp_path / "main.tex").write_text(
+            "\\input{a}\n\\input{b}\n\\input{c}\n"
+        )
+        for name, title in (("a", "First"), ("b", "Second"), ("c", "Third")):
+            (tmp_path / f"{name}.tex").write_text(f"\\section{{{title}}}\n")
+        ds = parse_structure(tmp_path, tmp_path / "main.tex")
+        assert [s.title for s in ds.sections] == ["First", "Second", "Third"]
+
+    def test_numbering(self, tmp_path: Path):
+        (tmp_path / "main.tex").write_text(
+            "\\section{A}\n"
+            "\\subsection{A1}\n"
+            "\\subsection{A2}\n"
+            "\\subsubsection{A2a}\n"
+            "\\section*{Unnumbered}\n"
+            "\\section{B}\n"
+            "\\subsection{B1}\n"
+        )
+        ds = parse_structure(tmp_path, tmp_path / "main.tex")
+        assert [(s.title, s.number) for s in ds.sections] == [
+            ("A", "1"),
+            ("A1", "1.1"),
+            ("A2", "1.2"),
+            ("A2a", "1.2.1"),
+            ("Unnumbered", None),
+            ("B", "2"),
+            ("B1", "2.1"),
+        ]
 
     def test_cycle_terminates(self, tmp_path: Path):
         """a \\input{b}, b \\input{a} must not infinite-loop."""

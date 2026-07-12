@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -33,6 +33,8 @@ class Section:
         file: Source file (relative to watch_dir).
         line: 1-indexed line number.
         label: Closest ``\\label{...}`` following the heading, or None.
+        number: Heading number as LaTeX would print it ("3.2"), or None
+            for starred (unnumbered) headings.
     """
 
     level: str
@@ -40,6 +42,7 @@ class Section:
     file: str
     line: int
     label: str | None = None
+    number: str | None = None
 
 
 @dataclass
@@ -56,8 +59,9 @@ class DocumentStructure:
 
 
 _SECTION_PREFIX_RE = re.compile(
-    r"\\(chapter|section|subsection|subsubsection)\*?(?:\[[^\]]*\])?"
+    r"\\(chapter|section|subsection|subsubsection)(\*)?(?:\[[^\]]*\])?"
 )
+_LEVELS = ("chapter", "section", "subsection", "subsubsection")
 _LABEL_RE = re.compile(r"\\label\{([^}]+)\}")
 _INPUT_RE = re.compile(r"\\(?:input|include)\{([^}]+)\}")
 
@@ -148,13 +152,16 @@ def _files_reachable_from(main_file: Path, watch_dir: Path) -> list[Path]:
             content = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
+        children: list[Path] = []
         for raw_line in content.splitlines():
             if raw_line.lstrip().startswith("%"):
                 continue
             for m in _INPUT_RE.finditer(_strip_comment(raw_line)):
                 resolved = _resolve_input(m.group(1).strip(), path.parent, watch_dir)
                 if resolved is not None and resolved not in seen:
-                    stack.append(resolved)
+                    children.append(resolved)
+        # Pre-order DFS: reversed so the LIFO pop yields \input order.
+        stack.extend(reversed(children))
     return out
 
 
@@ -163,9 +170,13 @@ def _files_reachable_from(main_file: Path, watch_dir: Path) -> list[Path]:
 # ---------------------------------------------------------------------------
 
 
-def _parse_sections(content: str, rel_path: str) -> list[Section]:
-    """Extract section headings (and any immediately-following label)."""
-    sections: list[Section] = []
+def _parse_sections(content: str, rel_path: str) -> list[tuple[Section, bool]]:
+    """Extract section headings (and any immediately-following label).
+
+    Returns ``(section, starred)`` pairs; numbering happens in
+    :func:`parse_structure` once all files are collected in document order.
+    """
+    sections: list[tuple[Section, bool]] = []
     lines = content.splitlines()
     n = len(lines)
 
@@ -191,15 +202,38 @@ def _parse_sections(content: str, rel_path: str) -> list[Section]:
                     break
 
             sections.append(
-                Section(
-                    level=m.group(1),
-                    title=title,
-                    file=rel_path,
-                    line=line_no,
-                    label=label,
+                (
+                    Section(
+                        level=m.group(1),
+                        title=title,
+                        file=rel_path,
+                        line=line_no,
+                        label=label,
+                    ),
+                    m.group(2) is not None,
                 )
             )
     return sections
+
+
+def _assign_numbers(parsed: list[tuple[Section, bool]]) -> list[Section]:
+    """Reproduce LaTeX heading numbers over document-ordered sections.
+
+    Starred headings get no number and do not advance counters.
+    """
+    counters = dict.fromkeys(_LEVELS, 0)
+    out: list[Section] = []
+    for section, starred in parsed:
+        if starred:
+            out.append(section)
+            continue
+        depth = _LEVELS.index(section.level)
+        counters[section.level] += 1
+        for deeper in _LEVELS[depth + 1 :]:
+            counters[deeper] = 0
+        parts = [str(counters[lvl]) for lvl in _LEVELS[: depth + 1] if counters[lvl] > 0]
+        out.append(replace(section, number=".".join(parts)))
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -226,13 +260,15 @@ def parse_structure(
         files = _files_reachable_from(main_file, watch_dir)
     else:
         files = sorted(watch_dir.rglob("*.tex"))
+    parsed: list[tuple[Section, bool]] = []
     for path in files:
         try:
             content = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             logger.debug("structure: failed to read %s", path)
             continue
-        structure.sections.extend(_parse_sections(content, _relative(path, watch_dir)))
+        parsed.extend(_parse_sections(content, _relative(path, watch_dir)))
+    structure.sections = _assign_numbers(parsed)
     return structure
 
 
