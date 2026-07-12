@@ -34,7 +34,7 @@ def project(tmp_path: Path) -> Path:
 
 @pytest.fixture
 async def client(project: Path):
-    cfg = Config(main="paper.tex", config_path=project / ".tex_mcp_web.yaml")
+    cfg = Config(main="paper.tex", config_path=project / ".tex-mcp-web.yaml")
     server = TexMcpWebServer(cfg)
     # Trigger a structure parse without compiling
     from tex_mcp_web.structure import parse_structure
@@ -291,7 +291,7 @@ async def client_with_pdf(project: Path):
     from tex_mcp_web.structure import parse_structure
     from aiohttp.test_utils import TestClient, TestServer
 
-    cfg = Config(main="paper.tex", config_path=project / ".tex_mcp_web.yaml")
+    cfg = Config(main="paper.tex", config_path=project / ".tex-mcp-web.yaml")
     server = TexMcpWebServer(cfg)
     server.structure = parse_structure(project)
 

@@ -33,7 +33,7 @@ def project_dir(tmp_path: Path, monkeypatch) -> Path:
 def test_init_creates_yaml(project_dir, capsys):
     rc = main(["init", "--main", "main.tex"])
     assert rc == 0
-    assert (project_dir / ".tex_mcp_web.yaml").exists()
+    assert (project_dir / ".tex-mcp-web.yaml").exists()
 
 
 def test_init_refuses_to_overwrite_existing(project_dir, capsys):
@@ -108,12 +108,12 @@ def test_parse_goto_target_falls_through_to_section():
 
 # ---------------------------------------------------------------------------
 # Compiler argument validation — guards against `-flag` injection via
-# .tex_mcp_web.yaml's main field.
+# .tex-mcp-web.yaml's main field.
 # ---------------------------------------------------------------------------
 
 
 def test_compile_rejects_main_starting_with_dash(project_dir, capsys):
-    """A malicious .tex_mcp_web.yaml with `main: --shell-escape paper.tex`
+    """A malicious .tex-mcp-web.yaml with `main: --shell-escape paper.tex`
     must be rejected; otherwise latexmk would parse it as a flag and
     enable \\write18 RCE."""
     import asyncio
