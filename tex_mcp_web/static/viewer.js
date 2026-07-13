@@ -868,10 +868,12 @@ function renderSections() {
       h("li", { class: `paper-section level-${s.level}` },
         h("span", {
           class: "paper-section-title",
-          text: s.number ? `${s.number} ${s.title}` : s.title,
           title: `${s.file}:${s.line}`,
           onclick: () => jumpToSource(s.file, s.line),
-        }),
+        },
+          s.number ? h("span", { class: "section-number", text: s.number }) : null,
+          h("span", { text: s.title }),
+        ),
         h("button", {
           class: "comment-section-btn",
           type: "button",
