@@ -451,10 +451,11 @@ def create_server(daemon_port: int = DEFAULT_PORT) -> "FastMCP":
                     return imaging.render_page(pdf_path, resolved_page, dpi_val)
                 return imaging.render_region(pdf_path, resolved_page, resolved_bbox, dpi_val)
 
-            # Claude Code truncates MCP tool output around 25k tokens;
-            # base64 that overflows it arrives unusable. Refit the DPI
-            # (PNG size ~ dpi^2) until the payload fits.
-            MAX_B64_CHARS = 80_000
+            # Claude Code truncates MCP tool output around 25k tokens.
+            # base64 tokenizes at ~3.2 chars/token, so 80k chars sat at
+            # the cap and the trailing metadata got cut; 64k chars
+            # (~20k tokens) leaves headroom. PNG size ~ dpi^2.
+            MAX_B64_CHARS = 64_000
             png = await asyncio.to_thread(render, clamped_dpi)
             b64 = base64.b64encode(png).decode("ascii")
             for _ in range(4):
