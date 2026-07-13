@@ -411,11 +411,35 @@ function attachRegionDragListener() {
   }, true);
 }
 
+function rangeTextRects(range) {
+  // range.getClientRects() includes border boxes of partially-selected
+  // ELEMENTS — when a drag starts or ends in text-layer whitespace, that
+  // is the text-layer div itself, and its huge rect explodes the bbox
+  // union. Collect rects from the selected TEXT nodes only.
+  const root =
+    range.commonAncestorContainer.nodeType === 3
+      ? range.commonAncestorContainer.parentNode
+      : range.commonAncestorContainer;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const out = [];
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    if (!range.intersectsNode(n)) continue;
+    const r = document.createRange();
+    r.selectNodeContents(n);
+    if (n === range.startContainer) r.setStart(n, range.startOffset);
+    if (n === range.endContainer) r.setEnd(n, range.endOffset);
+    for (const rect of r.getClientRects()) {
+      if (rect.width > 0 && rect.height > 0) out.push(rect);
+    }
+  }
+  return out;
+}
+
 function getSelectionPdfRegion() {
   const sel = window.getSelection();
   if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
   const range = sel.getRangeAt(0);
-  const rects = range.getClientRects();
+  const rects = rangeTextRects(range);
   if (rects.length === 0) return null;
 
   let node = range.startContainer;
@@ -438,10 +462,12 @@ function getSelectionPdfRegion() {
     x2 = Math.max(x2, r.right);
     y2 = Math.max(y2, r.bottom);
   }
-  const cx1 = (x1 - pageRect.left) / state.renderScale;
-  const cy1 = (y1 - pageRect.top) / state.renderScale;
-  const cx2 = (x2 - pageRect.left) / state.renderScale;
-  const cy2 = (y2 - pageRect.top) / state.renderScale;
+  const clampX = (v) => Math.min(Math.max(v, 0), pageInfo.pointWidth);
+  const clampY = (v) => Math.min(Math.max(v, 0), pageInfo.pointHeight);
+  const cx1 = clampX((x1 - pageRect.left) / state.renderScale);
+  const cy1 = clampY((y1 - pageRect.top) / state.renderScale);
+  const cx2 = clampX((x2 - pageRect.left) / state.renderScale);
+  const cy2 = clampY((y2 - pageRect.top) / state.renderScale);
 
   return {
     page: pageNum,
