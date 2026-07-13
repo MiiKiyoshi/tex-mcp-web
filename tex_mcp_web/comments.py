@@ -96,11 +96,19 @@ def _source_anchor_to_image_target(anchor, ctx: ResolveContext) -> tuple[int, BB
 @dataclass
 class PdfRegionAnchor:
     page: int
-    bbox: BBox  # (x1, y1, x2, y2) PDF points
+    bbox: BBox  # (x1, y1, x2, y2) PDF points; union of rects when present
+    # Per-line rects of a text selection, for faithful display. A
+    # multi-line selection's bounding box covers unselected text; the
+    # viewer draws these instead when present. bbox stays the SyncTeX /
+    # image() target.
+    rects: list[BBox] | None = None
     kind: Literal["pdf_region"] = "pdf_region"
 
     def to_dict(self) -> dict[str, Any]:
-        return {"kind": self.kind, "page": self.page, "bbox": list(self.bbox)}
+        d: dict[str, Any] = {"kind": self.kind, "page": self.page, "bbox": list(self.bbox)}
+        if self.rects:
+            d["rects"] = [list(r) for r in self.rects]
+        return d
 
     def resolve_source(self, ctx: ResolveContext) -> "ResolvedSource | None":
         if ctx.synctex is None:
@@ -198,9 +206,11 @@ def anchor_from_dict(d: dict[str, Any]) -> Anchor:
     kind = d.get("kind")
     if kind == "pdf_region":
         bbox = d.get("bbox") or [0, 0, 0, 0]
+        rects = d.get("rects")
         return PdfRegionAnchor(
             page=int(d.get("page", 1)),
             bbox=(float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])),
+            rects=[tuple(float(v) for v in r) for r in rects] if rects else None,
         )
     if kind == "section":
         return SectionAnchor(title=str(d.get("title", "")), label=d.get("label"))

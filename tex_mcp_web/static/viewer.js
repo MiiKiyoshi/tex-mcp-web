@@ -455,23 +455,42 @@ function getSelectionPdfRegion() {
   if (!pageInfo) return null;
 
   const pageRect = pageEl.getBoundingClientRect();
-  let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
-  for (const r of rects) {
-    x1 = Math.min(x1, r.left);
-    y1 = Math.min(y1, r.top);
-    x2 = Math.max(x2, r.right);
-    y2 = Math.max(y2, r.bottom);
-  }
   const clampX = (v) => Math.min(Math.max(v, 0), pageInfo.pointWidth);
   const clampY = (v) => Math.min(Math.max(v, 0), pageInfo.pointHeight);
-  const cx1 = clampX((x1 - pageRect.left) / state.renderScale);
-  const cy1 = clampY((y1 - pageRect.top) / state.renderScale);
-  const cx2 = clampX((x2 - pageRect.left) / state.renderScale);
-  const cy2 = clampY((y2 - pageRect.top) / state.renderScale);
+  const toPoints = (r) => [
+    clampX((r.left - pageRect.left) / state.renderScale),
+    clampY((r.top - pageRect.top) / state.renderScale),
+    clampX((r.right - pageRect.left) / state.renderScale),
+    clampY((r.bottom - pageRect.top) / state.renderScale),
+  ];
+
+  // Merge glyph rects into one rect per visual line, so the stored
+  // shape hugs the selected text instead of boxing its bounding area.
+  const lines = [];
+  for (const r of rects) {
+    const cy = (r.top + r.bottom) / 2;
+    const line = lines.find((L) => Math.abs((L.top + L.bottom) / 2 - cy) < r.height * 0.6);
+    if (!line) {
+      lines.push({ left: r.left, top: r.top, right: r.right, bottom: r.bottom });
+    } else {
+      line.left = Math.min(line.left, r.left);
+      line.top = Math.min(line.top, r.top);
+      line.right = Math.max(line.right, r.right);
+      line.bottom = Math.max(line.bottom, r.bottom);
+    }
+  }
+  const lineRects = lines.map(toPoints);
+  const bbox = [
+    Math.min(...lineRects.map((r) => r[0])),
+    Math.min(...lineRects.map((r) => r[1])),
+    Math.max(...lineRects.map((r) => r[2])),
+    Math.max(...lineRects.map((r) => r[3])),
+  ];
 
   return {
     page: pageNum,
-    bbox: [cx1, cy1, cx2, cy2],
+    bbox,
+    rects: lineRects,
     text: sel.toString().trim(),
   };
 }
@@ -813,29 +832,32 @@ function refreshAnnotationOverlays() {
     if (c.status !== "open") continue;
     const pageInfo = state.pages.find((p) => p.pageNum === c.anchor.page);
     if (!pageInfo) continue;
-    const [x1, y1, x2, y2] = c.anchor.bbox;
-    const left = x1 * state.renderScale;
-    const top = y1 * state.renderScale;
-    const width = Math.max((x2 - x1) * state.renderScale, 6);
-    const height = Math.max((y2 - y1) * state.renderScale, 14);
-    const mark = h("a", {
-      class: "annotation-mark",
-      title: c.thread[0]?.text || "",
-      data: { cid: c.id },
-      style: {
-        left: `${left}px`,
-        top: `${top}px`,
-        width: `${width}px`,
-        height: `${height}px`,
-      },
-      onclick: (ev) => {
-        ev.preventDefault();
-        setSidebarCollapsed(false);
-        switchTab("comments");
-        focusComment(c);
-      },
-    });
-    pageInfo.overlay.appendChild(mark);
+    // Text selections carry per-line rects; box-drag regions only a bbox.
+    const rects = c.anchor.rects?.length ? c.anchor.rects : [c.anchor.bbox];
+    for (const [x1, y1, x2, y2] of rects) {
+      const left = x1 * state.renderScale;
+      const top = y1 * state.renderScale;
+      const width = Math.max((x2 - x1) * state.renderScale, 6);
+      const height = Math.max((y2 - y1) * state.renderScale, 14);
+      const mark = h("a", {
+        class: "annotation-mark",
+        title: c.thread[0]?.text || "",
+        data: { cid: c.id },
+        style: {
+          left: `${left}px`,
+          top: `${top}px`,
+          width: `${width}px`,
+          height: `${height}px`,
+        },
+        onclick: (ev) => {
+          ev.preventDefault();
+          setSidebarCollapsed(false);
+          switchTab("comments");
+          focusComment(c);
+        },
+      });
+      pageInfo.overlay.appendChild(mark);
+    }
   }
 }
 
@@ -1013,11 +1035,13 @@ async function jumpToComment(cid) {
   const c = state.comments.find((x) => x.id === cid);
   if (!c) return;
   if (c.anchor.kind === "pdf_region") {
-    const mark = document.querySelector(`.annotation-mark[data-cid="${cid}"]`);
-    if (mark) {
-      mark.scrollIntoView({ behavior: "smooth", block: "center" });
-      mark.classList.add("mark-flash");
-      setTimeout(() => mark.classList.remove("mark-flash"), 1600);
+    const marks = document.querySelectorAll(`.annotation-mark[data-cid="${cid}"]`);
+    if (marks.length > 0) {
+      marks[0].scrollIntoView({ behavior: "smooth", block: "center" });
+      for (const m of marks) {
+        m.classList.add("mark-flash");
+        setTimeout(() => m.classList.remove("mark-flash"), 1600);
+      }
     } else {
       jumpToPage(c.anchor.page);
     }
@@ -1132,7 +1156,7 @@ function init() {
     if (!region) return;
     tb.classList.add("hidden");
     openCompose(
-      { kind: "pdf_region", page: region.page, bbox: region.bbox },
+      { kind: "pdf_region", page: region.page, bbox: region.bbox, rects: region.rects },
       `PDF p${region.page}: "${region.text.slice(0, 80)}${region.text.length > 80 ? "…" : ""}"`,
       region.text,  // pre-fill the "Original" field with the selected text
     );
