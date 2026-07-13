@@ -446,23 +446,32 @@ def create_server(daemon_port: int = DEFAULT_PORT) -> "FastMCP":
                 pw, ph = imaging.page_size(pdf_path, resolved_page)
                 resolved_bbox = imaging.expand_region(resolved_bbox, pw, ph)
 
-            def render(dpi_val: int) -> bytes:
+            def render(dpi_val: int, gray_val: bool) -> bytes:
                 if resolved_bbox is None:
-                    return imaging.render_page(pdf_path, resolved_page, dpi_val)
-                return imaging.render_region(pdf_path, resolved_page, resolved_bbox, dpi_val)
+                    return imaging.render_page(pdf_path, resolved_page, dpi_val, gray=gray_val)
+                return imaging.render_region(
+                    pdf_path, resolved_page, resolved_bbox, dpi_val, gray=gray_val
+                )
 
-            # Claude Code truncates MCP tool output around 25k tokens.
-            # base64 tokenizes at ~3.2 chars/token, so 80k chars sat at
-            # the cap and the trailing metadata got cut; 64k chars
-            # (~20k tokens) leaves headroom. PNG size ~ dpi^2.
-            MAX_B64_CHARS = 64_000
-            png = await asyncio.to_thread(render, clamped_dpi)
+            # Claude Code truncates MCP tool output around 25k tokens,
+            # and base64 tokenizes at ~1.8 chars/token (measured: a 46k-
+            # char payload tripped the cap) — so budget ~36k chars.
+            # Grayscale first: it halves a text page's PNG at full
+            # resolution; only then trade DPI (PNG size ~ dpi^2).
+            MAX_B64_CHARS = 36_000
+            gray = False
+            png = await asyncio.to_thread(render, clamped_dpi, gray)
             b64 = base64.b64encode(png).decode("ascii")
-            for _ in range(4):
-                if len(b64) <= MAX_B64_CHARS or clamped_dpi <= 40:
+            for _ in range(5):
+                if len(b64) <= MAX_B64_CHARS:
                     break
-                clamped_dpi = max(40, int(clamped_dpi * (MAX_B64_CHARS / len(b64)) ** 0.5 * 0.95))
-                png = await asyncio.to_thread(render, clamped_dpi)
+                if not gray:
+                    gray = True
+                elif clamped_dpi > 30:
+                    clamped_dpi = max(30, int(clamped_dpi * (MAX_B64_CHARS / len(b64)) ** 0.5 * 0.9))
+                else:
+                    break
+                png = await asyncio.to_thread(render, clamped_dpi, gray)
                 b64 = base64.b64encode(png).decode("ascii")
         except (ValueError, imaging.ImagingError) as exc:
             return [TextContent(type="text", text=_err(str(exc)))]
@@ -471,6 +480,7 @@ def create_server(daemon_port: int = DEFAULT_PORT) -> "FastMCP":
             "page": resolved_page,
             "bbox": list(resolved_bbox) if resolved_bbox else None,
             "dpi": clamped_dpi,
+            "grayscale": gray,
         }
         return [
             ImageContent(type="image", data=b64, mimeType="image/png"),
