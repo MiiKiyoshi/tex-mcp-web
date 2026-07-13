@@ -55,7 +55,7 @@ def _open_pdf(pdf_path: Path, page: int):
 # ---------------------------------------------------------------------------
 
 
-def render_page(pdf_path: Path, page: int, dpi: int = 150) -> bytes:
+def render_page(pdf_path: Path, page: int, dpi: int = 150, gray: bool = False) -> bytes:
     """Render an entire page as PNG bytes.
 
     Args:
@@ -63,13 +63,15 @@ def render_page(pdf_path: Path, page: int, dpi: int = 150) -> bytes:
         page: 1-indexed page number.
         dpi: Render resolution.  150 is roughly retina-equivalent for
             on-screen display; 300 for high-detail extraction.
+        gray: Render grayscale — halves the PNG size of a text page.
 
     Raises:
         ImagingError: pymupdf missing, or *page* out of range.
     """
     doc, page_obj = _open_pdf(pdf_path, page)
     try:
-        return page_obj.get_pixmap(dpi=dpi).tobytes("png")
+        cs = fitz.csGRAY if gray else fitz.csRGB
+        return page_obj.get_pixmap(dpi=dpi, colorspace=cs).tobytes("png")
     finally:
         doc.close()
 
@@ -80,6 +82,7 @@ def render_region(
     bbox: tuple[float, float, float, float],
     dpi: int = 150,
     margin: float = 6.0,
+    gray: bool = False,
 ) -> bytes:
     """Render a rectangular region of a page as PNG bytes.
 
@@ -100,7 +103,8 @@ def render_region(
         )
         if rect.is_empty or rect.is_infinite:
             raise ImagingError(f"empty bbox after clip: {tuple(bbox)} on {page_obj.rect}")
-        return page_obj.get_pixmap(dpi=dpi, clip=rect).tobytes("png")
+        cs = fitz.csGRAY if gray else fitz.csRGB
+        return page_obj.get_pixmap(dpi=dpi, clip=rect, colorspace=cs).tobytes("png")
     finally:
         doc.close()
 
