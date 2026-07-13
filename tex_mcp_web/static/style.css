@@ -285,14 +285,17 @@ button {
   font-size: 0.85rem;
 }
 .cmt-toggle {
-  border: none;
-  background: none;
-  font-size: 0.82rem;
+  border: 1px solid var(--accent-soft);
+  border-radius: 3px;
+  background: var(--accent-soft);
+  font-size: 0.95rem;
+  font-weight: 600;
   color: var(--accent);
-  padding: 0 0.15rem;
+  padding: 0.1rem 0.45rem;
   white-space: nowrap;
-  min-width: 1.2rem;
+  min-width: 1.5rem;
 }
+.cmt-toggle:hover { background: var(--accent); color: white; }
 .cmt-id {
   font-family: var(--mono);
   color: var(--fg-dim);
