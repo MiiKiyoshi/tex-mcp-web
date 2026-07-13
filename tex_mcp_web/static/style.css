@@ -270,6 +270,11 @@ button {
   /* j/k keyboard focus indicator */
   box-shadow: 0 0 0 2px var(--accent), 0 0 0 4px var(--accent-soft);
 }
+@keyframes cmt-flash {
+  0%, 50% { background: var(--accent-soft); }
+  100% { background: var(--bg); }
+}
+.cmt.cmt-flash { animation: cmt-flash 1.6s ease-out; }
 
 .cmt-head {
   display: flex;
@@ -282,9 +287,11 @@ button {
 .cmt-toggle {
   border: none;
   background: none;
-  font-size: 0.9rem;
-  padding: 0;
-  width: 1.2rem;
+  font-size: 0.82rem;
+  color: var(--accent);
+  padding: 0 0.15rem;
+  white-space: nowrap;
+  min-width: 1.2rem;
 }
 .cmt-id {
   font-family: var(--mono);
