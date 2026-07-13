@@ -605,6 +605,11 @@ function renderCommentItem(c) {
   return h("div", {
     class: `cmt status-${c.status}${focused ? " is-focused" : ""}`,
     data: { commentId: c.id },
+    onclick: (ev) => {
+      // Interactive children (toggle, actions, forms) keep their own clicks.
+      if (ev.target.closest("button, a, textarea, select, input")) return;
+      jumpToComment(c.id);
+    },
   }, ...children);
 }
 
@@ -982,7 +987,14 @@ async function jumpToComment(cid) {
   const c = state.comments.find((x) => x.id === cid);
   if (!c) return;
   if (c.anchor.kind === "pdf_region") {
-    jumpToPage(c.anchor.page);
+    const mark = document.querySelector(`.annotation-mark[data-cid="${cid}"]`);
+    if (mark) {
+      mark.scrollIntoView({ behavior: "smooth", block: "center" });
+      mark.classList.add("mark-flash");
+      setTimeout(() => mark.classList.remove("mark-flash"), 1600);
+    } else {
+      jumpToPage(c.anchor.page);
+    }
   } else if (c.resolved_source) {
     await jumpToSource(c.resolved_source.file, c.resolved_source.line_start);
   }
