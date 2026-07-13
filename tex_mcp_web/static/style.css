@@ -546,6 +546,13 @@ button {
 .paper-section.level-subsubsection .paper-section-title { padding-left: 2rem; }
 .paper-section-title { font-size: 0.9rem; cursor: pointer; }
 .paper-section-title:hover { text-decoration: underline; }
+.section-number {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--accent);
+  margin-right: 0.45rem;
+}
 .comment-section-btn {
   font-size: 0.75rem;
   background: var(--bg);
