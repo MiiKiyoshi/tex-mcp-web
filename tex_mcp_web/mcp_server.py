@@ -119,6 +119,39 @@ def _load_synctex_cached(main_file: Path):
     return data
 
 
+def _comment_context(store, watch_dir: Path, cid: str, around: int = 6) -> str:
+    """Implementation of ``comment(action="context", id=...)``.
+
+    Returns the current source lines the comment is anchored to, plus
+    *around* lines on each side — the cheap text-first way to see what
+    a comment points at. Falls back to the creation-time snippet when
+    the anchor never resolved to source (e.g. a figure-only region).
+    """
+    c = store.get(cid)
+    if c is None:
+        return _err(f"no comment {cid}")
+    rs = c.resolved_source
+    if rs is None:
+        if c.snippet:
+            return _ok({"id": cid, "resolved": False, "snippet": c.snippet})
+        return _err(f"{cid} has no source resolution and no snippet")
+    path = watch_dir / rs.file
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    lo = max(1, rs.line_start - around)
+    hi = min(len(lines), rs.line_end + around)
+    body = "\n".join(
+        f"{n:>5}{'>' if rs.line_start <= n <= rs.line_end else ' '} {lines[n - 1]}"
+        for n in range(lo, hi + 1)
+    )
+    return _ok({
+        "id": cid,
+        "file": rs.file,
+        "anchored_lines": [rs.line_start, rs.line_end],
+        "shown_lines": [lo, hi],
+        "text": body,
+    })
+
+
 def _comment_add(
     store,
     cfg,
@@ -286,6 +319,10 @@ def create_server(daemon_port: int = DEFAULT_PORT) -> "FastMCP":
           - resolve: mark resolved.          Required: id + summary.
           - dismiss: mark dismissed.         Required: id + reason.
           - delete:  permanently remove.     Required: id.
+          - context: return the source lines the comment anchors to,
+                     with surrounding lines.  Required: id.  This is
+                     the cheap way to see what a comment points at —
+                     prefer it over image().
 
         Anchor formats (only for add):
           {"kind": "paper"}
@@ -330,6 +367,10 @@ def create_server(daemon_port: int = DEFAULT_PORT) -> "FastMCP":
                 if not id:
                     return _err("delete requires id")
                 return _ok({"deleted": id, "ok": store.delete(id)})
+            if action == "context":
+                if not id:
+                    return _err("context requires id")
+                return _comment_context(store, watch_dir, id)
             return _err(f"unknown action: {action}")
         except KeyError as exc:
             return _err(f"comment not found: {exc}")
@@ -352,18 +393,18 @@ def create_server(daemon_port: int = DEFAULT_PORT) -> "FastMCP":
           source="file.tex:lstart-lend"  SyncTeX-resolved region
           comment_id="c-..."             the region a comment is anchored to
 
-        Returns ImageContent (base64 PNG) on success.  Use this when text
-        alone won't tell you what's wrong: figure layout, equation
-        rendering, overfull boxes, table positioning, or to verify a fix
-        looks right.
+        Returns ImageContent (base64 PNG) plus a JSON line with the
+        rendered page/bbox/dpi.  Oversized output is auto-refit to a
+        lower DPI; comment/source regions are auto-expanded to a
+        readable context window.
 
-        Combine with paper() for the workflow:
-          1. paper()                          # see open comments
-          2. for each: image(comment_id=...)  # see the rendered
-                                                       # region the human
-                                                       # anchored
-          3. Read source, Edit, then compile + image
-             again to verify visually.
+        Images cost far more tokens than text — reach for this LAST,
+        only when the question is inherently visual: figure layout,
+        equation rendering, overfull boxes, table positioning, or
+        verifying a fix looks right.  To see what a comment refers to,
+        use comment(action="context", id=...) — the source text with
+        surrounding lines answers "which sentence is this about?"
+        cheaper and more precisely than a picture.
         """
         import base64
 
@@ -399,26 +440,41 @@ def create_server(daemon_port: int = DEFAULT_PORT) -> "FastMCP":
                 comment_id=comment_id,
                 watch_dir=watch_dir,
             )
-            if resolved_bbox is None:
-                png = await asyncio.to_thread(
-                    imaging.render_page, pdf_path, resolved_page, clamped_dpi
-                )
-            else:
-                png = await asyncio.to_thread(
-                    imaging.render_region,
-                    pdf_path,
-                    resolved_page,
-                    resolved_bbox,
-                    clamped_dpi,
-                )
+            # Anchors are often a single word; a verbatim crop is
+            # unreadable. Explicit page+bbox calls are taken literally.
+            if resolved_bbox is not None and (comment_id or parsed_source):
+                pw, ph = imaging.page_size(pdf_path, resolved_page)
+                resolved_bbox = imaging.expand_region(resolved_bbox, pw, ph)
+
+            def render(dpi_val: int) -> bytes:
+                if resolved_bbox is None:
+                    return imaging.render_page(pdf_path, resolved_page, dpi_val)
+                return imaging.render_region(pdf_path, resolved_page, resolved_bbox, dpi_val)
+
+            # Claude Code truncates MCP tool output around 25k tokens;
+            # base64 that overflows it arrives unusable. Refit the DPI
+            # (PNG size ~ dpi^2) until the payload fits.
+            MAX_B64_CHARS = 80_000
+            png = await asyncio.to_thread(render, clamped_dpi)
+            b64 = base64.b64encode(png).decode("ascii")
+            for _ in range(4):
+                if len(b64) <= MAX_B64_CHARS or clamped_dpi <= 40:
+                    break
+                clamped_dpi = max(40, int(clamped_dpi * (MAX_B64_CHARS / len(b64)) ** 0.5 * 0.95))
+                png = await asyncio.to_thread(render, clamped_dpi)
+                b64 = base64.b64encode(png).decode("ascii")
         except (ValueError, imaging.ImagingError) as exc:
             return [TextContent(type="text", text=_err(str(exc)))]
 
-        return [ImageContent(
-            type="image",
-            data=base64.b64encode(png).decode("ascii"),
-            mimeType="image/png",
-        )]
+        meta = {
+            "page": resolved_page,
+            "bbox": list(resolved_bbox) if resolved_bbox else None,
+            "dpi": clamped_dpi,
+        }
+        return [
+            ImageContent(type="image", data=b64, mimeType="image/png"),
+            TextContent(type="text", text=json.dumps(meta)),
+        ]
 
     @mcp.tool()
     async def section(
@@ -549,9 +605,9 @@ def create_server(daemon_port: int = DEFAULT_PORT) -> "FastMCP":
           1. paper()
                  -> sections, last compile, current open comments
           2. For relevant sections / pages:
-               - Read or Grep the source
-               - image(source="file.tex:N-M") to see rendering
-               - image(page=N) for a full page
+               - Read or Grep the source (text answers most questions)
+               - image() only for inherently visual checks
+                 (figure/table layout, equation rendering, overfull boxes)
           3. File findings:
                comment(
                  action="add",
@@ -604,9 +660,10 @@ def create_server(daemon_port: int = DEFAULT_PORT) -> "FastMCP":
             "guidance": focus_text,
             "workflow": [
                 "1. paper() — see sections + open comments + last compile",
-                "2. For each candidate region: Read/Grep source, image() for visuals",
-                "3. comment(action='add', author='claude', anchor=..., text=..., suggestion=...)",
-                "4. Surface high-confidence findings only; skip nitpicks",
+                "2. For each candidate region: Read/Grep source; comment(action='context', id=...) for existing comments",
+                "3. image() ONLY for inherently visual questions (layout, equations, overfull boxes)",
+                "4. comment(action='add', author='claude', anchor=..., text=..., suggestion=...)",
+                "5. Surface high-confidence findings only; skip nitpicks",
             ],
             "anchor_guidance": {
                 "paper": "global concerns (abstract length, contribution framing)",
