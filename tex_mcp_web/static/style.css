@@ -153,7 +153,7 @@ button {
   cursor: pointer;
   text-decoration: none;
 }
-.annotation-mark:hover {
+.annotation-mark.mark-hover {
   background: var(--highlight-hover);
 }
 @keyframes mark-flash {

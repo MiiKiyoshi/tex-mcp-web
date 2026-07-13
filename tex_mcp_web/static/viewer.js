@@ -825,6 +825,12 @@ async function doMutation(cid, action, body) {
 // Annotation overlays
 // ---------------------------------------------------------------------------
 
+function setMarkHover(cid, on) {
+  for (const m of document.querySelectorAll(`.annotation-mark[data-cid="${cid}"]`)) {
+    m.classList.toggle("mark-hover", on);
+  }
+}
+
 function refreshAnnotationOverlays() {
   for (const p of state.pages) clear(p.overlay);
   for (const c of state.comments) {
@@ -855,6 +861,9 @@ function refreshAnnotationOverlays() {
           switchTab("comments");
           focusComment(c);
         },
+        // One comment = one visual unit: hover darkens every line mark.
+        onmouseenter: () => setMarkHover(c.id, true),
+        onmouseleave: () => setMarkHover(c.id, false),
       });
       pageInfo.overlay.appendChild(mark);
     }
