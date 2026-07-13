@@ -802,11 +802,8 @@ function refreshAnnotationOverlays() {
       },
       onclick: (ev) => {
         ev.preventDefault();
-        state.expanded.add(c.id);
         switchTab("comments");
-        renderComments();
-        const node = document.querySelector(`[data-comment-id="${c.id}"]`);
-        node?.scrollIntoView({ behavior: "smooth", block: "center" });
+        focusComment(c);
       },
     });
     pageInfo.overlay.appendChild(mark);
