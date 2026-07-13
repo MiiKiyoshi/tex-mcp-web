@@ -105,6 +105,50 @@ def render_region(
         doc.close()
 
 
+def expand_region(
+    bbox: tuple[float, float, float, float],
+    page_width: float,
+    page_height: float,
+    min_width: float = 240.0,
+    min_height: float = 70.0,
+    margin: float = 12.0,
+) -> tuple[float, float, float, float]:
+    """Grow *bbox* to a readable context window, clamped to the page.
+
+    Comment anchors are often a single word (~20x14pt); rendered as-is
+    they carry no context for the agent to reason about. Expand around
+    the center to at least ``min_width`` x ``min_height`` plus *margin*.
+    """
+    x1, y1, x2, y2 = bbox
+    x1 -= margin
+    y1 -= margin
+    x2 += margin
+    y2 += margin
+    if x2 - x1 < min_width:
+        pad = (min_width - (x2 - x1)) / 2
+        x1 -= pad
+        x2 += pad
+    if y2 - y1 < min_height:
+        pad = (min_height - (y2 - y1)) / 2
+        y1 -= pad
+        y2 += pad
+    return (
+        max(0.0, x1),
+        max(0.0, y1),
+        min(page_width, x2),
+        min(page_height, y2),
+    )
+
+
+def page_size(pdf_path: Path, page: int) -> tuple[float, float]:
+    """Return ``(width, height)`` of *page* in PDF points."""
+    doc, page_obj = _open_pdf(pdf_path, page)
+    try:
+        return page_obj.rect.width, page_obj.rect.height
+    finally:
+        doc.close()
+
+
 # ---------------------------------------------------------------------------
 # SyncTeX -> region resolution
 # ---------------------------------------------------------------------------
