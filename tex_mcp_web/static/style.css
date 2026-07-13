@@ -157,6 +157,11 @@ button {
 .annotation-mark:hover {
   background: var(--highlight-hover);
 }
+@keyframes mark-flash {
+  0%, 50% { background: var(--highlight-hover); box-shadow: 0 0 0 3px var(--accent); }
+  100% { background: var(--highlight); box-shadow: none; }
+}
+.annotation-mark.mark-flash { animation: mark-flash 1.6s ease-out; }
 
 /* Live rectangle while shift-dragging to select an arbitrary region. */
 .region-drag {
@@ -263,7 +268,9 @@ button {
   border-radius: 4px;
   padding: 0.5rem;
   background: var(--bg);
+  cursor: pointer;
 }
+.cmt textarea { cursor: text; }
 .cmt.status-resolved { opacity: 0.6; }
 .cmt.status-dismissed { opacity: 0.4; }
 .cmt.is-focused {
