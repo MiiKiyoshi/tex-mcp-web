@@ -320,9 +320,10 @@ def create_server(daemon_port: int = DEFAULT_PORT) -> "FastMCP":
           - dismiss: mark dismissed.         Required: id + reason.
           - delete:  permanently remove.     Required: id.
           - context: return the source lines the comment anchors to,
-                     with surrounding lines.  Required: id.  This is
-                     the cheap way to see what a comment points at —
-                     prefer it over image().
+                     with surrounding lines.  Required: id.  Start
+                     here when processing a comment: it gives the
+                     file and line numbers an Edit needs.  Follow up
+                     with image() only for visual questions.
 
         Anchor formats (only for add):
           {"kind": "paper"}
@@ -394,17 +395,23 @@ def create_server(daemon_port: int = DEFAULT_PORT) -> "FastMCP":
           comment_id="c-..."             the region a comment is anchored to
 
         Returns ImageContent (base64 PNG) plus a JSON line with the
-        rendered page/bbox/dpi.  Oversized output is auto-refit to a
-        lower DPI; comment/source regions are auto-expanded to a
-        readable context window.
+        rendered page/bbox/dpi/grayscale.  comment/source regions are
+        auto-expanded to a readable context window; output that would
+        overflow the MCP size cap switches to grayscale (same
+        resolution), then lowers DPI.
 
-        Images cost far more tokens than text — reach for this LAST,
-        only when the question is inherently visual: figure layout,
-        equation rendering, overfull boxes, table positioning, or
-        verifying a fix looks right.  To see what a comment refers to,
-        use comment(action="context", id=...) — the source text with
-        surrounding lines answers "which sentence is this about?"
-        cheaper and more precisely than a picture.
+        Division of labor with the text tools:
+          - To locate or read what a comment is about, use
+            comment(action="context", id=...) — it returns file, line
+            numbers, and the source text, which is what an Edit needs.
+            An image can't give you the line numbers to edit.
+          - Use image() for what only rendering shows: figure/table
+            layout, equation typesetting, overfull boxes, or verifying
+            a fix looks right.  Region crops are cheap (~100-200
+            tokens); don't hesitate when the question is visual.
+          - Full pages auto-fit to a low-DPI thumbnail — good for
+            layout overview, not for reading text.  To read, crop
+            (bbox / source / comment_id) at the default dpi.
         """
         import base64
 
