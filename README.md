@@ -73,7 +73,7 @@ This exposes **7 tools**:
 
 When a compile finishes, the WebSocket broadcasts `{"type": "compiled", ..., "pages_changed": [3, 7]}` so the agent can verify only the pages that actually shifted, not re-render the whole document.
 
-Notice what's absent: there's no `tex-mcp-web_labels()`, no `tex-mcp-web_citations()`, no `tex-mcp-web_environments()`. Use `Grep`. The agent is better at it than we are.
+Notice what's absent: there's no `labels()`, no `citations()`, no `environments()`. Use `Grep`. The agent is better at it than we are.
 
 **Visual review** is the killer mode of `image`. Claude is multimodal; pure text won't tell it whether a figure caption attaches to the right figure or whether an equation rendered correctly. The `comment_id` mode is the fast path: human draws a rectangle around a figure, files the comment, agent renders that region, sees what the human pointed at, fixes the LaTeX.
 
@@ -126,37 +126,19 @@ tex-mcp                     # run the MCP server (stdio)
 
 That's the whole CLI. Comment management lives in the browser (for humans) and in the MCP tools (for the agent). There is no `tex-mcp-web comment add` from the shell because nobody types that.
 
-## What changed in v0.6.0 (active review)
-
-The framing shifted from "human reviews; agent dispatches" to "review goes both ways":
-
-- **Suggested rewrites.** Comments now optionally carry a structured `{old, new}` block. The agent applies the rewrite directly instead of parsing prose. Browser pre-fills "old" with the selected PDF text so the human only types the replacement.
-- **`audit(focus=...)`** primes agent-initiated review. The agent reads the paper, files findings back as `author="claude"` comments, and the human steps through them.
-- **Refactor: anchors resolve themselves.** The dispatch that used to live in three switch statements (`server._resolve_anchor`, `imaging.resolve_image_target`, staleness check) is now methods on each anchor type. Adding a new anchor kind is a 30-line addition to one file.
-
-## What changed in v0.5.x
-
-Aggressive simplification with the agentic-first frame:
-
-- **Dropped the CLI comment surface entirely.** The agent and the browser are the only sane places to manage comments.
-- **Dropped `tags`, `reopen`, the `Errors` tab.** Tags were noise, reopen was Github-imitation, the Errors tab duplicated information the topbar already shows.
-- **Dropped `labels` / `citations` / `inputs` from `paper()`.** Use `Grep`.
-- **Folded `comments` into `paper(include_comments=True)`** for one-call orientation.
-- **Inline reply / resolve / dismiss forms** in the viewer, not `prompt()` dialogs.
-- **Compile lock** prevents the watcher and `compile()` from racing.
-- **Visual review via `image()`** with four modes (page, page+bbox, source range, comment id). Shift-click-drag selects arbitrary rectangles for figures.
-
 ## Configuration
 
 `.tex-mcp-web.yaml`:
 
 ```yaml
-main: paper.tex
-watch: ["*.tex", "*.bib", "*.md"]
+main: main.tex
+watch: ["*.tex", "*.bib", "*.md", "*.txt", "**/*.tex"]
 ignore: ["*_backup.tex"]
 compiler: auto       # auto | latexmk | pdflatex | xelatex | lualatex | pandoc
 port: 8765
 ```
+
+`tex-mcp-web init` scaffolds this; `tex-mcp-web config <key> <value>` edits it.
 
 Comments live in `.tex-mcp-web/comments.json`. `git add` it to keep your review history with the paper.
 
