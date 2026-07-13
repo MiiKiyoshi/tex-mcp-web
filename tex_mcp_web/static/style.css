@@ -287,22 +287,21 @@ button {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  margin-bottom: 0.25rem;
+  margin: -0.5rem -0.5rem 0.25rem;
+  padding: 0.4rem 0.5rem;
+  border-radius: 4px 4px 0 0;
   flex-wrap: wrap;
   font-size: 0.85rem;
+  cursor: pointer;
+  user-select: none;
 }
+.cmt-head:hover { background: var(--accent-soft); }
 .cmt-toggle {
-  border: 1px solid var(--accent-soft);
-  border-radius: 3px;
-  background: var(--accent-soft);
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   font-weight: 600;
   color: var(--accent);
-  padding: 0.1rem 0.45rem;
   white-space: nowrap;
-  min-width: 1.5rem;
 }
-.cmt-toggle:hover { background: var(--accent); color: white; }
 .cmt-id {
   font-family: var(--mono);
   color: var(--fg-dim);
@@ -316,13 +315,9 @@ button {
 .cmt-anchor {
   font-family: var(--mono);
   font-size: 0.78rem;
-  background: var(--accent-soft);
-  color: var(--accent);
-  border: none;
-  padding: 0.1rem 0.4rem;
-  border-radius: 3px;
+  color: var(--fg-dim);
+  margin-left: auto;
 }
-.cmt-anchor:hover { background: var(--accent); color: white; }
 .stale {
   background: var(--err);
   color: white;

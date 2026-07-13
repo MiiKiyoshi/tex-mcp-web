@@ -557,30 +557,27 @@ function renderCommentItem(c) {
 
   const replies = c.thread.length - 1;
   const headChildren = [
-    h("button", {
+    h("span", {
       class: "cmt-toggle",
-      type: "button",
-      title: expanded ? "collapse" : "expand thread",
       text: expanded ? "▾" : replies > 0 ? `▸ ${replies} repl${replies > 1 ? "ies" : "y"}` : "▸",
-      onclick: () => {
-        if (state.expanded.has(c.id)) state.expanded.delete(c.id);
-        else state.expanded.add(c.id);
-        renderComments();
-      },
     }),
     h("span", { class: "cmt-id", text: c.id }),
     h("span", { class: "cmt-status", text: `[${c.status}]` }),
     c.stale ? h("span", { class: "stale", text: "STALE" }) : null,
-    h("button", {
-      class: "cmt-anchor",
-      type: "button",
-      title: "Jump to anchor",
-      text: anchorLabel(c.anchor),
-      onclick: () => jumpToComment(c.id),
-    }),
+    h("span", { class: "cmt-anchor", text: anchorLabel(c.anchor) }),
   ];
 
-  const head = h("div", { class: "cmt-head" }, ...headChildren);
+  // Accordion: the whole header row toggles the thread.
+  const head = h("div", {
+    class: "cmt-head",
+    title: expanded ? "collapse" : "expand thread",
+    onclick: (ev) => {
+      ev.stopPropagation();
+      if (state.expanded.has(c.id)) state.expanded.delete(c.id);
+      else state.expanded.add(c.id);
+      renderComments();
+    },
+  }, ...headChildren);
 
   const children = [head];
   // Collapsed: first-message preview. Expanded: the full thread already
@@ -728,13 +725,13 @@ function renderActiveForm(c) {
 }
 
 function anchorLabel(anchor) {
-  if (!anchor) return "[?]";
+  if (!anchor) return "?";
   switch (anchor.kind) {
-    case "paper": return "[paper]";
-    case "section": return `[section: ${anchor.title}]`;
-    case "source_range": return `[${anchor.file}:${anchor.line_start}-${anchor.line_end}]`;
-    case "pdf_region": return `[pdf p${anchor.page}]`;
-    default: return "[?]";
+    case "paper": return "paper";
+    case "section": return `§ ${anchor.title}`;
+    case "source_range": return `${anchor.file}:${anchor.line_start}-${anchor.line_end}`;
+    case "pdf_region": return `p${anchor.page}`;
+    default: return "?";
   }
 }
 
