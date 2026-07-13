@@ -804,6 +804,7 @@ function refreshAnnotationOverlays() {
       },
       onclick: (ev) => {
         ev.preventDefault();
+        setSidebarCollapsed(false);
         switchTab("comments");
         focusComment(c);
       },
@@ -1061,14 +1062,16 @@ function focusComment(c) {
   setTimeout(() => node.classList.remove("cmt-flash"), 1600);
 }
 
+function setSidebarCollapsed(collapsed) {
+  document.querySelector(".layout").classList.toggle("sidebar-collapsed", collapsed);
+  $("#sidebar-toggle-btn").classList.toggle("active", collapsed);
+  localStorage.setItem("sidebarCollapsed", collapsed ? "1" : "0");
+}
+
 function attachSidebarToggle() {
   const layout = document.querySelector(".layout");
   const btn = $("#sidebar-toggle-btn");
-  const apply = (collapsed) => {
-    layout.classList.toggle("sidebar-collapsed", collapsed);
-    btn.classList.toggle("active", collapsed);
-    localStorage.setItem("sidebarCollapsed", collapsed ? "1" : "0");
-  };
+  const apply = setSidebarCollapsed;
   btn.addEventListener("click", () =>
     apply(!layout.classList.contains("sidebar-collapsed")),
   );
