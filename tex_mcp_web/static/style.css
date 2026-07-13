@@ -149,7 +149,6 @@ button {
 .annotation-mark {
   position: absolute;
   background: var(--highlight);
-  border-bottom: 2px solid var(--accent);
   pointer-events: auto;
   cursor: pointer;
   text-decoration: none;
