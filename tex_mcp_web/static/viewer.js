@@ -555,12 +555,13 @@ function renderComments() {
 function renderCommentItem(c) {
   const expanded = state.expanded.has(c.id);
 
+  const replies = c.thread.length - 1;
   const headChildren = [
     h("button", {
       class: "cmt-toggle",
       type: "button",
-      title: expanded ? "collapse" : "expand",
-      text: expanded ? "▾" : "▸",
+      title: expanded ? "collapse" : "expand thread",
+      text: expanded ? "▾" : replies > 0 ? `▸ ${replies} repl${replies > 1 ? "ies" : "y"}` : "▸",
       onclick: () => {
         if (state.expanded.has(c.id)) state.expanded.delete(c.id);
         else state.expanded.add(c.id);
@@ -580,9 +581,13 @@ function renderCommentItem(c) {
   ];
 
   const head = h("div", { class: "cmt-head" }, ...headChildren);
-  const preview = h("div", { class: "cmt-preview", text: c.thread[0]?.text || "" });
 
-  const children = [head, preview];
+  const children = [head];
+  // Collapsed: first-message preview. Expanded: the full thread already
+  // starts with that message, so the preview would duplicate it.
+  if (!expanded) {
+    children.push(h("div", { class: "cmt-preview", text: c.thread[0]?.text || "" }));
+  }
   if (c.suggestion) {
     children.push(renderSuggestion(c.suggestion));
   }
@@ -1042,7 +1047,10 @@ function focusComment(c) {
   state.expanded.add(c.id);
   renderComments();
   const node = document.querySelector(`[data-comment-id="${c.id}"]`);
-  node?.scrollIntoView({ behavior: "smooth", block: "center" });
+  if (!node) return;
+  node.scrollIntoView({ behavior: "smooth", block: "center" });
+  node.classList.add("cmt-flash");
+  setTimeout(() => node.classList.remove("cmt-flash"), 1600);
 }
 
 function attachSidebarToggle() {
