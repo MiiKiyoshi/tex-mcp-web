@@ -1007,6 +1007,7 @@ function handleWSMessage(msg) {
     case "comment_added":
     case "comment_updated":
     case "comment_deleted":
+    case "comments_changed":
       refreshComments();
       break;
     case "state":
