@@ -751,6 +751,25 @@ class TexMcpWebServer:
 
     # ----- lifecycle -----
 
+    async def _watch_comment_store(self) -> None:
+        """Broadcast when another process (the MCP server) edits comments.json.
+
+        The store is shared cross-process via the file; WS events only
+        fire for mutations that came through this daemon's HTTP routes.
+        Poll the file's mtime so agent-side resolves show up in the
+        browser without a manual refresh.
+        """
+        last: int | None = None
+        while True:
+            try:
+                mtime = self.comments.path.stat().st_mtime_ns
+            except OSError:
+                mtime = None
+            if last is not None and mtime != last:
+                await self.broadcast({"type": "comments_changed"})
+            last = mtime
+            await asyncio.sleep(1.0)
+
     async def start(self, port: int) -> None:
         # Initial compile
         await self.do_compile()
@@ -763,6 +782,7 @@ class TexMcpWebServer:
             on_change=self.on_file_change,
         )
         self.watcher.start(loop)
+        store_watch = asyncio.create_task(self._watch_comment_store())
         # Start aiohttp
         runner = web.AppRunner(self.app)
         await runner.setup()
@@ -773,6 +793,7 @@ class TexMcpWebServer:
         try:
             await asyncio.Event().wait()
         finally:
+            store_watch.cancel()
             if self.watcher:
                 self.watcher.stop()
             await runner.cleanup()
