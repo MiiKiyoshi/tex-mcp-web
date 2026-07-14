@@ -8,6 +8,8 @@ SyncTeX enables bidirectional mapping between:
 import gzip
 import logging
 import re
+import shutil
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -27,6 +29,13 @@ class SourcePosition:
     file: str
     line: int
     column: int = 0
+
+
+@dataclass
+class SourceRangePosition:
+    file: str
+    line_start: int
+    line_end: int
 
 
 @dataclass
@@ -68,6 +77,85 @@ class SyncTeXData:
     pdf_to_source: dict[int, list[tuple[float, SourcePosition]]]
     source_to_pdf: dict[tuple[str, int], list[PDFPosition]]
     input_files: dict[int, str]
+
+
+def edit_pdf_point(
+    pdf_path: Path,
+    watch_dir: Path,
+    page: int,
+    x: float,
+    y: float,
+) -> SourcePosition | None:
+    """Resolve one PDF point through the official SyncTeX executable."""
+    executable = shutil.which("synctex")
+    if executable is None:
+        raise RuntimeError("synctex executable is not on PATH")
+    result = subprocess.run(
+        [executable, "edit", "-o", f"{page}:{x}:{y}:{pdf_path}"],
+        cwd=watch_dir,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip()
+        raise RuntimeError(f"synctex edit failed: {detail}")
+    if not result.stdout.strip():
+        detail = result.stderr.strip()
+        raise RuntimeError(f"synctex edit returned no output: {detail}")
+
+    source_file: str | None = None
+    for line in result.stdout.splitlines():
+        if line.startswith("Input:"):
+            source_file = line.removeprefix("Input:").strip()
+            continue
+        if line.startswith("Line:") and source_file is not None:
+            source_path = Path(source_file)
+            if source_path.is_absolute():
+                try:
+                    normalized = str(source_path.resolve().relative_to(watch_dir.resolve()))
+                except ValueError:
+                    normalized = str(source_path.resolve())
+            else:
+                normalized = _normalize_path(source_file, watch_dir)
+            return SourcePosition(
+                file=normalized,
+                line=int(line.removeprefix("Line:").strip()),
+                column=0,
+            )
+    return None
+
+
+def selection_to_source(
+    pdf_path: Path,
+    watch_dir: Path,
+    segments,
+) -> SourceRangePosition | None:
+    """Resolve every visual line of a selection and require one source file."""
+    positions: list[SourcePosition] = []
+    for segment in segments:
+        for x1, y1, x2, y2 in segment.rects:
+            position = edit_pdf_point(
+                pdf_path=pdf_path,
+                watch_dir=watch_dir,
+                page=segment.page,
+                x=(x1 + x2) / 2,
+                y=(y1 + y2) / 2,
+            )
+            if position is None:
+                return None
+            positions.append(position)
+    if not positions:
+        return None
+    files = {position.file for position in positions}
+    if len(files) != 1:
+        return None
+    source_file = positions[0].file
+    return SourceRangePosition(
+        file=source_file,
+        line_start=min(position.line for position in positions),
+        line_end=max(position.line for position in positions),
+    )
 
 
 def _normalize_path(path: str, base_dir: Path) -> str:
@@ -271,48 +359,6 @@ def source_to_page(data: SyncTeXData, file: str, line: int) -> PDFPosition | Non
         file, line, len(matching_keys),
     )
     return None
-
-
-def page_to_source(data: SyncTeXData, page: int, y: float | None = None) -> SourcePosition | None:
-    """Find source position for a PDF page (and optional y coordinate).
-
-    Args:
-        data: Parsed SyncTeX data.
-        page: Page number (1-indexed).
-        y: Optional y coordinate in points.
-
-    Returns:
-        Source position or None if not found.
-    """
-    if page not in data.pdf_to_source:
-        logger.debug(
-            "synctex: page_to_source(page=%d, y=%s) -> page NOT in data (known pages: %s)",
-            page, y, sorted(data.pdf_to_source.keys()),
-        )
-        return None
-
-    positions = data.pdf_to_source[page]
-    if not positions:
-        logger.debug("synctex: page_to_source(page=%d, y=%s) -> page has 0 entries", page, y)
-        return None
-
-    if y is None:
-        # Return first position on page
-        pos = positions[0][1]
-        logger.debug(
-            "synctex: page_to_source(page=%d, y=None) -> first entry: %s:%d (%d entries on page)",
-            page, pos.file, pos.line, len(positions),
-        )
-        return pos
-
-    # Find closest y position
-    closest = min(positions, key=lambda p: abs(p[0] - y))
-    pos = closest[1]
-    logger.debug(
-        "synctex: page_to_source(page=%d, y=%.1f) -> closest y=%.1f (delta=%.1f) -> %s:%d (%d entries on page)",
-        page, y, closest[0], abs(closest[0] - y), pos.file, pos.line, len(positions),
-    )
-    return pos
 
 
 def get_visible_lines(data: SyncTeXData, page: int) -> tuple[int, int] | None:

@@ -1,7 +1,6 @@
 """Tests for watcher module."""
 
 import asyncio
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest

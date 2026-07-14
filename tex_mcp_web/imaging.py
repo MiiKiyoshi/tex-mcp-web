@@ -87,7 +87,7 @@ def render_region(
     """Render a rectangular region of a page as PNG bytes.
 
     *bbox* is in PDF points (1/72 inch), top-left origin (matching the
-    coordinate system in ``PdfRegionAnchor`` and PDF.js viewports).
+    coordinate system used by PDF text and area anchors).
     A small *margin* is added around the crop so the rendered region
     has visible breathing room.
     """

@@ -4,8 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>tex-web</title>
-<link rel="stylesheet" href="/static/style.css?v=local23">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.mjs" type="module"></script>
+<link rel="stylesheet" href="/static/style.css?v=warm1">
 </head>
 <body>
 <div id="app">
@@ -22,11 +21,8 @@
 
   <main class="layout">
     <section id="pdf-pane">
-      <div id="pdf-canvas-host">
+      <div id="pdf-viewer">
         <p class="placeholder">No PDF yet — waiting for first compile…</p>
-      </div>
-      <div id="selection-toolbar" class="hidden">
-        <button id="comment-selection-btn" type="button">Comment on selection</button>
       </div>
     </section>
 
@@ -79,6 +75,6 @@
   </form>
 </dialog>
 
-<script type="module" src="/static/viewer.js?v=local23"></script>
+  <script type="module" src="/static/viewer.js?v=selection-yellow"></script>
 </body>
 </html>

@@ -124,17 +124,14 @@ def _comment_context(store, watch_dir: Path, cid: str, around: int = 6) -> str:
 
     Returns the current source lines the comment is anchored to, plus
     *around* lines on each side — the cheap text-first way to see what
-    a comment points at. Falls back to the creation-time snippet when
-    the anchor never resolved to source (e.g. a figure-only region).
+    a comment points at. Area anchors have no source resolution.
     """
     c = store.get(cid)
     if c is None:
         return _err(f"no comment {cid}")
     rs = c.resolved_source
     if rs is None:
-        if c.snippet:
-            return _ok({"id": cid, "resolved": False, "snippet": c.snippet})
-        return _err(f"{cid} has no source resolution and no snippet")
+        return _err(f"{cid} is a visual anchor without source resolution")
     path = watch_dir / rs.file
     lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
     lo = max(1, rs.line_start - around)
@@ -163,16 +160,17 @@ def _comment_add(
 ) -> str:
     """Implementation of ``comment(action="add", ...)``.
 
-    Resolves source-bearing anchors via the same helpers the HTTP server
-    uses, so the two surfaces produce identical ``resolved_source``
-    metadata.  For ``pdf_region`` anchors, loads the cached SyncTeX file
-    next to the rendered PDF (no daemon required).
+    Source ranges and sections receive the same source selectors as browser
+    comments. Area anchors are tied to the current compiled PDF.
     """
-    from .comments import ResolvedSource, anchor_from_dict, capture_snippet
+    from .comments import (
+        ResolvedSource,
+        anchor_from_dict,
+        capture_source_selector,
+        pdf_digest,
+    )
     from .config import get_main_file
     from .server import (
-        load_synctex_for_main,
-        resolve_pdf_region_to_source,
         resolve_section_to_source,
     )
     from .structure import parse_structure
@@ -180,39 +178,33 @@ def _comment_add(
     if not text or not anchor:
         return _err("add requires text and anchor")
 
-    a = anchor_from_dict(anchor)
     resolved: ResolvedSource | None = None
-    snippet: str | None = None
-    kind = anchor.get("kind")
+    source_selector = None
+    kind = anchor["kind"]
+    anchor_data = dict(anchor)
 
     if kind == "source_range":
         file = anchor["file"]
         ls = int(anchor["line_start"])
         le = int(anchor["line_end"])
-        snippet = capture_snippet(watch_dir / file, ls, le) or None
+        source_selector = capture_source_selector(watch_dir / file, ls, le)
+        if source_selector is None:
+            return _err("source_range does not identify readable source lines")
         resolved = ResolvedSource(file=file, line_start=ls, line_end=le)
     elif kind == "section":
         resolved = resolve_section_to_source(
             parse_structure(watch_dir, get_main_file(cfg)),
             watch_dir,
-            anchor.get("title"),
-            anchor.get("label"),
+            anchor["title"],
+            anchor["label"] if "label" in anchor else None,
         )
-    elif kind == "pdf_region":
-        synctex = _load_synctex_cached(get_main_file(cfg))
-        bbox = anchor.get("bbox") or [0.0, 0.0, 0.0, 0.0]
-        resolved = resolve_pdf_region_to_source(
-            synctex,
-            int(anchor.get("page", 1)),
-            (float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])),
-        )
-        if resolved is not None:
-            snippet = (
-                capture_snippet(
-                    watch_dir / resolved.file, resolved.line_start, resolved.line_end
-                )
-                or None
-            )
+    elif kind == "area":
+        pdf_path = get_main_file(cfg).with_suffix(".pdf")
+        if not pdf_path.is_file():
+            return _err("area requires a compiled PDF")
+        anchor_data["pdf_digest"] = pdf_digest(pdf_path)
+
+    a = anchor_from_dict(anchor_data)
 
     from .server import _suggestion_from_dict
 
@@ -221,7 +213,7 @@ def _comment_add(
         text=text,
         author=author,
         resolved_source=resolved,
-        snippet=snippet,
+        source_selector=source_selector,
         suggestion=_suggestion_from_dict(suggestion),
     )
     return _ok(comment.to_dict())
@@ -329,7 +321,7 @@ def create_server(daemon_port: int = DEFAULT_PORT) -> "FastMCP":
           {"kind": "paper"}
           {"kind": "section", "title": "Methods", "label": "sec:methods"}
           {"kind": "source_range", "file": "intro.tex", "line_start": 42, "line_end": 58}
-          {"kind": "pdf_region", "page": 3, "bbox": [x1, y1, x2, y2]}
+          {"kind": "area", "page": 3, "bbox": [x1, y1, x2, y2]}
 
         Optional ``suggestion={"old": "...", "new": "..."}`` (add only):
         a structured rewrite the agent can apply directly instead of
@@ -516,11 +508,7 @@ def create_server(daemon_port: int = DEFAULT_PORT) -> "FastMCP":
         import base64
 
         from . import imaging
-        from .comments import (
-            PdfRegionAnchor,
-            SectionAnchor,
-            SourceRangeAnchor,
-        )
+        from .comments import SectionAnchor
         from .config import get_main_file
         from .server import resolve_section_to_source
         from .structure import parse_structure
@@ -541,11 +529,7 @@ def create_server(daemon_port: int = DEFAULT_PORT) -> "FastMCP":
         except OSError:
             slice_text = ""
 
-        # Find comments scoped to this section.  Three cases:
-        #   - SectionAnchor matching by title or label
-        #   - Source/PDF anchors whose resolved_source lies in this range
-        #   - PdfRegionAnchor with no resolved_source: harder to scope,
-        #     skip (they show up in the global queue instead)
+        # Area anchors have no source range and remain in the global queue.
         scoped: list = []
         lc_name = name.lower()
         for c in store.list(status="open"):
@@ -687,7 +671,7 @@ def create_server(daemon_port: int = DEFAULT_PORT) -> "FastMCP":
                 "paper": "global concerns (abstract length, contribution framing)",
                 "section": "section-level structure or coverage",
                 "source_range": "specific lines (preferred when concrete)",
-                "pdf_region": "visual issues only an image conveys",
+                "area": "visual issues only an image conveys",
             },
             "tip": (
                 "Use suggestion={old, new} when proposing a concrete "

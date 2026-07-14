@@ -13,9 +13,6 @@ from tex_mcp_web.compiler import (
     check_compiler_available,
     enrich_error_context,
 )
-from pathlib import Path
-
-
 class TestGetCompilerCommand:
     """Tests for _get_compiler_command function."""
 
