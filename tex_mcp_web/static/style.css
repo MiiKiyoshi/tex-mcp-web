@@ -2,17 +2,17 @@
    Design priority: get out of the way of the PDF, make comments scannable. */
 
 :root {
-  --bg: #fafaf7;
-  --bg-elev: #ffffff;
-  --bg-pdf: #efeee9;
-  --fg: #1a1a1a;
-  --fg-dim: #5a5a5a;
-  --border: #d8d6cf;
-  --accent: #4a6fa5;
-  --accent-soft: #d6e0ee;
-  --warn: #b08a1a;
-  --err: #b73838;
-  --ok: #3a7a3a;
+  --bg: #faf8f2;
+  --bg-elev: #fffdf8;
+  --bg-pdf: #faf8f2;
+  --fg: #302e29;
+  --fg-dim: #6f6a61;
+  --border: #ddd7ca;
+  --accent: #647b95;
+  --accent-soft: #ebe8df;
+  --warn: #98751f;
+  --err: #b44a43;
+  --ok: #4f7758;
   --highlight: rgba(252, 220, 0, 0.45);
   --highlight-hover: rgba(252, 192, 0, 0.7);
   --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Consolas, monospace;
@@ -34,6 +34,13 @@ html, body {
 button {
   font: inherit;
   cursor: pointer;
+}
+
+input,
+select,
+textarea {
+  color: var(--fg);
+  background: var(--bg-elev);
 }
 
 #app {
@@ -86,8 +93,7 @@ button {
 }
 #pdf-pane {
   position: relative;
-  /* Both axes: zoomed-in pages overflow horizontally too. */
-  overflow: auto;
+  overflow: hidden;
   background: var(--bg-pdf);
 }
 #sidebar {
@@ -102,101 +108,7 @@ button {
 #sidebar-toggle-btn.active { background: var(--accent-soft); }
 
 /* ----- pdf ----- */
-#pdf-canvas-host {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1rem;
-  padding: 1rem;
-  /* Host grows with the widest page: flex centering inside an overflowing
-     scroll container would otherwise clip the left edge unreachably. */
-  min-width: max-content;
-}
-.pdf-page {
-  position: relative;
-  background: white;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
-}
-.pdf-canvas {
-  display: block;
-  position: absolute;
-  inset: 0;
-}
-.text-layer {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  pointer-events: auto;
-  line-height: 1;
-  color: transparent;
-}
-.text-layer span,
-.text-layer br {
-  color: transparent;
-  position: absolute;
-  white-space: pre;
-  cursor: text;
-  transform-origin: 0 0;
-}
-.text-layer ::selection {
-  background: var(--highlight);
-}
-.annotation-overlay {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-}
-.annotation-mark {
-  position: absolute;
-  background: var(--highlight);
-  pointer-events: auto;
-  cursor: pointer;
-  text-decoration: none;
-}
-.annotation-mark.mark-hover {
-  background: var(--highlight-hover);
-}
-@keyframes mark-flash {
-  0%, 50% { background: var(--highlight-hover); box-shadow: 0 0 0 3px var(--accent); }
-  100% { background: var(--highlight); box-shadow: none; }
-}
-.annotation-mark.mark-flash { animation: mark-flash 1.6s ease-out; }
-
-/* Live rectangle while shift-dragging to select an arbitrary region. */
-.region-drag {
-  position: absolute;
-  border: 2px dashed var(--accent);
-  background: rgba(74, 111, 165, 0.10);
-  pointer-events: none;
-  z-index: 5;
-}
-
-/* ----- selection toolbar (floats above selection) ----- */
-#selection-toolbar {
-  position: absolute;
-  z-index: 10;
-  background: var(--bg-elev);
-  border: 1px solid var(--border);
-  padding: 0.12rem 0.3rem;
-  border-radius: 3px;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
-  display: flex;
-  gap: 0.5rem;
-  /* Keep the toolbar's own text out of drag selections. */
-  user-select: none;
-  /* The box itself must not block drags on the text beneath it —
-     only the button is interactive. */
-  pointer-events: none;
-}
-#selection-toolbar button {
-  border: none;
-  background: var(--accent);
-  color: white;
-  padding: 0.12rem 0.5rem;
-  font-size: 0.82rem;
-  border-radius: 3px;
-  pointer-events: auto;
-}
+#pdf-viewer { width: 100%; height: 100%; }
 .hidden { display: none !important; }
 
 /* ----- sidebar tabs ----- */

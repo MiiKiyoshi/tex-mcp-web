@@ -1,9 +1,7 @@
 """Tests for config module."""
 
-import tempfile
 from pathlib import Path
 
-import pytest
 import yaml
 
 from tex_mcp_web.config import (

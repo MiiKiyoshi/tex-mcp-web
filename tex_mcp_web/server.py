@@ -24,15 +24,19 @@ from typing import Any
 from aiohttp import web
 
 from .comments import (
+    AreaAnchor,
     Comment,
     CommentStore,
     PaperAnchor,
-    PdfRegionAnchor,
     ResolvedSource,
     SectionAnchor,
-    SourceRangeAnchor,
+    SourceSelector,
+    SuggestedEdit,
+    TextSelectionAnchor,
     anchor_from_dict,
-    capture_snippet,
+    capture_source_selector,
+    locate_pdf_quote,
+    pdf_digest,
 )
 from .compiler import CompileResult, compile_tex
 from .config import Config, get_main_file, get_watch_dir
@@ -44,8 +48,8 @@ from .structure import (
 from .synctex import (
     SyncTeXData,
     find_synctex_file,
-    page_to_source,
     parse_synctex,
+    selection_to_source,
     source_to_page,
 )
 from .watcher import Watcher
@@ -97,7 +101,7 @@ def _parse_source_range(spec: str) -> tuple[str, int, int]:
     return file, ls, le
 
 
-def _clamp_dpi(value: str | int, default: int = 150) -> int:
+def _clamp_dpi(value: str | int) -> int:
     """Parse and clamp a DPI value to a sane render range.
 
     Rendering at unbounded DPI is a denial-of-service vector
@@ -109,17 +113,12 @@ def _clamp_dpi(value: str | int, default: int = 150) -> int:
     return max(36, min(n, 600))
 
 
-def _suggestion_from_dict(d: Any) -> "SuggestedEdit | None":
-    """Build a SuggestedEdit from a dict, or None if absent/malformed.
-
-    Lenient: missing keys default to empty strings.  An empty old/new
-    pair is treated as "no suggestion" so the agent doesn't see a
-    SuggestedEdit({old: '', new: ''}).
-    """
-    from .comments import SuggestedEdit
-
-    if not isinstance(d, dict):
+def _suggestion_from_dict(d: Any) -> SuggestedEdit | None:
+    """Build a complete suggestion, omitting an explicitly empty pair."""
+    if d is None:
         return None
+    if not isinstance(d, dict):
+        raise TypeError("suggestion must be an object")
     sugg = SuggestedEdit.from_dict(d)
     if not sugg.old and not sugg.new:
         return None
@@ -183,21 +182,6 @@ def structure_to_dict(
     return {"sections": sections}
 
 
-def resolve_pdf_region_to_source(
-    synctex: SyncTeXData | None,
-    page: int,
-    bbox: tuple[float, float, float, float],
-) -> ResolvedSource | None:
-    """Use SyncTeX to map a PDF bbox center to a source range."""
-    if synctex is None:
-        return None
-    _, y1, _, y2 = bbox
-    src = page_to_source(synctex, page, (y1 + y2) / 2)
-    if src is None:
-        return None
-    return ResolvedSource(file=src.file, line_start=src.line, line_end=src.line)
-
-
 def load_synctex_for_main(main_file: Path) -> SyncTeXData | None:
     """Find and parse the .synctex.gz next to *main_file*'s rendered PDF.
 
@@ -232,6 +216,7 @@ class TexMcpWebServer:
         self.synctex_data: SyncTeXData | None = None
         self.structure: DocumentStructure | None = None
         self.compiling = False
+        self.pdf_digest: str | None = None
         # Serialize do_compile so the watcher and compile() don't
         # race; second caller awaits the in-flight build instead of
         # starting a parallel one.
@@ -290,19 +275,19 @@ class TexMcpWebServer:
                         self.synctex_data = parse_synctex(synctex_path)
                 # Refresh structure
                 self.structure = parse_structure(self.watch_dir, self.main_file)
-                # Re-check staleness of open comments
-                if self.structure:
-                    self.comments.check_staleness(
-                        self.watch_dir,
-                        sections_resolver=lambda title, label: resolve_section_to_source(
-                            self.structure, self.watch_dir, title, label
-                        ),
-                    )
                 # Compute per-page text hashes and diff against the
                 # previous compile.  Gives the agent a cheap "what
                 # changed visually" signal without rendering everything.
                 if self.last_result.success and self.last_result.output_file:
                     from . import imaging
+                    self.pdf_digest = pdf_digest(self.last_result.output_file)
+                    self.comments.refresh_anchors(
+                        self.watch_dir,
+                        self.last_result.output_file,
+                        sections_resolver=lambda title, label: resolve_section_to_source(
+                            self.structure, self.watch_dir, title, label
+                        ),
+                    )
                     new_hashes = imaging.page_text_hashes(self.last_result.output_file)
                     changed_pages = imaging.diff_page_hashes(
                         self._prev_page_hashes, new_hashes
@@ -321,6 +306,7 @@ class TexMcpWebServer:
                 msg: dict[str, Any] = {
                     "type": "compiled",
                     "result": _result_to_dict(self.last_result),
+                    "pdf_digest": self.pdf_digest,
                 }
                 if changed_pages:
                     msg["pages_changed"] = changed_pages
@@ -397,6 +383,7 @@ class TexMcpWebServer:
                 "watch_dir": str(self.watch_dir),
                 "compiling": self.compiling,
                 "last_compile": _result_to_dict(self.last_result),
+                "pdf_digest": self.pdf_digest,
                 **structure_to_dict(self.structure, self.watch_dir),
                 "comments": self._comment_summary(),
             }
@@ -438,43 +425,101 @@ class TexMcpWebServer:
         if err is not None:
             return err
 
-        anchor_d = data.get("anchor")
-        text = data.get("text", "").strip()
+        if "anchor" not in data or "text" not in data:
+            return web.json_response(
+                {"error": "anchor and text are required"}, status=400
+            )
+        anchor_d = data["anchor"]
+        text = str(data["text"]).strip()
         if not anchor_d or not text:
             return web.json_response(
                 {"error": "anchor and text are required"}, status=400
             )
         try:
             anchor = anchor_from_dict(anchor_d)
+            suggestion = _suggestion_from_dict(
+                data["suggestion"] if "suggestion" in data else None
+            )
         except (ValueError, KeyError, TypeError) as exc:
-            return web.json_response({"error": f"invalid anchor: {exc}"}, status=400)
+            return web.json_response(
+                {"error": f"invalid comment input: {exc}"}, status=400
+            )
 
-        resolved, snippet = self._resolve_anchor(anchor)
-        suggestion = _suggestion_from_dict(data.get("suggestion"))
+        if isinstance(anchor, TextSelectionAnchor):
+            if not anchor.quote.strip() or not anchor.segments:
+                return web.json_response(
+                    {"error": "text selection requires quote and segments"}, status=400
+                )
+            if self.pdf_digest is None or anchor.pdf_digest != self.pdf_digest:
+                return web.json_response(
+                    {"error": "the PDF changed after this text was selected"}, status=409
+                )
+            if self.last_result is None or self.last_result.output_file is None:
+                return web.json_response({"error": "no PDF available"}, status=409)
+            canonical = locate_pdf_quote(
+                self.last_result.output_file, anchor.quote, hint=anchor.segments
+            )
+            if canonical is None:
+                return web.json_response(
+                    {"error": "selected text could not be verified in the current PDF"},
+                    status=422,
+                )
+            anchor.segments = canonical
+        if isinstance(anchor, AreaAnchor):
+            if self.pdf_digest is None or anchor.pdf_digest != self.pdf_digest:
+                return web.json_response(
+                    {"error": "the PDF changed after this area was selected"}, status=409
+                )
+
+        resolved, source_selector = self._resolve_anchor(anchor)
+        if isinstance(anchor, TextSelectionAnchor) and (
+            resolved is None or source_selector is None
+        ):
+            return web.json_response(
+                {"error": "SyncTeX could not resolve the complete text selection"},
+                status=422,
+            )
         comment = self.comments.add(
             anchor=anchor,
             text=text,
-            author=data.get("author", "human"),
+            author=data["author"] if "author" in data else "human",
             resolved_source=resolved,
-            snippet=snippet,
+            source_selector=source_selector,
             suggestion=suggestion,
         )
         await self.broadcast({"type": "comment_added", "comment": _comment_to_dict(comment)})
         return web.json_response(_comment_to_dict(comment), status=201)
 
-    def _resolve_anchor(self, anchor: Any) -> tuple[ResolvedSource | None, str | None]:
-        """Resolve a freshly-created anchor to (source location, snippet).
-
-        Dispatch lives on the anchors themselves
-        (:meth:`Anchor.resolve_source`).  We capture a snippet only for
-        anchors that need content-addressed staleness (source / pdf
-        region) — section anchors re-resolve via the structure parser
-        on every recheck, so they don't need a content snapshot.
-        """
+    def _resolve_anchor(
+        self, anchor: Any
+    ) -> tuple[ResolvedSource | None, SourceSelector | None]:
+        """Resolve one new anchor and capture its exact source selector."""
         from .comments import ResolveContext
 
-        if isinstance(anchor, PaperAnchor):
+        if isinstance(anchor, (PaperAnchor, AreaAnchor)):
             return None, None
+
+        if isinstance(anchor, TextSelectionAnchor):
+            if self.last_result is None or self.last_result.output_file is None:
+                return None, None
+            source = selection_to_source(
+                pdf_path=self.last_result.output_file,
+                watch_dir=self.watch_dir,
+                segments=anchor.segments,
+            )
+            if source is None:
+                return None, None
+            resolved = ResolvedSource(
+                file=source.file,
+                line_start=source.line_start,
+                line_end=source.line_end,
+            )
+            selector = capture_source_selector(
+                self.watch_dir / resolved.file,
+                resolved.line_start,
+                resolved.line_end,
+            )
+            return resolved, selector
 
         # Lazy-load structure for section resolution.
         if isinstance(anchor, SectionAnchor) and self.structure is None:
@@ -489,15 +534,13 @@ class TexMcpWebServer:
         if resolved is None:
             return None, None
 
-        # Section anchors are structurally re-resolvable; everything
-        # else falls back to snippet matching.
         if isinstance(anchor, SectionAnchor):
             return resolved, None
 
-        snippet = capture_snippet(
+        selector = capture_source_selector(
             self.watch_dir / resolved.file, resolved.line_start, resolved.line_end
         )
-        return resolved, snippet or None
+        return resolved, selector
 
     async def _read_json(self, request: web.Request) -> tuple[dict[str, Any] | None, web.Response | None]:
         """Decode the request JSON body or return a 400 error response."""

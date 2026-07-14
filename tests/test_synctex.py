@@ -2,8 +2,7 @@
 
 import gzip
 import logging
-import tempfile
-from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -12,10 +11,11 @@ from tex_mcp_web.synctex import (
     SourcePosition,
     SyncTeXData,
     _normalize_path,
+    edit_pdf_point,
     find_synctex_file,
     get_visible_lines,
-    page_to_source,
     parse_synctex,
+    selection_to_source,
     source_to_page,
 )
 
@@ -166,16 +166,16 @@ class TestParseSynctexNoColumn:
         # The file names will be the absolute paths since they can't be relativized to tmp_path
         assert any("main.tex" in f for f in file_names)
 
-    def test_no_column_page_to_source(self, tmp_path):
-        """Test that page_to_source works with no-column records."""
+    def test_no_column_visible_lines(self, tmp_path):
+        """No-column records remain available for page visibility."""
         synctex_path = tmp_path / "main.synctex"
         synctex_path.write_text(SAMPLE_SYNCTEX_NO_COLUMN)
 
         data = parse_synctex(synctex_path)
         assert data is not None
-        pos = page_to_source(data, 1)
-        assert pos is not None
-        assert pos.line > 0
+        lines = get_visible_lines(data, 1)
+        assert lines is not None
+        assert lines[0] > 0
 
     def test_no_column_hbox_records(self, tmp_path):
         """Test that ( and ) hbox records are parsed."""
@@ -273,27 +273,55 @@ class TestSourceToPage:
         assert pos is None
 
 
-class TestPageToSource:
-    """Tests for page_to_source function."""
+class TestOfficialReverseSync:
+    def test_edit_pdf_point_passes_x_and_y(self, monkeypatch, tmp_path):
+        captured = {}
 
-    def test_page_only(self, synctex_data):
-        """Test finding source for page without y."""
-        pos = page_to_source(synctex_data, 1)
-        assert pos is not None
-        assert pos.file == "main.tex"
-        assert pos.line == 1  # First entry on page
+        def fake_run(command, **kwargs):
+            captured["command"] = command
+            captured["kwargs"] = kwargs
+            return SimpleNamespace(
+                returncode=0,
+                stdout=f"Input:{tmp_path}/tex/intro.tex\nLine:58\nColumn:-1\n",
+                stderr="",
+            )
 
-    def test_page_with_y(self, synctex_data):
-        """Test finding source for page with y coordinate."""
-        pos = page_to_source(synctex_data, 1, y=750.0)
-        assert pos is not None
-        # 750 is closer to 700 (line 10) than 600 (line 1) or 800 (chapter1:5)
-        assert pos.line == 10
+        monkeypatch.setattr("tex_mcp_web.synctex.shutil.which", lambda name: "/bin/synctex")
+        monkeypatch.setattr("tex_mcp_web.synctex.subprocess.run", fake_run)
+        position = edit_pdf_point(tmp_path / "main.pdf", tmp_path, 2, 151.5, 126.25)
+        assert captured["command"][-1] == f"2:151.5:126.25:{tmp_path / 'main.pdf'}"
+        assert captured["kwargs"]["cwd"] == tmp_path
+        assert position == SourcePosition(file="tex/intro.tex", line=58, column=0)
 
-    def test_page_not_found(self, synctex_data):
-        """Test when page not in synctex data."""
-        pos = page_to_source(synctex_data, 99)
-        assert pos is None
+    def test_selection_resolves_all_visual_line_centers(self, monkeypatch, tmp_path):
+        calls = []
+
+        def fake_edit(pdf_path, watch_dir, page, x, y):
+            calls.append((page, x, y))
+            line = 58 if y < 120 else 62
+            return SourcePosition(file="tex/intro.tex", line=line)
+
+        monkeypatch.setattr("tex_mcp_web.synctex.edit_pdf_point", fake_edit)
+        segment = SimpleNamespace(
+            page=2,
+            rects=[(80.0, 100.0, 280.0, 110.0), (80.0, 130.0, 160.0, 140.0)],
+        )
+        resolved = selection_to_source(tmp_path / "main.pdf", tmp_path, [segment])
+        assert calls == [(2, 180.0, 105.0), (2, 120.0, 135.0)]
+        assert resolved.file == "tex/intro.tex"
+        assert (resolved.line_start, resolved.line_end) == (58, 62)
+
+    def test_selection_rejects_multiple_source_files(self, monkeypatch, tmp_path):
+        positions = iter([
+            SourcePosition(file="a.tex", line=1),
+            SourcePosition(file="b.tex", line=2),
+        ])
+        monkeypatch.setattr(
+            "tex_mcp_web.synctex.edit_pdf_point",
+            lambda *args, **kwargs: next(positions),
+        )
+        segment = SimpleNamespace(page=1, rects=[(0, 0, 10, 10), (0, 10, 10, 20)])
+        assert selection_to_source(tmp_path / "main.pdf", tmp_path, [segment]) is None
 
 
 class TestGetVisibleLines:
@@ -335,19 +363,6 @@ class TestSyncTeXLogging:
         with caplog.at_level(logging.DEBUG, logger="tex_mcp_web.synctex"):
             source_to_page(synctex_data, "nonexistent.tex", 1)
         assert "NO MATCH" in caplog.text
-
-    def test_page_to_source_logs_closest_y(self, synctex_data, caplog):
-        """Test that closest y lookup is logged."""
-        with caplog.at_level(logging.DEBUG, logger="tex_mcp_web.synctex"):
-            page_to_source(synctex_data, 1, y=650.0)
-        assert "closest y=" in caplog.text
-        assert "delta=" in caplog.text
-
-    def test_page_to_source_logs_missing_page(self, synctex_data, caplog):
-        """Test that missing page is logged."""
-        with caplog.at_level(logging.DEBUG, logger="tex_mcp_web.synctex"):
-            page_to_source(synctex_data, 99)
-        assert "page NOT in data" in caplog.text
 
     def test_parse_synctex_logs_stats(self, synctex_file, caplog):
         """Test that parse_synctex logs file and page counts."""

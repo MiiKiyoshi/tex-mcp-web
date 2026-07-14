@@ -7,7 +7,8 @@ durability logic.
 
 Anchor types
 ------------
-- ``pdf_region``: a bounding box on a PDF page; resolved to source lines via SyncTeX
+- ``text_selection``: exact rendered text, glyph positions, and per-line PDF rectangles
+- ``area``: a visual PDF rectangle tied to one compiled PDF
 - ``section``: a logical section by title and/or label
 - ``source_range``: an explicit file + line range
 - ``paper``: a global comment, no anchor
@@ -19,19 +20,16 @@ and Claude Code can converse about a region (request → action → follow-up).
 
 Staleness
 ---------
-When source code shifts beneath an anchor (line numbers move, sections
-renamed, content rewritten), comments must either reattach themselves to
-the new location or report that they have lost the thread.  We use:
-
-1. A ``snippet`` (a few lines of source content captured at comment creation),
-   used as a content-addressed anchor that survives line shifts.
-2. Structural anchors (section title/label) when applicable.
-3. A boolean ``stale`` flag set when neither resolution succeeds.
+Source selectors keep exact selected lines separate from their prefix and
+suffix.  Reattachment never widens the selected range to include context.
+Text selections also carry the exact rendered quote; after a compile the
+quote is found again in the new PDF and its rectangles are regenerated.
 """
 
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import logging
 import os
@@ -51,7 +49,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-AnchorKind = Literal["pdf_region", "section", "source_range", "paper"]
+AnchorKind = Literal["text_selection", "area", "section", "source_range", "paper"]
 
 # bbox in PDF points: (x1, y1, x2, y2) with top-left origin.
 BBox = tuple[float, float, float, float]
@@ -94,34 +92,89 @@ def _source_anchor_to_image_target(anchor, ctx: ResolveContext) -> tuple[int, BB
 
 
 @dataclass
-class PdfRegionAnchor:
+class PageSelection:
     page: int
-    bbox: BBox  # (x1, y1, x2, y2) PDF points; union of rects when present
-    # Per-line rects of a text selection, for faithful display. A
-    # multi-line selection's bounding box covers unselected text; the
-    # viewer draws these instead when present. bbox stays the SyncTeX /
-    # image() target.
-    rects: list[BBox] | None = None
-    kind: Literal["pdf_region"] = "pdf_region"
+    bbox: BBox
+    rects: list[BBox]
 
     def to_dict(self) -> dict[str, Any]:
-        d: dict[str, Any] = {"kind": self.kind, "page": self.page, "bbox": list(self.bbox)}
-        if self.rects:
-            d["rects"] = [list(r) for r in self.rects]
-        return d
+        return {
+            "page": self.page,
+            "bbox": list(self.bbox),
+            "rects": [list(rect) for rect in self.rects],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "PageSelection":
+        bbox = data["bbox"]
+        return cls(
+            page=int(data["page"]),
+            bbox=tuple(float(value) for value in bbox),
+            rects=[tuple(float(value) for value in rect) for rect in data["rects"]],
+        )
+
+
+@dataclass
+class GlyphPosition:
+    page: int
+    index: int
+
+    def to_dict(self) -> dict[str, int]:
+        return {"page": self.page, "index": self.index}
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "GlyphPosition":
+        return cls(page=int(data["page"]), index=int(data["index"]))
+
+
+@dataclass
+class TextSelectionAnchor:
+    quote: str
+    segments: list[PageSelection]
+    start: GlyphPosition
+    end: GlyphPosition
+    pdf_digest: str
+    kind: Literal["text_selection"] = "text_selection"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "kind": self.kind,
+            "quote": self.quote,
+            "segments": [segment.to_dict() for segment in self.segments],
+            "start": self.start.to_dict(),
+            "end": self.end.to_dict(),
+            "pdf_digest": self.pdf_digest,
+        }
 
     def resolve_source(self, ctx: ResolveContext) -> "ResolvedSource | None":
-        if ctx.synctex is None:
-            return None
-        from .synctex import page_to_source
-        _, y1, _, y2 = self.bbox
-        src = page_to_source(ctx.synctex, self.page, (y1 + y2) / 2)
-        if src is None:
-            return None
-        return ResolvedSource(file=src.file, line_start=src.line, line_end=src.line)
+        return None
 
     def image_target(self, ctx: ResolveContext) -> tuple[int, BBox] | None:
-        # PDF anchors carry their own coordinates; no SyncTeX needed.
+        if not self.segments:
+            return None
+        first = self.segments[0]
+        return first.page, first.bbox
+
+
+@dataclass
+class AreaAnchor:
+    page: int
+    bbox: BBox
+    pdf_digest: str
+    kind: Literal["area"] = "area"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "kind": self.kind,
+            "page": self.page,
+            "bbox": list(self.bbox),
+            "pdf_digest": self.pdf_digest,
+        }
+
+    def resolve_source(self, ctx: ResolveContext) -> "ResolvedSource | None":
+        return None
+
+    def image_target(self, ctx: ResolveContext) -> tuple[int, BBox] | None:
         return self.page, self.bbox
 
 
@@ -198,27 +251,37 @@ class PaperAnchor:
         return None
 
 
-Anchor = PdfRegionAnchor | SectionAnchor | SourceRangeAnchor | PaperAnchor
+Anchor = TextSelectionAnchor | AreaAnchor | SectionAnchor | SourceRangeAnchor | PaperAnchor
 
 
 def anchor_from_dict(d: dict[str, Any]) -> Anchor:
     """Reconstruct an Anchor from its dict form."""
-    kind = d.get("kind")
-    if kind == "pdf_region":
-        bbox = d.get("bbox") or [0, 0, 0, 0]
-        rects = d.get("rects")
-        return PdfRegionAnchor(
-            page=int(d.get("page", 1)),
-            bbox=(float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])),
-            rects=[tuple(float(v) for v in r) for r in rects] if rects else None,
+    kind = d["kind"]
+    if kind == "text_selection":
+        return TextSelectionAnchor(
+            quote=str(d["quote"]),
+            segments=[PageSelection.from_dict(segment) for segment in d["segments"]],
+            start=GlyphPosition.from_dict(d["start"]),
+            end=GlyphPosition.from_dict(d["end"]),
+            pdf_digest=str(d["pdf_digest"]),
+        )
+    if kind == "area":
+        bbox = d["bbox"]
+        return AreaAnchor(
+            page=int(d["page"]),
+            bbox=tuple(float(value) for value in bbox),
+            pdf_digest=str(d["pdf_digest"]),
         )
     if kind == "section":
-        return SectionAnchor(title=str(d.get("title", "")), label=d.get("label"))
+        return SectionAnchor(
+            title=str(d["title"]),
+            label=d["label"] if "label" in d else None,
+        )
     if kind == "source_range":
         return SourceRangeAnchor(
-            file=str(d.get("file", "")),
-            line_start=int(d.get("line_start", 0)),
-            line_end=int(d.get("line_end", 0)),
+            file=str(d["file"]),
+            line_start=int(d["line_start"]),
+            line_end=int(d["line_end"]),
         )
     if kind == "paper":
         return PaperAnchor()
@@ -234,10 +297,9 @@ def anchor_from_dict(d: dict[str, Any]) -> Anchor:
 class ResolvedSource:
     """The source location an anchor currently points at.
 
-    For PDF region / section anchors, this is computed by the server from
+    For text-selection / section anchors, this is computed by the server from
     SyncTeX or document structure.  Stored alongside the comment so Claude
-    Code can read the comment without re-resolving.  Source content lives
-    in :attr:`Comment.snippet`; we don't duplicate it here.
+    Code can read the comment without re-resolving.
     """
 
     file: str
@@ -250,9 +312,29 @@ class ResolvedSource:
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "ResolvedSource":
         return cls(
-            file=str(d.get("file", "")),
-            line_start=int(d.get("line_start", 0)),
-            line_end=int(d.get("line_end", 0)),
+            file=str(d["file"]),
+            line_start=int(d["line_start"]),
+            line_end=int(d["line_end"]),
+        )
+
+
+@dataclass
+class SourceSelector:
+    """Exact source range with context kept outside the selected text."""
+
+    exact: str
+    prefix: str
+    suffix: str
+
+    def to_dict(self) -> dict[str, str]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "SourceSelector":
+        return cls(
+            exact=str(data["exact"]),
+            prefix=str(data["prefix"]),
+            suffix=str(data["suffix"]),
         )
 
 
@@ -288,7 +370,7 @@ class SuggestedEdit:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "SuggestedEdit":
-        return cls(old=str(d.get("old", "")), new=str(d.get("new", "")))
+        return cls(old=str(d["old"]), new=str(d["new"]))
 
 
 @dataclass
@@ -307,10 +389,10 @@ class ThreadEntry:
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "ThreadEntry":
         return cls(
-            author=d.get("author", "human"),  # type: ignore[arg-type]
-            at=str(d.get("at", _now())),
-            text=str(d.get("text", "")),
-            edits=list(d.get("edits", []) or []),
+            author=d["author"],  # type: ignore[arg-type]
+            at=str(d["at"]),
+            text=str(d["text"]),
+            edits=list(d["edits"]) if "edits" in d else [],
         )
 
 
@@ -321,7 +403,7 @@ class Comment:
     thread: list[ThreadEntry] = field(default_factory=list)
     status: Status = "open"
     resolved_source: ResolvedSource | None = None
-    snippet: str | None = None
+    source_selector: SourceSelector | None = None
     suggestion: SuggestedEdit | None = None
     created: str = field(default_factory=_now)
     updated: str = field(default_factory=_now)
@@ -343,8 +425,8 @@ class Comment:
         }
         if self.resolved_source is not None:
             d["resolved_source"] = self.resolved_source.to_dict()
-        if self.snippet is not None:
-            d["snippet"] = self.snippet
+        if self.source_selector is not None:
+            d["source_selector"] = self.source_selector.to_dict()
         if self.suggestion is not None:
             d["suggestion"] = self.suggestion.to_dict()
         if self.stale:
@@ -353,62 +435,65 @@ class Comment:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "Comment":
-        rs = d.get("resolved_source")
-        sugg = d.get("suggestion")
         return cls(
             id=str(d["id"]),
             anchor=anchor_from_dict(d["anchor"]),
-            thread=[ThreadEntry.from_dict(e) for e in d.get("thread", [])],
-            status=d.get("status", "open"),  # type: ignore[arg-type]
-            resolved_source=ResolvedSource.from_dict(rs) if rs else None,
-            snippet=d.get("snippet"),
-            suggestion=SuggestedEdit.from_dict(sugg) if sugg else None,
-            created=str(d.get("created", _now())),
-            updated=str(d.get("updated", _now())),
-            stale=bool(d.get("stale", False)),
+            thread=[ThreadEntry.from_dict(e) for e in d["thread"]],
+            status=d["status"],  # type: ignore[arg-type]
+            resolved_source=(
+                ResolvedSource.from_dict(d["resolved_source"])
+                if "resolved_source" in d
+                else None
+            ),
+            source_selector=(
+                SourceSelector.from_dict(d["source_selector"])
+                if "source_selector" in d
+                else None
+            ),
+            suggestion=(
+                SuggestedEdit.from_dict(d["suggestion"])
+                if "suggestion" in d
+                else None
+            ),
+            created=str(d["created"]),
+            updated=str(d["updated"]),
+            stale=bool(d["stale"]) if "stale" in d else False,
         )
 
 
 # ---------------------------------------------------------------------------
-# Snippet capture and fuzzy match
+# Source selector capture and reattachment
 # ---------------------------------------------------------------------------
 
 
-def capture_snippet(
+def capture_source_selector(
     file: Path, line_start: int, line_end: int, context: int = 2
-) -> str:
-    """Read source lines [line_start..line_end] +/- *context*.
-
-    Returns a string used as a content-addressed anchor for staleness
-    checks.  Empty string if the file can't be read.
-    """
+) -> SourceSelector | None:
+    """Capture selected source separately from its surrounding context."""
     try:
         lines = file.read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:
-        return ""
-    start = max(0, line_start - 1 - context)
-    end = min(len(lines), line_end + context)
-    return "\n".join(lines[start:end])
+        return None
+    if line_start < 1 or line_end < line_start or line_end > len(lines):
+        return None
+    selected_start = line_start - 1
+    return SourceSelector(
+        exact="\n".join(lines[selected_start:line_end]),
+        prefix="\n".join(lines[max(0, selected_start - context):selected_start]),
+        suffix="\n".join(lines[line_end:min(len(lines), line_end + context)]),
+    )
 
 
 def _strip_for_match(s: str) -> str:
-    """Normalize whitespace for fuzzy snippet matching."""
+    """Normalize whitespace for source and rendered-text matching."""
     return re.sub(r"\s+", " ", s).strip()
 
 
-def find_snippet(
-    snippet: str, file: Path, near_line: int | None = None
+def find_source_selector(
+    selector: SourceSelector, file: Path
 ) -> tuple[int, int] | None:
-    """Locate *snippet* in *file*, return ``(start_line, end_line)`` 1-indexed.
-
-    Tries exact match first, then whitespace-normalized match.  When
-    *near_line* is provided and the snippet appears multiple times,
-    returns the occurrence whose start line is closest to it (defends
-    against re-anchoring to a duplicate after edits move the original).
-
-    Returns None if the snippet can no longer be located.
-    """
-    if not snippet.strip():
+    """Locate one unambiguous source selector without widening its range."""
+    if not selector.exact.strip():
         return None
     try:
         text = file.read_text(encoding="utf-8", errors="replace")
@@ -420,19 +505,19 @@ def find_snippet(
     # Exact occurrences (overlapping search)
     pos = 0
     while True:
-        idx = text.find(snippet, pos)
+        idx = text.find(selector.exact, pos)
         if idx < 0:
             break
         before = text[:idx]
         start_line = before.count("\n") + 1
-        end_line = start_line + snippet.count("\n")
+        end_line = start_line + selector.exact.count("\n")
         candidates.append((start_line, end_line))
         pos = idx + 1
 
     if not candidates:
         # Whitespace-normalized fallback: line-by-line sliding window
         src_lines = text.splitlines()
-        snip_lines = snippet.splitlines()
+        snip_lines = selector.exact.splitlines()
         if not snip_lines:
             return None
         target_joined = " ".join(t for t in (_strip_for_match(line) for line in snip_lines) if t)
@@ -446,11 +531,88 @@ def find_snippet(
             if joined == target_joined:
                 candidates.append((i + 1, i + n))
 
+    if len(candidates) == 1:
+        return candidates[0]
     if not candidates:
         return None
-    if len(candidates) == 1 or near_line is None:
-        return candidates[0]
-    return min(candidates, key=lambda c: abs(c[0] - near_line))
+
+    source_lines = text.splitlines()
+    prefix_lines = selector.prefix.splitlines()
+    suffix_lines = selector.suffix.splitlines()
+    contextual: list[tuple[int, int]] = []
+    for start_line, end_line in candidates:
+        before = source_lines[max(0, start_line - 1 - len(prefix_lines)):start_line - 1]
+        after = source_lines[end_line:end_line + len(suffix_lines)]
+        prefix_matches = _strip_for_match("\n".join(before)) == _strip_for_match(selector.prefix)
+        suffix_matches = _strip_for_match("\n".join(after)) == _strip_for_match(selector.suffix)
+        if prefix_matches and suffix_matches:
+            contextual.append((start_line, end_line))
+    return contextual[0] if len(contextual) == 1 else None
+
+
+def pdf_digest(pdf_path: Path) -> str:
+    """Return the identity of the compiled PDF bytes."""
+    with pdf_path.open("rb") as handle:
+        return hashlib.file_digest(handle, "sha256").hexdigest()
+
+
+def locate_pdf_quote(
+    pdf_path: Path,
+    quote: str,
+    hint: list[PageSelection] | None = None,
+) -> list[PageSelection] | None:
+    """Find one exact rendered quote and return its per-line rectangles."""
+    import pymupdf
+
+    normalized_quote = _strip_for_match(quote)
+    if not normalized_quote:
+        return None
+
+    document = pymupdf.open(pdf_path)
+    matched_page = None
+    occurrence_count = 0
+    for page_index, page in enumerate(document):
+        normalized_page = _strip_for_match(page.get_text("text"))
+        count = normalized_page.count(normalized_quote)
+        if count:
+            occurrence_count += count
+            matched_page = page_index
+    if occurrence_count != 1 or matched_page is None:
+        if hint is None or len(hint) != 1:
+            document.close()
+            return None
+        hinted = hint[0]
+        page = document[hinted.page - 1]
+        candidates = page.search_for(normalized_quote)
+        x1, y1, x2, y2 = hinted.bbox
+        matches = [
+            rect
+            for rect in candidates
+            if rect.x1 >= x1 and rect.x0 <= x2 and rect.y1 >= y1 and rect.y0 <= y2
+        ]
+        if not matches:
+            document.close()
+            return None
+        matched_page = hinted.page - 1
+
+    page = document[matched_page]
+    if occurrence_count == 1:
+        matches = page.search_for(normalized_quote)
+    if not matches:
+        document.close()
+        return None
+    rects = [
+        (float(rect.x0), float(rect.y0), float(rect.x1), float(rect.y1))
+        for rect in matches
+    ]
+    bbox = (
+        min(rect[0] for rect in rects),
+        min(rect[1] for rect in rects),
+        max(rect[2] for rect in rects),
+        max(rect[3] for rect in rects),
+    )
+    document.close()
+    return [PageSelection(page=matched_page + 1, bbox=bbox, rects=rects)]
 
 
 # ---------------------------------------------------------------------------
@@ -458,7 +620,7 @@ def find_snippet(
 # ---------------------------------------------------------------------------
 
 
-STORE_VERSION = 1
+STORE_VERSION = 2
 
 
 class CommentStore:
@@ -507,11 +669,12 @@ class CommentStore:
                 fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
 
     def _read(self) -> dict[str, Any]:
-        try:
-            return json.loads(self.path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            logger.warning("comments: failed to read %s (%s); starting empty", self.path, exc)
-            return {"version": STORE_VERSION, "comments": []}
+        data = json.loads(self.path.read_text(encoding="utf-8"))
+        if data["version"] != STORE_VERSION:
+            raise ValueError(
+                f"unsupported comment store version {data['version']}; expected {STORE_VERSION}"
+            )
+        return data
 
     def _write(self, data: dict[str, Any]) -> None:
         # Atomic write: temp file + rename
@@ -529,7 +692,7 @@ class CommentStore:
 
     def _all(self) -> list[Comment]:
         data = self._read()
-        return [Comment.from_dict(c) for c in data.get("comments", [])]
+        return [Comment.from_dict(c) for c in data["comments"]]
 
     def _save(self, comments: Iterable[Comment]) -> None:
         self._write({
@@ -563,7 +726,7 @@ class CommentStore:
         text: str,
         author: Author = "human",
         resolved_source: ResolvedSource | None = None,
-        snippet: str | None = None,
+        source_selector: SourceSelector | None = None,
         suggestion: SuggestedEdit | None = None,
     ) -> Comment:
         now = _now()
@@ -573,7 +736,7 @@ class CommentStore:
             thread=[ThreadEntry(author=author, at=now, text=text)],
             status="open",
             resolved_source=resolved_source,
-            snippet=snippet,
+            source_selector=source_selector,
             suggestion=suggestion,
             created=now,
             updated=now,
@@ -651,12 +814,13 @@ class CommentStore:
 
     # ----- staleness -----
 
-    def check_staleness(
+    def refresh_anchors(
         self,
         watch_dir: Path,
+        pdf_path: Path,
         sections_resolver=None,
     ) -> list[str]:
-        """Re-check every open comment; mark stale ones, update line ranges.
+        """Reattach source selectors and regenerate text-selection rectangles.
 
         ``sections_resolver`` is an optional callable
         ``(title: str, label: str | None) -> ResolvedSource | None`` used
@@ -670,11 +834,12 @@ class CommentStore:
             newly_stale: list[str] = []
             changed = False
 
+            digest = pdf_digest(pdf_path)
             for c in comments:
-                if c.status != "open":
-                    continue
                 was_stale = c.stale
-                new_stale, modified = self._recheck_anchor(c, watch_dir, sections_resolver)
+                new_stale, modified = self._refresh_anchor(
+                    c, watch_dir, pdf_path, digest, sections_resolver
+                )
 
                 if new_stale != was_stale:
                     c.stale = new_stale
@@ -690,12 +855,14 @@ class CommentStore:
         return newly_stale
 
     @staticmethod
-    def _recheck_anchor(
+    def _refresh_anchor(
         c: Comment,
         watch_dir: Path,
+        pdf_path: Path,
+        digest: str,
         sections_resolver,
     ) -> tuple[bool, bool]:
-        """Re-resolve a single comment.  Returns (is_stale, modified_resolved)."""
+        """Refresh one anchor.  Returns ``(is_stale, was_modified)``."""
         kind = c.anchor.kind
 
         if kind == "paper":
@@ -716,24 +883,33 @@ class CommentStore:
                 return False, True
             return False, False
 
-        # source_range / pdf_region: use the captured snippet to relocate.
+        if kind == "area":
+            return c.anchor.pdf_digest != digest, False
+
+        # Source-backed anchors reattach only the exact selected lines.
         resolved = c.resolved_source
-        if not c.snippet or resolved is None:
-            # Can't verify without a snippet; leave alone.
-            return False, False
+        if c.source_selector is None or resolved is None:
+            return True, False
         file_path = watch_dir / resolved.file
         if not file_path.is_file():
             return True, False
-        # Prefer the match closest to the previous line range; defends
-        # against re-anchoring to a duplicate when the same snippet
-        # appears multiple times in the file.
-        located = find_snippet(c.snippet, file_path, near_line=resolved.line_start)
+        located = find_source_selector(c.source_selector, file_path)
         if located is None:
             return True, False
         ls, le = located
+        modified = False
         if (resolved.line_start, resolved.line_end) != (ls, le):
             c.resolved_source = ResolvedSource(
                 file=resolved.file, line_start=ls, line_end=le
             )
-            return False, True
-        return False, False
+            modified = True
+
+        if kind == "text_selection":
+            segments = locate_pdf_quote(pdf_path, c.anchor.quote)
+            if segments is None:
+                return True, modified
+            if c.anchor.segments != segments or c.anchor.pdf_digest != digest:
+                c.anchor.segments = segments
+                c.anchor.pdf_digest = digest
+                modified = True
+        return False, modified

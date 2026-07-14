@@ -1,4 +1,4 @@
-"""tex-mcp-web command-line interface (v0.5.0).
+"""tex-mcp-web command-line interface.
 
 Subcommands:
     serve      run the daemon (default if no subcommand)
@@ -22,6 +22,7 @@ import logging
 import sys
 
 from .config import DEFAULT_PORT, create_config, find_config, load_config
+from . import __version__
 
 
 # ---------------------------------------------------------------------------
@@ -47,7 +48,10 @@ def cmd_serve(args: argparse.Namespace) -> int:
 
     cfg = load_config(main_file=getattr(args, "main", None))
     port = args.port or cfg.port
-    print(f"tex-mcp-web v0.5.0  serving {cfg.main} at http://127.0.0.1:{port}", file=sys.stderr)
+    print(
+        f"tex-mcp-web v{__version__}  serving {cfg.main} at http://127.0.0.1:{port}",
+        file=sys.stderr,
+    )
     run_server(cfg, port=port)
     return 0
 

@@ -13,7 +13,7 @@ tex-mcp-web is deliberately *not* an editor, *not* an IDE, *not* an Overleaf clo
 tex-mcp-web is a **substrate** for the agentic-first writing workflow:
 
 - A **live PDF preview** the human can watch and gesture at.
-- A **comment queue** anchored to PDF regions, sections, source ranges, or the paper as a whole.
+- A **comment queue** anchored to PDF text, visual areas, sections, source ranges, or the paper as a whole.
 - A **structured-error compile oracle** the agent calls when it wants ground truth.
 
 That's it. Three responsibilities. Anything that re-implements something the agent does well (file parsing, log analysis, semantic understanding) was deliberately removed.
@@ -26,7 +26,8 @@ Requires Python 3.10+ and `latexmk` (or `pdflatex`/`xelatex`/`lualatex`/`pandoc`
 pip install "tex-mcp-web[mcp] @ git+https://github.com/MiiKiyoshi/tex-mcp-web"
 ```
 
-The `[mcp]` extra adds the MCP server for Claude Code; `[image]` adds PDF-region rendering (pymupdf). Plain `tex-mcp-web @ git+...` installs the web viewer only.
+The `[mcp]` extra adds the MCP server for Claude Code. PyMuPDF is a core
+dependency because text anchors are relocated in every new PDF after compilation.
 
 ## Quick start
 
@@ -39,8 +40,7 @@ tex-web                            # starts the daemon at http://localhost:8765
 In the browser:
 
 - The PDF appears on the left, the comments sidebar on the right.
-- **Select text in the PDF** to anchor a comment to that region. SyncTeX maps the selection back to a source line range automatically.
-- **Shift-click-drag** to draw a rectangle around any region (figures, equations, whitespace) where text selection doesn't reach. Same `pdf_region` anchor; the agent can render exactly that region with `image(comment_id=...)`.
+- **Select text in the PDF** and use the selection menu to comment. EmbedPDF returns glyph positions, exact text, and per-line rectangles; official `synctex edit` maps every visual line back to one source range.
 - **Suggest a rewrite** alongside any comment: the compose dialog has an optional `{old, new}` block. When you select text first, "old" pre-fills with the selected text, so you only type the replacement. The agent gets a structured edit it can apply directly.
 - **"+ Note"** in the top bar for a paper-level comment ("the abstract is too long").
 - **Sections tab** is the table of contents: numbered headings, click to jump, **"+ comment"** for section-level comments.
@@ -102,13 +102,14 @@ Claude: audit(focus="math")               # guidance primer
 
 ## Comment anchors
 
-Four kinds, with different staleness behavior:
+Five kinds, with different staleness behavior:
 
 | Anchor | Use when | Staleness handling |
 |---|---|---|
-| `pdf_region` | Reading the PDF and pointing at a paragraph. | SyncTeX resolves to source; a content snippet is captured; if Claude rewrites that region, the snippet match fails and the comment is flagged `STALE`. |
+| `text_selection` | Reading the PDF and selecting rendered text. | Stores the exact quote, glyph range, page rectangles, PDF digest, and exact source selector. Recompilation reattaches the source and regenerates rectangles from the new PDF. |
+| `area` | Pointing at a figure, equation, or whitespace. | Coordinate-only and bound to one PDF digest. A new compile marks it stale. |
 | `section` | "Expand the methods section." | Resolved by section title or `\label{...}`. Stale only if the section is removed or renamed. |
-| `source_range` | When the agent already knows the lines (most common from MCP). | Snippet-matched, like `pdf_region`. |
+| `source_range` | When the agent already knows the lines (most common from MCP). | Exact selected lines are matched separately from prefix and suffix context, so reattachment never widens the range. |
 | `paper` | Global note about the paper. | Never stale. |
 
 ## CLI
@@ -141,6 +142,13 @@ port: 8765
 `tex-mcp-web init` scaffolds this; `tex-mcp-web config <key> <value>` edits it.
 
 Comments live in `.tex-mcp-web/comments.json`. `git add` it to keep your review history with the paper.
+
+The browser viewer is self-contained. EmbedPDF 2.14.4 runtime files are vendored in
+`tex_mcp_web/static/embedpdf/`. The viewer uses the direct PDFium engine because the
+worker engine does not complete initialization in the supported Firefox environment.
+The default stamp manifests are empty, so the viewer does not fetch runtime assets
+from a CDN. The full-page preview and visible tiles render at a minimum device-pixel
+ratio of 1.5 so DPR 1 displays do not show one-raster-pixel-per-CSS-pixel text.
 
 ## License
 

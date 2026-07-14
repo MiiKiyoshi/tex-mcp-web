@@ -135,7 +135,7 @@ async def test_create_section_anchor_resolves_to_source(client):
 
 
 @pytest.mark.asyncio
-async def test_create_source_range_anchor_captures_snippet(client):
+async def test_create_source_range_anchor_captures_exact_selector(client):
     tc, _ = client
     resp = await tc.post(
         "/comments",
@@ -146,8 +146,9 @@ async def test_create_source_range_anchor_captures_snippet(client):
     )
     assert resp.status == 201
     data = await resp.json()
-    assert data["snippet"]
-    assert "ref1" in data["snippet"]
+    assert data["source_selector"]["exact"] == "Some prose with \\cite{ref1}."
+    assert "ref1" not in data["source_selector"]["prefix"]
+    assert "ref1" not in data["source_selector"]["suffix"]
 
 
 @pytest.mark.asyncio
@@ -307,6 +308,8 @@ async def client_with_pdf(project: Path):
         output_file=pdf_path,
         timestamp=datetime.now(timezone.utc),
     )
+    from tex_mcp_web.comments import pdf_digest
+    server.pdf_digest = pdf_digest(pdf_path)
 
     test_server = TestServer(server.app)
     test_client = TestClient(test_server)
@@ -352,13 +355,17 @@ async def test_image_invalid_bbox(client_with_pdf):
 
 
 @pytest.mark.asyncio
-async def test_image_comment_with_pdf_region(client_with_pdf):
-    """A pdf_region comment should be renderable via comment_id."""
-    tc, _ = client_with_pdf
+async def test_image_comment_with_area_anchor(client_with_pdf):
+    tc, server = client_with_pdf
     resp = await tc.post(
         "/comments",
         json={
-            "anchor": {"kind": "pdf_region", "page": 1, "bbox": [60, 60, 200, 100]},
+            "anchor": {
+                "kind": "area",
+                "page": 1,
+                "bbox": [60, 60, 200, 100],
+                "pdf_digest": server.pdf_digest,
+            },
             "text": "look at this",
         },
     )
@@ -367,6 +374,70 @@ async def test_image_comment_with_pdf_region(client_with_pdf):
     assert resp.status == 200
     body = await resp.read()
     assert body.startswith(b"\x89PNG\r\n\x1a\n")
+
+
+@pytest.mark.asyncio
+async def test_text_selection_is_verified_and_resolved_as_a_range(
+    client_with_pdf, monkeypatch
+):
+    from tex_mcp_web.synctex import SourceRangePosition
+
+    tc, server = client_with_pdf
+    monkeypatch.setattr(
+        "tex_mcp_web.server.selection_to_source",
+        lambda **kwargs: SourceRangePosition("paper.tex", 5, 5),
+    )
+    resp = await tc.post(
+        "/comments",
+        json={
+            "anchor": {
+                "kind": "text_selection",
+                "quote": "Page 1",
+                "segments": [{
+                    "page": 1,
+                    "bbox": [70, 60, 110, 80],
+                    "rects": [[70, 60, 110, 80]],
+                }],
+                "start": {"page": 1, "index": 0},
+                "end": {"page": 1, "index": 6},
+                "pdf_digest": server.pdf_digest,
+            },
+            "text": "review this text",
+        },
+    )
+    assert resp.status == 201
+    data = await resp.json()
+    assert data["resolved_source"] == {
+        "file": "paper.tex",
+        "line_start": 5,
+        "line_end": 5,
+    }
+    assert data["source_selector"]["exact"] == "Some prose with \\cite{ref1}."
+    assert data["anchor"]["segments"][0]["rects"]
+
+
+@pytest.mark.asyncio
+async def test_text_selection_rejects_old_pdf_digest(client_with_pdf):
+    tc, _ = client_with_pdf
+    resp = await tc.post(
+        "/comments",
+        json={
+            "anchor": {
+                "kind": "text_selection",
+                "quote": "Page 1",
+                "segments": [{
+                    "page": 1,
+                    "bbox": [70, 60, 110, 80],
+                    "rects": [[70, 60, 110, 80]],
+                }],
+                "start": {"page": 1, "index": 0},
+                "end": {"page": 1, "index": 6},
+                "pdf_digest": "old",
+            },
+            "text": "review this text",
+        },
+    )
+    assert resp.status == 409
 
 
 @pytest.mark.asyncio
