@@ -1,0 +1,5 @@
+main: main.tex
+watch: ["*.tex"]
+ignore: []
+compiler: latexmk
+port: 8876

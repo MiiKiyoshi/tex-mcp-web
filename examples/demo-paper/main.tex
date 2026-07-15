@@ -1,0 +1,65 @@
+\documentclass[10pt]{article}
+
+\usepackage[margin=0.85in]{geometry}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{microtype}
+
+\title{A Small Demonstration of Agent-Assisted Paper Revision}
+\author{Demo Research Group}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This fictional paper demonstrates a review loop in which a reader comments on
+the rendered PDF and a coding agent revises the underlying LaTeX source. The
+example is intentionally small, self-contained, and unrelated to any real
+submission.
+\end{abstract}
+
+\section{Introduction}
+Technical writing improves through repeated comparison between author intent
+and reader interpretation. Source-only review misses layout problems, while
+PDF-only review makes precise edits cumbersome. A useful workflow therefore
+keeps the rendered document and its source connected without turning the PDF
+viewer into a second editor.
+
+The demonstration focuses on three actions: selecting rendered text, discussing
+the selection with an agent, and checking the rebuilt PDF after a source edit.
+
+\section{Method}
+Let $q_i$ denote the clarity score of paragraph $i$. We summarize a revision by
+the average change
+\begin{equation}
+  \Delta Q = \frac{1}{N}\sum_{i=1}^{N}\left(q_i^{\mathrm{new}}-q_i^{\mathrm{old}}\right).
+\end{equation}
+The quantity is illustrative; the demo does not claim that writing quality can
+be reduced to one metric. Its purpose is to give the PDF a realistic equation,
+table, and multi-section structure for interface screenshots.
+
+\begin{table}[h]
+  \centering
+  \caption{Fictional revision outcomes used in the demonstration.}
+  \begin{tabular}{lcc}
+    \toprule
+    Revision & Comments addressed & Build status \\
+    \midrule
+    Initial pass & 2 & Success \\
+    Follow-up pass & 1 & Success \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\section{Discussion}
+The reader remains in control of the paper. The agent receives the selected
+quote and the written comment, inspects nearby source, proposes or applies an
+edit, compiles the document, and records what changed. Additional comments can
+challenge the edit or ask for another revision.
+
+\section{Conclusion}
+The demo provides a neutral document for trying tex-mcp-web without exposing a
+real manuscript. It also makes the README screenshots reproducible.
+
+\end{document}
