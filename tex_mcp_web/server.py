@@ -7,7 +7,7 @@ Single paper, no workspace abstraction.  Three responsibilities:
 3. Expose a JSON API for comments, paper state, errors, and SyncTeX
    resolution (used by the browser viewer and the MCP server).
 
-There is no editor.  The human writes comments; Claude Code edits files
+There is no editor. The human writes comments; the coding agent edits files
 through its own tools (Edit/Write) and the watcher picks up the changes.
 """
 
@@ -160,7 +160,7 @@ def structure_to_dict(
     """JSON-serializable view of :class:`DocumentStructure`.
 
     Sections only — labels / citations / inputs are deliberately omitted;
-    Claude Code can ``Grep`` for those better than our regex.
+    The coding agent can search those directly.
     """
     sections: list[dict[str, Any]] = []
     for s in structure.sections:
@@ -484,7 +484,7 @@ class TexMcpWebServer:
         comment = self.comments.add(
             anchor=anchor,
             text=text,
-            author=data["author"] if "author" in data else "human",
+            author="human",
             resolved_source=resolved,
             source_selector=source_selector,
             suggestion=suggestion,
@@ -555,7 +555,7 @@ class TexMcpWebServer:
             lambda: self.comments.reply(
                 cid,
                 text=text,
-                author=data.get("author", "human"),
+                author="human",
                 edits=data.get("edits") or [],
             ),
         )
@@ -574,7 +574,7 @@ class TexMcpWebServer:
                 cid,
                 summary=summary,
                 edits=data.get("edits") or [],
-                author=data.get("author", "claude"),
+                author="human",
             ),
         )
 
@@ -589,7 +589,7 @@ class TexMcpWebServer:
         return await self._mutate_comment(
             cid,
             lambda: self.comments.dismiss(
-                cid, reason=reason, author=data.get("author", "human")
+                cid, reason=reason, author="human"
             ),
         )
 

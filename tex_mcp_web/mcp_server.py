@@ -16,23 +16,74 @@ reattachment, and viewer notification remain one transaction.
 Requires: pip install "mcp>=1.0"  (and httpx for goto)
 """
 
-from __future__ import annotations
-
 import asyncio
 import json
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any, Literal
 
 from .config import DEFAULT_PORT
 
 try:
     from mcp.server.fastmcp import FastMCP
     from mcp.types import ImageContent, TextContent
+    from pydantic import BaseModel, ConfigDict, Field, model_validator
 
     HAS_MCP = True
 except ImportError:
     HAS_MCP = False
+
+
+if HAS_MCP:
+    class _InputModel(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+
+
+    class PaperAnchorInput(_InputModel):
+        kind: Literal["paper"]
+
+
+    class SectionAnchorInput(_InputModel):
+        kind: Literal["section"]
+        title: Annotated[str, Field(min_length=1)]
+        label: str | None = None
+
+
+    class SourceRangeAnchorInput(_InputModel):
+        kind: Literal["source_range"]
+        file: Annotated[str, Field(min_length=1)]
+        line_start: Annotated[int, Field(ge=1)]
+        line_end: Annotated[int, Field(ge=1)]
+
+        @model_validator(mode="after")
+        def validate_range(self):
+            if self.line_end < self.line_start:
+                raise ValueError("line_end must be at least line_start")
+            return self
+
+
+    class AreaAnchorInput(_InputModel):
+        kind: Literal["area"]
+        page: Annotated[int, Field(ge=1)]
+        bbox: tuple[float, float, float, float]
+
+        @model_validator(mode="after")
+        def validate_bbox(self):
+            x1, y1, x2, y2 = self.bbox
+            if x2 <= x1 or y2 <= y1:
+                raise ValueError("bbox must have positive width and height")
+            return self
+
+
+    CommentAnchorInput = Annotated[
+        PaperAnchorInput | SectionAnchorInput | SourceRangeAnchorInput | AreaAnchorInput,
+        Field(discriminator="kind"),
+    ]
+
+
+    class SuggestedEditInput(_InputModel):
+        old: str
+        new: str
 
 
 # ---------------------------------------------------------------------------
@@ -147,9 +198,8 @@ def _comment_add(
     cfg,
     watch_dir: Path,
     text: str | None,
-    anchor: dict[str, Any] | None,
-    author: str,
-    suggestion: dict[str, Any] | None = None,
+    anchor: "CommentAnchorInput | None",
+    suggestion: "SuggestedEditInput | None" = None,
 ) -> str:
     """Implementation of ``comment(action="add", ...)``.
 
@@ -173,13 +223,13 @@ def _comment_add(
 
     resolved: ResolvedSource | None = None
     source_selector = None
-    kind = anchor["kind"]
-    anchor_data = dict(anchor)
+    anchor_data = anchor.model_dump(exclude_none=True)
+    kind = anchor_data["kind"]
 
     if kind == "source_range":
-        file = anchor["file"]
-        ls = int(anchor["line_start"])
-        le = int(anchor["line_end"])
+        file = anchor_data["file"]
+        ls = int(anchor_data["line_start"])
+        le = int(anchor_data["line_end"])
         source_selector = capture_source_selector(watch_dir / file, ls, le)
         if source_selector is None:
             return _err("source_range does not identify readable source lines")
@@ -188,8 +238,8 @@ def _comment_add(
         resolved = resolve_section_to_source(
             parse_structure(watch_dir, get_main_file(cfg)),
             watch_dir,
-            anchor["title"],
-            anchor["label"] if "label" in anchor else None,
+            anchor_data["title"],
+            anchor_data["label"] if "label" in anchor_data else None,
         )
     elif kind == "area":
         pdf_path = get_main_file(cfg).with_suffix(".pdf")
@@ -204,10 +254,12 @@ def _comment_add(
     comment = store.add(
         anchor=a,
         text=text,
-        author=author,
+        author="agent",
         resolved_source=resolved,
         source_selector=source_selector,
-        suggestion=_suggestion_from_dict(suggestion),
+        suggestion=_suggestion_from_dict(
+            suggestion.model_dump() if suggestion is not None else None
+        ),
     )
     return _ok(_agent_comment_to_dict(comment))
 
@@ -219,29 +271,23 @@ def _comment_add(
 
 def create_server(daemon_port: int = DEFAULT_PORT) -> "FastMCP":
     _check_deps()
-    mcp = FastMCP("tex-mcp-web")
+    mcp = FastMCP(
+        "tex-mcp-web",
+        instructions=(
+            "Read the open queue with paper(). A text comment's quote is the "
+            "source-search key. Use image() only for rendered evidence. After "
+            "source edits, call compile(); verify visual changes with image() "
+            "before resolving the comment."
+        ),
+    )
 
     @mcp.tool()
     async def paper(
         include_comments: bool = True,
-        comments_status: str = "open",
+        comments_status: Literal["open", "resolved", "dismissed", "all"] = "open",
     ) -> str:
-        """The "what does my paper look like right now" oracle.
-
-        Returns:
-          - main_file, watch_dir
-          - sections (with title, label, file, line, line_end)
-          - pdf (path + whether it exists)
-          - comments[] (compact actionable comment views)
-
-        Section parsing is deliberately the only structure we hand back;
-        for labels, citations, and \\input refs, use ``Grep``.
-
-        Args:
-            include_comments: if False, the ``comments`` field is omitted
-                (useful when you only need orientation, not the queue).
-            comments_status: ``"open"`` (default), ``"resolved"``,
-                ``"dismissed"``, or ``"all"``.
+        """Return the main file, PDF path, section source ranges, and optionally
+        comments filtered by status. Other TeX structure is intentionally omitted.
         """
         from .config import get_main_file
         from .server import structure_to_dict
@@ -273,11 +319,9 @@ def create_server(daemon_port: int = DEFAULT_PORT) -> "FastMCP":
 
     @mcp.tool()
     async def compile() -> str:
-        """Ask the daemon to recompile the paper. Returns structured errors,
-        warnings, and changed PDF pages.
-
-        Use after editing source: read the structured errors instead of
-        re-reading the full latexmk log.
+        """Compile through the running daemon and return structured errors,
+        warnings, and ``pages_changed``. That field compares extracted PDF text;
+        it excludes visual-only changes.
         """
         try:
             import httpx
@@ -299,61 +343,42 @@ def create_server(daemon_port: int = DEFAULT_PORT) -> "FastMCP":
 
     @mcp.tool()
     async def comment(
-        action: str,
+        action: Literal["add", "reply", "resolve", "dismiss", "delete"],
         id: str | None = None,
         text: str | None = None,
-        anchor: dict[str, Any] | None = None,
+        anchor: CommentAnchorInput | None = None,
         summary: str | None = None,
         reason: str | None = None,
         edits: list[str] | None = None,
-        suggestion: dict[str, str] | None = None,
-        author: str = "claude",
+        suggestion: SuggestedEditInput | None = None,
     ) -> str:
         """Mutate a comment.
 
-        Actions:
-          - add:     create new comment.   Required: text + anchor.
-          - reply:   append a thread entry.  Required: id + text.
-          - resolve: mark resolved.          Required: id + summary.
-          - dismiss: mark dismissed.         Required: id + reason.
-          - delete:  permanently remove.     Required: id.
-        Anchor formats (only for add):
-          {"kind": "paper"}
-          {"kind": "section", "title": "Methods", "label": "sec:methods"}
-          {"kind": "source_range", "file": "intro.tex", "line_start": 42, "line_end": 58}
-          {"kind": "area", "page": 3, "bbox": [x1, y1, x2, y2]}
-
-        Optional ``suggestion={"old": "...", "new": "..."}`` (add only):
-        a structured rewrite the agent can apply directly instead of
-        parsing prose.  Use it when the comment proposes a concrete
-        edit; leave it off for open-ended discussion ("expand this").
-
-        Edits is an optional list of strings describing what changed
-        when resolving: ["intro.tex:42-58 -> :42-78"].
-
-        To list the comment queue, call ``paper()`` (which
-        returns comments by default).
+        ``add`` requires text and anchor; ``reply`` requires id and text;
+        ``resolve`` requires id and summary; ``dismiss`` requires id and reason;
+        ``delete`` requires id. ``suggestion`` is an add-only rewrite, while
+        ``edits`` records changed source ranges on reply or resolve.
         """
         cfg, watch_dir, store = _load_project()
         try:
             if action == "add":
-                return _comment_add(store, cfg, watch_dir, text, anchor, author, suggestion)
+                return _comment_add(store, cfg, watch_dir, text, anchor, suggestion)
             if action == "reply":
                 if not id or not text:
                     return _err("reply requires id and text")
-                updated = store.reply(id, text=text, author=author, edits=edits or [])
+                updated = store.reply(id, text=text, author="agent", edits=edits or [])
                 return _ok(_agent_comment_to_dict(updated))
             if action == "resolve":
                 if not id or not summary:
                     return _err("resolve requires id and summary")
                 updated = store.resolve(
-                    id, summary=summary, edits=edits or [], author=author
+                    id, summary=summary, edits=edits or [], author="agent"
                 )
                 return _ok(_agent_comment_to_dict(updated))
             if action == "dismiss":
                 if not id or not reason:
                     return _err("dismiss requires id and reason")
-                updated = store.dismiss(id, reason=reason, author=author)
+                updated = store.dismiss(id, reason=reason, author="agent")
                 return _ok(_agent_comment_to_dict(updated))
             if action == "delete":
                 if not id:
@@ -367,38 +392,22 @@ def create_server(daemon_port: int = DEFAULT_PORT) -> "FastMCP":
 
     @mcp.tool()
     async def image(
-        page: int | None = None,
-        bbox: list[float] | None = None,
-        source: str | None = None,
+        page: Annotated[int, Field(ge=1)] | None = None,
+        bbox: tuple[float, float, float, float] | None = None,
+        source: Annotated[
+            str, Field(pattern=r"^.+:\d+(?:-\d+)?$")
+        ] | None = None,
         comment_id: str | None = None,
         dpi: int = 150,
-        margin: float = 12.0,
+        margin: Annotated[float, Field(ge=0)] = 12.0,
     ) -> list[ImageContent | TextContent]:
-        """Render a PDF region as PNG and return it for visual analysis.
+        """Render one PDF target as PNG.
 
-        Use exactly one of:
-          page=N                         full page
-          page=N + bbox=[x1,y1,x2,y2]    region in PDF points
-          source="file.tex:lstart-lend"  SyncTeX-resolved region
-          comment_id="c-..."             the region a comment is anchored to
-
-        Returns ImageContent (base64 PNG) plus a JSON line with the
-        rendered page/bbox/dpi/margin/grayscale.  The stored bbox is exact;
-        margin expands it in PDF points only while rendering.  Use zero for
-        the exact bbox or a larger value for more surrounding context.
-        Output that would overflow the MCP size cap switches to grayscale
-        at the same resolution, then lowers DPI.
-
-        Division of labor with the text tools:
-          - Text comments already return the selected quote. Locate it with
-            ``rg`` and read the surrounding source lines before editing.
-          - Use image() for what only rendering shows: figure/table
-            layout, equation typesetting, overfull boxes, or verifying
-            a fix looks right.  Region crops are cheap (~100-200
-            tokens); don't hesitate when the question is visual.
-          - Full pages auto-fit to a low-DPI thumbnail — good for
-            layout overview, not for reading text.  To read, crop
-            (bbox / source / comment_id) at the default dpi.
+        Choose exactly one of page (with optional bbox),
+        source="file.tex:lstart-lend", or comment_id. Margin expands an exact
+        bbox only while rendering. A multi-page source range renders the page
+        with the most SyncTeX matches. The metadata reports any grayscale or
+        DPI reduction applied to fit the response size limit.
         """
         import base64
 
@@ -487,17 +496,10 @@ def create_server(daemon_port: int = DEFAULT_PORT) -> "FastMCP":
         include_image: bool = False,
         dpi: int = 150,
     ) -> list[ImageContent | TextContent]:
-        """Return one section's source and scoped comments, with an optional image.
-
-        *name* matches the section title (case-insensitive) or a
-        ``\\label{...}`` value.  Returns:
-
-          - JSON with the section metadata, the verbatim source slice,
-            and any open comments anchored within the section's lines.
-          - Optionally an ImageContent of the rendered section.
-
-        Use this when zooming in on one section instead of the whole paper.
-        Rendering is opt-in because source text answers non-visual questions.
+        """Return one section's unexpanded source slice and its open section or
+        source-range comments. Name matches a title or label. ``include_image``
+        adds one crop from the page with the most SyncTeX matches, not an entire
+        multi-page section.
         """
         import base64
 
@@ -570,9 +572,10 @@ def create_server(daemon_port: int = DEFAULT_PORT) -> "FastMCP":
                     resolved.line_end,
                 ) if synctex else None
                 if pair is None:
-                    return [TextContent(type="text", text=_err(
+                    results.append(TextContent(type="text", text=_err(
                         "section image requested but SyncTeX has no PDF coverage"
-                    ))]
+                    )))
+                    return results
                 page, bbox = pair
                 try:
                     png = await asyncio.to_thread(
@@ -580,27 +583,26 @@ def create_server(daemon_port: int = DEFAULT_PORT) -> "FastMCP":
                         pdf_path, page, bbox, _clamp_dpi(dpi),
                     )
                 except imaging.ImagingError as exc:
-                    return [TextContent(type="text", text=_err(str(exc)))]
+                    results.append(TextContent(type="text", text=_err(str(exc))))
+                    return results
                 results.append(ImageContent(
                     type="image",
                     data=base64.b64encode(png).decode("ascii"),
                     mimeType="image/png",
                 ))
             else:
-                return [TextContent(type="text", text=_err(
+                results.append(TextContent(type="text", text=_err(
                     "section image requested but no PDF exists"
-                ))]
+                )))
+                return results
 
         return results
 
     @mcp.tool()
-    async def goto(target: str, port: int = daemon_port) -> str:
-        """Tell a running daemon to scroll the viewer to a target.
-
-        target: a section title, exact rendered quote, "pN" (page),
-        file:line, or just N (line in main file). Exact quotes receive a
-        transient highlight in the viewer.
-        Requires the tex-mcp-web server to be running.
+    async def goto(target: Annotated[str, Field(min_length=1)]) -> str:
+        """Scroll the running viewer to a section title, label, exact PDF quote,
+        ``pN``, ``file:line``, or a line number in the main file. Positioned
+        targets remain highlighted until the next pointer action.
         """
         try:
             import httpx
@@ -611,10 +613,12 @@ def create_server(daemon_port: int = DEFAULT_PORT) -> "FastMCP":
         body = parse_goto_target(target, default_file=cfg.main)
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.post(f"http://127.0.0.1:{port}/goto", json=body)
+                resp = await client.post(
+                    f"http://127.0.0.1:{daemon_port}/goto", json=body
+                )
                 return resp.text
         except Exception as exc:
-            return _err(f"daemon at port {port} not reachable: {exc}")
+            return _err(f"daemon at port {daemon_port} not reachable: {exc}")
 
     return mcp
 

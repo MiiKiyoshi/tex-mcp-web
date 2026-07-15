@@ -7,6 +7,7 @@ HTTP API directly, and check that comments + paper state plumbing works.
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 
 import fitz
@@ -137,6 +138,7 @@ async def test_create_paper_anchor_comment(client):
     data = await resp.json()
     assert data["status"] == "open"
     assert data["anchor"] == {"kind": "paper"}
+    assert data["thread"][0]["author"] == "human"
     assert data["thread"][0]["text"] == "abstract is too long"
     cid = data["id"]
 
@@ -194,6 +196,7 @@ async def test_resolve_comment(client):
     assert resp.status == 200
     data = await resp.json()
     assert data["status"] == "resolved"
+    assert data["thread"][-1]["author"] == "human"
     assert data["thread"][-1]["edits"] == ["paper.tex:1-10"]
 
 
@@ -391,6 +394,83 @@ async def test_goto_unmatched_section_falls_back_to_pdf_quote(client_with_pdf):
     data = await resp.json()
     assert data["page"] == 2
     assert data["quote"] == "Page 2"
+
+
+@pytest.mark.asyncio
+async def test_mcp_contract_is_typed_and_nonduplicative():
+    pytest.importorskip("mcp")
+    from tex_mcp_web.mcp_server import create_server
+
+    mcp = create_server()
+    tools = {tool.name: tool for tool in await mcp.list_tools()}
+
+    assert set(tools) == {"paper", "compile", "comment", "image", "section", "goto"}
+    assert mcp.instructions == (
+        "Read the open queue with paper(). A text comment's quote is the "
+        "source-search key. Use image() only for rendered evidence. After "
+        "source edits, call compile(); verify visual changes with image() "
+        "before resolving the comment."
+    )
+
+    descriptions = "\n".join(tool.description or "" for tool in tools.values())
+    assert "source-search key" not in descriptions
+    assert "only for rendered evidence" not in descriptions
+    assert "100-200" not in descriptions
+
+    paper_schema = tools["paper"].inputSchema
+    assert paper_schema["properties"]["comments_status"]["enum"] == [
+        "open", "resolved", "dismissed", "all"
+    ]
+
+    comment_schema = tools["comment"].inputSchema
+    assert comment_schema["properties"]["action"]["enum"] == [
+        "add", "reply", "resolve", "dismiss", "delete"
+    ]
+    anchor_schema = comment_schema["properties"]["anchor"]["anyOf"][0]
+    assert set(anchor_schema["discriminator"]["mapping"]) == {
+        "paper", "section", "source_range", "area"
+    }
+    assert "author" not in comment_schema["properties"]
+
+    image_schema = tools["image"].inputSchema["properties"]
+    assert image_schema["page"]["anyOf"][0]["minimum"] == 1
+    assert image_schema["bbox"]["anyOf"][0]["minItems"] == 4
+    assert image_schema["bbox"]["anyOf"][0]["maxItems"] == 4
+    assert image_schema["margin"]["minimum"] == 0
+
+    assert set(tools["goto"].inputSchema["properties"]) == {"target"}
+
+
+@pytest.mark.asyncio
+async def test_mcp_comment_and_section_runtime_contract(project, monkeypatch):
+    pytest.importorskip("mcp")
+    from tex_mcp_web.mcp_server import create_server
+
+    (project / ".tex-mcp-web.yaml").write_text("main: paper.tex\n")
+    monkeypatch.chdir(project)
+    mcp = create_server()
+
+    added = await mcp.call_tool(
+        "comment",
+        {
+            "action": "add",
+            "text": "review this",
+            "anchor": {"kind": "paper"},
+        },
+    )
+    comment = json.loads(added[0][0].text)
+    stored = json.loads((project / ".tex-mcp-web" / "comments.json").read_text())
+    assert stored["version"] == 5
+    assert stored["comments"][0]["thread"][0]["author"] == "agent"
+    assert comment["comment"] == "review this"
+
+    section = await mcp.call_tool(
+        "section", {"name": "Methods", "include_image": True}
+    )
+    assert json.loads(section[0][0].text)["section"]["file"] == "paper.tex"
+    assert json.loads(section[0][1].text) == {
+        "error": "section image requested but no PDF exists"
+    }
 
 
 @pytest.mark.asyncio

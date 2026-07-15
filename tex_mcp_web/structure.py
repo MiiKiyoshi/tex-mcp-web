@@ -1,7 +1,7 @@
 """LaTeX section parsing for SectionAnchor resolution.
 
 tex-mcp-web v0.5.0 deliberately does *not* parse labels, citations, or
-``\\input``/``\\include`` references.  The agent (Claude Code) can grep
+``\\input``/``\\include`` references. The coding agent can search
 for those itself with semantic understanding we can't match in regex.
 The only thing we keep is section parsing, because it's load-bearing
 for ``SectionAnchor`` staleness — given a section title or label, we

@@ -252,7 +252,7 @@ textarea {
   border-left: 2px solid var(--border);
   padding-left: 0.5rem;
 }
-.thread-entry.author-claude { border-left-color: var(--accent); }
+.thread-entry.author-agent { border-left-color: var(--accent); }
 .thread-entry.author-human { border-left-color: var(--ok); }
 .thread-meta {
   font-size: 0.75rem;

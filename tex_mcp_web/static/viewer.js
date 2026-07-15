@@ -305,7 +305,7 @@ async function submitCompose(event) {
   event.preventDefault();
   const text = $("#compose-text").value.trim();
   if (!text || !state.pendingAnchor) return;
-  const body = { anchor: state.pendingAnchor, text, author: "human" };
+  const body = { anchor: state.pendingAnchor, text };
   const suggestionOld = $("#compose-suggestion-old").value.trim();
   const suggestionNew = $("#compose-suggestion-new").value.trim();
   if (suggestionOld && suggestionNew) body.suggestion = { old: suggestionOld, new: suggestionNew };
@@ -453,7 +453,7 @@ function renderActiveForm(comment) {
     const text = textarea.value.trim();
     if (!text) return;
     state.activeForm = null;
-    doMutation(comment.id, mode, { author: "human", [config.key]: text });
+    doMutation(comment.id, mode, { [config.key]: text });
   };
   textarea.addEventListener("keydown", (event) => {
     if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {

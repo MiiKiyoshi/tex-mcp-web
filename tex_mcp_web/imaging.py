@@ -1,7 +1,7 @@
 """PDF page / region rendering via pymupdf.
 
 Used by the ``/image`` HTTP endpoint and the ``image`` MCP tool
-to give Claude a visual on the rendered output.  Rendering is the one
+to give the coding agent a visual on the rendered output. Rendering is the one
 job the agent genuinely can't do for itself: PDF rendering nuances
 (figure placement, equation typesetting, overfull-box wrap, table
 spacing) only show up in the actual PDF.
