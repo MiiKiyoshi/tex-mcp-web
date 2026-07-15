@@ -275,9 +275,8 @@ def create_server(daemon_port: int = DEFAULT_PORT) -> "FastMCP":
         "tex-mcp-web",
         instructions=(
             "Read the open queue with paper(). A text comment's quote is the "
-            "source-search key. Use image() only for rendered evidence. After "
-            "source edits, call compile(); verify visual changes with image() "
-            "before resolving the comment."
+            "source-search key. Use image() only for rendered evidence before "
+            "resolving the comment."
         ),
     )
 
@@ -319,9 +318,11 @@ def create_server(daemon_port: int = DEFAULT_PORT) -> "FastMCP":
 
     @mcp.tool()
     async def compile() -> str:
-        """Compile through the running daemon and return structured errors,
-        warnings, and ``pages_changed``. That field compares extracted PDF text;
-        it excludes visual-only changes.
+        """Request a manual compile through the running daemon and return
+        structured errors, warnings, and ``pages_changed``. Source edits are
+        compiled by the daemon watcher; this tool is reserved for an explicit
+        user request. ``pages_changed`` compares extracted PDF text and excludes
+        visual-only changes.
         """
         try:
             import httpx
@@ -419,7 +420,7 @@ def create_server(daemon_port: int = DEFAULT_PORT) -> "FastMCP":
         pdf_path = get_main_file(cfg).with_suffix(".pdf")
         if not pdf_path.exists():
             return [TextContent(type="text",
-                text=_err("no PDF on disk; run compile() first"))]
+                text=_err("no PDF on disk; start tex-web and wait for its initial compile"))]
 
         parsed_bbox: tuple[float, float, float, float] | None = None
         if bbox is not None:

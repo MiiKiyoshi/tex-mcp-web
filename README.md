@@ -4,7 +4,7 @@ Review a LaTeX paper from its rendered PDF while Claude Code or Codex edits the 
 
 ![A highlighted PDF comment and an agent reply in tex-mcp-web](docs/images/discussion.png)
 
-You read the PDF in a browser and leave comments on selected text, sections, or the whole paper. The coding agent reads those comments through MCP, edits the LaTeX source, compiles it, and records its response. The rebuilt PDF appears in the same browser.
+You read the PDF in a browser and leave comments on selected text, sections, or the whole paper. The coding agent reads those comments through MCP and edits the LaTeX source. The running web server detects the edit, rebuilds the PDF, and displays it in the same browser.
 
 ## Install
 
@@ -109,7 +109,7 @@ Then ask the agent:
 
 > Process the open tex-mcp-web comments.
 
-The agent reads the open comments and nearby source, makes the requested edits, compiles the paper, verifies the result, and only then replies to or resolves each comment. You can inspect the rebuilt PDF, reply in the same thread, or add another comment.
+The agent reads the open comments and nearby source, makes the requested edits, waits for the automatic rebuild, verifies the result, and only then replies to or resolves each comment. You can inspect the rebuilt PDF, reply in the same thread, or add another comment.
 
 Other useful requests include:
 
