@@ -1,11 +1,16 @@
 """Tests for watcher module."""
 
 import asyncio
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from tex_mcp_web.watcher import TexFileHandler, Watcher
+
+
+def make_handler(**kwargs):
+    return TexFileHandler(watch_dir=Path("/project"), **kwargs)
 
 
 class TestTexFileHandler:
@@ -14,7 +19,7 @@ class TestTexFileHandler:
     def test_matches_simple_pattern(self):
         """Test matching simple glob pattern."""
         loop = asyncio.new_event_loop()
-        handler = TexFileHandler(
+        handler = make_handler(
             watch_patterns=["*.tex"],
             ignore_patterns=[],
             callback=AsyncMock(),
@@ -23,6 +28,9 @@ class TestTexFileHandler:
 
         assert handler._matches_patterns("main.tex", ["*.tex"])
         assert handler._matches_patterns("chapter.tex", ["*.tex"])
+        assert handler._matches_patterns(
+            "/project/chapters/intro.tex", ["*.tex"]
+        )
         assert not handler._matches_patterns("main.pdf", ["*.tex"])
 
         loop.close()
@@ -30,7 +38,7 @@ class TestTexFileHandler:
     def test_matches_directory_pattern(self):
         """Test matching directory glob pattern."""
         loop = asyncio.new_event_loop()
-        handler = TexFileHandler(
+        handler = make_handler(
             watch_patterns=["sections/*.tex"],
             ignore_patterns=[],
             callback=AsyncMock(),
@@ -38,6 +46,9 @@ class TestTexFileHandler:
         )
 
         assert handler._matches_patterns("sections/intro.tex", ["sections/*.tex"])
+        assert handler._matches_patterns(
+            "/project/sections/intro.tex", ["sections/*.tex"]
+        )
         assert not handler._matches_patterns("chapters/intro.tex", ["sections/*.tex"])
 
         loop.close()
@@ -45,7 +56,7 @@ class TestTexFileHandler:
     def test_should_process_tex_file(self):
         """Test that .tex files are processed."""
         loop = asyncio.new_event_loop()
-        handler = TexFileHandler(
+        handler = make_handler(
             watch_patterns=["*.tex"],
             ignore_patterns=[],
             callback=AsyncMock(),
@@ -60,7 +71,7 @@ class TestTexFileHandler:
     def test_should_ignore_aux_files(self):
         """Test that auxiliary files are ignored."""
         loop = asyncio.new_event_loop()
-        handler = TexFileHandler(
+        handler = make_handler(
             watch_patterns=["*"],
             ignore_patterns=[],
             callback=AsyncMock(),
@@ -78,7 +89,7 @@ class TestTexFileHandler:
     def test_should_respect_ignore_patterns(self):
         """Test that ignore patterns are respected."""
         loop = asyncio.new_event_loop()
-        handler = TexFileHandler(
+        handler = make_handler(
             watch_patterns=["*.tex"],
             ignore_patterns=["*_backup.tex", "old/*"],
             callback=AsyncMock(),
@@ -91,12 +102,28 @@ class TestTexFileHandler:
 
         loop.close()
 
+    def test_should_ignore_project_relative_directory(self):
+        loop = asyncio.new_event_loop()
+        handler = make_handler(
+            watch_patterns=["*.tex"],
+            ignore_patterns=["private/**"],
+            callback=AsyncMock(),
+            loop=loop,
+        )
+
+        assert handler._should_process("/project/sections/intro.tex")
+        assert not handler._should_process("/project/private/note.tex")
+        assert not handler._should_process(
+            "/project/private/experiments/result.tex"
+        )
+
+        loop.close()
 
     def test_schedule_callback_stores_pending_path(self):
         """Test that _schedule_callback stores the path for the callback."""
         loop = asyncio.new_event_loop()
         callback = AsyncMock()
-        handler = TexFileHandler(
+        handler = make_handler(
             watch_patterns=["*.tex"],
             ignore_patterns=[],
             callback=callback,
@@ -115,7 +142,7 @@ class TestTexFileHandler:
         """Test that on_modified calls _schedule_callback with src_path."""
         loop = asyncio.new_event_loop()
         callback = AsyncMock()
-        handler = TexFileHandler(
+        handler = make_handler(
             watch_patterns=["*.tex"],
             ignore_patterns=[],
             callback=callback,
@@ -137,7 +164,7 @@ class TestTexFileHandler:
         """Test that on_created calls _schedule_callback with src_path."""
         loop = asyncio.new_event_loop()
         callback = AsyncMock()
-        handler = TexFileHandler(
+        handler = make_handler(
             watch_patterns=["*.tex"],
             ignore_patterns=[],
             callback=callback,
@@ -157,7 +184,7 @@ class TestTexFileHandler:
     def test_matches_double_star_pattern(self):
         """Test matching ** glob patterns."""
         loop = asyncio.new_event_loop()
-        handler = TexFileHandler(
+        handler = make_handler(
             watch_patterns=["**/*.tex"],
             ignore_patterns=[],
             callback=AsyncMock(),
@@ -173,7 +200,7 @@ class TestTexFileHandler:
     def test_should_process_compound_extension(self):
         """Test that compound extensions like .synctex.gz are filtered."""
         loop = asyncio.new_event_loop()
-        handler = TexFileHandler(
+        handler = make_handler(
             watch_patterns=["*"],
             ignore_patterns=[],
             callback=AsyncMock(),
@@ -188,7 +215,7 @@ class TestTexFileHandler:
     def test_should_process_no_watch_match(self):
         """Test that non-matching file returns False."""
         loop = asyncio.new_event_loop()
-        handler = TexFileHandler(
+        handler = make_handler(
             watch_patterns=["*.tex"],
             ignore_patterns=[],
             callback=AsyncMock(),
@@ -204,7 +231,7 @@ class TestTexFileHandler:
         """Test that scheduling a new callback cancels the pending one."""
         loop = asyncio.new_event_loop()
         try:
-            handler = TexFileHandler(
+            handler = make_handler(
                 watch_patterns=["*.tex"],
                 ignore_patterns=[],
                 callback=AsyncMock(),
@@ -233,7 +260,7 @@ class TestTexFileHandler:
         """Test full debounce cycle executes callback."""
         loop = asyncio.new_event_loop()
         callback = AsyncMock()
-        handler = TexFileHandler(
+        handler = make_handler(
             watch_patterns=["*.tex"],
             ignore_patterns=[],
             callback=callback,
@@ -254,7 +281,7 @@ class TestTexFileHandler:
     def test_get_src_path_bytes(self):
         """Test _get_src_path decodes bytes to string."""
         loop = asyncio.new_event_loop()
-        handler = TexFileHandler(
+        handler = make_handler(
             watch_patterns=["*.tex"],
             ignore_patterns=[],
             callback=AsyncMock(),
@@ -270,7 +297,7 @@ class TestTexFileHandler:
     def test_get_src_path_string(self):
         """Test _get_src_path passes through strings."""
         loop = asyncio.new_event_loop()
-        handler = TexFileHandler(
+        handler = make_handler(
             watch_patterns=["*.tex"],
             ignore_patterns=[],
             callback=AsyncMock(),
@@ -286,7 +313,7 @@ class TestTexFileHandler:
     def test_on_modified_directory_skipped(self):
         """Test that directory events are ignored by on_modified."""
         loop = asyncio.new_event_loop()
-        handler = TexFileHandler(
+        handler = make_handler(
             watch_patterns=["*.tex"],
             ignore_patterns=[],
             callback=AsyncMock(),
@@ -306,7 +333,7 @@ class TestTexFileHandler:
     def test_on_modified_non_matching(self):
         """Test that non-matching files are skipped by on_modified."""
         loop = asyncio.new_event_loop()
-        handler = TexFileHandler(
+        handler = make_handler(
             watch_patterns=["*.tex"],
             ignore_patterns=[],
             callback=AsyncMock(),
@@ -326,7 +353,7 @@ class TestTexFileHandler:
     def test_on_created_directory_skipped(self):
         """Test that directory events are ignored by on_created."""
         loop = asyncio.new_event_loop()
-        handler = TexFileHandler(
+        handler = make_handler(
             watch_patterns=["*.tex"],
             ignore_patterns=[],
             callback=AsyncMock(),
@@ -453,7 +480,7 @@ class TestAdaptiveDebounce:
     def test_debounce_fast_compile(self):
         """Test that fast compiles (<2s) shorten the debounce."""
         loop = asyncio.new_event_loop()
-        handler = TexFileHandler(
+        handler = make_handler(
             watch_patterns=["*.tex"],
             ignore_patterns=[],
             callback=AsyncMock(),
@@ -472,7 +499,7 @@ class TestAdaptiveDebounce:
     def test_debounce_fast_has_minimum(self):
         """Test that debounce doesn't go below 0.3s."""
         loop = asyncio.new_event_loop()
-        handler = TexFileHandler(
+        handler = make_handler(
             watch_patterns=["*.tex"],
             ignore_patterns=[],
             callback=AsyncMock(),
@@ -488,7 +515,7 @@ class TestAdaptiveDebounce:
     def test_debounce_slow_compile(self):
         """Test that slow compiles (>10s) lengthen the debounce."""
         loop = asyncio.new_event_loop()
-        handler = TexFileHandler(
+        handler = make_handler(
             watch_patterns=["*.tex"],
             ignore_patterns=[],
             callback=AsyncMock(),
@@ -504,7 +531,7 @@ class TestAdaptiveDebounce:
     def test_debounce_slow_has_maximum(self):
         """Test that debounce doesn't go above 3.0s."""
         loop = asyncio.new_event_loop()
-        handler = TexFileHandler(
+        handler = make_handler(
             watch_patterns=["*.tex"],
             ignore_patterns=[],
             callback=AsyncMock(),
@@ -520,7 +547,7 @@ class TestAdaptiveDebounce:
     def test_debounce_normal_unchanged(self):
         """Test that normal compiles (2-10s) leave debounce unchanged."""
         loop = asyncio.new_event_loop()
-        handler = TexFileHandler(
+        handler = make_handler(
             watch_patterns=["*.tex"],
             ignore_patterns=[],
             callback=AsyncMock(),

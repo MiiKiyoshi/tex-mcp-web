@@ -79,6 +79,7 @@ def test_config_list_value_roundtrip(project_dir, capsys):
 def test_config_rejects_unknown_key_and_compiler(project_dir, capsys):
     main(["init", "--main", "main.tex"])
     assert main(["config", "bogus", "1"]) == 1
+    assert main(["config", "page_limit", "10"]) == 1
     assert main(["config", "compiler", "nope"]) == 1
 
 

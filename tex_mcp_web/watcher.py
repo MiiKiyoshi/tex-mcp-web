@@ -18,6 +18,7 @@ class TexFileHandler(FileSystemEventHandler):
 
     def __init__(
         self,
+        watch_dir: Path,
         watch_patterns: list[str],
         ignore_patterns: list[str],
         callback: Callable[[str], Coroutine],
@@ -27,6 +28,7 @@ class TexFileHandler(FileSystemEventHandler):
         """Initialize handler.
 
         Args:
+            watch_dir: Project root used to make event paths relative.
             watch_patterns: Glob patterns for files to watch.
             ignore_patterns: Glob patterns for files to ignore.
             callback: Async callback to invoke on changes.
@@ -34,6 +36,7 @@ class TexFileHandler(FileSystemEventHandler):
             debounce_seconds: Minimum time between callbacks.
         """
         super().__init__()
+        self.watch_dir = watch_dir.resolve()
         self.watch_patterns = watch_patterns
         self.ignore_patterns = ignore_patterns
         self.callback = callback
@@ -47,7 +50,10 @@ class TexFileHandler(FileSystemEventHandler):
         """Check if path matches any of the patterns."""
         path_obj = Path(path)
         name = path_obj.name
-        relative = str(path_obj)
+        if path_obj.is_absolute():
+            relative = path_obj.relative_to(self.watch_dir).as_posix()
+        else:
+            relative = path_obj.as_posix()
 
         for pattern in patterns:
             if fnmatch.fnmatch(name, pattern):
@@ -200,6 +206,7 @@ class Watcher:
             loop: Event loop for scheduling async callbacks.
         """
         self._handler = TexFileHandler(
+            watch_dir=self.watch_dir,
             watch_patterns=self.watch_patterns,
             ignore_patterns=self.ignore_patterns,
             callback=self.on_change,

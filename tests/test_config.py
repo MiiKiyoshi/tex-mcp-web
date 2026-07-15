@@ -25,7 +25,6 @@ class TestConfig:
         assert config.ignore == []
         assert config.compiler == "auto"
         assert config.port == 8765
-        assert config.page_limit is None
 
     def test_from_dict_full(self):
         """Test Config.from_dict with full data."""
@@ -72,50 +71,6 @@ class TestConfig:
         """Test that default watch patterns include .bib files."""
         config = Config(main="test.tex")
         assert "*.bib" in config.watch
-
-    def test_page_limit_default_none(self):
-        """Test that page_limit defaults to None."""
-        config = Config(main="test.tex")
-        assert config.page_limit is None
-
-    def test_page_limit_roundtrip_with_value(self):
-        """Test page_limit serialization round-trip with a value."""
-        data = {"main": "test.tex", "page_limit": 50}
-        config = Config.from_dict(data)
-        assert config.page_limit == 50
-
-        result = config.to_dict()
-        assert result["page_limit"] == 50
-
-        # Round-trip back
-        config2 = Config.from_dict(result)
-        assert config2.page_limit == 50
-
-    def test_page_limit_roundtrip_none(self):
-        """Test page_limit serialization round-trip with None."""
-        data = {"main": "test.tex"}
-        config = Config.from_dict(data)
-        assert config.page_limit is None
-
-        result = config.to_dict()
-        assert "page_limit" not in result
-
-        # Round-trip: from_dict without page_limit should give None
-        config2 = Config.from_dict(result)
-        assert config2.page_limit is None
-
-    def test_page_limit_omitted_from_to_dict_when_none(self):
-        """Test that to_dict omits page_limit when it is None."""
-        config = Config(main="test.tex")
-        d = config.to_dict()
-        assert "page_limit" not in d
-
-    def test_page_limit_included_in_to_dict_when_set(self):
-        """Test that to_dict includes page_limit when it is set."""
-        config = Config(main="test.tex", page_limit=25)
-        d = config.to_dict()
-        assert d["page_limit"] == 25
-
 
 class TestFindConfig:
     """Tests for find_config function."""
@@ -202,6 +157,7 @@ class TestCreateConfig:
         assert "*.bib" in data["watch"]
         assert "*.md" in data["watch"]
         assert "*.txt" in data["watch"]
+        assert "**/*.tex" not in data["watch"]
         assert data["compiler"] == "auto"
         assert data["port"] == 8765
 
@@ -225,38 +181,6 @@ class TestCreateConfig:
         assert data["ignore"] == ["old/*"]
         assert data["compiler"] == "xelatex"
         assert data["port"] == 9000
-
-
-class TestConfigSnippets:
-    def test_config_has_snippets_default(self):
-        """Config.snippets defaults to empty dict."""
-        config = Config(main="main.tex")
-        assert config.snippets == {}
-
-    def test_config_from_dict_with_snippets(self):
-        """Config.from_dict parses snippets."""
-        data = {
-            "main": "paper.tex",
-            "snippets": {
-                "thm": "\\begin{theorem}\n$1\n\\end{theorem}",
-                "prf": "\\begin{proof}\n$1\n\\end{proof}",
-            },
-        }
-        config = Config.from_dict(data)
-        assert config.snippets == data["snippets"]
-
-    def test_config_to_dict_includes_snippets(self):
-        """Config.to_dict includes non-empty snippets."""
-        config = Config(main="main.tex", snippets={"thm": "\\begin{theorem}\n$1\n\\end{theorem}"})
-        d = config.to_dict()
-        assert "snippets" in d
-        assert d["snippets"]["thm"] == "\\begin{theorem}\n$1\n\\end{theorem}"
-
-    def test_config_to_dict_omits_empty_snippets(self):
-        """Config.to_dict omits snippets when empty."""
-        config = Config(main="main.tex")
-        d = config.to_dict()
-        assert "snippets" not in d
 
 
 class TestHelperFunctions:
