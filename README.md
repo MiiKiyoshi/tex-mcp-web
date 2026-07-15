@@ -40,7 +40,7 @@ tex-web                            # starts the daemon at http://localhost:8765
 In the browser:
 
 - The PDF appears on the left, the comments sidebar on the right.
-- **Select text in the PDF** and use the selection menu to comment. EmbedPDF returns glyph positions, exact text, and per-line rectangles; official `synctex edit` maps every visual line back to one source range.
+- **Select text in the PDF** and use the selection menu to comment. EmbedPDF returns the exact text and per-line rectangles. The agent locates the quote in source with `rg`; SyncTeX is not trusted as a source annotation.
 - **Suggest a rewrite** alongside any comment: the compose dialog has an optional `{old, new}` block. When you select text first, "old" pre-fills with the selected text, so you only type the replacement. The agent gets a structured edit it can apply directly.
 - **"+ Note"** in the top bar for a paper-level comment ("the abstract is too long").
 - **Sections tab** is the table of contents: numbered headings, click to jump, **"+ comment"** for section-level comments.
@@ -59,23 +59,22 @@ claude mcp add --scope user tex-mcp -- tex-mcp
 
 The server locates `.tex-mcp-web.yaml` by searching upward from Claude Code's working directory, so the same registration serves every paper: open Claude Code in a paper directory and the tools point at that paper.
 
-This exposes **7 tools**:
+This exposes **6 tools**:
 
 | Tool | What it does |
 |---|---|
-| `paper(include_comments=True)` | Paper state in one call: sections (with line ranges), the comments queue, last-compile cache, main-file paths. |
-| `compile()` | Recompile and return structured errors with source context. |
+| `paper(include_comments=True)` | Paper state in one call: sections with line ranges, the comments queue, and PDF path. |
+| `compile()` | Ask the daemon to compile; return structured errors, source context, and changed PDF pages. |
 | `comment(action, ...)` | `add` / `reply` / `resolve` / `dismiss` / `delete`. Optional `suggestion={"old", "new"}` on add. |
-| `image(...)` | Render PDF region as PNG. Modes: `page=N`, `page+bbox`, `source="file:lstart-lend"`, `comment_id="c-..."`. |
-| `section(name)` | Deep-dive: source slice + rendered image + scoped comments for one section in one call. |
-| `audit(focus=...)` | Workflow primer for agent-initiated review. Returns guidance; the agent then files comments back as `author="claude"`. |
-| `goto(target)` | Scroll the running viewer to a section / page / line / label. |
+| `image(..., margin=12)` | Render a PDF region as PNG. The bbox stays exact; `margin` adds context in PDF points at render time. Modes: `page=N`, `page+bbox`, `source="file:lstart-lend"`, `comment_id="c-..."`. |
+| `section(name, include_image=False)` | Deep-dive: source slice + scoped comments for one section. Set `include_image=True` when rendering is relevant. |
+| `goto(target)` | Scroll to a section, page, source line, label, or exact PDF quote. Positioned targets receive a transient highlight. |
 
-When a compile finishes, the WebSocket broadcasts `{"type": "compiled", ..., "pages_changed": [3, 7]}` so the agent can verify only the pages that actually shifted, not re-render the whole document.
+The daemon owns compilation. Concurrent watcher and MCP requests share one build, and `compile()` returns `pages_changed` so the agent can verify only the pages whose extracted text changed.
 
 Notice what's absent: there's no `labels()`, no `citations()`, no `environments()`. Use `Grep`. The agent is better at it than we are.
 
-**Visual review** is the killer mode of `image`. Claude is multimodal; pure text won't tell it whether a figure caption attaches to the right figure or whether an equation rendered correctly. The `comment_id` mode is the fast path: human draws a rectangle around a figure, files the comment, agent renders that region, sees what the human pointed at, fixes the LaTeX.
+**Visual review** is the role of `image`. Pure text does not show whether a figure caption attaches to the right figure or whether an equation rendered correctly. For a text comment, `comment_id` renders the selected PDF region directly. Agents can also render an explicit `page` and `bbox`, or create an `area` comment through MCP for a visual finding.
 
 **Active review** runs the loop in either direction:
 
@@ -93,8 +92,8 @@ You:    [PDF rebuilds; reply / dismiss as needed]
 
 You:    "Audit my methods section for notation drift."
 
-Claude: audit(focus="math")               # guidance primer
-        Read paper.tex; image() to inspect rendering
+Claude: section("Methods")                 # source + scoped comments
+        Read paper.tex; image() when rendering matters
         comment(action="add", author="claude",
                         anchor=..., text="...", suggestion=...)
         # filed back into the queue, distinct visual treatment
@@ -106,7 +105,7 @@ Five kinds, with different staleness behavior:
 
 | Anchor | Use when | Staleness handling |
 |---|---|---|
-| `text_selection` | Reading the PDF and selecting rendered text. | Stores the exact quote, glyph range, page rectangles, PDF digest, and exact source selector. Recompilation reattaches the source and regenerates rectangles from the new PDF. |
+| `text_selection` | Reading the PDF and selecting rendered text. | Stores the exact quote, page rectangles, and PDF digest. Recompilation finds the quote in the new PDF and regenerates its rectangles without source mapping. |
 | `area` | Pointing at a figure, equation, or whitespace. | Coordinate-only and bound to one PDF digest. A new compile marks it stale. |
 | `section` | "Expand the methods section." | Resolved by section title or `\label{...}`. Stale only if the section is removed or renamed. |
 | `source_range` | When the agent already knows the lines (most common from MCP). | Exact selected lines are matched separately from prefix and suffix context, so reattachment never widens the range. |

@@ -2,6 +2,7 @@ import EmbedPDF, { PdfAnnotationSubtype } from "/static/embedpdf/embedpdf.js?v=s
 
 const DOCUMENT_ID = "paper";
 const ANNOTATION_PREFIX = "tex-web:";
+const GOTO_ANNOTATION_ID = "tex-web-goto";
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => Array.from(document.querySelectorAll(selector));
 
@@ -11,6 +12,7 @@ const state = {
   selection: null,
   annotations: null,
   scroll: null,
+  zoom: null,
   annotationsReady: false,
   layoutReady: false,
   pdfDigest: null,
@@ -73,13 +75,31 @@ function pdfUrl() {
   return `/pdf?v=${encodeURIComponent(version)}`;
 }
 
-async function initializePdfViewer() {
+function capturePdfView() {
+  if (!state.layoutReady || !state.scroll || !state.zoom) return null;
+  const metrics = state.scroll.getMetrics();
+  if (metrics.pageVisibilityMetrics.length === 0) return null;
+  const topPage = metrics.pageVisibilityMetrics.reduce((closest, page) =>
+    page.viewportY < closest.viewportY ? page : closest);
+  return {
+    zoomLevel: state.zoom.getState().currentZoomLevel,
+    pageNumber: topPage.pageNumber,
+    pageCoordinates: {
+      x: topPage.original.pageX,
+      y: topPage.original.pageY,
+    },
+  };
+}
+
+async function initializePdfViewer(pdfView) {
+  clearGotoHighlight();
   const host = $("#pdf-viewer");
   clear(host);
   state.registry = null;
   state.selection = null;
   state.annotations = null;
   state.scroll = null;
+  state.zoom = null;
   state.annotationsReady = false;
   state.layoutReady = false;
   state.annotationCommentById.clear();
@@ -134,7 +154,7 @@ async function initializePdfViewer() {
     },
     annotations: { autoCommit: false, selectAfterCreate: false },
     stamp: { manifests: [] },
-    tiling: { tileSize: 1536, overlapPx: 4, extraRings: 1 },
+    tiling: { tileSize: 768, overlapPx: 4, extraRings: 0 },
     selection: {
       toleranceFactor: 0.5,
       minSelectionDragDistance: 3,
@@ -165,12 +185,14 @@ async function initializePdfViewer() {
   const selectionCapability = registry.getPlugin("selection").provides();
   const annotationCapability = registry.getPlugin("annotation").provides();
   const scrollCapability = registry.getPlugin("scroll").provides();
+  const zoomCapability = registry.getPlugin("zoom").provides();
   const commands = registry.getPlugin("commands").provides();
   const ui = registry.getPlugin("ui").provides();
 
   state.selection = selectionCapability.forDocument(DOCUMENT_ID);
   state.annotations = annotationCapability.forDocument(DOCUMENT_ID);
   state.scroll = scrollCapability.forDocument(DOCUMENT_ID);
+  state.zoom = zoomCapability.forDocument(DOCUMENT_ID);
 
   commands.registerCommand({
     id: "tex-web:comment-selection",
@@ -206,6 +228,14 @@ async function initializePdfViewer() {
   scrollCapability.onLayoutReady((event) => {
     if (event.documentId !== DOCUMENT_ID) return;
     state.layoutReady = true;
+    if (pdfView && event.totalPages > 0) {
+      state.zoom.requestZoom(pdfView.zoomLevel);
+      state.scroll.scrollToPage({
+        pageNumber: Math.min(pdfView.pageNumber, event.totalPages),
+        pageCoordinates: pdfView.pageCoordinates,
+        behavior: "instant",
+      });
+    }
   });
 
   state.annotations.onAnnotationEvent((event) => {
@@ -217,25 +247,27 @@ async function initializePdfViewer() {
 
 async function openTextSelectionCompose() {
   if (!state.selection || !state.pdfDigest) return;
-  const selectionState = state.selection.getState().selection;
   const formatted = state.selection.getFormattedSelection();
-  if (!selectionState || formatted.length === 0) return;
+  if (formatted.length === 0) return;
+  if (formatted.length !== 1) {
+    alert("Select text on one page at a time.");
+    return;
+  }
   const lines = await state.selection.getSelectedText().toPromise();
   const quote = lines.join(" ").replace(/\s+/g, " ").trim();
   if (!quote) return;
 
-  const segments = formatted.map((selection) => ({
-    page: selection.pageIndex + 1,
-    bbox: rectToBBox(selection.rect),
-    rects: selection.segmentRects.map(rectToBBox),
-  }));
+  const formattedSelection = formatted[0];
+  const selection = {
+    page: formattedSelection.pageIndex + 1,
+    bbox: rectToBBox(formattedSelection.rect),
+    rects: formattedSelection.segmentRects.map(rectToBBox),
+  };
   openCompose(
     {
       kind: "text_selection",
       quote,
-      segments,
-      start: { page: selectionState.start.page + 1, index: selectionState.start.index },
-      end: { page: selectionState.end.page + 1, index: selectionState.end.index },
+      selection,
       pdf_digest: state.pdfDigest,
     },
     `PDF text: "${quote.slice(0, 80)}${quote.length > 80 ? "…" : ""}"`,
@@ -447,7 +479,7 @@ function anchorLabel(anchor) {
     case "paper": return "paper";
     case "section": return `§ ${anchor.title}`;
     case "source_range": return `${anchor.file}:${anchor.line_start}-${anchor.line_end}`;
-    case "text_selection": return `p${anchor.segments[0].page} text`;
+    case "text_selection": return `p${anchor.selection.page} text`;
     case "area": return `p${anchor.page} area`;
     default: throw new Error(`unknown anchor kind: ${anchor.kind}`);
   }
@@ -491,20 +523,20 @@ function syncCommentAnnotations() {
   state.annotationCommentById.clear();
   for (const comment of state.comments) {
     if (comment.status !== "open" || comment.stale) continue;
-    const segments = comment.anchor.kind === "text_selection"
-      ? comment.anchor.segments
+    const selections = comment.anchor.kind === "text_selection"
+      ? [comment.anchor.selection]
       : comment.anchor.kind === "area"
         ? [{ page: comment.anchor.page, bbox: comment.anchor.bbox, rects: [comment.anchor.bbox] }]
         : [];
-    for (const segment of segments) {
-      const id = annotationId(comment.id, segment.page);
+    for (const selection of selections) {
+      const id = annotationId(comment.id, selection.page);
       state.annotationCommentById.set(id, comment.id);
-      state.annotations.createAnnotation(segment.page - 1, {
+      state.annotations.createAnnotation(selection.page - 1, {
         id,
-        pageIndex: segment.page - 1,
+        pageIndex: selection.page - 1,
         type: PdfAnnotationSubtype.HIGHLIGHT,
-        rect: bboxToRect(segment.bbox),
-        segmentRects: segment.rects.map(bboxToRect),
+        rect: bboxToRect(selection.bbox),
+        segmentRects: selection.rects.map(bboxToRect),
         opacity: 0.35,
         strokeColor: "#fbdc00",
         contents: comment.thread[0]?.text ?? "",
@@ -597,8 +629,9 @@ async function handleWebSocketMessage(message) {
     case "compiled":
       applyCompileResult(message.result);
       if (message.result.success) {
+        const pdfView = capturePdfView();
         state.pdfDigest = message.pdf_digest;
-        await initializePdfViewer();
+        await initializePdfViewer(pdfView);
         await refreshComments();
       }
       await refreshPaper();
@@ -613,7 +646,7 @@ async function handleWebSocketMessage(message) {
       if (message.result) applyCompileResult(message.result);
       break;
     case "goto":
-      if (message.page) jumpToPage(message.page);
+      showGotoTarget(message);
       break;
   }
 }
@@ -634,6 +667,48 @@ function jumpToPage(page) {
   state.scroll.scrollToPage({ pageNumber: page, behavior: "smooth", center: true });
 }
 
+function clearGotoHighlight() {
+  if (!state.annotations) return;
+  for (const tracked of state.annotations.getAnnotations()) {
+    if (tracked.object.id === GOTO_ANNOTATION_ID) {
+      state.annotations.purgeAnnotation(tracked.object.pageIndex, GOTO_ANNOTATION_ID);
+    }
+  }
+}
+
+function showGotoTarget(target) {
+  if (!target.page) return;
+  if (state.layoutReady && state.zoom && target.bbox) {
+    const [x1, y1, x2, y2] = target.bbox;
+    const width = Math.max(x2 - x1 + 144, 320);
+    const height = Math.max(y2 - y1 + 96, 120);
+    const centerX = (x1 + x2) / 2;
+    const centerY = (y1 + y2) / 2;
+    state.zoom.zoomToArea(target.page - 1, {
+      origin: {
+        x: Math.max(0, centerX - width / 2),
+        y: Math.max(0, centerY - height / 2),
+      },
+      size: { width, height },
+    });
+  } else {
+    jumpToPage(target.page);
+  }
+  if (!target.bbox || !state.annotationsReady || !state.annotations) return;
+
+  clearGotoHighlight();
+  state.annotations.createAnnotation(target.page - 1, {
+    id: GOTO_ANNOTATION_ID,
+    pageIndex: target.page - 1,
+    type: PdfAnnotationSubtype.HIGHLIGHT,
+    rect: bboxToRect(target.bbox),
+    segmentRects: (target.rects ?? [target.bbox]).map(bboxToRect),
+    opacity: 0.55,
+    strokeColor: "#fbdc00",
+    contents: target.quote ?? "",
+  });
+}
+
 async function jumpToSource(file, line) {
   const params = new URLSearchParams({ file, line: String(line) });
   const response = await fetch(`/synctex/source-to-pdf?${params}`);
@@ -647,7 +722,7 @@ async function jumpToComment(commentId) {
   if (!comment) return;
   if (comment.anchor.kind === "text_selection" || comment.anchor.kind === "area") {
     const page = comment.anchor.kind === "text_selection"
-      ? comment.anchor.segments[0].page
+      ? comment.anchor.selection.page
       : comment.anchor.page;
     jumpToPage(page);
     if (state.annotations) state.annotations.selectAnnotation(page - 1, annotationId(comment.id, page));
@@ -720,6 +795,7 @@ function attachSidebarToggle() {
 async function init() {
   attachKeyboardNavigation();
   attachSidebarToggle();
+  document.addEventListener("pointerdown", clearGotoHighlight, { capture: true });
   $("#recompile-btn").addEventListener("click", () => fetch("/compile", { method: "POST" }));
   $("#paper-comment-btn").addEventListener("click", () =>
     openCompose({ kind: "paper" }, "Paper-level comment"));
@@ -740,7 +816,7 @@ async function init() {
 
   await refreshPaper();
   await refreshComments();
-  if (state.pdfDigest) await initializePdfViewer();
+  if (state.pdfDigest) await initializePdfViewer(null);
   connectWebSocket();
 }
 

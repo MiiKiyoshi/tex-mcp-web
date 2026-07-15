@@ -226,6 +226,7 @@ class TestTexFileHandler:
             if handler._pending_task:
                 handler._pending_task.cancel()
         finally:
+            loop.run_until_complete(asyncio.sleep(0))
             loop.close()
 
     def test_schedule_callback_runs_async(self):
@@ -422,6 +423,7 @@ class TestWatcher:
         assert pending.cancelled()
         assert watcher._handler._pending_task is None
 
+        loop.run_until_complete(asyncio.sleep(0))
         loop.close()
 
     def test_is_running_false_after_stop(self, tmp_path):

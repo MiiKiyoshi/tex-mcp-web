@@ -41,6 +41,7 @@ class CompileResult:
         timestamp: UTC time when compilation finished.
         duration_seconds: Wall-clock time for compilation.
         log_output: Full compiler stdout/stderr for debugging.
+        pages_changed: PDF pages whose extracted text changed in the daemon.
     """
 
     success: bool
@@ -50,6 +51,7 @@ class CompileResult:
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     duration_seconds: float = 0.0
     log_output: str = ""
+    pages_changed: list[int] = field(default_factory=list)
 
 
 # Patterns for parsing LaTeX log output

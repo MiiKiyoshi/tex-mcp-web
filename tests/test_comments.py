@@ -9,7 +9,6 @@ import pytest
 from tex_mcp_web.comments import (
     AreaAnchor,
     CommentStore,
-    GlyphPosition,
     PageSelection,
     PaperAnchor,
     ResolvedSource,
@@ -36,15 +35,11 @@ def make_pdf(path: Path, text: str, y: float = 72) -> None:
 def text_anchor(digest: str, quote: str = "selected text") -> TextSelectionAnchor:
     return TextSelectionAnchor(
         quote=quote,
-        segments=[
-            PageSelection(
-                page=2,
-                bbox=(70.0, 100.0, 250.0, 130.0),
-                rects=[(70.0, 100.0, 250.0, 112.0), (70.0, 118.0, 150.0, 130.0)],
-            )
-        ],
-        start=GlyphPosition(page=2, index=10),
-        end=GlyphPosition(page=2, index=42),
+        selection=PageSelection(
+            page=2,
+            bbox=(70.0, 100.0, 250.0, 130.0),
+            rects=[(70.0, 100.0, 250.0, 112.0), (70.0, 118.0, 150.0, 130.0)],
+        ),
         pdf_digest=digest,
     )
 
@@ -52,6 +47,25 @@ def text_anchor(digest: str, quote: str = "selected text") -> TextSelectionAncho
 def test_text_selection_anchor_roundtrip():
     anchor = text_anchor("abc")
     assert anchor_from_dict(anchor.to_dict()) == anchor
+
+
+def test_agent_comment_view_hides_storage_only_anchor_data(store: CommentStore):
+    from tex_mcp_web.mcp_server import _agent_comment_to_dict
+
+    comment = store.add(text_anchor("digest", quote="selected text"), "tighten this")
+    view = _agent_comment_to_dict(comment)
+    assert view == {
+        "id": comment.id,
+        "status": "open",
+        "kind": "text_selection",
+        "comment": "tighten this",
+        "quote": "selected text",
+        "page": 2,
+        "bbox": [70.0, 100.0, 250.0, 130.0],
+    }
+    assert "selection" not in view
+    assert "pdf_digest" not in view
+    assert "rects" not in view
 
 
 def test_area_anchor_roundtrip():
@@ -120,11 +134,27 @@ def test_locate_pdf_quote_returns_per_line_rectangles(tmp_path: Path):
     pdf = tmp_path / "paper.pdf"
     quote = "A measurement-integrity design keeps official results separate from self reports."
     make_pdf(pdf, quote)
-    segments = locate_pdf_quote(pdf, quote)
-    assert segments is not None
-    assert segments[0].page == 1
-    assert segments[0].rects
-    assert segments[0].bbox[0] >= 70
+    selection = locate_pdf_quote(pdf, quote)
+    assert selection is not None
+    assert selection.page == 1
+    assert selection.rects
+    assert selection.bbox[0] >= 70
+
+
+def test_locate_pdf_quote_reconstructs_line_end_hyphen(tmp_path: Path):
+    pdf = tmp_path / "hyphenated.pdf"
+    document = pymupdf.open()
+    page = document.new_page()
+    page.insert_text((72, 72), "where interconnect estimates become ac-", fontsize=11)
+    page.insert_text((72, 88), "curate enough to act on", fontsize=11)
+    document.save(pdf)
+    document.close()
+
+    selection = locate_pdf_quote(
+        pdf, "where interconnect estimates become accurate enough to act on"
+    )
+    assert selection is not None
+    assert len(selection.rects) == 2
 
 
 def test_locate_pdf_quote_rejects_duplicate_without_hint(tmp_path: Path):
@@ -152,7 +182,7 @@ def test_store_crud(store: CommentStore):
 
 def test_store_rejects_old_schema(tmp_path: Path):
     path = tmp_path / "comments.json"
-    path.write_text(json.dumps({"version": 1, "comments": []}))
+    path.write_text(json.dumps({"version": 2, "comments": []}))
     store = CommentStore(path)
     with pytest.raises(ValueError, match="unsupported comment store version"):
         store.list()
@@ -190,23 +220,16 @@ def test_area_anchor_becomes_stale_after_pdf_changes(store: CommentStore, tmp_pa
 
 def test_text_anchor_refreshes_pdf_rectangles(store: CommentStore, tmp_path: Path):
     quote = "exact rendered quote"
-    source = tmp_path / "paper.tex"
-    source.write_text("before\nexact source line\nafter\n")
-    selector = capture_source_selector(source, 2, 2, context=1)
     pdf = tmp_path / "paper.pdf"
     make_pdf(pdf, quote, y=72)
-    old_segments = locate_pdf_quote(pdf, quote)
+    old_selection = locate_pdf_quote(pdf, quote)
     comment = store.add(
         TextSelectionAnchor(
             quote=quote,
-            segments=old_segments,
-            start=GlyphPosition(1, 0),
-            end=GlyphPosition(1, len(quote)),
+            selection=old_selection,
             pdf_digest=pdf_digest(pdf),
         ),
         "text",
-        resolved_source=ResolvedSource("paper.tex", 2, 2),
-        source_selector=selector,
     )
     replacement = tmp_path / "replacement.pdf"
     make_pdf(replacement, quote, y=220)
@@ -215,4 +238,4 @@ def test_text_anchor_refreshes_pdf_rectangles(store: CommentStore, tmp_path: Pat
     refreshed = store.get(comment.id)
     assert not refreshed.stale
     assert refreshed.anchor.pdf_digest == pdf_digest(pdf)
-    assert refreshed.anchor.segments[0].bbox[1] > old_segments[0].bbox[1]
+    assert refreshed.anchor.selection.bbox[1] > old_selection.bbox[1]
