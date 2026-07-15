@@ -438,10 +438,13 @@ async def test_mcp_contract_is_typed_and_nonduplicative():
     assert set(tools) == {"paper", "compile", "comment", "image", "section", "goto"}
     assert mcp.instructions == (
         "Read the open queue with paper(). A text comment's quote is the "
-        "source-search key. Use image() only for rendered evidence. After "
-        "source edits, call compile(); verify visual changes with image() "
-        "before resolving the comment."
+        "source-search key. Use image() only for rendered evidence before "
+        "resolving the comment."
     )
+    assert "compile()" not in mcp.instructions
+    compile_description = " ".join((tools["compile"].description or "").split())
+    assert "daemon watcher" in compile_description
+    assert "explicit user request" in compile_description
 
     descriptions = "\n".join(tool.description or "" for tool in tools.values())
     assert "source-search key" not in descriptions
