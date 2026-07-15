@@ -6,13 +6,14 @@ job the agent genuinely can't do for itself: PDF rendering nuances
 (figure placement, equation typesetting, overfull-box wrap, table
 spacing) only show up in the actual PDF.
 
-pymupdf is an optional dependency (``pip install tex-mcp-web[image]``).
-We surface a friendly message when it's missing rather than crashing.
+pymupdf is a core dependency because text-anchor verification and image
+rendering both require it.
 """
 
 from __future__ import annotations
 
 import logging
+import math
 from pathlib import Path
 
 try:
@@ -36,10 +37,7 @@ def _open_pdf(pdf_path: Path, page: int):
     pymupdf, missing file, or out-of-range page.
     """
     if fitz is None:
-        raise ImagingError(
-            "PDF imaging requires pymupdf. "
-            "Install with: pip install 'tex-mcp-web[image]'"
-        )
+        raise ImagingError("pymupdf is unavailable; reinstall tex-mcp-web")
     if not pdf_path.exists():
         raise ImagingError(f"PDF not found: {pdf_path}")
     doc = fitz.open(pdf_path)
@@ -81,16 +79,18 @@ def render_region(
     page: int,
     bbox: tuple[float, float, float, float],
     dpi: int = 150,
-    margin: float = 6.0,
+    margin: float = 12.0,
     gray: bool = False,
 ) -> bytes:
     """Render a rectangular region of a page as PNG bytes.
 
     *bbox* is in PDF points (1/72 inch), top-left origin (matching the
     coordinate system used by PDF text and area anchors).
-    A small *margin* is added around the crop so the rendered region
-    has visible breathing room.
+    *margin* expands the exact bbox in PDF points at render time. Use
+    zero for the exact bounding box or a larger value for more context.
     """
+    if not math.isfinite(margin) or margin < 0:
+        raise ImagingError("margin must be a finite non-negative number")
     doc, page_obj = _open_pdf(pdf_path, page)
     try:
         x1, y1, x2, y2 = bbox
@@ -105,50 +105,6 @@ def render_region(
             raise ImagingError(f"empty bbox after clip: {tuple(bbox)} on {page_obj.rect}")
         cs = fitz.csGRAY if gray else fitz.csRGB
         return page_obj.get_pixmap(dpi=dpi, clip=rect, colorspace=cs).tobytes("png")
-    finally:
-        doc.close()
-
-
-def expand_region(
-    bbox: tuple[float, float, float, float],
-    page_width: float,
-    page_height: float,
-    min_width: float = 240.0,
-    min_height: float = 70.0,
-    margin: float = 12.0,
-) -> tuple[float, float, float, float]:
-    """Grow *bbox* to a readable context window, clamped to the page.
-
-    Comment anchors are often a single word (~20x14pt); rendered as-is
-    they carry no context for the agent to reason about. Expand around
-    the center to at least ``min_width`` x ``min_height`` plus *margin*.
-    """
-    x1, y1, x2, y2 = bbox
-    x1 -= margin
-    y1 -= margin
-    x2 += margin
-    y2 += margin
-    if x2 - x1 < min_width:
-        pad = (min_width - (x2 - x1)) / 2
-        x1 -= pad
-        x2 += pad
-    if y2 - y1 < min_height:
-        pad = (min_height - (y2 - y1)) / 2
-        y1 -= pad
-        y2 += pad
-    return (
-        max(0.0, x1),
-        max(0.0, y1),
-        min(page_width, x2),
-        min(page_height, y2),
-    )
-
-
-def page_size(pdf_path: Path, page: int) -> tuple[float, float]:
-    """Return ``(width, height)`` of *page* in PDF points."""
-    doc, page_obj = _open_pdf(pdf_path, page)
-    try:
-        return page_obj.rect.width, page_obj.rect.height
     finally:
         doc.close()
 

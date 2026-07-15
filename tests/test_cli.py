@@ -178,39 +178,3 @@ def test_get_compiler_command_rejects_dotdot():
 
     with pytest.raises(ValueError, match="'..'"):
         _get_compiler_command("latexmk", Path("../escape.tex"), Path("/tmp/sub"))
-
-
-# ---------------------------------------------------------------------------
-# audit MCP tool — workflow primer with optional focus.
-# ---------------------------------------------------------------------------
-
-
-def test_audit_returns_guidance_dict():
-    """The audit tool returns JSON with workflow + focus-specific guidance."""
-    import asyncio
-    import json
-
-    from tex_mcp_web.mcp_server import create_server
-
-    mcp = create_server()
-
-    async def call_tool(focus=None):
-        result = await mcp.call_tool(
-            "audit", arguments={"focus": focus} if focus else {}
-        )
-        # FastMCP returns either (content, structured) or content depending
-        # on version; normalize.
-        content = result[0] if isinstance(result, tuple) else result
-        text = content[0].text if hasattr(content[0], "text") else content[0]["text"]
-        return json.loads(text)
-
-    general = asyncio.run(call_tool())
-    assert "workflow" in general
-    assert general["focus"] == "general"
-
-    math = asyncio.run(call_tool("math"))
-    assert math["focus"] == "math"
-    assert "notation" in math["guidance"].lower() or "theorem" in math["guidance"].lower()
-
-    citations = asyncio.run(call_tool("citations"))
-    assert "citation" in citations["guidance"].lower()

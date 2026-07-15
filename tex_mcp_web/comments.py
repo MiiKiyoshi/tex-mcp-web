@@ -1,13 +1,11 @@
 """Comment thread storage for paper review.
 
-tex-mcp-web v0.4.0 reframes the tool as a code-review-style commenting system
-for LaTeX papers: the human is the reviewer, Claude Code is the author.
-This module provides the data model, JSON-backed storage, and anchor-
-durability logic.
+The human is the reviewer and the coding agent is the author. This module
+provides the data model, JSON-backed storage, and anchor-durability logic.
 
 Anchor types
 ------------
-- ``text_selection``: exact rendered text, glyph positions, and per-line PDF rectangles
+- ``text_selection``: exact rendered text and per-line PDF rectangles
 - ``area``: a visual PDF rectangle tied to one compiled PDF
 - ``section``: a logical section by title and/or label
 - ``source_range``: an explicit file + line range
@@ -115,24 +113,9 @@ class PageSelection:
 
 
 @dataclass
-class GlyphPosition:
-    page: int
-    index: int
-
-    def to_dict(self) -> dict[str, int]:
-        return {"page": self.page, "index": self.index}
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "GlyphPosition":
-        return cls(page=int(data["page"]), index=int(data["index"]))
-
-
-@dataclass
 class TextSelectionAnchor:
     quote: str
-    segments: list[PageSelection]
-    start: GlyphPosition
-    end: GlyphPosition
+    selection: PageSelection
     pdf_digest: str
     kind: Literal["text_selection"] = "text_selection"
 
@@ -140,9 +123,7 @@ class TextSelectionAnchor:
         return {
             "kind": self.kind,
             "quote": self.quote,
-            "segments": [segment.to_dict() for segment in self.segments],
-            "start": self.start.to_dict(),
-            "end": self.end.to_dict(),
+            "selection": self.selection.to_dict(),
             "pdf_digest": self.pdf_digest,
         }
 
@@ -150,10 +131,7 @@ class TextSelectionAnchor:
         return None
 
     def image_target(self, ctx: ResolveContext) -> tuple[int, BBox] | None:
-        if not self.segments:
-            return None
-        first = self.segments[0]
-        return first.page, first.bbox
+        return self.selection.page, self.selection.bbox
 
 
 @dataclass
@@ -260,9 +238,7 @@ def anchor_from_dict(d: dict[str, Any]) -> Anchor:
     if kind == "text_selection":
         return TextSelectionAnchor(
             quote=str(d["quote"]),
-            segments=[PageSelection.from_dict(segment) for segment in d["segments"]],
-            start=GlyphPosition.from_dict(d["start"]),
-            end=GlyphPosition.from_dict(d["end"]),
+            selection=PageSelection.from_dict(d["selection"]),
             pdf_digest=str(d["pdf_digest"]),
         )
     if kind == "area":
@@ -297,9 +273,8 @@ def anchor_from_dict(d: dict[str, Any]) -> Anchor:
 class ResolvedSource:
     """The source location an anchor currently points at.
 
-    For text-selection / section anchors, this is computed by the server from
-    SyncTeX or document structure.  Stored alongside the comment so Claude
-    Code can read the comment without re-resolving.
+    Section anchors use document structure; source-range anchors use their
+    explicit file and lines. Text selections remain PDF-native.
     """
 
     file: str
@@ -556,38 +531,94 @@ def pdf_digest(pdf_path: Path) -> str:
         return hashlib.file_digest(handle, "sha256").hexdigest()
 
 
+def _normalize_pdf_text(text: str) -> tuple[str, list[int]]:
+    """Normalize PDF whitespace and retain raw indexes across line-end hyphens."""
+    characters: list[str] = []
+    raw_indexes: list[int] = []
+    index = 0
+    while index < len(text):
+        character = text[index]
+        if character == "-" and characters and characters[-1].isalnum():
+            next_index = index + 1
+            saw_line_break = False
+            while next_index < len(text) and text[next_index].isspace():
+                if text[next_index] in "\r\n":
+                    saw_line_break = True
+                next_index += 1
+            if saw_line_break and next_index < len(text) and text[next_index].isalnum():
+                index = next_index
+                continue
+        if character.isspace():
+            if characters and characters[-1] != " ":
+                characters.append(" ")
+                raw_indexes.append(index)
+            index += 1
+            continue
+        characters.append(character)
+        raw_indexes.append(index)
+        index += 1
+    if characters and characters[-1] == " ":
+        characters.pop()
+        raw_indexes.pop()
+    return "".join(characters), raw_indexes
+
+
+def _all_occurrences(text: str, needle: str) -> list[int]:
+    positions: list[int] = []
+    start = 0
+    while True:
+        position = text.find(needle, start)
+        if position < 0:
+            return positions
+        positions.append(position)
+        start = position + 1
+
+
 def locate_pdf_quote(
     pdf_path: Path,
     quote: str,
-    hint: list[PageSelection] | None = None,
-) -> list[PageSelection] | None:
+    hint: PageSelection | None = None,
+) -> PageSelection | None:
     """Find one exact rendered quote and return its per-line rectangles."""
     import pymupdf
 
-    normalized_quote = _strip_for_match(quote)
+    normalized_quote, _ = _normalize_pdf_text(quote)
     if not normalized_quote:
         return None
 
     document = pymupdf.open(pdf_path)
-    matched_page = None
-    occurrence_count = 0
+    candidates: list[tuple[int, str]] = []
     for page_index, page in enumerate(document):
-        normalized_page = _strip_for_match(page.get_text("text"))
-        count = normalized_page.count(normalized_quote)
-        if count:
-            occurrence_count += count
-            matched_page = page_index
-    if occurrence_count != 1 or matched_page is None:
-        if hint is None or len(hint) != 1:
+        raw_page = page.get_text("text")
+        normalized_page, raw_indexes = _normalize_pdf_text(raw_page)
+        for start in _all_occurrences(normalized_page, normalized_quote):
+            raw_start = raw_indexes[start]
+            raw_end = raw_indexes[start + len(normalized_quote) - 1] + 1
+            candidates.append((page_index, raw_page[raw_start:raw_end]))
+
+    if len(candidates) == 1:
+        matched_page, raw_quote = candidates[0]
+        matches = document[matched_page].search_for(raw_quote)
+    else:
+        if hint is None:
             document.close()
             return None
-        hinted = hint[0]
+        hinted = hint
+        if hinted.page < 1 or hinted.page > len(document):
+            document.close()
+            return None
+        raw_quotes = {
+            raw_quote for page_index, raw_quote in candidates
+            if page_index == hinted.page - 1
+        }
         page = document[hinted.page - 1]
-        candidates = page.search_for(normalized_quote)
+        search_results = [
+            rect for raw_quote in raw_quotes for rect in page.search_for(raw_quote)
+        ]
         x1, y1, x2, y2 = hinted.bbox
         matches = [
             rect
-            for rect in candidates
+            for rect in search_results
             if rect.x1 >= x1 and rect.x0 <= x2 and rect.y1 >= y1 and rect.y0 <= y2
         ]
         if not matches:
@@ -595,9 +626,6 @@ def locate_pdf_quote(
             return None
         matched_page = hinted.page - 1
 
-    page = document[matched_page]
-    if occurrence_count == 1:
-        matches = page.search_for(normalized_quote)
     if not matches:
         document.close()
         return None
@@ -612,7 +640,7 @@ def locate_pdf_quote(
         max(rect[3] for rect in rects),
     )
     document.close()
-    return [PageSelection(page=matched_page + 1, bbox=bbox, rects=rects)]
+    return PageSelection(page=matched_page + 1, bbox=bbox, rects=rects)
 
 
 # ---------------------------------------------------------------------------
@@ -620,7 +648,7 @@ def locate_pdf_quote(
 # ---------------------------------------------------------------------------
 
 
-STORE_VERSION = 2
+STORE_VERSION = 4
 
 
 class CommentStore:
@@ -886,6 +914,19 @@ class CommentStore:
         if kind == "area":
             return c.anchor.pdf_digest != digest, False
 
+        if kind == "text_selection":
+            selection = locate_pdf_quote(
+                pdf_path, c.anchor.quote, hint=c.anchor.selection
+            )
+            if selection is None:
+                return True, False
+            modified = False
+            if c.anchor.selection != selection or c.anchor.pdf_digest != digest:
+                c.anchor.selection = selection
+                c.anchor.pdf_digest = digest
+                modified = True
+            return False, modified
+
         # Source-backed anchors reattach only the exact selected lines.
         resolved = c.resolved_source
         if c.source_selector is None or resolved is None:
@@ -904,12 +945,4 @@ class CommentStore:
             )
             modified = True
 
-        if kind == "text_selection":
-            segments = locate_pdf_quote(pdf_path, c.anchor.quote)
-            if segments is None:
-                return True, modified
-            if c.anchor.segments != segments or c.anchor.pdf_digest != digest:
-                c.anchor.segments = segments
-                c.anchor.pdf_digest = digest
-                modified = True
         return False, modified

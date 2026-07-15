@@ -1,4 +1,4 @@
-"""Smoke tests for the v0.4.0 server.
+"""Smoke tests for the web server.
 
 We don't run latexmk here; instead we instantiate the server, drive the
 HTTP API directly, and check that comments + paper state plumbing works.
@@ -6,12 +6,15 @@ HTTP API directly, and check that comments + paper state plumbing works.
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
+import fitz
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
 from tex_mcp_web.config import Config
+from tex_mcp_web.compiler import CompileResult
 from tex_mcp_web.server import TexMcpWebServer
 
 
@@ -64,6 +67,31 @@ async def test_paper_endpoint_returns_structure(client):
     # Sections carry the label they're attached to.
     methods = next(s for s in data["sections"] if s["title"] == "Methods")
     assert methods["label"] == "sec:methods"
+
+
+@pytest.mark.asyncio
+async def test_overlapping_compile_requests_share_one_build(project, monkeypatch):
+    cfg = Config(main="paper.tex", config_path=project / ".tex-mcp-web.yaml")
+    server = TexMcpWebServer(cfg)
+    release = asyncio.Event()
+    calls = 0
+
+    async def fake_compile_tex(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        await release.wait()
+        return CompileResult(success=False)
+
+    monkeypatch.setattr("tex_mcp_web.server.compile_tex", fake_compile_tex)
+    first = asyncio.create_task(server.do_compile())
+    await asyncio.sleep(0)
+    second = asyncio.create_task(server.do_compile())
+    await asyncio.sleep(0)
+    release.set()
+    first_result, second_result = await asyncio.gather(first, second)
+
+    assert calls == 1
+    assert first_result is second_result
 
 
 @pytest.mark.asyncio
@@ -272,6 +300,29 @@ async def test_goto_page_passthrough(client):
     assert (await resp.json())["page"] == 3
 
 
+@pytest.mark.asyncio
+async def test_goto_source_line_returns_highlight_bbox(client):
+    from tex_mcp_web.synctex import PDFPosition, SyncTeXData
+
+    tc, server = client
+    server.synctex_data = SyncTeXData(
+        pdf_to_source={},
+        source_to_pdf={
+            ("paper.tex", 5): [
+                PDFPosition(page=1, x=72.0, y=144.0, width=180.0, height=10.0)
+            ]
+        },
+        input_files={},
+    )
+    resp = await tc.post(
+        "/goto", json={"file": "paper.tex", "line": 5}
+    )
+    assert resp.status == 200
+    data = await resp.json()
+    assert data["page"] == 1
+    assert data["bbox"] == [72.0, 144.0, 252.0, 156.0]
+
+
 # ---------------------------------------------------------------------------
 # /image endpoint — page / bbox / source / comment modes.
 # ---------------------------------------------------------------------------
@@ -321,6 +372,28 @@ async def client_with_pdf(project: Path):
 
 
 @pytest.mark.asyncio
+async def test_goto_exact_pdf_quote_returns_rectangles(client_with_pdf):
+    tc, _ = client_with_pdf
+    resp = await tc.post("/goto", json={"quote": "Page 1"})
+    assert resp.status == 200
+    data = await resp.json()
+    assert data["page"] == 1
+    assert data["quote"] == "Page 1"
+    assert len(data["bbox"]) == 4
+    assert data["rects"]
+
+
+@pytest.mark.asyncio
+async def test_goto_unmatched_section_falls_back_to_pdf_quote(client_with_pdf):
+    tc, _ = client_with_pdf
+    resp = await tc.post("/goto", json={"section": "Page 2"})
+    assert resp.status == 200
+    data = await resp.json()
+    assert data["page"] == 2
+    assert data["quote"] == "Page 2"
+
+
+@pytest.mark.asyncio
 async def test_image_full_page(client_with_pdf):
     tc, _ = client_with_pdf
     resp = await tc.get("/image?page=1&dpi=72")
@@ -337,6 +410,35 @@ async def test_image_bbox(client_with_pdf):
     assert resp.status == 200
     body = await resp.read()
     assert body.startswith(b"\x89PNG\r\n\x1a\n")
+
+
+@pytest.mark.asyncio
+async def test_image_margin_controls_bbox_context(client_with_pdf):
+    tc, _ = client_with_pdf
+    exact_resp = await tc.get("/image?page=1&bbox=60,60,200,100&dpi=72&margin=0")
+    expanded_resp = await tc.get(
+        "/image?page=1&bbox=60,60,200,100&dpi=72&margin=24"
+    )
+    assert exact_resp.status == 200
+    assert expanded_resp.status == 200
+    exact = fitz.Pixmap(await exact_resp.read())
+    expanded = fitz.Pixmap(await expanded_resp.read())
+    assert expanded.width > exact.width
+    assert expanded.height > exact.height
+
+
+@pytest.mark.asyncio
+async def test_image_rejects_invalid_margin(client_with_pdf):
+    tc, _ = client_with_pdf
+    resp = await tc.get("/image?page=1&bbox=60,60,200,100&margin=nope")
+    assert resp.status == 400
+
+
+@pytest.mark.asyncio
+async def test_image_rejects_negative_margin(client_with_pdf):
+    tc, _ = client_with_pdf
+    resp = await tc.get("/image?page=1&bbox=60,60,200,100&margin=-1")
+    assert resp.status == 400
 
 
 @pytest.mark.asyncio
@@ -377,29 +479,19 @@ async def test_image_comment_with_area_anchor(client_with_pdf):
 
 
 @pytest.mark.asyncio
-async def test_text_selection_is_verified_and_resolved_as_a_range(
-    client_with_pdf, monkeypatch
-):
-    from tex_mcp_web.synctex import SourceRangePosition
-
+async def test_text_selection_is_verified_without_source_resolution(client_with_pdf):
     tc, server = client_with_pdf
-    monkeypatch.setattr(
-        "tex_mcp_web.server.selection_to_source",
-        lambda **kwargs: SourceRangePosition("paper.tex", 5, 5),
-    )
     resp = await tc.post(
         "/comments",
         json={
             "anchor": {
                 "kind": "text_selection",
                 "quote": "Page 1",
-                "segments": [{
+                "selection": {
                     "page": 1,
                     "bbox": [70, 60, 110, 80],
                     "rects": [[70, 60, 110, 80]],
-                }],
-                "start": {"page": 1, "index": 0},
-                "end": {"page": 1, "index": 6},
+                },
                 "pdf_digest": server.pdf_digest,
             },
             "text": "review this text",
@@ -407,13 +499,9 @@ async def test_text_selection_is_verified_and_resolved_as_a_range(
     )
     assert resp.status == 201
     data = await resp.json()
-    assert data["resolved_source"] == {
-        "file": "paper.tex",
-        "line_start": 5,
-        "line_end": 5,
-    }
-    assert data["source_selector"]["exact"] == "Some prose with \\cite{ref1}."
-    assert data["anchor"]["segments"][0]["rects"]
+    assert "resolved_source" not in data
+    assert "source_selector" not in data
+    assert data["anchor"]["selection"]["rects"]
 
 
 @pytest.mark.asyncio
@@ -425,13 +513,11 @@ async def test_text_selection_rejects_old_pdf_digest(client_with_pdf):
             "anchor": {
                 "kind": "text_selection",
                 "quote": "Page 1",
-                "segments": [{
+                "selection": {
                     "page": 1,
                     "bbox": [70, 60, 110, 80],
                     "rects": [[70, 60, 110, 80]],
-                }],
-                "start": {"page": 1, "index": 0},
-                "end": {"page": 1, "index": 6},
+                },
                 "pdf_digest": "old",
             },
             "text": "review this text",

@@ -1,4 +1,4 @@
-"""aiohttp web server for tex-mcp-web v0.4.0.
+"""aiohttp web server for tex-mcp-web v0.7.0.
 
 Single paper, no workspace abstraction.  Three responsibilities:
 
@@ -49,7 +49,6 @@ from .synctex import (
     SyncTeXData,
     find_synctex_file,
     parse_synctex,
-    selection_to_source,
     source_to_page,
 )
 from .watcher import Watcher
@@ -78,6 +77,7 @@ def _result_to_dict(r: CompileResult | None) -> dict[str, Any] | None:
         "output_file": str(r.output_file) if r.output_file else None,
         "timestamp": r.timestamp.isoformat() if r.timestamp else None,
         "duration_seconds": r.duration_seconds,
+        "pages_changed": r.pages_changed,
     }
 
 
@@ -217,10 +217,7 @@ class TexMcpWebServer:
         self.structure: DocumentStructure | None = None
         self.compiling = False
         self.pdf_digest: str | None = None
-        # Serialize do_compile so the watcher and compile() don't
-        # race; second caller awaits the in-flight build instead of
-        # starting a parallel one.
-        self._compile_lock = asyncio.Lock()
+        self._compile_task: asyncio.Task[CompileResult] | None = None
         # Per-page text hashes from the previous compile, for change
         # detection.  Empty after process startup; populated on each
         # successful build.
@@ -257,61 +254,73 @@ class TexMcpWebServer:
     # ----- compile + watch -----
 
     async def do_compile(self) -> CompileResult:
-        # Serialize: if a build is already running, await it.
-        async with self._compile_lock:
-            self.compiling = True
-            await self.broadcast({"type": "compiling", "status": True})
-            changed_pages: list[int] = []
-            try:
-                self.last_result = await compile_tex(
-                    main_file=self.main_file,
-                    compiler=self.config.compiler,
-                    work_dir=self.watch_dir,
-                )
-                # Reload SyncTeX
-                if self.last_result.output_file and self.main_file.suffix.lower() == ".tex":
-                    synctex_path = find_synctex_file(self.last_result.output_file)
-                    if synctex_path:
-                        self.synctex_data = parse_synctex(synctex_path)
-                # Refresh structure
-                self.structure = parse_structure(self.watch_dir, self.main_file)
-                # Compute per-page text hashes and diff against the
-                # previous compile.  Gives the agent a cheap "what
-                # changed visually" signal without rendering everything.
-                if self.last_result.success and self.last_result.output_file:
-                    from . import imaging
-                    self.pdf_digest = pdf_digest(self.last_result.output_file)
-                    self.comments.refresh_anchors(
-                        self.watch_dir,
-                        self.last_result.output_file,
-                        sections_resolver=lambda title, label: resolve_section_to_source(
-                            self.structure, self.watch_dir, title, label
-                        ),
-                    )
-                    new_hashes = imaging.page_text_hashes(self.last_result.output_file)
-                    changed_pages = imaging.diff_page_hashes(
-                        self._prev_page_hashes, new_hashes
-                    )
-                    self._prev_page_hashes = new_hashes
+        """Return the active build when compile requests overlap."""
+        active = self._compile_task
+        if active is not None and not active.done():
+            return await asyncio.shield(active)
 
-                logger.info(
-                    "Compile %s in %.2fs%s",
-                    "succeeded" if self.last_result.success else "failed",
-                    self.last_result.duration_seconds,
-                    f" (pages changed: {changed_pages})" if changed_pages else "",
+        task = asyncio.create_task(self._compile_once())
+        self._compile_task = task
+        try:
+            return await asyncio.shield(task)
+        finally:
+            if self._compile_task is task:
+                self._compile_task = None
+
+    async def _compile_once(self) -> CompileResult:
+        self.compiling = True
+        await self.broadcast({"type": "compiling", "status": True})
+        changed_pages: list[int] = []
+        try:
+            self.last_result = await compile_tex(
+                main_file=self.main_file,
+                compiler=self.config.compiler,
+                work_dir=self.watch_dir,
+            )
+            # Reload SyncTeX
+            if self.last_result.output_file and self.main_file.suffix.lower() == ".tex":
+                synctex_path = find_synctex_file(self.last_result.output_file)
+                if synctex_path:
+                    self.synctex_data = parse_synctex(synctex_path)
+            # Refresh structure
+            self.structure = parse_structure(self.watch_dir, self.main_file)
+            # Compute per-page text hashes and diff against the
+            # previous compile.  Gives the agent a cheap "what
+            # changed visually" signal without rendering everything.
+            if self.last_result.success and self.last_result.output_file:
+                from . import imaging
+                self.pdf_digest = pdf_digest(self.last_result.output_file)
+                self.comments.refresh_anchors(
+                    self.watch_dir,
+                    self.last_result.output_file,
+                    sections_resolver=lambda title, label: resolve_section_to_source(
+                        self.structure, self.watch_dir, title, label
+                    ),
                 )
-            finally:
-                self.compiling = False
-                await self.broadcast({"type": "compiling", "status": False})
-                msg: dict[str, Any] = {
-                    "type": "compiled",
-                    "result": _result_to_dict(self.last_result),
-                    "pdf_digest": self.pdf_digest,
-                }
-                if changed_pages:
-                    msg["pages_changed"] = changed_pages
-                await self.broadcast(msg)
-            return self.last_result
+                new_hashes = imaging.page_text_hashes(self.last_result.output_file)
+                changed_pages = imaging.diff_page_hashes(
+                    self._prev_page_hashes, new_hashes
+                )
+                self._prev_page_hashes = new_hashes
+
+            self.last_result.pages_changed = changed_pages
+            logger.info(
+                "Compile %s in %.2fs%s",
+                "succeeded" if self.last_result.success else "failed",
+                self.last_result.duration_seconds,
+                f" (pages changed: {changed_pages})" if changed_pages else "",
+            )
+        finally:
+            self.compiling = False
+            await self.broadcast({"type": "compiling", "status": False})
+            msg: dict[str, Any] = {
+                "type": "compiled",
+                "result": _result_to_dict(self.last_result),
+                "pdf_digest": self.pdf_digest,
+                "pages_changed": changed_pages,
+            }
+            await self.broadcast(msg)
+        return self.last_result
 
     async def on_file_change(self, changed_path: str) -> None:
         logger.info("File change (%s); recompiling…", changed_path)
@@ -446,9 +455,9 @@ class TexMcpWebServer:
             )
 
         if isinstance(anchor, TextSelectionAnchor):
-            if not anchor.quote.strip() or not anchor.segments:
+            if not anchor.quote.strip():
                 return web.json_response(
-                    {"error": "text selection requires quote and segments"}, status=400
+                    {"error": "text selection requires a quote"}, status=400
                 )
             if self.pdf_digest is None or anchor.pdf_digest != self.pdf_digest:
                 return web.json_response(
@@ -457,14 +466,14 @@ class TexMcpWebServer:
             if self.last_result is None or self.last_result.output_file is None:
                 return web.json_response({"error": "no PDF available"}, status=409)
             canonical = locate_pdf_quote(
-                self.last_result.output_file, anchor.quote, hint=anchor.segments
+                self.last_result.output_file, anchor.quote, hint=anchor.selection
             )
             if canonical is None:
                 return web.json_response(
                     {"error": "selected text could not be verified in the current PDF"},
                     status=422,
                 )
-            anchor.segments = canonical
+            anchor.selection = canonical
         if isinstance(anchor, AreaAnchor):
             if self.pdf_digest is None or anchor.pdf_digest != self.pdf_digest:
                 return web.json_response(
@@ -472,13 +481,6 @@ class TexMcpWebServer:
                 )
 
         resolved, source_selector = self._resolve_anchor(anchor)
-        if isinstance(anchor, TextSelectionAnchor) and (
-            resolved is None or source_selector is None
-        ):
-            return web.json_response(
-                {"error": "SyncTeX could not resolve the complete text selection"},
-                status=422,
-            )
         comment = self.comments.add(
             anchor=anchor,
             text=text,
@@ -496,30 +498,8 @@ class TexMcpWebServer:
         """Resolve one new anchor and capture its exact source selector."""
         from .comments import ResolveContext
 
-        if isinstance(anchor, (PaperAnchor, AreaAnchor)):
+        if isinstance(anchor, (PaperAnchor, AreaAnchor, TextSelectionAnchor)):
             return None, None
-
-        if isinstance(anchor, TextSelectionAnchor):
-            if self.last_result is None or self.last_result.output_file is None:
-                return None, None
-            source = selection_to_source(
-                pdf_path=self.last_result.output_file,
-                watch_dir=self.watch_dir,
-                segments=anchor.segments,
-            )
-            if source is None:
-                return None, None
-            resolved = ResolvedSource(
-                file=source.file,
-                line_start=source.line_start,
-                line_end=source.line_end,
-            )
-            selector = capture_source_selector(
-                self.watch_dir / resolved.file,
-                resolved.line_start,
-                resolved.line_end,
-            )
-            return resolved, selector
 
         # Lazy-load structure for section resolution.
         if isinstance(anchor, SectionAnchor) and self.structure is None:
@@ -649,11 +629,12 @@ class TexMcpWebServer:
     async def _handle_goto(self, request: web.Request) -> web.Response:
         """Tell the viewer to scroll/highlight a target.
 
-        Body keys (use exactly one of section/label/line/page):
+        Body keys (use exactly one of section/label/line/page/quote):
             section  section title (case-insensitive title match)
             label    \\label{...} value
             line + file  source line number in *file*
             page     PDF page number
+            quote    exact rendered PDF text
 
         Returns 200 with ``{page}`` when SyncTeX resolved a page, or 200
         with ``{file, line, page: null}`` when a section/label matched a
@@ -669,6 +650,7 @@ class TexMcpWebServer:
         line = data.get("line")
         page = data.get("page")
         file = data.get("file")
+        quote = data.get("quote")
 
         # Direct page request.
         if page is not None:
@@ -693,15 +675,46 @@ class TexMcpWebServer:
         elif line and file:
             resolved_file, resolved_line = str(file), int(line)
 
+        # An unmatched free-form target is an exact rendered quote. This lets
+        # goto("some PDF text") work without adding a second MCP parameter.
+        quote_text = str(quote or (section if resolved_file is None else "")).strip()
+        if quote_text:
+            if self.last_result is None or self.last_result.output_file is None:
+                return web.json_response(
+                    {"error": "quote navigation requires a compiled PDF"}, status=404
+                )
+            selection = locate_pdf_quote(self.last_result.output_file, quote_text)
+            if selection is None:
+                return web.json_response(
+                    {"error": "quote is missing or ambiguous in the current PDF"},
+                    status=404,
+                )
+            payload = {
+                "type": "goto",
+                "page": selection.page,
+                "quote": quote_text,
+                "bbox": list(selection.bbox),
+                "rects": [list(rect) for rect in selection.rects],
+            }
+            await self.broadcast(payload)
+            return web.json_response({key: value for key, value in payload.items() if key != "type"})
+
         if resolved_file is None or resolved_line is None:
             return web.json_response({"error": "could not resolve target"}, status=404)
 
         # Try to map to a PDF page via SyncTeX.
         target_page = None
+        target_bbox = None
         if self.synctex_data is not None:
             pos = source_to_page(self.synctex_data, resolved_file, resolved_line)
             if pos:
                 target_page = pos.page
+                target_bbox = [
+                    pos.x,
+                    pos.y,
+                    pos.x + max(pos.width, 6.0),
+                    pos.y + max(pos.height, 12.0),
+                ]
 
         # Broadcast whatever we know — viewer scrolls if there's a page.
         await self.broadcast(
@@ -710,10 +723,16 @@ class TexMcpWebServer:
                 "page": target_page,
                 "file": resolved_file,
                 "line": resolved_line,
+                "bbox": target_bbox,
             }
         )
         return web.json_response(
-            {"page": target_page, "file": resolved_file, "line": resolved_line}
+            {
+                "page": target_page,
+                "file": resolved_file,
+                "line": resolved_line,
+                "bbox": target_bbox,
+            }
         )
 
     # ----- image -----
@@ -727,6 +746,7 @@ class TexMcpWebServer:
             source=FILE:LSTART-LEND         SyncTeX-resolved region
             comment=cid                     anchor of an existing comment
             dpi=N                           render DPI (default 150, clamped to [36, 600])
+            margin=N                        region margin in PDF points (default 12)
 
         Rendering runs on a worker thread so the event loop stays free
         for WebSocket heartbeats and concurrent /compile requests.
@@ -740,8 +760,9 @@ class TexMcpWebServer:
 
         try:
             dpi = _clamp_dpi(request.query.get("dpi", "150"))
+            margin = float(request.query.get("margin", "12"))
         except ValueError:
-            return web.json_response({"error": "invalid dpi"}, status=400)
+            return web.json_response({"error": "invalid dpi or margin"}, status=400)
 
         pdf_path = self.last_result.output_file
         try:
@@ -750,7 +771,7 @@ class TexMcpWebServer:
                 png = await asyncio.to_thread(imaging.render_page, pdf_path, page, dpi)
             else:
                 png = await asyncio.to_thread(
-                    imaging.render_region, pdf_path, page, bbox, dpi
+                    imaging.render_region, pdf_path, page, bbox, dpi, margin
                 )
         except (ValueError, imaging.ImagingError) as exc:
             return web.json_response({"error": str(exc)}, status=400)

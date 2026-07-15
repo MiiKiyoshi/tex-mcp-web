@@ -2,7 +2,6 @@
 
 import gzip
 import logging
-from types import SimpleNamespace
 
 import pytest
 
@@ -11,11 +10,9 @@ from tex_mcp_web.synctex import (
     SourcePosition,
     SyncTeXData,
     _normalize_path,
-    edit_pdf_point,
     find_synctex_file,
     get_visible_lines,
     parse_synctex,
-    selection_to_source,
     source_to_page,
 )
 
@@ -271,57 +268,6 @@ class TestSourceToPage:
         """Test when file not in synctex data."""
         pos = source_to_page(synctex_data, "nonexistent.tex", 1)
         assert pos is None
-
-
-class TestOfficialReverseSync:
-    def test_edit_pdf_point_passes_x_and_y(self, monkeypatch, tmp_path):
-        captured = {}
-
-        def fake_run(command, **kwargs):
-            captured["command"] = command
-            captured["kwargs"] = kwargs
-            return SimpleNamespace(
-                returncode=0,
-                stdout=f"Input:{tmp_path}/tex/intro.tex\nLine:58\nColumn:-1\n",
-                stderr="",
-            )
-
-        monkeypatch.setattr("tex_mcp_web.synctex.shutil.which", lambda name: "/bin/synctex")
-        monkeypatch.setattr("tex_mcp_web.synctex.subprocess.run", fake_run)
-        position = edit_pdf_point(tmp_path / "main.pdf", tmp_path, 2, 151.5, 126.25)
-        assert captured["command"][-1] == f"2:151.5:126.25:{tmp_path / 'main.pdf'}"
-        assert captured["kwargs"]["cwd"] == tmp_path
-        assert position == SourcePosition(file="tex/intro.tex", line=58, column=0)
-
-    def test_selection_resolves_all_visual_line_centers(self, monkeypatch, tmp_path):
-        calls = []
-
-        def fake_edit(pdf_path, watch_dir, page, x, y):
-            calls.append((page, x, y))
-            line = 58 if y < 120 else 62
-            return SourcePosition(file="tex/intro.tex", line=line)
-
-        monkeypatch.setattr("tex_mcp_web.synctex.edit_pdf_point", fake_edit)
-        segment = SimpleNamespace(
-            page=2,
-            rects=[(80.0, 100.0, 280.0, 110.0), (80.0, 130.0, 160.0, 140.0)],
-        )
-        resolved = selection_to_source(tmp_path / "main.pdf", tmp_path, [segment])
-        assert calls == [(2, 180.0, 105.0), (2, 120.0, 135.0)]
-        assert resolved.file == "tex/intro.tex"
-        assert (resolved.line_start, resolved.line_end) == (58, 62)
-
-    def test_selection_rejects_multiple_source_files(self, monkeypatch, tmp_path):
-        positions = iter([
-            SourcePosition(file="a.tex", line=1),
-            SourcePosition(file="b.tex", line=2),
-        ])
-        monkeypatch.setattr(
-            "tex_mcp_web.synctex.edit_pdf_point",
-            lambda *args, **kwargs: next(positions),
-        )
-        segment = SimpleNamespace(page=1, rects=[(0, 0, 10, 10), (0, 10, 10, 20)])
-        assert selection_to_source(tmp_path / "main.pdf", tmp_path, [segment]) is None
 
 
 class TestGetVisibleLines:

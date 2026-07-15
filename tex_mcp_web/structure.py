@@ -47,8 +47,7 @@ class Section:
 
 @dataclass
 class DocumentStructure:
-    """Just sections.  v0.4.0 also tracked labels/citations/inputs; the
-    agent does that better with Grep, so they're gone."""
+    """Document sections; the agent greps labels, citations, and inputs directly."""
 
     sections: list[Section] = field(default_factory=list)
 

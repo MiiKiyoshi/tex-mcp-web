@@ -97,6 +97,23 @@ def test_render_region_zero_size_with_margin_succeeds(tiny_pdf: Path):
     assert png.startswith(PNG_MAGIC)
 
 
+def test_render_region_margin_expands_exact_bbox(tiny_pdf: Path):
+    exact = fitz.Pixmap(
+        render_region(tiny_pdf, page=1, bbox=(60, 60, 200, 100), dpi=72, margin=0)
+    )
+    expanded = fitz.Pixmap(
+        render_region(tiny_pdf, page=1, bbox=(60, 60, 200, 100), dpi=72)
+    )
+    assert (exact.width, exact.height) == (140, 40)
+    assert (expanded.width, expanded.height) == (164, 64)
+
+
+@pytest.mark.parametrize("margin", [-1, float("nan"), float("inf")])
+def test_render_region_rejects_invalid_margin(tiny_pdf: Path, margin: float):
+    with pytest.raises(ImagingError, match="finite non-negative"):
+        render_region(tiny_pdf, page=1, bbox=(60, 60, 200, 100), margin=margin)
+
+
 def test_render_region_out_of_range_page(tiny_pdf: Path):
     with pytest.raises(ImagingError, match="out of range"):
         render_region(tiny_pdf, page=99, bbox=(0, 0, 50, 50))
