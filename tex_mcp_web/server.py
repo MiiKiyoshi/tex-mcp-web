@@ -249,6 +249,7 @@ class TexMcpWebServer:
         app.router.add_get("/synctex/source-to-pdf", self._handle_synctex_forward)
         app.router.add_post("/goto", self._handle_goto)
         app.router.add_get("/image", self._handle_image)
+        app.router.add_get("/reference-preview", self._handle_reference_preview)
         return app
 
     # ----- compile + watch -----
@@ -779,6 +780,42 @@ class TexMcpWebServer:
         return web.Response(
             body=png,
             content_type="image/png",
+            headers={"Cache-Control": "no-store"},
+        )
+
+    async def _handle_reference_preview(self, request: web.Request) -> web.Response:
+        """Return the bibliography entry targeted by a clicked PDF link."""
+        from . import imaging
+
+        if self.last_result is None or self.last_result.output_file is None:
+            return web.json_response({"error": "no PDF; compile first"}, status=404)
+
+        try:
+            source_page = int(request.query["page"])
+            source_bbox = _parse_bbox(request.query["bbox"])
+        except (KeyError, ValueError):
+            return web.json_response(
+                {"error": "page and bbox are required"}, status=400
+            )
+
+        try:
+            target_page, target_bbox = await asyncio.to_thread(
+                imaging.resolve_reference_region,
+                self.last_result.output_file,
+                source_page,
+                source_bbox,
+            )
+            text = await asyncio.to_thread(
+                imaging.extract_region_text,
+                self.last_result.output_file,
+                target_page,
+                target_bbox,
+            )
+        except imaging.ImagingError as exc:
+            return web.json_response({"error": str(exc)}, status=404)
+
+        return web.json_response(
+            {"text": text},
             headers={"Cache-Control": "no-store"},
         )
 

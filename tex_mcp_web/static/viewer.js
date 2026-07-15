@@ -25,6 +25,8 @@ const state = {
   activeForm: null,
   focusedCommentId: null,
   annotationCommentById: new Map(),
+  referencePreviewRequest: 0,
+  lastViewerPointer: null,
   ws: null,
 };
 
@@ -93,6 +95,7 @@ function capturePdfView() {
 
 async function initializePdfViewer(pdfView) {
   clearGotoHighlight();
+  hideReferencePreview();
   const host = $("#pdf-viewer");
   clear(host);
   state.registry = null;
@@ -182,6 +185,9 @@ async function initializePdfViewer(pdfView) {
     }
   `;
   state.viewer.shadowRoot.appendChild(viewerStyle);
+  state.viewer.shadowRoot.addEventListener("pointerdown", (event) => {
+    state.lastViewerPointer = { x: event.clientX, y: event.clientY };
+  }, { capture: true });
   const selectionCapability = registry.getPlugin("selection").provides();
   const annotationCapability = registry.getPlugin("annotation").provides();
   const scrollCapability = registry.getPlugin("scroll").provides();
@@ -218,11 +224,18 @@ async function initializePdfViewer(pdfView) {
   state.annotations.onStateChange((annotationState) => {
     if (annotationState.selectedUids.length !== 1) return;
     const commentId = state.annotationCommentById.get(annotationState.selectedUids[0]);
-    if (!commentId) return;
-    setSidebarCollapsed(false);
-    switchTab("comments");
-    const comment = state.comments.find((item) => item.id === commentId);
-    if (comment) focusComment(comment);
+    if (commentId) {
+      setSidebarCollapsed(false);
+      switchTab("comments");
+      const comment = state.comments.find((item) => item.id === commentId);
+      if (comment) focusComment(comment);
+      return;
+    }
+    const selected = state.annotations.getSelectedAnnotation();
+    if (selected?.object?.target) {
+      queueMicrotask(() => state.annotations?.deselectAnnotation());
+      showReferencePreview(selected.object).catch((error) => console.error(error));
+    }
   });
 
   scrollCapability.onLayoutReady((event) => {
@@ -243,6 +256,51 @@ async function initializePdfViewer(pdfView) {
     state.annotationsReady = true;
     syncCommentAnnotations();
   });
+}
+
+function hideReferencePreview() {
+  state.referencePreviewRequest += 1;
+  const preview = $("#reference-preview");
+  if (preview) preview.classList.add("hidden");
+}
+
+function positionReferencePreview() {
+  const preview = $("#reference-preview");
+  const pointer = state.lastViewerPointer;
+  if (!preview || !pointer) return;
+  const gap = 12;
+  const bounds = preview.getBoundingClientRect();
+  const left = Math.min(
+    Math.max(gap, pointer.x + gap),
+    Math.max(gap, window.innerWidth - bounds.width - gap),
+  );
+  const below = pointer.y + gap;
+  const top = below + bounds.height <= window.innerHeight - gap
+    ? below
+    : Math.max(gap, pointer.y - bounds.height - gap);
+  preview.style.left = `${left}px`;
+  preview.style.top = `${top}px`;
+}
+
+async function showReferencePreview(annotation) {
+  if (!annotation.rect || annotation.pageIndex === undefined) return;
+  const requestId = ++state.referencePreviewRequest;
+  const bbox = rectToBBox(annotation.rect);
+  const params = new URLSearchParams({
+    page: String(annotation.pageIndex + 1),
+    bbox: bbox.join(","),
+  });
+  const response = await fetch(`/reference-preview?${params}`);
+  if (requestId !== state.referencePreviewRequest || !response.ok) return;
+  const result = await response.json();
+  if (requestId !== state.referencePreviewRequest) return;
+  if (typeof result.text !== "string" || result.text.length === 0) {
+    throw new Error("Reference preview response has no text");
+  }
+  const preview = $("#reference-preview");
+  $("#reference-preview-text").textContent = result.text.replace(/\s+/g, " ").trim();
+  preview.classList.remove("hidden");
+  positionReferencePreview();
 }
 
 async function openTextSelectionCompose() {
@@ -795,7 +853,17 @@ function attachSidebarToggle() {
 async function init() {
   attachKeyboardNavigation();
   attachSidebarToggle();
-  document.addEventListener("pointerdown", clearGotoHighlight, { capture: true });
+  document.addEventListener("pointerdown", (event) => {
+    clearGotoHighlight();
+    if (!event.target.closest("#reference-preview")) hideReferencePreview();
+  }, { capture: true });
+  $("#reference-preview").addEventListener("click", () => {
+    const selection = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents($("#reference-preview-text"));
+    selection.removeAllRanges();
+    selection.addRange(range);
+  });
   $("#recompile-btn").addEventListener("click", () => fetch("/compile", { method: "POST" }));
   $("#paper-comment-btn").addEventListener("click", () =>
     openCompose({ kind: "paper" }, "Paper-level comment"));

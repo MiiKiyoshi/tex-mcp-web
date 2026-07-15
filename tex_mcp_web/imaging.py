@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 from pathlib import Path
 
 try:
@@ -105,6 +106,139 @@ def render_region(
             raise ImagingError(f"empty bbox after clip: {tuple(bbox)} on {page_obj.rect}")
         cs = fitz.csGRAY if gray else fitz.csRGB
         return page_obj.get_pixmap(dpi=dpi, clip=rect, colorspace=cs).tobytes("png")
+    finally:
+        doc.close()
+
+
+def resolve_reference_region(
+    pdf_path: Path,
+    source_page: int,
+    source_bbox: tuple[float, float, float, float],
+) -> tuple[int, tuple[float, float, float, float]]:
+    """Resolve a clicked PDF citation link to its bibliography entry.
+
+    ``source_bbox`` is the link annotation rectangle on ``source_page`` in
+    top-left PDF coordinates. The returned page is 1-indexed and the bbox
+    encloses the rendered bibliography entry.
+    """
+    doc, source_page_obj = _open_pdf(pdf_path, source_page)
+    try:
+        source_rect = fitz.Rect(source_bbox)
+        if source_rect.is_empty or source_rect.is_infinite:
+            raise ImagingError("citation link bbox is empty")
+
+        probe = fitz.Rect(
+            source_rect.x0 - 2.0,
+            source_rect.y0 - 2.0,
+            source_rect.x1 + 2.0,
+            source_rect.y1 + 2.0,
+        )
+        links = []
+        for link in source_page_obj.get_links():
+            if "page" not in link or "to" not in link or link["page"] < 0:
+                continue
+            link_rect = fitz.Rect(link["from"])
+            if link_rect.intersects(probe):
+                center_dx = link_rect.x0 + link_rect.x1 - source_rect.x0 - source_rect.x1
+                center_dy = link_rect.y0 + link_rect.y1 - source_rect.y0 - source_rect.y1
+                links.append((center_dx * center_dx + center_dy * center_dy, link, link_rect))
+        if not links:
+            raise ImagingError("no PDF link at the selected location")
+
+        _, link, link_rect = min(links, key=lambda item: item[0])
+        source_text = source_page_obj.get_textbox(link_rect).strip()
+        destination_name = link["nameddest"] if "nameddest" in link else ""
+        numeric = re.fullmatch(r"\[\s*(\d+)\s*\]", source_text)
+        if not destination_name.startswith("cite.") and numeric is None:
+            raise ImagingError("selected PDF link is not a citation")
+
+        target_index = int(link["page"])
+        if target_index < 0 or target_index >= len(doc):
+            raise ImagingError("citation destination page is out of range")
+        target_page_obj = doc[target_index]
+        raw_target = fitz.Point(link["to"])
+        transformed_target = raw_target * target_page_obj.transformation_matrix
+
+        label_rect = None
+        if source_text:
+            label_matches = target_page_obj.search_for(source_text)
+            if label_matches:
+                target_points = (raw_target, transformed_target)
+                label_rect = min(
+                    label_matches,
+                    key=lambda rect: min(
+                        (rect.x0 - point.x) ** 2 + (rect.y0 - point.y) ** 2
+                        for point in target_points
+                    ),
+                )
+
+        if label_rect is not None:
+            start_x = label_rect.x0
+            start_y = label_rect.y0
+        else:
+            target = (
+                transformed_target
+                if link["kind"] == fitz.LINK_NAMED
+                else raw_target
+            )
+            start_x = target.x
+            start_y = target.y
+
+        next_y = None
+        if numeric is not None:
+            next_label = f"[{int(numeric.group(1)) + 1}]"
+            next_matches = [
+                rect
+                for rect in target_page_obj.search_for(next_label)
+                if rect.y0 > start_y + 1.0
+                and abs(rect.x0 - start_x) <= target_page_obj.rect.width * 0.1
+            ]
+            if next_matches:
+                next_y = min(rect.y0 for rect in next_matches)
+
+        column_blocks = []
+        for block in target_page_obj.get_text("blocks"):
+            if block[6] != 0:
+                continue
+            rect = fitz.Rect(block[:4])
+            if rect.y1 <= start_y:
+                continue
+            if abs(rect.x0 - start_x) <= 36.0:
+                column_blocks.append(rect)
+
+        if next_y is not None:
+            end_y = next_y - 1.0
+            entry_blocks = [rect for rect in column_blocks if rect.y0 < next_y]
+        else:
+            entry_blocks = column_blocks
+            end_y = max((rect.y1 for rect in entry_blocks), default=start_y + 18.0)
+
+        end_x = max(
+            (rect.x1 for rect in entry_blocks),
+            default=target_page_obj.rect.width - 24.0,
+        )
+        end_x = min(end_x, target_page_obj.rect.width)
+        end_y = min(max(end_y, start_y + 10.0), target_page_obj.rect.height)
+        return target_index + 1, (start_x, start_y, end_x, end_y)
+    finally:
+        doc.close()
+
+
+def extract_region_text(
+    pdf_path: Path,
+    page: int,
+    bbox: tuple[float, float, float, float],
+) -> str:
+    """Extract selectable text from a PDF region."""
+    doc, page_obj = _open_pdf(pdf_path, page)
+    try:
+        rect = fitz.Rect(bbox)
+        if rect.is_empty or rect.is_infinite:
+            raise ImagingError("text bbox is empty")
+        text = page_obj.get_textbox(rect).strip()
+        if not text:
+            raise ImagingError("PDF region contains no extractable text")
+        return text
     finally:
         doc.close()
 

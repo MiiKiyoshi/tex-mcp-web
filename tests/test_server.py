@@ -353,8 +353,21 @@ async def client_with_pdf(project: Path):
     # Build a tiny real PDF the server can render.
     pdf_path = project / "paper.pdf"
     doc = fitz.open()
-    doc.new_page().insert_text((72, 72), "Page 1")
-    doc.new_page().insert_text((72, 72), "Page 2")
+    page_one = doc.new_page()
+    page_one.insert_text((72, 72), "Page 1 cites [1]")
+    page_two = doc.new_page()
+    page_two.insert_text((72, 72), "Page 2")
+    page_two.insert_text((72, 110), "[1] First reference entry")
+    page_two.insert_text((72, 134), "[2] Second reference entry")
+    page_one = doc[0]
+    page_one.insert_link(
+        {
+            "kind": fitz.LINK_GOTO,
+            "from": page_one.search_for("[1]")[0],
+            "page": 1,
+            "to": fitz.Point(72, 110),
+        }
+    )
     doc.save(pdf_path)
     doc.close()
     server.last_result = CompileResult(
@@ -394,6 +407,24 @@ async def test_goto_unmatched_section_falls_back_to_pdf_quote(client_with_pdf):
     data = await resp.json()
     assert data["page"] == 2
     assert data["quote"] == "Page 2"
+
+
+@pytest.mark.asyncio
+async def test_reference_preview_returns_cited_entry_text(client_with_pdf):
+    tc, server = client_with_pdf
+    pdf_path = server.last_result.output_file
+    doc = fitz.open(pdf_path)
+    source_rect = doc[0].get_links()[0]["from"]
+    doc.close()
+    bbox = ",".join(str(value) for value in source_rect)
+
+    resp = await tc.get(f"/reference-preview?page=1&bbox={bbox}")
+
+    assert resp.status == 200
+    assert resp.content_type == "application/json"
+    result = await resp.json()
+    assert "[1] First reference entry" in result["text"]
+    assert "[2] Second reference entry" not in result["text"]
 
 
 @pytest.mark.asyncio

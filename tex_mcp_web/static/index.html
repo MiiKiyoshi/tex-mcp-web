@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>tex-web</title>
-<link rel="stylesheet" href="/static/style.css?v=warm1">
+<link rel="stylesheet" href="/static/style.css?v=reference-preview-compact">
 </head>
 <body>
 <div id="app">
@@ -23,6 +23,9 @@
     <section id="pdf-pane">
       <div id="pdf-viewer">
         <p class="placeholder">No PDF yet — waiting for first compile…</p>
+      </div>
+      <div id="reference-preview" class="reference-preview hidden" title="Click to select reference text">
+        <div id="reference-preview-text"></div>
       </div>
     </section>
 
@@ -75,6 +78,6 @@
   </form>
 </dialog>
 
-  <script type="module" src="/static/viewer.js?v=goto-click-dismiss"></script>
+    <script type="module" src="/static/viewer.js?v=reference-preview-compact"></script>
 </body>
 </html>
