@@ -175,6 +175,7 @@ def test_store_crud(store: CommentStore):
     assert replied.thread[-1].text == "reply"
     resolved = store.resolve(comment.id, "done", edits=["paper.tex:1"])
     assert resolved.status == "resolved"
+    assert resolved.thread[-1].author == "agent"
     assert resolved.thread[-1].edits == ["paper.tex:1"]
     assert store.delete(comment.id)
     assert store.get(comment.id) is None

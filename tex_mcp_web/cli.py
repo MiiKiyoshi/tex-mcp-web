@@ -229,7 +229,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="tex-mcp-web",
         description=(
             "Live PDF preview + review-style commenting for LaTeX papers, "
-            "designed for Claude Code as the author. Run with no arguments to "
+            "designed for a coding agent as the author. Run with no arguments to "
             "start the server."
         ),
     )

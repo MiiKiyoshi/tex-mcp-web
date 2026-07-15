@@ -1,14 +1,14 @@
 # tex-mcp-web
 
-**Agentic-first PDF review for LaTeX papers, with Claude Code as the author.**
+**Agentic-first PDF review for LaTeX papers, with a coding agent as the author.**
 
 Hard fork of [queelius/scholia](https://github.com/queelius/scholia) v0.6.1 (MIT). Renamed and independently developed since.
 
-You read the rendered PDF in your browser. You drop comments on paragraphs, sections, or the paper as a whole. Claude Code reads the queue (via MCP), edits the source, and replies with what changed. The PDF rebuilds in front of you. Repeat until done.
+You read the rendered PDF in your browser. You drop comments on paragraphs, sections, or the paper as a whole. A coding agent reads the queue through MCP, edits the source, and replies with what changed. The PDF rebuilds in front of you. Repeat until done.
 
 ## Why this exists
 
-tex-mcp-web is deliberately *not* an editor, *not* an IDE, *not* an Overleaf clone. The agent (Claude Code) is already smarter at reading source, parsing LaTeX, grepping citations, and editing files than any tool we could build. So we don't try.
+tex-mcp-web is deliberately *not* an editor, *not* an IDE, *not* an Overleaf clone. The coding agent already reads source, parses LaTeX, searches citations, and edits files, so this project does not duplicate those functions.
 
 tex-mcp-web is a **substrate** for the agentic-first writing workflow:
 
@@ -26,7 +26,7 @@ Requires Python 3.10+ and `latexmk` (or `pdflatex`/`xelatex`/`lualatex`/`pandoc`
 pip install "tex-mcp-web[mcp] @ git+https://github.com/MiiKiyoshi/tex-mcp-web"
 ```
 
-The `[mcp]` extra adds the MCP server for Claude Code. PyMuPDF is a core
+The `[mcp]` extra adds the MCP server. PyMuPDF is a core
 dependency because text anchors are relocated in every new PDF after compilation.
 
 ## Quick start
@@ -49,7 +49,7 @@ In the browser:
 - **Keyboard navigation**: `j` / `k` step through comments, `r` opens a reply form, `R` opens resolve, `d` opens dismiss, `Esc` cancels, `\` collapses the sidebar.
 - **Ctrl/Cmd + wheel** zooms the PDF around the cursor.
 
-## The Claude Code workflow
+## Claude Code setup
 
 Register the MCP server once, globally:
 
@@ -57,18 +57,18 @@ Register the MCP server once, globally:
 claude mcp add --scope user tex-mcp -- tex-mcp
 ```
 
-The server locates `.tex-mcp-web.yaml` by searching upward from Claude Code's working directory, so the same registration serves every paper: open Claude Code in a paper directory and the tools point at that paper.
+The server locates `.tex-mcp-web.yaml` by searching upward from the agent's working directory, so the same registration serves every paper.
 
 This exposes **6 tools**:
 
 | Tool | What it does |
 |---|---|
 | `paper(include_comments=True)` | Paper state in one call: sections with line ranges, the comments queue, and PDF path. |
-| `compile()` | Ask the daemon to compile; return structured errors, source context, and changed PDF pages. |
+| `compile()` | Ask the daemon to compile; return structured errors, source context, and pages whose extracted PDF text changed. |
 | `comment(action, ...)` | `add` / `reply` / `resolve` / `dismiss` / `delete`. Optional `suggestion={"old", "new"}` on add. |
 | `image(..., margin=12)` | Render a PDF region as PNG. The bbox stays exact; `margin` adds context in PDF points at render time. Modes: `page=N`, `page+bbox`, `source="file:lstart-lend"`, `comment_id="c-..."`. |
-| `section(name, include_image=False)` | Deep-dive: source slice + scoped comments for one section. Set `include_image=True` when rendering is relevant. |
-| `goto(target)` | Scroll to a section, page, source line, label, or exact PDF quote. Positioned targets receive a transient highlight. |
+| `section(name, include_image=False)` | Deep-dive: unexpanded source slice + scoped comments. Its optional image covers one PDF page. |
+| `goto(target)` | Scroll to a section, page, source line, label, or exact PDF quote. Positioned targets stay highlighted until the next pointer action. |
 
 The daemon owns compilation. Concurrent watcher and MCP requests share one build, and `compile()` returns `pages_changed` so the agent can verify only the pages whose extracted text changed.
 
@@ -83,7 +83,7 @@ You:    [drop 8 comments on the PDF; for "rephrase X" comments, fill
          in the suggested rewrite (agent applies it directly)]
         "Process the open comments."
 
-Claude: paper()                           # see comments + sections
+Agent:  paper()                           # see comments + sections
         for each: Read/Edit source; if suggestion present, apply it
         comment(action="resolve", id=..., summary="...")
         compile()                         # verify build
@@ -92,10 +92,9 @@ You:    [PDF rebuilds; reply / dismiss as needed]
 
 You:    "Audit my methods section for notation drift."
 
-Claude: section("Methods")                 # source + scoped comments
+Agent:  section("Methods")                 # source + scoped comments
         Read paper.tex; image() when rendering matters
-        comment(action="add", author="claude",
-                        anchor=..., text="...", suggestion=...)
+        comment(action="add", anchor=..., text="...", suggestion=...)
         # filed back into the queue, distinct visual treatment
 ```
 

@@ -14,7 +14,7 @@ Anchor types
 Threads
 -------
 Each comment carries an ordered list of :class:`ThreadEntry` so the human
-and Claude Code can converse about a region (request → action → follow-up).
+and coding agent can converse about a region (request → action → follow-up).
 
 Staleness
 ---------
@@ -318,7 +318,7 @@ class SourceSelector:
 # ---------------------------------------------------------------------------
 
 
-Author = Literal["human", "claude"]
+Author = Literal["human", "agent"]
 Status = Literal["open", "resolved", "dismissed"]
 
 
@@ -648,7 +648,7 @@ def locate_pdf_quote(
 # ---------------------------------------------------------------------------
 
 
-STORE_VERSION = 4
+STORE_VERSION = 5
 
 
 class CommentStore:
@@ -814,7 +814,7 @@ class CommentStore:
         comment_id: str,
         summary: str,
         edits: list[str] | None = None,
-        author: Author = "claude",
+        author: Author = "agent",
     ) -> Comment:
         return self._append_entry(
             comment_id, author, summary, edits=edits, new_status="resolved"

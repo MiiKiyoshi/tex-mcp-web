@@ -5,14 +5,14 @@ build-backend = "hatchling.build"
 [project]
 name = "tex-mcp-web"
 version = "0.7.0"
-description = "Agentic-first review tool for LaTeX papers: live PDF preview + comment queue, designed for Claude Code as author"
+description = "Agentic-first review tool for LaTeX papers: live PDF preview and comment queue"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
 authors = [
     { name = "Alex Towell", email = "lex@metafunctor.com" }
 ]
-keywords = ["tex", "latex", "pdf", "watcher", "viewer", "review", "annotation", "claude", "mcp"]
+keywords = ["tex", "latex", "pdf", "watcher", "viewer", "review", "annotation", "agent", "mcp"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
