@@ -22,8 +22,6 @@ class Config:
         ignore: Glob patterns for files to exclude from watching.
         compiler: Compiler command ("auto", "latexmk", "pdflatex", etc.).
         port: HTTP server port.
-        page_limit: Optional page count warning threshold.
-        snippets: User-defined LaTeX snippets keyed by trigger name.
         config_path: Path to .tex-mcp-web.yaml file (used to resolve watch_dir).
     """
 
@@ -32,8 +30,6 @@ class Config:
     ignore: list[str] = field(default_factory=list)
     compiler: str = "auto"
     port: int = DEFAULT_PORT
-    page_limit: int | None = None
-    snippets: dict[str, str] = field(default_factory=dict)
     config_path: Path | None = None
 
     @classmethod
@@ -45,25 +41,18 @@ class Config:
             ignore=data.get("ignore", []),
             compiler=data.get("compiler", "auto"),
             port=data.get("port", DEFAULT_PORT),
-            page_limit=data.get("page_limit"),
-            snippets=data.get("snippets", {}),
             config_path=config_path,
         )
 
     def to_dict(self) -> dict[str, Any]:
         """Convert config to dictionary (for API responses)."""
-        d: dict[str, Any] = {
+        return {
             "main": self.main,
             "watch": self.watch,
             "ignore": self.ignore,
             "compiler": self.compiler,
             "port": self.port,
         }
-        if self.page_limit is not None:
-            d["page_limit"] = self.page_limit
-        if self.snippets:
-            d["snippets"] = self.snippets
-        return d
 
 
 DEFAULT_CONFIG_NAME = ".tex-mcp-web.yaml"
@@ -141,7 +130,7 @@ def create_config(
 
     config_data = {
         "main": main,
-        "watch": watch or ["*.tex", "*.bib", "*.md", "*.txt", "**/*.tex"],
+        "watch": watch or ["*.tex", "*.bib", "*.md", "*.txt"],
         "ignore": ignore or ["*_backup.tex"],
         "compiler": compiler,
         "port": port,

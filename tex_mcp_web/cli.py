@@ -77,7 +77,7 @@ def cmd_init(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 
-_CONFIG_KEYS = ("main", "port", "compiler", "watch", "ignore", "page_limit")
+_CONFIG_KEYS = ("main", "port", "compiler", "watch", "ignore")
 
 
 def cmd_config(args: argparse.Namespace) -> int:
@@ -110,7 +110,7 @@ def cmd_config(args: argparse.Namespace) -> int:
         return 0
 
     value: object = args.value
-    if args.key in ("port", "page_limit"):
+    if args.key == "port":
         value = int(args.value)
     elif args.key in ("watch", "ignore"):
         value = [p.strip() for p in args.value.split(",") if p.strip()]
