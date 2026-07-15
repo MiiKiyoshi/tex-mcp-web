@@ -10,9 +10,11 @@ import pytest
 fitz = pytest.importorskip("fitz")
 
 from tex_mcp_web.imaging import (
+    extract_region_text,
     ImagingError,
     render_page,
     render_region,
+    resolve_reference_region,
     resolve_source_to_region,
 )
 from tex_mcp_web.synctex import PDFPosition, SyncTeXData
@@ -31,6 +33,30 @@ def tiny_pdf(tmp_path: Path) -> Path:
     p2 = doc.new_page()
     p2.insert_text((72, 72), "Page 2 line 1")
     out = tmp_path / "tiny.pdf"
+    doc.save(out)
+    doc.close()
+    return out
+
+
+@pytest.fixture
+def citation_pdf(tmp_path: Path) -> Path:
+    doc = fitz.open()
+    source = doc.new_page()
+    source.insert_text((72, 72), "Prior work [1]")
+    references = doc.new_page()
+    references.insert_text((72, 72), "[1] First reference entry")
+    references.insert_text((72, 96), "[2] Second reference entry")
+    source = doc[0]
+    citation_rect = source.search_for("[1]")[0]
+    source.insert_link(
+        {
+            "kind": fitz.LINK_GOTO,
+            "from": citation_rect,
+            "page": 1,
+            "to": fitz.Point(72, 72),
+        }
+    )
+    out = tmp_path / "citation.pdf"
     doc.save(out)
     doc.close()
     return out
@@ -117,6 +143,39 @@ def test_render_region_rejects_invalid_margin(tiny_pdf: Path, margin: float):
 def test_render_region_out_of_range_page(tiny_pdf: Path):
     with pytest.raises(ImagingError, match="out of range"):
         render_region(tiny_pdf, page=99, bbox=(0, 0, 50, 50))
+
+
+def test_resolve_reference_region_crops_one_entry(citation_pdf: Path):
+    doc = fitz.open(citation_pdf)
+    link_rect = tuple(doc[0].get_links()[0]["from"])
+    page, bbox = resolve_reference_region(citation_pdf, 1, link_rect)
+    text = doc[page - 1].get_textbox(fitz.Rect(bbox))
+    doc.close()
+
+    assert page == 2
+    assert "[1] First reference entry" in text
+    assert "[2] Second reference entry" not in text
+
+
+def test_extract_region_text(citation_pdf: Path):
+    doc = fitz.open(citation_pdf)
+    source_bbox = tuple(doc[0].get_links()[0]["from"])
+    doc.close()
+    page, bbox = resolve_reference_region(
+        citation_pdf,
+        1,
+        source_bbox,
+    )
+
+    text = extract_region_text(citation_pdf, page, bbox)
+
+    assert "[1] First reference entry" in text
+    assert "[2] Second reference entry" not in text
+
+
+def test_resolve_reference_region_rejects_non_link(citation_pdf: Path):
+    with pytest.raises(ImagingError, match="no PDF link"):
+        resolve_reference_region(citation_pdf, 1, (10, 10, 20, 20))
 
 
 # ---------------------------------------------------------------------------

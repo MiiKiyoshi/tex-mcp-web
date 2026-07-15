@@ -103,6 +103,8 @@ The papers are then available at `http://localhost:8765` and `http://localhost:8
 
 Select text in the PDF and write a comment. The comment dialog can also carry an exact replacement. Use **+ Note** for a paper-level comment or the **Sections** tab for a section-level comment.
 
+Click a numbered citation such as `[3]` to preview its bibliography entry as selectable text. Click the preview to select the entry for copying, or click elsewhere to close it.
+
 Then ask the agent:
 
 > Process the open tex-mcp-web comments.
