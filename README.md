@@ -198,3 +198,5 @@ If the agent opens the wrong paper, run `tex-mcp-web config` from its working di
 If agent-triggered compilation or viewer navigation cannot reach the daemon, confirm that `tex-web` is running for the same project and port.
 
 tex-mcp-web is a hard fork of [queelius/scholia](https://github.com/queelius/scholia) v0.6.1 and is independently developed under the MIT license. See [`LICENSE`](LICENSE).
+
+PDF viewing uses [EmbedPDF](https://github.com/embedpdf/embed-pdf-viewer) v2.14.4 and its PDFium WebAssembly engine. Their license notices are included in [`tex_mcp_web/static/embedpdf/LICENSE`](tex_mcp_web/static/embedpdf/LICENSE) and [`tex_mcp_web/static/embedpdf/LICENSE.pdfium`](tex_mcp_web/static/embedpdf/LICENSE.pdfium).
