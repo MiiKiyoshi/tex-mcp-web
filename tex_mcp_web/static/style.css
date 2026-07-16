@@ -386,6 +386,11 @@ textarea {
   flex-direction: column;
   gap: 0.4rem;
 }
+.cmt-form-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--fg);
+}
 .cmt-form-input {
   width: 100%;
   font-family: var(--sans);
@@ -413,6 +418,10 @@ textarea {
   background: var(--accent);
   color: white;
   border: none;
+}
+.cmt-form-actions button:disabled {
+  cursor: wait;
+  opacity: 0.65;
 }
 .cmt-form.mode-resolve .cmt-form-submit { background: var(--ok); }
 

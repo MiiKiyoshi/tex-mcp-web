@@ -27,6 +27,7 @@ from .comments import (
     AreaAnchor,
     Comment,
     CommentStore,
+    PageSelection,
     PaperAnchor,
     ResolvedSource,
     SectionAnchor,
@@ -49,6 +50,7 @@ from .synctex import (
     SyncTeXData,
     find_synctex_file,
     parse_synctex,
+    selection_to_source_range,
     source_to_page,
 )
 from .watcher import Watcher
@@ -151,6 +153,24 @@ def resolve_section_to_source(
     file, line_start, line_end = match
     if line_end < 0:
         line_end = _eof_line(watch_dir / file, line_start)
+    return ResolvedSource(file=file, line_start=line_start, line_end=line_end)
+
+
+def resolve_text_selection_to_source(
+    pdf_path: Path,
+    selection: PageSelection,
+    watch_dir: Path,
+) -> ResolvedSource | None:
+    """Return a source range only when every selected PDF line reverse-syncs."""
+    match = selection_to_source_range(
+        pdf_path,
+        selection.page,
+        selection.rects,
+        watch_dir,
+    )
+    if match is None:
+        return None
+    file, line_start, line_end = match
     return ResolvedSource(file=file, line_start=line_start, line_end=line_end)
 
 
@@ -296,6 +316,11 @@ class TexMcpWebServer:
                     self.last_result.output_file,
                     sections_resolver=lambda title, label: resolve_section_to_source(
                         self.structure, self.watch_dir, title, label
+                    ),
+                    text_resolver=lambda selection: resolve_text_selection_to_source(
+                        self.last_result.output_file,
+                        selection,
+                        self.watch_dir,
                     ),
                 )
                 new_hashes = imaging.page_text_hashes(self.last_result.output_file)
@@ -499,8 +524,25 @@ class TexMcpWebServer:
         """Resolve one new anchor and capture its exact source selector."""
         from .comments import ResolveContext
 
-        if isinstance(anchor, (PaperAnchor, AreaAnchor, TextSelectionAnchor)):
+        if isinstance(anchor, (PaperAnchor, AreaAnchor)):
             return None, None
+
+        if isinstance(anchor, TextSelectionAnchor):
+            if self.last_result is None or self.last_result.output_file is None:
+                return None, None
+            resolved = resolve_text_selection_to_source(
+                self.last_result.output_file,
+                anchor.selection,
+                self.watch_dir,
+            )
+            if resolved is None:
+                return None, None
+            selector = capture_source_selector(
+                self.watch_dir / resolved.file,
+                resolved.line_start,
+                resolved.line_end,
+            )
+            return resolved, selector
 
         # Lazy-load structure for section resolution.
         if isinstance(anchor, SectionAnchor) and self.structure is None:
@@ -534,6 +576,7 @@ class TexMcpWebServer:
         self,
         cid: str,
         action: Callable[[], Comment],
+        acknowledge_only: bool = False,
     ) -> web.Response:
         """Run *action* (a no-arg call into the store), broadcast, return the updated comment."""
         try:
@@ -541,6 +584,8 @@ class TexMcpWebServer:
         except KeyError:
             return web.json_response({"error": f"no comment {cid}"}, status=404)
         await self.broadcast({"type": "comment_updated", "comment": _comment_to_dict(updated)})
+        if acknowledge_only:
+            return web.json_response({"id": updated.id, "status": updated.status})
         return web.json_response(_comment_to_dict(updated))
 
     async def _handle_reply_comment(self, request: web.Request) -> web.Response:
@@ -577,6 +622,7 @@ class TexMcpWebServer:
                 edits=data.get("edits") or [],
                 author="human",
             ),
+            acknowledge_only=True,
         )
 
     async def _handle_dismiss_comment(self, request: web.Request) -> web.Response:

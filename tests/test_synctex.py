@@ -2,6 +2,7 @@
 
 import gzip
 import logging
+import subprocess
 
 import pytest
 
@@ -13,6 +14,7 @@ from tex_mcp_web.synctex import (
     find_synctex_file,
     get_visible_lines,
     parse_synctex,
+    selection_to_source_range,
     source_to_page,
 )
 
@@ -239,6 +241,61 @@ class TestFindSynctexFile:
 
         result = find_synctex_file(pdf_path)
         assert result is None
+
+
+def test_selection_to_source_range_requires_one_project_file(tmp_path, monkeypatch):
+    pdf = tmp_path / "paper.pdf"
+    pdf.touch()
+    source = tmp_path / "tex" / "intro.tex"
+    source.parent.mkdir()
+    source.write_text("one\ntwo\nthree\n")
+    outputs = iter([
+        f"SyncTeX result begin\nInput:{source}\nLine:2\nColumn:-1\nSyncTeX result end\n",
+        f"SyncTeX result begin\nInput:{source}\nLine:3\nColumn:-1\nSyncTeX result end\n",
+    ])
+    monkeypatch.setattr("tex_mcp_web.synctex.shutil.which", lambda _: "/bin/synctex")
+    monkeypatch.setattr(
+        "tex_mcp_web.synctex.subprocess.run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args=args[0], returncode=0, stdout=next(outputs), stderr=""
+        ),
+    )
+
+    result = selection_to_source_range(
+        pdf,
+        1,
+        [(10, 20, 30, 30), (10, 31, 30, 40)],
+        tmp_path,
+    )
+
+    assert result == ("tex/intro.tex", 2, 3)
+
+
+def test_selection_to_source_range_rejects_mixed_files(tmp_path, monkeypatch):
+    pdf = tmp_path / "paper.pdf"
+    pdf.touch()
+    first = tmp_path / "first.tex"
+    second = tmp_path / "second.tex"
+    first.write_text("first\n")
+    second.write_text("second\n")
+    outputs = iter([
+        f"Input:{first}\nLine:1\n",
+        f"Input:{second}\nLine:1\n",
+    ])
+    monkeypatch.setattr("tex_mcp_web.synctex.shutil.which", lambda _: "/bin/synctex")
+    monkeypatch.setattr(
+        "tex_mcp_web.synctex.subprocess.run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args=args[0], returncode=0, stdout=next(outputs), stderr=""
+        ),
+    )
+
+    assert selection_to_source_range(
+        pdf,
+        1,
+        [(10, 20, 30, 30), (10, 31, 30, 40)],
+        tmp_path,
+    ) is None
 
 
 class TestSourceToPage:

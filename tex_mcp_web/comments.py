@@ -274,7 +274,8 @@ class ResolvedSource:
     """The source location an anchor currently points at.
 
     Section anchors use document structure; source-range anchors use their
-    explicit file and lines. Text selections remain PDF-native.
+    explicit file and lines. Text selections retain their PDF anchor while a
+    separately verified reverse-SyncTeX location follows the source.
     """
 
     file: str
@@ -820,6 +821,48 @@ class CommentStore:
             comment_id, author, summary, edits=edits, new_status="resolved"
         )
 
+    def resolve_many(
+        self,
+        resolutions: Iterable[tuple[str, str, list[str]]],
+        author: Author = "agent",
+    ) -> list[Comment]:
+        """Resolve a validated batch with one locked read-modify-write cycle."""
+        items = list(resolutions)
+        if not items:
+            raise ValueError("resolve_many requires at least one resolution")
+        ids = [comment_id for comment_id, _, _ in items]
+        if len(set(ids)) != len(ids):
+            raise ValueError("resolve_many comment ids must be unique")
+        if any(not summary.strip() for _, summary, _ in items):
+            raise ValueError("resolve_many summaries must not be empty")
+
+        with self._locked():
+            comments = self._all()
+            indexes = {comment.id: index for index, comment in enumerate(comments)}
+            missing = [comment_id for comment_id in ids if comment_id not in indexes]
+            if missing:
+                raise KeyError(", ".join(missing))
+
+            now = _now()
+            updated: list[Comment] = []
+            for comment_id, summary, edits in items:
+                index = indexes[comment_id]
+                comment = comments[index]
+                comment.thread.append(
+                    ThreadEntry(
+                        author=author,
+                        at=now,
+                        text=summary,
+                        edits=list(edits),
+                    )
+                )
+                comment.status = "resolved"
+                comment.updated = now
+                comments[index] = comment
+                updated.append(comment)
+            self._save(comments)
+        return updated
+
     def dismiss(
         self,
         comment_id: str,
@@ -847,12 +890,14 @@ class CommentStore:
         watch_dir: Path,
         pdf_path: Path,
         sections_resolver=None,
+        text_resolver=None,
     ) -> list[str]:
         """Reattach source selectors and regenerate text-selection rectangles.
 
         ``sections_resolver`` is an optional callable
         ``(title: str, label: str | None) -> ResolvedSource | None`` used
         for SectionAnchor comments (typically wraps :func:`structure.parse_structure`).
+        ``text_resolver`` maps a text selection to a verified source range.
 
         Returns the list of comment IDs that became stale on this pass
         (i.e. were not stale before, but are now).
@@ -866,7 +911,7 @@ class CommentStore:
             for c in comments:
                 was_stale = c.stale
                 new_stale, modified = self._refresh_anchor(
-                    c, watch_dir, pdf_path, digest, sections_resolver
+                    c, watch_dir, pdf_path, digest, sections_resolver, text_resolver
                 )
 
                 if new_stale != was_stale:
@@ -889,6 +934,7 @@ class CommentStore:
         pdf_path: Path,
         digest: str,
         sections_resolver,
+        text_resolver,
     ) -> tuple[bool, bool]:
         """Refresh one anchor.  Returns ``(is_stale, was_modified)``."""
         kind = c.anchor.kind
@@ -925,6 +971,43 @@ class CommentStore:
                 c.anchor.selection = selection
                 c.anchor.pdf_digest = digest
                 modified = True
+
+            if c.source_selector is not None and c.resolved_source is not None:
+                file_path = watch_dir / c.resolved_source.file
+                located = (
+                    find_source_selector(c.source_selector, file_path)
+                    if file_path.is_file()
+                    else None
+                )
+                if located is not None:
+                    line_start, line_end = located
+                    if (
+                        c.resolved_source.line_start,
+                        c.resolved_source.line_end,
+                    ) != (line_start, line_end):
+                        c.resolved_source = ResolvedSource(
+                            file=c.resolved_source.file,
+                            line_start=line_start,
+                            line_end=line_end,
+                        )
+                        modified = True
+                    return False, modified
+                c.resolved_source = None
+                c.source_selector = None
+                modified = True
+
+            if c.status == "open" and text_resolver is not None:
+                resolved = text_resolver(selection)
+                if resolved is not None:
+                    selector = capture_source_selector(
+                        watch_dir / resolved.file,
+                        resolved.line_start,
+                        resolved.line_end,
+                    )
+                    if selector is not None:
+                        c.resolved_source = resolved
+                        c.source_selector = selector
+                        modified = True
             return False, modified
 
         # Source-backed anchors reattach only the exact selected lines.

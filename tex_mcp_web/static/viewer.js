@@ -474,12 +474,14 @@ function actionButton(className, label, onclick) {
 
 function actionButtons(comment) {
   const deleteButton = actionButton("cmt-delete", "Delete", () => {
-    if (confirm(`Permanently delete ${comment.id}?`)) doMutation(comment.id, "delete", null);
+    if (confirm(`Permanently delete ${comment.id}?`)) {
+      mutateAndRefresh(comment.id, "delete", null);
+    }
   });
   if (comment.status !== "open") return [deleteButton];
   return [
     actionButton("cmt-reply", "Reply", () => setActiveForm(comment.id, "reply")),
-    actionButton("cmt-resolve", "Resolve", () => setActiveForm(comment.id, "resolve")),
+    actionButton("cmt-resolve", "Resolve…", () => setActiveForm(comment.id, "resolve")),
     actionButton("cmt-dismiss", "Dismiss", () => setActiveForm(comment.id, "dismiss")),
     deleteButton,
   ];
@@ -506,12 +508,30 @@ function renderActiveForm(comment) {
     rows: 3,
     placeholder: config.placeholder,
   });
-  setTimeout(() => textarea.focus(), 0);
-  const submit = () => {
+  let submitting = false;
+  let submitButton = null;
+  const submit = async () => {
     const text = textarea.value.trim();
-    if (!text) return;
-    state.activeForm = null;
-    doMutation(comment.id, mode, { [config.key]: text });
+    if (!text || submitting) return;
+    submitting = true;
+    textarea.disabled = true;
+    submitButton.disabled = true;
+    submitButton.textContent = mode === "resolve" ? "Resolving…" : "Saving…";
+    const saved = await doMutation(comment.id, mode, { [config.key]: text });
+    if (saved) {
+      state.activeForm = null;
+      try {
+        await refreshComments();
+      } catch (error) {
+        alert(`Saved, but comments could not be refreshed: ${error.message}`);
+      }
+      return;
+    }
+    submitting = false;
+    textarea.disabled = false;
+    submitButton.disabled = false;
+    submitButton.textContent = config.label;
+    textarea.focus();
   };
   textarea.addEventListener("keydown", (event) => {
     if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
@@ -523,13 +543,21 @@ function renderActiveForm(comment) {
       renderComments();
     }
   });
-  return h("div", { class: `cmt-form mode-${mode}` }, textarea,
+  submitButton = actionButton("cmt-form-submit", config.label, submit);
+  const form = h("div", { class: `cmt-form mode-${mode}` },
+    h("div", { class: "cmt-form-title", text: config.placeholder }),
+    textarea,
     h("div", { class: "cmt-form-actions" },
       actionButton("cmt-form-cancel", "Cancel", () => {
         state.activeForm = null;
         renderComments();
       }),
-      actionButton("cmt-form-submit", config.label, submit)));
+      submitButton));
+  setTimeout(() => {
+    form.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    textarea.focus({ preventScroll: true });
+  }, 0);
+  return form;
 }
 
 function anchorLabel(anchor) {
@@ -552,19 +580,34 @@ function updateCommentCount() {
 
 async function doMutation(commentId, action, body) {
   const isDelete = action === "delete";
-  const response = await fetch(
-    isDelete ? `/comments/${commentId}` : `/comments/${commentId}/${action}`,
-    isDelete ? { method: "DELETE" } : {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    },
-  );
+  let response;
+  try {
+    response = await fetch(
+      isDelete ? `/comments/${commentId}` : `/comments/${commentId}/${action}`,
+      isDelete ? { method: "DELETE" } : {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
+  } catch (error) {
+    alert(`Action failed: ${error.message}`);
+    return false;
+  }
   if (!response.ok) {
     alert(`Action failed: ${await responseError(response)}`);
-    return;
+    return false;
   }
-  await refreshComments();
+  return true;
+}
+
+async function mutateAndRefresh(commentId, action, body) {
+  if (!await doMutation(commentId, action, body)) return;
+  try {
+    await refreshComments();
+  } catch (error) {
+    alert(`Saved, but comments could not be refreshed: ${error.message}`);
+  }
 }
 
 function annotationId(commentId, page) {
