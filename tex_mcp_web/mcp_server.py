@@ -86,6 +86,12 @@ if HAS_MCP:
         new: str
 
 
+    class ResolutionInput(_InputModel):
+        id: Annotated[str, Field(min_length=1)]
+        summary: Annotated[str, Field(min_length=1)]
+        edits: list[str] = Field(default_factory=list)
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -158,7 +164,7 @@ def _load_synctex_cached(main_file: Path):
 
 def _agent_comment_to_dict(comment) -> dict[str, Any]:
     """Return only the comment information an agent can act on."""
-    from .comments import AreaAnchor, SectionAnchor, SourceRangeAnchor, TextSelectionAnchor
+    from .comments import AreaAnchor, SectionAnchor, TextSelectionAnchor
 
     anchor = comment.anchor
     payload: dict[str, Any] = {
@@ -171,19 +177,15 @@ def _agent_comment_to_dict(comment) -> dict[str, Any]:
         payload.update({
             "quote": anchor.quote,
             "page": anchor.selection.page,
-            "bbox": list(anchor.selection.bbox),
         })
     elif isinstance(anchor, AreaAnchor):
-        payload.update({"page": anchor.page, "bbox": list(anchor.bbox)})
+        payload["page"] = anchor.page
     elif isinstance(anchor, SectionAnchor):
         payload["section"] = anchor.title
         if anchor.label is not None:
             payload["label"] = anchor.label
-    elif isinstance(anchor, SourceRangeAnchor):
-        payload.update({
-            "file": anchor.file,
-            "lines": [anchor.line_start, anchor.line_end],
-        })
+    if comment.resolved_source is not None:
+        payload["source"] = comment.resolved_source.to_dict()
     if len(comment.thread) > 1:
         payload["replies"] = [entry.to_dict() for entry in comment.thread[1:]]
     if comment.suggestion is not None:
@@ -274,9 +276,9 @@ def create_server(daemon_port: int = DEFAULT_PORT) -> "FastMCP":
     mcp = FastMCP(
         "tex-mcp-web",
         instructions=(
-            "Read the open queue with paper(). A text comment's quote is the "
-            "source-search key. Use image() only for rendered evidence before "
-            "resolving the comment."
+            "Read the open queue with paper(). Use a comment's source location "
+            "when present; otherwise locate its quote in the TeX source. Use "
+            "image() only for rendered evidence before resolving the comment."
         ),
     )
 
@@ -344,7 +346,9 @@ def create_server(daemon_port: int = DEFAULT_PORT) -> "FastMCP":
 
     @mcp.tool()
     async def comment(
-        action: Literal["add", "reply", "resolve", "dismiss", "delete"],
+        action: Literal[
+            "add", "reply", "resolve", "resolve_many", "dismiss", "delete"
+        ],
         id: str | None = None,
         text: str | None = None,
         anchor: CommentAnchorInput | None = None,
@@ -352,13 +356,14 @@ def create_server(daemon_port: int = DEFAULT_PORT) -> "FastMCP":
         reason: str | None = None,
         edits: list[str] | None = None,
         suggestion: SuggestedEditInput | None = None,
+        resolutions: list[ResolutionInput] | None = None,
     ) -> str:
         """Mutate a comment.
 
         ``add`` requires text and anchor; ``reply`` requires id and text;
-        ``resolve`` requires id and summary; ``dismiss`` requires id and reason;
-        ``delete`` requires id. ``suggestion`` is an add-only rewrite, while
-        ``edits`` records changed source ranges on reply or resolve.
+        ``resolve`` requires id and summary; ``resolve_many`` requires resolutions;
+        ``dismiss`` requires id and reason; ``delete`` requires id. ``suggestion``
+        is an add-only rewrite, while ``edits`` records changed source ranges.
         """
         cfg, watch_dir, store = _load_project()
         try:
@@ -372,10 +377,26 @@ def create_server(daemon_port: int = DEFAULT_PORT) -> "FastMCP":
             if action == "resolve":
                 if not id or not summary:
                     return _err("resolve requires id and summary")
-                updated = store.resolve(
+                store.resolve(
                     id, summary=summary, edits=edits or [], author="agent"
                 )
-                return _ok(_agent_comment_to_dict(updated))
+                return _ok({"id": id, "status": "resolved"})
+            if action == "resolve_many":
+                if not resolutions:
+                    return _err("resolve_many requires resolutions")
+                updated = store.resolve_many(
+                    [
+                        (item.id, item.summary, item.edits)
+                        for item in resolutions
+                    ],
+                    author="agent",
+                )
+                return _ok({
+                    "resolved": [
+                        {"id": item.id, "status": item.status}
+                        for item in updated
+                    ]
+                })
             if action == "dismiss":
                 if not id or not reason:
                     return _err("dismiss requires id and reason")

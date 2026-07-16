@@ -7,7 +7,10 @@ SyncTeX enables bidirectional mapping between:
 
 import gzip
 import logging
+import math
 import re
+import shutil
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -211,6 +214,75 @@ def find_synctex_file(pdf_path: Path) -> Path | None:
             return synctex_path
 
     return None
+
+
+_EDIT_RESULT_PATTERN = re.compile(
+    r"^Input:(.+?)\r?\nLine:(\d+)$",
+    re.MULTILINE,
+)
+
+
+def selection_to_source_range(
+    pdf_path: Path,
+    page: int,
+    rects: list[tuple[float, float, float, float]],
+    watch_dir: Path,
+) -> tuple[str, int, int] | None:
+    """Reverse-sync every selected PDF line to one project source range.
+
+    A result exists only when every line rectangle resolves unambiguously to
+    the same source file inside ``watch_dir``.  PDF text and TeX source differ
+    too often for a rendered quote to be a reliable source locator.
+    """
+    synctex = shutil.which("synctex")
+    if synctex is None or not pdf_path.is_file() or not rects:
+        return None
+
+    root = watch_dir.resolve()
+    resolved_positions: list[tuple[str, int]] = []
+    for rect in rects:
+        x1, y1, x2, y2 = rect
+        center_x = (x1 + x2) / 2
+        center_y = (y1 + y2) / 2
+        if not all(math.isfinite(value) for value in (center_x, center_y)):
+            return None
+        try:
+            completed = subprocess.run(
+                [synctex, "edit", "-o", f"{page}:{center_x}:{center_y}:{pdf_path}"],
+                cwd=pdf_path.parent,
+                text=True,
+                capture_output=True,
+                timeout=5,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        if completed.stderr:
+            logger.debug("synctex edit stderr: %s", completed.stderr.strip())
+        if completed.returncode != 0 or not completed.stdout:
+            return None
+
+        candidates: set[tuple[str, int]] = set()
+        for raw_file, raw_line in _EDIT_RESULT_PATTERN.findall(completed.stdout):
+            source_path = Path(raw_file.strip())
+            if not source_path.is_absolute():
+                source_path = pdf_path.parent / source_path
+            source_path = source_path.resolve()
+            try:
+                relative = source_path.relative_to(root)
+            except ValueError:
+                continue
+            if source_path.is_file():
+                candidates.add((str(relative), int(raw_line)))
+        if len(candidates) != 1:
+            return None
+        resolved_positions.append(candidates.pop())
+
+    files = {file for file, _ in resolved_positions}
+    if len(files) != 1:
+        return None
+    lines = [line for _, line in resolved_positions]
+    return files.pop(), min(lines), max(lines)
 
 
 def source_to_page(data: SyncTeXData, file: str, line: int) -> PDFPosition | None:

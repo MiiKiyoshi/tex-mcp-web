@@ -61,11 +61,28 @@ def test_agent_comment_view_hides_storage_only_anchor_data(store: CommentStore):
         "comment": "tighten this",
         "quote": "selected text",
         "page": 2,
-        "bbox": [70.0, 100.0, 250.0, 130.0],
     }
     assert "selection" not in view
     assert "pdf_digest" not in view
     assert "rects" not in view
+
+
+def test_agent_comment_view_exposes_source_without_pdf_coordinates(store: CommentStore):
+    from tex_mcp_web.mcp_server import _agent_comment_to_dict
+
+    comment = store.add(
+        text_anchor("digest", quote="selected text"),
+        "tighten this",
+        resolved_source=ResolvedSource("tex/intro.tex", 8, 10),
+    )
+
+    view = _agent_comment_to_dict(comment)
+    assert view["source"] == {
+        "file": "tex/intro.tex",
+        "line_start": 8,
+        "line_end": 10,
+    }
+    assert "bbox" not in view
 
 
 def test_area_anchor_roundtrip():
@@ -181,6 +198,44 @@ def test_store_crud(store: CommentStore):
     assert store.get(comment.id) is None
 
 
+def test_store_resolve_many_is_atomic(store: CommentStore, monkeypatch):
+    first = store.add(PaperAnchor(), "first")
+    second = store.add(PaperAnchor(), "second")
+    saves = 0
+    original_save = store._save
+
+    def counted_save(comments):
+        nonlocal saves
+        saves += 1
+        original_save(comments)
+
+    monkeypatch.setattr(store, "_save", counted_save)
+    updated = store.resolve_many([
+        (first.id, "fixed first", ["paper.tex:1"]),
+        (second.id, "fixed second", ["paper.tex:2"]),
+    ])
+
+    assert saves == 1
+    assert [comment.id for comment in updated] == [first.id, second.id]
+    assert all(comment.status == "resolved" for comment in updated)
+    assert updated[0].thread[-1].edits == ["paper.tex:1"]
+
+
+def test_store_resolve_many_rejects_missing_id_without_writing(
+    store: CommentStore, monkeypatch
+):
+    existing = store.add(PaperAnchor(), "existing")
+    monkeypatch.setattr(store, "_save", lambda comments: pytest.fail("must not write"))
+
+    with pytest.raises(KeyError):
+        store.resolve_many([
+            (existing.id, "fixed", []),
+            ("c-missing", "missing", []),
+        ])
+
+    assert store.get(existing.id).status == "open"
+
+
 def test_store_rejects_old_schema(tmp_path: Path):
     path = tmp_path / "comments.json"
     path.write_text(json.dumps({"version": 2, "comments": []}))
@@ -240,3 +295,38 @@ def test_text_anchor_refreshes_pdf_rectangles(store: CommentStore, tmp_path: Pat
     assert not refreshed.stale
     assert refreshed.anchor.pdf_digest == pdf_digest(pdf)
     assert refreshed.anchor.selection.bbox[1] > old_selection.bbox[1]
+
+
+def test_text_anchor_captures_and_follows_resolved_source(
+    store: CommentStore, tmp_path: Path
+):
+    source = tmp_path / "paper.tex"
+    source.write_text("before\nselected source\nafter\n")
+    pdf = tmp_path / "paper.pdf"
+    make_pdf(pdf, "rendered selection")
+    selection = locate_pdf_quote(pdf, "rendered selection")
+    comment = store.add(
+        TextSelectionAnchor(
+            quote="rendered selection",
+            selection=selection,
+            pdf_digest=pdf_digest(pdf),
+        ),
+        "text",
+    )
+
+    store.refresh_anchors(
+        tmp_path,
+        pdf,
+        text_resolver=lambda _: ResolvedSource("paper.tex", 2, 2),
+    )
+    attached = store.get(comment.id)
+    assert attached.resolved_source == ResolvedSource("paper.tex", 2, 2)
+    assert attached.source_selector.exact == "selected source"
+
+    source.write_text("new\nbefore\nselected source\nafter\n")
+    store.refresh_anchors(
+        tmp_path,
+        pdf,
+        text_resolver=lambda _: pytest.fail("selector should reattach first"),
+    )
+    assert store.get(comment.id).resolved_source == ResolvedSource("paper.tex", 3, 3)

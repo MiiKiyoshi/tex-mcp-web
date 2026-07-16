@@ -195,9 +195,10 @@ async def test_resolve_comment(client):
     )
     assert resp.status == 200
     data = await resp.json()
-    assert data["status"] == "resolved"
-    assert data["thread"][-1]["author"] == "human"
-    assert data["thread"][-1]["edits"] == ["paper.tex:1-10"]
+    assert data == {"id": cid, "status": "resolved"}
+    stored = await (await tc.get(f"/comments/{cid}")).json()
+    assert stored["thread"][-1]["author"] == "human"
+    assert stored["thread"][-1]["edits"] == ["paper.tex:1-10"]
 
 
 @pytest.mark.asyncio
@@ -437,9 +438,9 @@ async def test_mcp_contract_is_typed_and_nonduplicative():
 
     assert set(tools) == {"paper", "compile", "comment", "image", "section", "goto"}
     assert mcp.instructions == (
-        "Read the open queue with paper(). A text comment's quote is the "
-        "source-search key. Use image() only for rendered evidence before "
-        "resolving the comment."
+        "Read the open queue with paper(). Use a comment's source location "
+        "when present; otherwise locate its quote in the TeX source. Use "
+        "image() only for rendered evidence before resolving the comment."
     )
     assert "compile()" not in mcp.instructions
     compile_description = " ".join((tools["compile"].description or "").split())
@@ -458,7 +459,7 @@ async def test_mcp_contract_is_typed_and_nonduplicative():
 
     comment_schema = tools["comment"].inputSchema
     assert comment_schema["properties"]["action"]["enum"] == [
-        "add", "reply", "resolve", "dismiss", "delete"
+        "add", "reply", "resolve", "resolve_many", "dismiss", "delete"
     ]
     anchor_schema = comment_schema["properties"]["anchor"]["anyOf"][0]
     assert set(anchor_schema["discriminator"]["mapping"]) == {
@@ -497,6 +498,54 @@ async def test_mcp_comment_and_section_runtime_contract(project, monkeypatch):
     assert stored["version"] == 5
     assert stored["comments"][0]["thread"][0]["author"] == "agent"
     assert comment["comment"] == "review this"
+
+    second_added = await mcp.call_tool(
+        "comment",
+        {
+            "action": "add",
+            "text": "review second",
+            "anchor": {"kind": "paper"},
+        },
+    )
+    second = json.loads(second_added[0][0].text)
+    resolved = await mcp.call_tool(
+        "comment",
+        {
+            "action": "resolve_many",
+            "resolutions": [
+                {"id": comment["id"], "summary": "fixed first"},
+                {"id": second["id"], "summary": "fixed second"},
+            ],
+        },
+    )
+    assert json.loads(resolved[0][0].text) == {
+        "resolved": [
+            {"id": comment["id"], "status": "resolved"},
+            {"id": second["id"], "status": "resolved"},
+        ]
+    }
+
+    third_added = await mcp.call_tool(
+        "comment",
+        {
+            "action": "add",
+            "text": "review third",
+            "anchor": {"kind": "paper"},
+        },
+    )
+    third = json.loads(third_added[0][0].text)
+    single = await mcp.call_tool(
+        "comment",
+        {
+            "action": "resolve",
+            "id": third["id"],
+            "summary": "fixed third",
+        },
+    )
+    assert json.loads(single[0][0].text) == {
+        "id": third["id"],
+        "status": "resolved",
+    }
 
     section = await mcp.call_tool(
         "section", {"name": "Methods", "include_image": True}
@@ -593,7 +642,7 @@ async def test_image_comment_with_area_anchor(client_with_pdf):
 
 
 @pytest.mark.asyncio
-async def test_text_selection_is_verified_without_source_resolution(client_with_pdf):
+async def test_text_selection_without_reverse_sync_remains_pdf_native(client_with_pdf):
     tc, server = client_with_pdf
     resp = await tc.post(
         "/comments",
@@ -616,6 +665,42 @@ async def test_text_selection_is_verified_without_source_resolution(client_with_
     assert "resolved_source" not in data
     assert "source_selector" not in data
     assert data["anchor"]["selection"]["rects"]
+
+
+@pytest.mark.asyncio
+async def test_text_selection_records_verified_source(
+    client_with_pdf, monkeypatch
+):
+    tc, server = client_with_pdf
+    monkeypatch.setattr(
+        "tex_mcp_web.server.selection_to_source_range",
+        lambda pdf, page, rects, watch_dir: ("paper.tex", 5, 5),
+    )
+    resp = await tc.post(
+        "/comments",
+        json={
+            "anchor": {
+                "kind": "text_selection",
+                "quote": "Page 1",
+                "selection": {
+                    "page": 1,
+                    "bbox": [70, 60, 110, 80],
+                    "rects": [[70, 60, 110, 80]],
+                },
+                "pdf_digest": server.pdf_digest,
+            },
+            "text": "review this text",
+        },
+    )
+
+    assert resp.status == 201
+    data = await resp.json()
+    assert data["resolved_source"] == {
+        "file": "paper.tex",
+        "line_start": 5,
+        "line_end": 5,
+    }
+    assert data["source_selector"]["exact"] == "Some prose with \\cite{ref1}."
 
 
 @pytest.mark.asyncio
