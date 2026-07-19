@@ -83,6 +83,12 @@ textarea {
   border-radius: 3px;
 }
 .topbar button:hover { background: var(--accent-soft); }
+#auto-compile-btn.active {
+  color: var(--ok);
+  border-color: var(--ok);
+  background: var(--accent-soft);
+}
+#auto-compile-btn:disabled { cursor: wait; }
 
 /* ----- layout ----- */
 .layout {

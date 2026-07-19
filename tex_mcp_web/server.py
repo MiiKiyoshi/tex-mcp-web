@@ -8,7 +8,8 @@ Single paper, no workspace abstraction.  Three responsibilities:
    resolution (used by the browser viewer and the MCP server).
 
 There is no editor. The human writes comments; the coding agent edits files
-through its own tools (Edit/Write) and the watcher picks up the changes.
+through its own tools and requests one MCP compile after the edit batch when
+automatic compilation is off.
 """
 
 from __future__ import annotations
@@ -40,7 +41,7 @@ from .comments import (
     pdf_digest,
 )
 from .compiler import CompileResult, compile_tex
-from .config import Config, get_main_file, get_watch_dir
+from .config import Config, get_main_file, get_watch_dir, write_auto_compile
 from .structure import (
     DocumentStructure,
     find_section,
@@ -259,6 +260,7 @@ class TexMcpWebServer:
         app.router.add_get("/pdf", self._handle_pdf)
         app.router.add_get("/paper", self._handle_paper)
         app.router.add_post("/compile", self._handle_compile)
+        app.router.add_put("/auto-compile", self._handle_auto_compile)
         app.router.add_get("/comments", self._handle_list_comments)
         app.router.add_post("/comments", self._handle_create_comment)
         app.router.add_get(r"/comments/{id}", self._handle_get_comment)
@@ -349,6 +351,9 @@ class TexMcpWebServer:
         return self.last_result
 
     async def on_file_change(self, changed_path: str) -> None:
+        if not self.config.auto_compile:
+            logger.info("File change (%s); automatic compile is off", changed_path)
+            return
         logger.info("File change (%s); recompiling…", changed_path)
         await self.do_compile()
 
@@ -378,6 +383,7 @@ class TexMcpWebServer:
             {
                 "type": "state",
                 "compiling": self.compiling,
+                "auto_compile": self.config.auto_compile,
                 "result": _result_to_dict(self.last_result),
             }
         )
@@ -417,6 +423,7 @@ class TexMcpWebServer:
                 "main_file": self.config.main,
                 "watch_dir": str(self.watch_dir),
                 "compiling": self.compiling,
+                "auto_compile": self.config.auto_compile,
                 "last_compile": _result_to_dict(self.last_result),
                 "pdf_digest": self.pdf_digest,
                 **structure_to_dict(self.structure, self.watch_dir),
@@ -436,6 +443,30 @@ class TexMcpWebServer:
     async def _handle_compile(self, request: web.Request) -> web.Response:
         result = await self.do_compile()
         return web.json_response(_result_to_dict(result))
+
+    async def _handle_auto_compile(self, request: web.Request) -> web.Response:
+        data, err = await self._read_json(request)
+        if err is not None:
+            return err
+        if "enabled" not in data or not isinstance(data["enabled"], bool):
+            return web.json_response(
+                {"error": "enabled must be true or false"}, status=400
+            )
+        if self.config.config_path is None:
+            return web.json_response(
+                {"error": "auto compile mode requires .tex-mcp-web.yaml"},
+                status=409,
+            )
+
+        enabled = data["enabled"]
+        if enabled != self.config.auto_compile:
+            try:
+                write_auto_compile(self.config.config_path, enabled)
+            except (OSError, ValueError) as exc:
+                return web.json_response({"error": str(exc)}, status=500)
+            self.config.auto_compile = enabled
+            await self.broadcast({"type": "auto_compile", "enabled": enabled})
+        return web.json_response({"auto_compile": self.config.auto_compile})
 
     # ----- API: comments -----
 

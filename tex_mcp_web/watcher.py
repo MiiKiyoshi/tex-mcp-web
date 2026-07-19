@@ -3,8 +3,8 @@
 import asyncio
 import fnmatch
 import logging
-from pathlib import Path
 from concurrent.futures import Future
+from pathlib import Path
 from typing import Any, Callable, Coroutine
 
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
@@ -65,9 +65,17 @@ class TexFileHandler(FileSystemEventHandler):
 
     def _should_process(self, path: str) -> bool:
         """Check if a file change should trigger recompilation."""
-        # Ignore auxiliary files
         path_obj = Path(path)
         name = path_obj.name
+
+        relative = (
+            path_obj.relative_to(self.watch_dir).as_posix()
+            if path_obj.is_absolute()
+            else path_obj.as_posix()
+        )
+        # Control-state writes are not paper source changes.
+        if relative == ".tex-mcp-web.yaml" or relative.startswith(".tex-mcp-web/"):
+            return False
 
         # Simple extensions (checked via suffix)
         aux_extensions = {

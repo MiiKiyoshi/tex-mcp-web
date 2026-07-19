@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import yaml
+import pytest
 
 from tex_mcp_web.config import (
     Config,
@@ -11,6 +12,7 @@ from tex_mcp_web.config import (
     get_main_file,
     get_watch_dir,
     load_config,
+    write_auto_compile,
 )
 
 
@@ -24,6 +26,7 @@ class TestConfig:
         assert config.watch == ["*.tex", "*.bib", "*.md", "*.txt"]
         assert config.ignore == []
         assert config.compiler == "auto"
+        assert config.auto_compile is False
         assert config.port == 8765
 
     def test_from_dict_full(self):
@@ -33,6 +36,7 @@ class TestConfig:
             "watch": ["*.tex", "chapters/*.tex"],
             "ignore": ["*_old.tex"],
             "compiler": "xelatex",
+            "auto_compile": True,
             "port": 9000,
         }
         config = Config.from_dict(data)
@@ -40,6 +44,7 @@ class TestConfig:
         assert config.watch == ["*.tex", "chapters/*.tex"]
         assert config.ignore == ["*_old.tex"]
         assert config.compiler == "xelatex"
+        assert config.auto_compile is True
         assert config.port == 9000
 
     def test_to_dict(self):
@@ -49,6 +54,7 @@ class TestConfig:
             "watch": ["*.tex"],
             "ignore": [],
             "compiler": "latexmk",
+            "auto_compile": False,
             "port": 8765,
         }
         config = Config.from_dict(original)
@@ -59,6 +65,10 @@ class TestConfig:
         """Test that default compiler is 'auto'."""
         config = Config(main="test.tex")
         assert config.compiler == "auto"
+
+    def test_auto_compile_rejects_non_boolean(self):
+        with pytest.raises(ValueError, match="auto_compile must be true or false"):
+            Config.from_dict({"main": "test.tex", "auto_compile": "false"})
 
     def test_default_watch_includes_md(self):
         """Test that default watch patterns include markdown."""
@@ -159,6 +169,7 @@ class TestCreateConfig:
         assert "*.txt" in data["watch"]
         assert "**/*.tex" not in data["watch"]
         assert data["compiler"] == "auto"
+        assert data["auto_compile"] is False
         assert data["port"] == 8765
 
     def test_create_custom(self, tmp_path):
@@ -169,6 +180,7 @@ class TestCreateConfig:
             watch=["*.tex", "chapters/**/*.tex"],
             ignore=["old/*"],
             compiler="xelatex",
+            auto_compile=True,
             port=9000,
             output_path=output_path,
         )
@@ -180,7 +192,34 @@ class TestCreateConfig:
         assert data["watch"] == ["*.tex", "chapters/**/*.tex"]
         assert data["ignore"] == ["old/*"]
         assert data["compiler"] == "xelatex"
+        assert data["auto_compile"] is True
         assert data["port"] == 9000
+
+    def test_write_auto_compile_preserves_other_settings(self, tmp_path):
+        output_path = tmp_path / ".tex-mcp-web.yaml"
+        output_path.write_text(
+            "# paper settings\n"
+            "main: paper.tex\n"
+            "custom: keep\n"
+            "auto_compile: false  # top-bar mode\n"
+        )
+
+        write_auto_compile(output_path, True)
+
+        assert output_path.read_text() == (
+            "# paper settings\n"
+            "main: paper.tex\n"
+            "custom: keep\n"
+            "auto_compile: true  # top-bar mode\n"
+        )
+
+    def test_write_auto_compile_appends_missing_field(self, tmp_path):
+        output_path = tmp_path / ".tex-mcp-web.yaml"
+        output_path.write_text("main: paper.tex")
+
+        write_auto_compile(output_path, True)
+
+        assert output_path.read_text() == "main: paper.tex\nauto_compile: true\n"
 
 
 class TestHelperFunctions:

@@ -276,9 +276,11 @@ def create_server(daemon_port: int = DEFAULT_PORT) -> "FastMCP":
     mcp = FastMCP(
         "tex-mcp-web",
         instructions=(
-            "Read the open queue with paper(). Use a comment's source location "
-            "when present; otherwise locate its quote in the TeX source. Use "
-            "image() only for rendered evidence before resolving the comment."
+            "Read the open queue and auto_compile mode with paper(). Use a "
+            "comment's source location when present; otherwise locate its quote "
+            "in the TeX source. After all source edits, call compile() once when "
+            "auto_compile is false; when it is true, the watcher owns compilation. "
+            "Use image() only for rendered evidence before resolving the comment."
         ),
     )
 
@@ -287,8 +289,9 @@ def create_server(daemon_port: int = DEFAULT_PORT) -> "FastMCP":
         include_comments: bool = True,
         comments_status: Literal["open", "resolved", "dismissed", "all"] = "open",
     ) -> str:
-        """Return the main file, PDF path, section source ranges, and optionally
-        comments filtered by status. Other TeX structure is intentionally omitted.
+        """Return the main file, automatic compilation mode, PDF path, section
+        source ranges, and optionally comments filtered by status. Other TeX
+        structure is intentionally omitted.
         """
         from .config import get_main_file
         from .server import structure_to_dict
@@ -302,6 +305,7 @@ def create_server(daemon_port: int = DEFAULT_PORT) -> "FastMCP":
         result: dict[str, Any] = {
             "main_file": cfg.main,
             "watch_dir": str(watch_dir),
+            "auto_compile": cfg.auto_compile,
             **structure_to_dict(structure, watch_dir),
             "pdf": {
                 "exists": pdf_path.exists(),
@@ -321,10 +325,10 @@ def create_server(daemon_port: int = DEFAULT_PORT) -> "FastMCP":
     @mcp.tool()
     async def compile() -> str:
         """Request a manual compile through the running daemon and return
-        structured errors, warnings, and ``pages_changed``. Source edits are
-        compiled by the daemon watcher; this tool is reserved for an explicit
-        user request. ``pages_changed`` compares extracted PDF text and excludes
-        visual-only changes.
+        structured errors, warnings, and ``pages_changed``. Call once after a
+        batch of source edits when ``paper().auto_compile`` is false. When it is
+        true, the watcher owns compilation. ``pages_changed`` compares extracted
+        PDF text and excludes visual-only changes.
         """
         try:
             import httpx

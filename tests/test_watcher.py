@@ -102,6 +102,21 @@ class TestTexFileHandler:
 
         loop.close()
 
+    def test_should_ignore_tex_web_control_files(self):
+        loop = asyncio.new_event_loop()
+        handler = make_handler(
+            watch_patterns=["*"],
+            ignore_patterns=[],
+            callback=AsyncMock(),
+            loop=loop,
+        )
+
+        assert not handler._should_process("/project/.tex-mcp-web.yaml")
+        assert not handler._should_process("/project/.tex-mcp-web/comments.json")
+        assert handler._should_process("/project/main.tex")
+
+        loop.close()
+
     def test_should_ignore_project_relative_directory(self):
         loop = asyncio.new_event_loop()
         handler = make_handler(

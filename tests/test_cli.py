@@ -35,6 +35,8 @@ def test_init_creates_yaml(project_dir, capsys):
     rc = main(["init", "--main", "main.tex"])
     assert rc == 0
     assert (project_dir / ".tex-mcp-web.yaml").exists()
+    data = yaml.safe_load((project_dir / ".tex-mcp-web.yaml").read_text())
+    assert data["auto_compile"] is False
 
 
 def test_init_refuses_to_overwrite_existing(project_dir, capsys):
@@ -74,6 +76,23 @@ def test_config_list_value_roundtrip(project_dir, capsys):
     capsys.readouterr()
     main(["config", "watch"])
     assert capsys.readouterr().out.strip() == "*.tex,*.bib"
+
+
+def test_config_auto_compile_roundtrip(project_dir, capsys):
+    main(["init", "--main", "main.tex"])
+    capsys.readouterr()
+    assert main(["config", "auto_compile", "true"]) == 0
+    capsys.readouterr()
+    assert main(["config", "auto_compile"]) == 0
+    assert capsys.readouterr().out.strip() == "True"
+    data = yaml.safe_load((project_dir / ".tex-mcp-web.yaml").read_text())
+    assert data["auto_compile"] is True
+
+
+def test_config_auto_compile_rejects_other_values(project_dir, capsys):
+    main(["init", "--main", "main.tex"])
+    assert main(["config", "auto_compile", "yes"]) == 1
+    assert "must be true or false" in capsys.readouterr().err
 
 
 def test_config_rejects_unknown_key_and_compiler(project_dir, capsys):
