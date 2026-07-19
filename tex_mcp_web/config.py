@@ -1,5 +1,6 @@
 """Configuration loading and validation for tex_mcp_web."""
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,7 @@ class Config:
         watch: Glob patterns for files that trigger recompilation.
         ignore: Glob patterns for files to exclude from watching.
         compiler: Compiler command ("auto", "latexmk", "pdflatex", etc.).
+        auto_compile: Whether watched source changes trigger compilation.
         port: HTTP server port.
         config_path: Path to .tex-mcp-web.yaml file (used to resolve watch_dir).
     """
@@ -29,17 +31,23 @@ class Config:
     watch: list[str] = field(default_factory=lambda: ["*.tex", "*.bib", "*.md", "*.txt"])
     ignore: list[str] = field(default_factory=list)
     compiler: str = "auto"
+    auto_compile: bool = False
     port: int = DEFAULT_PORT
     config_path: Path | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any], config_path: Path | None = None) -> "Config":
         """Create Config from dictionary."""
+        if "auto_compile" not in data:
+            data["auto_compile"] = False
+        if not isinstance(data["auto_compile"], bool):
+            raise ValueError("auto_compile must be true or false")
         return cls(
             main=data.get("main", "main.tex"),
             watch=data.get("watch", ["*.tex", "*.bib", "*.md", "*.txt"]),
             ignore=data.get("ignore", []),
             compiler=data.get("compiler", "auto"),
+            auto_compile=data["auto_compile"],
             port=data.get("port", DEFAULT_PORT),
             config_path=config_path,
         )
@@ -51,6 +59,7 @@ class Config:
             "watch": self.watch,
             "ignore": self.ignore,
             "compiler": self.compiler,
+            "auto_compile": self.auto_compile,
             "port": self.port,
         }
 
@@ -109,6 +118,7 @@ def create_config(
     watch: list[str] | None = None,
     ignore: list[str] | None = None,
     compiler: str = "auto",
+    auto_compile: bool = False,
     port: int = DEFAULT_PORT,
     output_path: Path | None = None,
 ) -> Path:
@@ -133,6 +143,7 @@ def create_config(
         "watch": watch or ["*.tex", "*.bib", "*.md", "*.txt"],
         "ignore": ignore or ["*_backup.tex"],
         "compiler": compiler,
+        "auto_compile": auto_compile,
         "port": port,
     }
 
@@ -140,6 +151,29 @@ def create_config(
         yaml.dump(config_data, f, default_flow_style=False, sort_keys=False)
 
     return output_path
+
+
+def write_auto_compile(config_path: Path, enabled: bool) -> None:
+    """Persist the automatic compilation mode without dropping other settings."""
+    text = config_path.read_text()
+    pattern = re.compile(
+        r"^(auto_compile\s*:\s*)([^\s#]+)(\s*(?:#.*)?)$",
+        re.IGNORECASE | re.MULTILINE,
+    )
+    matches = list(pattern.finditer(text))
+    if len(matches) > 1:
+        raise ValueError(f"{config_path} contains multiple auto_compile fields")
+    value = "true" if enabled else "false"
+    if matches:
+        updated = pattern.sub(
+            lambda match: f"{match.group(1)}{value}{match.group(3)}",
+            text,
+            count=1,
+        )
+    else:
+        separator = "" if not text or text.endswith("\n") else "\n"
+        updated = f"{text}{separator}auto_compile: {value}\n"
+    config_path.write_text(updated)
 
 
 def get_watch_dir(config: Config) -> Path:

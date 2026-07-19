@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>tex-web</title>
-<link rel="stylesheet" href="/static/style.css?v=resolve-feedback">
+<link rel="stylesheet" href="/static/style.css?v=auto-compile-mode">
 </head>
 <body>
 <div id="app">
@@ -13,6 +13,7 @@
     <span id="main-file" class="main-file">—</span>
     <span id="compile-status" class="compile-status">idle</span>
     <div class="actions">
+      <button id="auto-compile-btn" type="button" aria-pressed="false" title="Compile automatically after source changes">Auto: Off</button>
       <button id="recompile-btn" type="button">Recompile</button>
       <button id="paper-comment-btn" type="button" title="Add a paper-level comment">+ Note</button>
       <button id="sidebar-toggle-btn" type="button" title="Toggle sidebar (\)">⇥</button>
@@ -78,6 +79,6 @@
   </form>
 </dialog>
 
-    <script type="module" src="/static/viewer.js?v=resolve-feedback"></script>
+    <script type="module" src="/static/viewer.js?v=auto-compile-mode"></script>
 </body>
 </html>

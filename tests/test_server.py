@@ -9,9 +9,11 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import fitz
 import pytest
+import yaml
 from aiohttp.test_utils import TestClient, TestServer
 
 from tex_mcp_web.config import Config
@@ -32,6 +34,9 @@ def project(tmp_path: Path) -> Path:
         "\\label{sec:methods}\n"
         "Some methods.\n"
         "\\end{document}\n"
+    )
+    (tmp_path / ".tex-mcp-web.yaml").write_text(
+        "main: paper.tex\nauto_compile: false\n"
     )
     return tmp_path
 
@@ -68,6 +73,70 @@ async def test_paper_endpoint_returns_structure(client):
     # Sections carry the label they're attached to.
     methods = next(s for s in data["sections"] if s["title"] == "Methods")
     assert methods["label"] == "sec:methods"
+    assert data["auto_compile"] is False
+
+
+@pytest.mark.asyncio
+async def test_auto_compile_mode_persists_and_broadcasts(client):
+    tc, server = client
+    ws = await tc.ws_connect("/ws")
+    initial = await ws.receive_json()
+    assert initial["auto_compile"] is False
+
+    resp = await tc.put("/auto-compile", json={"enabled": True})
+
+    assert resp.status == 200
+    assert await resp.json() == {"auto_compile": True}
+    assert server.config.auto_compile is True
+    data = yaml.safe_load(server.config.config_path.read_text())
+    assert data["auto_compile"] is True
+    assert await ws.receive_json() == {"type": "auto_compile", "enabled": True}
+    assert (await (await tc.get("/paper")).json())["auto_compile"] is True
+    await ws.close()
+
+
+@pytest.mark.asyncio
+async def test_auto_compile_mode_rejects_non_boolean(client):
+    tc, _ = client
+    resp = await tc.put("/auto-compile", json={"enabled": "true"})
+    assert resp.status == 400
+    assert await resp.json() == {"error": "enabled must be true or false"}
+
+
+@pytest.mark.asyncio
+async def test_file_change_respects_auto_compile_mode(project):
+    server = TexMcpWebServer(
+        Config(main="paper.tex", config_path=project / ".tex-mcp-web.yaml")
+    )
+    server.do_compile = AsyncMock()
+
+    await server.on_file_change(str(project / "paper.tex"))
+    server.do_compile.assert_not_awaited()
+
+    server.config.auto_compile = True
+    await server.on_file_change(str(project / "paper.tex"))
+    server.do_compile.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_manual_compile_still_runs_when_auto_compile_is_off(client):
+    tc, server = client
+    result = CompileResult(success=False)
+    server.do_compile = AsyncMock(return_value=result)
+
+    resp = await tc.post("/compile")
+
+    assert resp.status == 200
+    server.do_compile.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_root_exposes_auto_compile_control(client):
+    tc, _ = client
+    html = await (await tc.get("/")).text()
+    assert 'id="auto-compile-btn"' in html
+    assert "Auto: Off" in html
+    assert "viewer.js?v=auto-compile-mode" in html
 
 
 @pytest.mark.asyncio
@@ -438,14 +507,16 @@ async def test_mcp_contract_is_typed_and_nonduplicative():
 
     assert set(tools) == {"paper", "compile", "comment", "image", "section", "goto"}
     assert mcp.instructions == (
-        "Read the open queue with paper(). Use a comment's source location "
-        "when present; otherwise locate its quote in the TeX source. Use "
-        "image() only for rendered evidence before resolving the comment."
+        "Read the open queue and auto_compile mode with paper(). Use a "
+        "comment's source location when present; otherwise locate its quote "
+        "in the TeX source. After all source edits, call compile() once when "
+        "auto_compile is false; when it is true, the watcher owns compilation. "
+        "Use image() only for rendered evidence before resolving the comment."
     )
-    assert "compile()" not in mcp.instructions
+    assert "call compile() once" in mcp.instructions
     compile_description = " ".join((tools["compile"].description or "").split())
-    assert "daemon watcher" in compile_description
-    assert "explicit user request" in compile_description
+    assert "paper().auto_compile" in compile_description
+    assert "watcher owns compilation" in compile_description
 
     descriptions = "\n".join(tool.description or "" for tool in tools.values())
     assert "source-search key" not in descriptions
@@ -484,6 +555,9 @@ async def test_mcp_comment_and_section_runtime_contract(project, monkeypatch):
     (project / ".tex-mcp-web.yaml").write_text("main: paper.tex\n")
     monkeypatch.chdir(project)
     mcp = create_server()
+
+    paper = await mcp.call_tool("paper", {})
+    assert json.loads(paper[0][0].text)["auto_compile"] is False
 
     added = await mcp.call_tool(
         "comment",

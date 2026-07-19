@@ -4,7 +4,7 @@ Review a LaTeX paper from its rendered PDF while Claude Code or Codex edits the 
 
 ![A highlighted PDF comment and an agent reply in tex-mcp-web](docs/images/discussion.png)
 
-You read the PDF in a browser and leave comments on selected text, sections, or the whole paper. The coding agent reads those comments through MCP and edits the LaTeX source. The running web server detects the edit, rebuilds the PDF, and displays it in the same browser.
+You read the PDF in a browser and leave comments on selected text, sections, or the whole paper. The coding agent reads those comments through MCP, edits the LaTeX source, and compiles once after the edit batch. The web server displays the rebuilt PDF in the same browser.
 
 ## Install
 
@@ -59,6 +59,7 @@ watch:
 ignore:
 - '*_backup.tex'
 compiler: auto
+auto_compile: false
 port: 8765
 ```
 
@@ -68,6 +69,7 @@ port: 8765
 | `watch` | File patterns that trigger recompilation after a change. Patterns are matched against filenames and project-relative paths. |
 | `ignore` | Paths checked before `watch`. A matching change does not trigger recompilation. |
 | `compiler` | `auto` uses `latexmk` for LaTeX and `pandoc` for Markdown or text. It can also name a supported compiler explicitly. |
+| `auto_compile` | `false` leaves compilation to the top-bar button or MCP agent. `true` compiles after watched source changes. |
 | `port` | Browser and MCP daemon port for this paper. |
 
 Inspect the settings, then start the web server:
@@ -109,7 +111,9 @@ Then ask the agent:
 
 > Process the open tex-mcp-web comments.
 
-The agent reads the open comments and nearby source, makes the requested edits, waits for the automatic rebuild, verifies the result, and only then replies to or resolves each comment. You can inspect the rebuilt PDF, reply in the same thread, or add another comment.
+The agent reads the open comments and nearby source. With the default `auto_compile: false`, it makes the requested edits, calls the MCP `compile()` tool once, verifies the result, and only then replies to or resolves each comment. You can inspect the rebuilt PDF, reply in the same thread, or add another comment.
+
+The top bar shows **Auto: Off** or **Auto: On** beside **Recompile**. **Auto: Off** leaves source changes pending until **Recompile** or MCP `compile()` is called. **Auto: On** compiles future watched changes automatically. Changing the mode does not itself compile the paper. The selected mode is saved in `.tex-mcp-web.yaml` and shared with the agent.
 
 Other useful requests include:
 
@@ -135,15 +139,16 @@ The editable keys and value formats are:
 tex-mcp-web config main paper.tex
 tex-mcp-web config port 8766
 tex-mcp-web config compiler xelatex
+tex-mcp-web config auto_compile true
 tex-mcp-web config watch 'main.tex,sections/**,*.bib'
 tex-mcp-web config ignore '*_backup.tex,old/**'
 ```
 
-`watch` and `ignore` accept comma-separated patterns. Supported compiler values are `auto`, `latexmk`, `pdflatex`, `xelatex`, `lualatex`, and `pandoc`.
+`auto_compile` accepts `true` or `false`. `watch` and `ignore` accept comma-separated patterns. Supported compiler values are `auto`, `latexmk`, `pdflatex`, `xelatex`, `lualatex`, and `pandoc`.
 
 ### Choose what triggers recompilation
 
-Watcher paths are relative to the directory containing `.tex-mcp-web.yaml`. A filename pattern such as `*.tex` matches that filename extension at any depth. A path pattern such as `private/**` matches only that project directory and its contents. `ignore` is checked before `watch`, so an ignored path never triggers automatic recompilation even when it also matches `watch`.
+Watcher paths are relative to the directory containing `.tex-mcp-web.yaml`. A filename pattern such as `*.tex` matches that filename extension at any depth. A path pattern such as `private/**` matches only that project directory and its contents. `ignore` is checked before `watch`, so an ignored path never triggers automatic recompilation when `auto_compile` is enabled. tex-mcp-web control files under `.tex-mcp-web/` and `.tex-mcp-web.yaml` never trigger compilation.
 
 For a paper that watches its LaTeX and bibliography files but ignores the entire `private/` directory:
 
@@ -162,7 +167,7 @@ This excludes both `private/note.tex` and nested paths such as `private/experime
 tex-mcp-web config ignore 'private/**,*_backup.tex'
 ```
 
-`ignore` controls only whether a file change triggers automatic recompilation. It does not prevent LaTeX from reading an `\input` file, prevent the agent from opening the directory, or exclude files from Git. Repository privacy still belongs in `.gitignore`.
+`ignore` controls only whether a file change is considered by automatic compilation. It does not prevent LaTeX from reading an `\input` file, prevent the agent from opening the directory, or exclude files from Git. Repository privacy still belongs in `.gitignore`.
 
 ## Other commands
 
@@ -195,7 +200,7 @@ If a port is already in use, choose an unused value with `tex-mcp-web config por
 
 If the agent opens the wrong paper, run `tex-mcp-web config` from its working directory. The first output line shows which `.tex-mcp-web.yaml` was found. The agent must run inside that project root or one of its subdirectories.
 
-If agent-triggered compilation or viewer navigation cannot reach the daemon, confirm that `tex-web` is running for the same project and port.
+If agent-triggered compilation or viewer navigation cannot reach the daemon, confirm that `tex-web` is running for the same project and port. If source edits do not update the PDF while **Auto: Off** is shown, use **Recompile** or ask the agent to call MCP `compile()`.
 
 tex-mcp-web is a hard fork of [queelius/scholia](https://github.com/queelius/scholia) v0.6.1 and is independently developed under the MIT license. See [`LICENSE`](LICENSE).
 

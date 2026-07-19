@@ -15,6 +15,7 @@ const state = {
   zoom: null,
   annotationsReady: false,
   layoutReady: false,
+  autoCompile: false,
   pdfDigest: null,
   comments: [],
   paper: null,
@@ -676,7 +677,35 @@ async function refreshPaper() {
   state.paper = await response.json();
   state.pdfDigest = state.paper.pdf_digest;
   $("#main-file").textContent = state.paper.main_file;
+  applyAutoCompile(state.paper.auto_compile);
   renderSections();
+}
+
+function applyAutoCompile(enabled) {
+  state.autoCompile = enabled;
+  const button = $("#auto-compile-btn");
+  button.textContent = enabled ? "Auto: On" : "Auto: Off";
+  button.classList.toggle("active", enabled);
+  button.setAttribute("aria-pressed", String(enabled));
+}
+
+async function toggleAutoCompile() {
+  const button = $("#auto-compile-btn");
+  button.disabled = true;
+  try {
+    const response = await fetch("/auto-compile", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: !state.autoCompile }),
+    });
+    if (!response.ok) throw new Error(await responseError(response));
+    const result = await response.json();
+    applyAutoCompile(result.auto_compile);
+  } catch (error) {
+    alert(`Could not change automatic compilation: ${error.message}`);
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function renderSections() {
@@ -744,7 +773,11 @@ async function handleWebSocketMessage(message) {
       await refreshComments();
       break;
     case "state":
+      applyAutoCompile(message.auto_compile);
       if (message.result) applyCompileResult(message.result);
+      break;
+    case "auto_compile":
+      applyAutoCompile(message.enabled);
       break;
     case "goto":
       showGotoTarget(message);
@@ -777,24 +810,28 @@ function clearGotoHighlight() {
   }
 }
 
+function positionPdfTarget(page, bbox) {
+  if (!state.layoutReady || !state.zoom || !bbox) {
+    jumpToPage(page);
+    return;
+  }
+  const [x1, y1, x2, y2] = bbox;
+  const width = Math.max(x2 - x1 + 144, 320);
+  const height = Math.max(y2 - y1 + 96, 120);
+  const centerX = (x1 + x2) / 2;
+  const centerY = (y1 + y2) / 2;
+  state.zoom.zoomToArea(page - 1, {
+    origin: {
+      x: Math.max(0, centerX - width / 2),
+      y: Math.max(0, centerY - height / 2),
+    },
+    size: { width, height },
+  });
+}
+
 function showGotoTarget(target) {
   if (!target.page) return;
-  if (state.layoutReady && state.zoom && target.bbox) {
-    const [x1, y1, x2, y2] = target.bbox;
-    const width = Math.max(x2 - x1 + 144, 320);
-    const height = Math.max(y2 - y1 + 96, 120);
-    const centerX = (x1 + x2) / 2;
-    const centerY = (y1 + y2) / 2;
-    state.zoom.zoomToArea(target.page - 1, {
-      origin: {
-        x: Math.max(0, centerX - width / 2),
-        y: Math.max(0, centerY - height / 2),
-      },
-      size: { width, height },
-    });
-  } else {
-    jumpToPage(target.page);
-  }
+  positionPdfTarget(target.page, target.bbox);
   if (!target.bbox || !state.annotationsReady || !state.annotations) return;
 
   clearGotoHighlight();
@@ -822,11 +859,16 @@ async function jumpToComment(commentId) {
   const comment = state.comments.find((item) => item.id === commentId);
   if (!comment) return;
   if (comment.anchor.kind === "text_selection" || comment.anchor.kind === "area") {
-    const page = comment.anchor.kind === "text_selection"
-      ? comment.anchor.selection.page
-      : comment.anchor.page;
-    jumpToPage(page);
-    if (state.annotations) state.annotations.selectAnnotation(page - 1, annotationId(comment.id, page));
+    const selection = comment.anchor.kind === "text_selection"
+      ? comment.anchor.selection
+      : { page: comment.anchor.page, bbox: comment.anchor.bbox };
+    positionPdfTarget(selection.page, selection.bbox);
+    if (state.annotations) {
+      state.annotations.selectAnnotation(
+        selection.page - 1,
+        annotationId(comment.id, selection.page),
+      );
+    }
   } else if (comment.resolved_source) {
     await jumpToSource(comment.resolved_source.file, comment.resolved_source.line_start);
   }
@@ -907,6 +949,7 @@ async function init() {
     selection.removeAllRanges();
     selection.addRange(range);
   });
+  $("#auto-compile-btn").addEventListener("click", () => toggleAutoCompile());
   $("#recompile-btn").addEventListener("click", () => fetch("/compile", { method: "POST" }));
   $("#paper-comment-btn").addEventListener("click", () =>
     openCompose({ kind: "paper" }, "Paper-level comment"));
