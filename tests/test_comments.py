@@ -17,6 +17,7 @@ from tex_mcp_web.comments import (
     SourceSelector,
     TextSelectionAnchor,
     anchor_from_dict,
+    canonicalize_pdf_selection,
     capture_source_selector,
     find_source_selector,
     locate_pdf_quote,
@@ -174,6 +175,101 @@ def test_locate_pdf_quote_reconstructs_line_end_hyphen(tmp_path: Path):
     assert len(selection.rects) == 2
 
 
+def test_canonicalize_pdf_selection_uses_geometry_when_text_engines_disagree(
+    tmp_path: Path,
+):
+    pdf = tmp_path / "formula.pdf"
+    make_pdf(pdf, "S = 30 T + 50 P")
+    left = locate_pdf_quote(pdf, "S = 30")
+    right = locate_pdf_quote(pdf, "T + 50 P")
+    assert left is not None
+    assert right is not None
+    hint = PageSelection(
+        page=1,
+        bbox=(left.bbox[0], left.bbox[1], right.bbox[2], right.bbox[3]),
+        rects=[left.bbox, right.bbox],
+    )
+
+    canonical = canonicalize_pdf_selection(pdf, "S=30 T+50 P", hint)
+
+    assert canonical is not None
+    quote, selection = canonical
+    assert quote == "S = 30 T + 50 P"
+    assert selection.page == 1
+    assert selection.rects
+
+
+def test_canonicalize_pdf_selection_handles_separate_equation_number(
+    tmp_path: Path,
+):
+    pdf = tmp_path / "numbered-formula.pdf"
+    document = pymupdf.open()
+    page = document.new_page()
+    page.insert_text((72, 72), "S=30 dT + 50 dP,")
+    page.insert_text((300, 72), "(1)")
+    document.save(pdf)
+    document.close()
+
+    formula = locate_pdf_quote(pdf, "S=30 dT + 50 dP,")
+    number = locate_pdf_quote(pdf, "(1)")
+    assert formula is not None
+    assert number is not None
+    hint = PageSelection(
+        page=1,
+        bbox=(formula.bbox[0], formula.bbox[1], number.bbox[2], number.bbox[3]),
+        rects=[formula.bbox, number.bbox],
+    )
+
+    canonical = canonicalize_pdf_selection(
+        pdf,
+        "S = 30 dT + 50 dP, (1)",
+        hint,
+    )
+
+    assert canonical is not None
+    quote, selection = canonical
+    assert quote == "S=30 dT + 50 dP,\n(1)"
+    assert selection.page == 1
+    assert selection.rects
+
+
+def test_canonicalize_pdf_selection_trims_text_below_loose_browser_rect(
+    tmp_path: Path,
+):
+    pdf = tmp_path / "loose-formula-selection.pdf"
+    document = pymupdf.open()
+    page = document.new_page()
+    page.insert_text((72, 72), "S=30 dT + 50 dP,")
+    page.insert_text((300, 72), "(1)")
+    page.insert_text((72, 84), "next line is outside the selection")
+    document.save(pdf)
+    document.close()
+
+    formula = locate_pdf_quote(pdf, "S=30 dT + 50 dP,")
+    number = locate_pdf_quote(pdf, "(1)")
+    next_line = locate_pdf_quote(pdf, "next line is outside the selection")
+    assert formula is not None
+    assert number is not None
+    assert next_line is not None
+    loose_rect = (
+        formula.bbox[0],
+        formula.bbox[1],
+        number.bbox[2],
+        next_line.bbox[1] + 1,
+    )
+    hint = PageSelection(page=1, bbox=loose_rect, rects=[loose_rect])
+
+    canonical = canonicalize_pdf_selection(
+        pdf,
+        "S = 30 dT + 50 dP, (1)",
+        hint,
+    )
+
+    assert canonical is not None
+    quote, _ = canonical
+    assert quote == "S=30 dT + 50 dP,\n(1)"
+
+
 def test_locate_pdf_quote_rejects_duplicate_without_hint(tmp_path: Path):
     pdf = tmp_path / "paper.pdf"
     make_pdf(pdf, "duplicate phrase\n\nduplicate phrase")
@@ -295,6 +391,37 @@ def test_text_anchor_refreshes_pdf_rectangles(store: CommentStore, tmp_path: Pat
     assert not refreshed.stale
     assert refreshed.anchor.pdf_digest == pdf_digest(pdf)
     assert refreshed.anchor.selection.bbox[1] > old_selection.bbox[1]
+
+
+def test_text_anchor_refresh_reuses_one_pdf_index(
+    store: CommentStore, tmp_path: Path, monkeypatch
+):
+    pdf = tmp_path / "paper.pdf"
+    make_pdf(pdf, "first rendered quote\nsecond rendered quote")
+    for quote in ("first rendered quote", "second rendered quote"):
+        selection = locate_pdf_quote(pdf, quote)
+        assert selection is not None
+        store.add(
+            TextSelectionAnchor(
+                quote=quote,
+                selection=selection,
+                pdf_digest=pdf_digest(pdf),
+            ),
+            "text",
+        )
+
+    original_open = pymupdf.open
+    open_count = 0
+
+    def counted_open(*args, **kwargs):
+        nonlocal open_count
+        open_count += 1
+        return original_open(*args, **kwargs)
+
+    monkeypatch.setattr("tex_mcp_web.comments.pymupdf.open", counted_open)
+    store.refresh_anchors(tmp_path, pdf)
+
+    assert open_count == 1
 
 
 def test_text_anchor_captures_and_follows_resolved_source(

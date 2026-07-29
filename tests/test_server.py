@@ -136,7 +136,7 @@ async def test_root_exposes_auto_compile_control(client):
     html = await (await tc.get("/")).text()
     assert 'id="auto-compile-btn"' in html
     assert "Auto: Off" in html
-    assert "viewer.js?v=auto-compile-mode" in html
+    assert "viewer.js?v=comment-submit-state" in html
 
 
 @pytest.mark.asyncio
@@ -739,6 +739,31 @@ async def test_text_selection_without_reverse_sync_remains_pdf_native(client_wit
     assert "resolved_source" not in data
     assert "source_selector" not in data
     assert data["anchor"]["selection"]["rects"]
+
+
+@pytest.mark.asyncio
+async def test_text_selection_canonicalizes_text_engine_difference(client_with_pdf):
+    tc, server = client_with_pdf
+    from tex_mcp_web.comments import locate_pdf_quote
+
+    selection = locate_pdf_quote(server.last_result.output_file, "Page 1")
+    assert selection is not None
+    resp = await tc.post(
+        "/comments",
+        json={
+            "anchor": {
+                "kind": "text_selection",
+                "quote": "Page1",
+                "selection": selection.to_dict(),
+                "pdf_digest": server.pdf_digest,
+            },
+            "text": "review this text",
+        },
+    )
+
+    assert resp.status == 201
+    data = await resp.json()
+    assert data["anchor"]["quote"] == "Page 1"
 
 
 @pytest.mark.asyncio

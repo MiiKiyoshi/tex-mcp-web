@@ -37,6 +37,7 @@ from .comments import (
     TextSelectionAnchor,
     anchor_from_dict,
     capture_source_selector,
+    canonicalize_pdf_selection,
     locate_pdf_quote,
     pdf_digest,
 )
@@ -522,7 +523,7 @@ class TexMcpWebServer:
                 )
             if self.last_result is None or self.last_result.output_file is None:
                 return web.json_response({"error": "no PDF available"}, status=409)
-            canonical = locate_pdf_quote(
+            canonical = canonicalize_pdf_selection(
                 self.last_result.output_file, anchor.quote, hint=anchor.selection
             )
             if canonical is None:
@@ -530,7 +531,7 @@ class TexMcpWebServer:
                     {"error": "selected text could not be verified in the current PDF"},
                     status=422,
                 )
-            anchor.selection = canonical
+            anchor.quote, anchor.selection = canonical
         if isinstance(anchor, AreaAnchor):
             if self.pdf_digest is None or anchor.pdf_digest != self.pdf_digest:
                 return web.json_response(
