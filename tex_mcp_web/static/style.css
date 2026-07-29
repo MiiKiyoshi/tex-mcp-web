@@ -89,6 +89,7 @@ textarea {
   background: var(--accent-soft);
 }
 #auto-compile-btn:disabled { cursor: wait; }
+#recompile-btn:disabled { cursor: wait; }
 
 /* ----- layout ----- */
 .layout {
@@ -560,4 +561,8 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
   background: var(--accent);
   color: white;
   border: none;
+}
+#compose-form :disabled {
+  cursor: wait;
+  opacity: 0.65;
 }

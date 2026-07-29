@@ -30,6 +30,7 @@ import contextlib
 import hashlib
 import json
 import logging
+import math
 import os
 import re
 import secrets
@@ -38,6 +39,8 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Literal
+
+import pymupdf
 
 logger = logging.getLogger(__name__)
 
@@ -575,73 +578,163 @@ def _all_occurrences(text: str, needle: str) -> list[int]:
         start = position + 1
 
 
+def _compact_pdf_text(text: str) -> tuple[str, list[int]]:
+    normalized, raw_indexes = _normalize_pdf_text(text)
+    characters: list[str] = []
+    compact_raw_indexes: list[int] = []
+    for index, character in enumerate(normalized):
+        if character == " ":
+            continue
+        characters.append(character)
+        compact_raw_indexes.append(raw_indexes[index])
+    return "".join(characters), compact_raw_indexes
+
+
+class _PdfTextIndex:
+    def __init__(self, pdf_path: Path):
+        self.document = pymupdf.open(pdf_path)
+        self.pages: list[tuple[str, str, list[int]]] = []
+        try:
+            for page in self.document:
+                raw_text = page.get_text("text")
+                normalized_text, raw_indexes = _normalize_pdf_text(raw_text)
+                self.pages.append((raw_text, normalized_text, raw_indexes))
+        except Exception:
+            self.document.close()
+            raise
+
+    def close(self) -> None:
+        self.document.close()
+
+    def locate(
+        self,
+        quote: str,
+        hint: PageSelection | None = None,
+    ) -> PageSelection | None:
+        normalized_quote, _ = _normalize_pdf_text(quote)
+        if not normalized_quote:
+            return None
+
+        candidates: list[tuple[int, str]] = []
+        for page_index, (raw_page, normalized_page, raw_indexes) in enumerate(
+            self.pages
+        ):
+            for start in _all_occurrences(normalized_page, normalized_quote):
+                raw_start = raw_indexes[start]
+                raw_end = raw_indexes[start + len(normalized_quote) - 1] + 1
+                candidates.append((page_index, raw_page[raw_start:raw_end]))
+
+        if len(candidates) == 1:
+            matched_page, raw_quote = candidates[0]
+            matches = self.document[matched_page].search_for(raw_quote)
+        else:
+            if hint is None:
+                return None
+            if hint.page < 1 or hint.page > len(self.document):
+                return None
+            raw_quotes = {
+                raw_quote for page_index, raw_quote in candidates
+                if page_index == hint.page - 1
+            }
+            page = self.document[hint.page - 1]
+            search_results = [
+                rect for raw_quote in raw_quotes for rect in page.search_for(raw_quote)
+            ]
+            x1, y1, x2, y2 = hint.bbox
+            matches = [
+                rect
+                for rect in search_results
+                if rect.x1 >= x1 and rect.x0 <= x2 and rect.y1 >= y1 and rect.y0 <= y2
+            ]
+            if not matches:
+                return None
+            matched_page = hint.page - 1
+
+        if not matches:
+            return None
+        rects = [
+            (float(rect.x0), float(rect.y0), float(rect.x1), float(rect.y1))
+            for rect in matches
+        ]
+        bbox = (
+            min(rect[0] for rect in rects),
+            min(rect[1] for rect in rects),
+            max(rect[2] for rect in rects),
+            max(rect[3] for rect in rects),
+        )
+        return PageSelection(page=matched_page + 1, bbox=bbox, rects=rects)
+
+
 def locate_pdf_quote(
     pdf_path: Path,
     quote: str,
     hint: PageSelection | None = None,
 ) -> PageSelection | None:
     """Find one exact rendered quote and return its per-line rectangles."""
-    import pymupdf
+    index = _PdfTextIndex(pdf_path)
+    try:
+        return index.locate(quote, hint=hint)
+    finally:
+        index.close()
 
-    normalized_quote, _ = _normalize_pdf_text(quote)
-    if not normalized_quote:
-        return None
+
+def canonicalize_pdf_selection(
+    pdf_path: Path,
+    quote: str,
+    hint: PageSelection,
+) -> tuple[str, PageSelection] | None:
+    """Verify a browser selection and return text PyMuPDF can find again."""
+    located = locate_pdf_quote(pdf_path, quote, hint=hint)
+    if located is not None:
+        return quote, located
 
     document = pymupdf.open(pdf_path)
-    candidates: list[tuple[int, str]] = []
-    for page_index, page in enumerate(document):
-        raw_page = page.get_text("text")
-        normalized_page, raw_indexes = _normalize_pdf_text(raw_page)
-        for start in _all_occurrences(normalized_page, normalized_quote):
-            raw_start = raw_indexes[start]
-            raw_end = raw_indexes[start + len(normalized_quote) - 1] + 1
-            candidates.append((page_index, raw_page[raw_start:raw_end]))
+    try:
+        if hint.page < 1 or hint.page > len(document) or not hint.rects:
+            return None
+        page = document[hint.page - 1]
+        page_rect = page.rect
+        selected_rects: list[pymupdf.Rect] = []
+        for values in hint.rects:
+            if not all(math.isfinite(value) for value in values):
+                return None
+            rect = pymupdf.Rect(values)
+            if rect.is_empty or not page_rect.contains(rect):
+                return None
+            selected_rects.append(rect)
 
-    if len(candidates) == 1:
-        matched_page, raw_quote = candidates[0]
-        matches = document[matched_page].search_for(raw_quote)
-    else:
-        if hint is None:
-            document.close()
-            return None
-        hinted = hint
-        if hinted.page < 1 or hinted.page > len(document):
-            document.close()
-            return None
-        raw_quotes = {
-            raw_quote for page_index, raw_quote in candidates
-            if page_index == hinted.page - 1
-        }
-        page = document[hinted.page - 1]
-        search_results = [
-            rect for raw_quote in raw_quotes for rect in page.search_for(raw_quote)
-        ]
-        x1, y1, x2, y2 = hinted.bbox
-        matches = [
-            rect
-            for rect in search_results
-            if rect.x1 >= x1 and rect.x0 <= x2 and rect.y1 >= y1 and rect.y0 <= y2
-        ]
-        if not matches:
-            document.close()
-            return None
-        matched_page = hinted.page - 1
+        line_rects: list[pymupdf.Rect] = []
+        for rect in sorted(selected_rects, key=lambda item: (item.y0, item.x0)):
+            for index, line_rect in enumerate(line_rects):
+                if rect.y0 < line_rect.y1 and rect.y1 > line_rect.y0:
+                    line_rects[index] = line_rect | rect
+                    break
+            else:
+                line_rects.append(rect)
 
-    if not matches:
+        fragments: list[str] = []
+        for rect in sorted(line_rects, key=lambda item: (item.y0, item.x0)):
+            fragment = page.get_textbox(rect).strip()
+            if not fragment:
+                return None
+            fragments.append(fragment)
+    finally:
         document.close()
+
+    selected_text = "\n".join(fragments)
+    compact_selected, raw_indexes = _compact_pdf_text(selected_text)
+    compact_quote, _ = _compact_pdf_text(quote)
+    positions = _all_occurrences(compact_selected, compact_quote)
+    if len(positions) != 1:
         return None
-    rects = [
-        (float(rect.x0), float(rect.y0), float(rect.x1), float(rect.y1))
-        for rect in matches
-    ]
-    bbox = (
-        min(rect[0] for rect in rects),
-        min(rect[1] for rect in rects),
-        max(rect[2] for rect in rects),
-        max(rect[3] for rect in rects),
-    )
-    document.close()
-    return PageSelection(page=matched_page + 1, bbox=bbox, rects=rects)
+    start = positions[0]
+    raw_start = raw_indexes[start]
+    raw_end = raw_indexes[start + len(compact_quote) - 1] + 1
+    canonical_quote = selected_text[raw_start:raw_end].strip()
+    located = locate_pdf_quote(pdf_path, canonical_quote, hint=hint)
+    if located is None:
+        return None
+    return canonical_quote, located
 
 
 # ---------------------------------------------------------------------------
@@ -906,21 +999,34 @@ class CommentStore:
             comments = self._all()
             newly_stale: list[str] = []
             changed = False
-
             digest = pdf_digest(pdf_path)
-            for c in comments:
-                was_stale = c.stale
-                new_stale, modified = self._refresh_anchor(
-                    c, watch_dir, pdf_path, digest, sections_resolver, text_resolver
-                )
+            text_index = (
+                _PdfTextIndex(pdf_path)
+                if any(isinstance(c.anchor, TextSelectionAnchor) for c in comments)
+                else None
+            )
+            try:
+                for c in comments:
+                    was_stale = c.stale
+                    new_stale, modified = self._refresh_anchor(
+                        c,
+                        watch_dir,
+                        digest,
+                        sections_resolver,
+                        text_resolver,
+                        text_index,
+                    )
 
-                if new_stale != was_stale:
-                    c.stale = new_stale
-                    modified = True
-                    if new_stale:
-                        newly_stale.append(c.id)
-                if modified:
-                    changed = True
+                    if new_stale != was_stale:
+                        c.stale = new_stale
+                        modified = True
+                        if new_stale:
+                            newly_stale.append(c.id)
+                    if modified:
+                        changed = True
+            finally:
+                if text_index is not None:
+                    text_index.close()
 
             if changed:
                 self._save(comments)
@@ -931,10 +1037,10 @@ class CommentStore:
     def _refresh_anchor(
         c: Comment,
         watch_dir: Path,
-        pdf_path: Path,
         digest: str,
         sections_resolver,
         text_resolver,
+        text_index: _PdfTextIndex | None,
     ) -> tuple[bool, bool]:
         """Refresh one anchor.  Returns ``(is_stale, was_modified)``."""
         kind = c.anchor.kind
@@ -961,9 +1067,9 @@ class CommentStore:
             return c.anchor.pdf_digest != digest, False
 
         if kind == "text_selection":
-            selection = locate_pdf_quote(
-                pdf_path, c.anchor.quote, hint=c.anchor.selection
-            )
+            if text_index is None:
+                raise RuntimeError("PDF text index is unavailable")
+            selection = text_index.locate(c.anchor.quote, hint=c.anchor.selection)
             if selection is None:
                 return True, False
             modified = False
