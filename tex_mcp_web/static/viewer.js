@@ -20,6 +20,7 @@ const state = {
   comments: [],
   paper: null,
   pendingAnchor: null,
+  composeSubmitting: false,
   errors: [],
   warnings: [],
   expanded: new Set(),
@@ -28,6 +29,8 @@ const state = {
   annotationCommentById: new Map(),
   referencePreviewRequest: 0,
   lastViewerPointer: null,
+  appliedCompileTimestamp: null,
+  compileRefreshPromise: null,
   ws: null,
 };
 
@@ -360,8 +363,19 @@ async function responseError(response) {
   }
 }
 
+function applyComposeSubmitting(submitting) {
+  state.composeSubmitting = submitting;
+  const dialog = $("#compose-dialog");
+  dialog.setAttribute("aria-busy", String(submitting));
+  for (const control of $$("#compose-form textarea, #compose-form button")) {
+    control.disabled = submitting;
+  }
+  $("#compose-submit").textContent = submitting ? "Posting…" : "Post";
+}
+
 async function submitCompose(event) {
   event.preventDefault();
+  if (state.composeSubmitting) return;
   const text = $("#compose-text").value.trim();
   if (!text || !state.pendingAnchor) return;
   const body = { anchor: state.pendingAnchor, text };
@@ -369,18 +383,23 @@ async function submitCompose(event) {
   const suggestionNew = $("#compose-suggestion-new").value.trim();
   if (suggestionOld && suggestionNew) body.suggestion = { old: suggestionOld, new: suggestionNew };
 
-  const response = await fetch("/comments", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!response.ok) {
-    alert(`Could not save comment: ${await responseError(response)}`);
-    return;
+  applyComposeSubmitting(true);
+  try {
+    const response = await fetch("/comments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      alert(`Could not save comment: ${await responseError(response)}`);
+      return;
+    }
+    $("#compose-dialog").close();
+    clearPendingSelection();
+    await refreshComments();
+  } finally {
+    applyComposeSubmitting(false);
   }
-  $("#compose-dialog").close();
-  clearPendingSelection();
-  await refreshComments();
 }
 
 async function refreshComments() {
@@ -396,9 +415,37 @@ async function refreshComments() {
 
 function renderComments() {
   const list = $("#comments-list");
+  const pane = $("#tab-comments");
+  const scrollTop = pane.scrollTop;
+  const activeInput = document.activeElement?.classList.contains("cmt-form-input")
+    ? document.activeElement
+    : null;
+  const inputState = activeInput ? {
+    commentId: activeInput.closest(".cmt")?.dataset.commentId,
+    selectionStart: activeInput.selectionStart,
+    selectionEnd: activeInput.selectionEnd,
+    selectionDirection: activeInput.selectionDirection,
+    scrollTop: activeInput.scrollTop,
+  } : null;
   clear(list);
   if (state.comments.length === 0) list.appendChild(placeholder("No comments at this filter."));
   else for (const comment of state.comments) list.appendChild(renderCommentItem(comment));
+  pane.scrollTop = scrollTop;
+  if (inputState?.commentId) {
+    const commentNode = Array.from(list.children).find(
+      (node) => node.dataset.commentId === inputState.commentId,
+    );
+    const input = commentNode?.querySelector(".cmt-form-input");
+    if (input) {
+      input.focus({ preventScroll: true });
+      input.setSelectionRange(
+        inputState.selectionStart,
+        inputState.selectionEnd,
+        inputState.selectionDirection,
+      );
+      input.scrollTop = inputState.scrollTop;
+    }
+  }
   updateCommentCount();
 }
 
@@ -489,9 +536,16 @@ function actionButtons(comment) {
 }
 
 function setActiveForm(commentId, mode) {
-  state.activeForm = { commentId, mode };
+  state.activeForm = { commentId, mode, draft: "" };
   state.expanded.add(commentId);
   renderComments();
+  const commentNode = Array.from($("#comments-list").children).find(
+    (node) => node.dataset.commentId === commentId,
+  );
+  const input = commentNode?.querySelector(".cmt-form-input");
+  if (!input) return;
+  input.closest(".cmt-form").scrollIntoView({ block: "nearest", behavior: "smooth" });
+  input.focus({ preventScroll: true });
 }
 
 const FORM_CONFIG = {
@@ -508,6 +562,15 @@ function renderActiveForm(comment) {
     class: "cmt-form-input",
     rows: 3,
     placeholder: config.placeholder,
+  });
+  textarea.value = state.activeForm.draft;
+  textarea.addEventListener("input", () => {
+    if (
+      state.activeForm?.commentId === comment.id
+      && state.activeForm.mode === mode
+    ) {
+      state.activeForm.draft = textarea.value;
+    }
   });
   let submitting = false;
   let submitButton = null;
@@ -554,10 +617,6 @@ function renderActiveForm(comment) {
         renderComments();
       }),
       submitButton));
-  setTimeout(() => {
-    form.scrollIntoView({ block: "nearest", behavior: "smooth" });
-    textarea.focus({ preventScroll: true });
-  }, 0);
   return form;
 }
 
@@ -751,20 +810,60 @@ function applyCompileResult(result) {
   renderErrorBanner();
 }
 
+function applyCompiling(compiling) {
+  const button = $("#recompile-btn");
+  button.disabled = compiling;
+  button.textContent = compiling ? "Compiling…" : "Recompile";
+  if (compiling) $("#compile-status").textContent = "compiling…";
+}
+
+async function applyCompletedCompile(result, pdfDigest) {
+  const timestamp = result.timestamp;
+  if (timestamp && timestamp === state.appliedCompileTimestamp) {
+    if (state.compileRefreshPromise) await state.compileRefreshPromise;
+    return;
+  }
+
+  state.appliedCompileTimestamp = timestamp;
+  const refresh = (async () => {
+    applyCompileResult(result);
+    if (result.success) {
+      const pdfView = capturePdfView();
+      if (pdfDigest === undefined) await refreshPaper();
+      else state.pdfDigest = pdfDigest;
+      await initializePdfViewer(pdfView);
+      await refreshComments();
+    }
+    if (pdfDigest !== undefined || !result.success) await refreshPaper();
+  })();
+  state.compileRefreshPromise = refresh;
+  try {
+    await refresh;
+  } finally {
+    if (state.compileRefreshPromise === refresh) state.compileRefreshPromise = null;
+    applyCompiling(false);
+  }
+}
+
+async function recompile() {
+  applyCompiling(true);
+  try {
+    const response = await fetch("/compile", { method: "POST" });
+    if (!response.ok) throw new Error(await responseError(response));
+    await applyCompletedCompile(await response.json());
+  } catch (error) {
+    applyCompiling(false);
+    alert(`Could not compile: ${error.message}`);
+  }
+}
+
 async function handleWebSocketMessage(message) {
   switch (message.type) {
     case "compiling":
-      $("#compile-status").textContent = message.status ? "compiling…" : "idle";
+      if (message.status) applyCompiling(true);
       break;
     case "compiled":
-      applyCompileResult(message.result);
-      if (message.result.success) {
-        const pdfView = capturePdfView();
-        state.pdfDigest = message.pdf_digest;
-        await initializePdfViewer(pdfView);
-        await refreshComments();
-      }
-      await refreshPaper();
+      await applyCompletedCompile(message.result, message.pdf_digest);
       break;
     case "comment_added":
     case "comment_updated":
@@ -775,6 +874,7 @@ async function handleWebSocketMessage(message) {
     case "state":
       applyAutoCompile(message.auto_compile);
       if (message.result) applyCompileResult(message.result);
+      if (message.compiling) applyCompiling(true);
       break;
     case "auto_compile":
       applyAutoCompile(message.enabled);
@@ -950,7 +1050,7 @@ async function init() {
     selection.addRange(range);
   });
   $("#auto-compile-btn").addEventListener("click", () => toggleAutoCompile());
-  $("#recompile-btn").addEventListener("click", () => fetch("/compile", { method: "POST" }));
+  $("#recompile-btn").addEventListener("click", () => recompile());
   $("#paper-comment-btn").addEventListener("click", () =>
     openCompose({ kind: "paper" }, "Paper-level comment"));
   $("#compose-form").addEventListener("submit", (event) => {
