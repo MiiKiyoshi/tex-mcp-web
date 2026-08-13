@@ -2,6 +2,8 @@
 
 Review a LaTeX paper from its rendered PDF while Claude Code or Codex edits the source.
 
+tex-mcp-web is a hard fork of [queelius/scholia at commit `e6c7454`](https://github.com/queelius/scholia/commit/e6c745400d2ad70fb43eca053e31183d48765f89) (package version 0.6.1). It has since been independently developed under the MIT license. See [`LICENSE`](LICENSE).
+
 ![A highlighted PDF comment and an agent reply in tex-mcp-web](docs/images/discussion.png)
 
 You read the PDF in a browser and leave comments on selected text, sections, or the whole paper. The coding agent reads those comments through MCP, edits the LaTeX source, and compiles once after the edit batch. The web server displays the rebuilt PDF in the same browser.
@@ -201,7 +203,5 @@ If a port is already in use, choose an unused value with `tex-mcp-web config por
 If the agent opens the wrong paper, run `tex-mcp-web config` from its working directory. The first output line shows which `.tex-mcp-web.yaml` was found. The agent must run inside that project root or one of its subdirectories.
 
 If agent-triggered compilation or viewer navigation cannot reach the daemon, confirm that `tex-web` is running for the same project and port. If source edits do not update the PDF while **Auto: Off** is shown, use **Recompile** or ask the agent to call MCP `compile()`.
-
-tex-mcp-web is a hard fork of [queelius/scholia](https://github.com/queelius/scholia) v0.6.1 and is independently developed under the MIT license. See [`LICENSE`](LICENSE).
 
 PDF viewing uses [EmbedPDF](https://github.com/embedpdf/embed-pdf-viewer) v2.14.4 and its PDFium WebAssembly engine. Their license notices are included in [`tex_mcp_web/static/embedpdf/LICENSE`](tex_mcp_web/static/embedpdf/LICENSE) and [`tex_mcp_web/static/embedpdf/LICENSE.pdfium`](tex_mcp_web/static/embedpdf/LICENSE.pdfium).
