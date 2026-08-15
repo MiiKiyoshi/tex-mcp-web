@@ -281,6 +281,20 @@ def enrich_error_context(
         msg.context = context_lines
 
 
+async def _communicate(process: "asyncio.subprocess.Process") -> tuple[bytes, bytes | None]:
+    """Collect output, killing the compiler when the caller is cancelled.
+
+    A shutdown during a build would otherwise leave latexmk running and its
+    pipes to be closed after the event loop is gone.
+    """
+    try:
+        return await process.communicate()
+    except asyncio.CancelledError:
+        process.kill()
+        await process.wait()
+        raise
+
+
 async def compile_tex(
     main_file: Path,
     compiler: str = "latexmk",
@@ -344,7 +358,7 @@ async def compile_tex(
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, stderr = await process.communicate()
+            stdout, stderr = await _communicate(process)
             log_output = stdout.decode("utf-8", errors="replace")
             stderr_text = stderr.decode("utf-8", errors="replace")
         else:
@@ -354,7 +368,7 @@ async def compile_tex(
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
             )
-            stdout, _ = await process.communicate()
+            stdout, _ = await _communicate(process)
             log_output = stdout.decode("utf-8", errors="replace")
             stderr_text = ""
 

@@ -7,11 +7,12 @@ Exposes 6 tools to agents via stdio:
     comment(action, ...)    add/reply/resolve/dismiss/delete
     image(...)              render a PDF page or exact region
     section(name)           section source, comments, and optional image
-    goto(target)            tell the daemon to scroll the viewer (requires daemon)
+    goto(target)            scroll the viewer to a target
 
-The MCP server reads/writes the same comment store as the daemon. ``compile``
-and ``goto`` call the running daemon so compilation, PDF refresh, anchor
-reattachment, and viewer notification remain one transaction.
+The MCP process owns the review server: the first tool call starts it in a
+background thread, and a peer process bound to the same project shares that
+listener. ``compile`` and ``goto`` reach it over HTTP so compilation, PDF
+refresh, anchor reattachment, and viewer notification remain one transaction.
 
 Requires: pip install "mcp>=1.0"  (and httpx for goto)
 """
@@ -22,12 +23,12 @@ import sys
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from .config import DEFAULT_PORT
-
 try:
     from mcp.server.fastmcp import FastMCP
     from mcp.types import ImageContent, TextContent
     from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+    from .mcp_client import ProjectBinding, ProjectSetupError
 
     HAS_MCP = True
 except ImportError:
@@ -271,7 +272,7 @@ def _comment_add(
 # ---------------------------------------------------------------------------
 
 
-def create_server(daemon_port: int = DEFAULT_PORT) -> "FastMCP":
+def create_server(binding: "ProjectBinding") -> "FastMCP":
     _check_deps()
     mcp = FastMCP(
         "tex-mcp-web",
@@ -305,6 +306,7 @@ def create_server(daemon_port: int = DEFAULT_PORT) -> "FastMCP":
         result: dict[str, Any] = {
             "main_file": cfg.main,
             "watch_dir": str(watch_dir),
+            "review_url": binding.base_url(),
             "auto_compile": cfg.auto_compile,
             **structure_to_dict(structure, watch_dir),
             "pdf": {
@@ -324,11 +326,11 @@ def create_server(daemon_port: int = DEFAULT_PORT) -> "FastMCP":
 
     @mcp.tool()
     async def compile() -> str:
-        """Request a manual compile through the running daemon and return
-        structured errors, warnings, and ``pages_changed``. Call once after a
-        batch of source edits when ``paper().auto_compile`` is false. When it is
-        true, the watcher owns compilation. ``pages_changed`` compares extracted
-        PDF text and excludes visual-only changes.
+        """Recompile and return structured errors, warnings, and
+        ``pages_changed``. Call once after a batch of source edits when
+        ``paper().auto_compile`` is false. When it is true, the watcher owns
+        compilation. ``pages_changed`` compares extracted PDF text and excludes
+        visual-only changes.
         """
         try:
             import httpx
@@ -336,15 +338,14 @@ def create_server(daemon_port: int = DEFAULT_PORT) -> "FastMCP":
             return _err("httpx not installed; install tex-mcp-web[mcp]")
 
         try:
+            base = binding.base_url()
             async with httpx.AsyncClient(timeout=300.0) as client:
-                response = await client.post(
-                    f"http://127.0.0.1:{daemon_port}/compile"
-                )
+                response = await client.post(f"{base}/compile")
         except Exception as exc:
-            return _err(f"daemon at port {daemon_port} not reachable: {exc}")
+            return _err(f"review server request failed: {exc}")
         if response.status_code != 200:
             return _err(
-                f"daemon compile failed with HTTP {response.status_code}: {response.text}"
+                f"compile failed with HTTP {response.status_code}: {response.text}"
             )
         return response.text
 
@@ -638,13 +639,12 @@ def create_server(daemon_port: int = DEFAULT_PORT) -> "FastMCP":
         cfg, _, _ = _load_project()
         body = parse_goto_target(target, default_file=cfg.main)
         try:
+            base = binding.base_url()
             async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.post(
-                    f"http://127.0.0.1:{daemon_port}/goto", json=body
-                )
+                resp = await client.post(f"{base}/goto", json=body)
                 return resp.text
         except Exception as exc:
-            return _err(f"daemon at port {daemon_port} not reachable: {exc}")
+            return _err(f"review server request failed: {exc}")
 
     return mcp
 
@@ -684,8 +684,16 @@ def parse_goto_target(target: str, default_file: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def main(port: int = DEFAULT_PORT) -> None:
-    """Run the MCP server with stdio transport."""
+def main(start_dir: Path | None = None) -> None:
+    """Run the MCP server with stdio transport, serving the viewer alongside."""
     _check_deps()
-    mcp = create_server(daemon_port=port)
-    asyncio.run(mcp.run_stdio_async())
+    binding = ProjectBinding(Path.cwd() if start_dir is None else start_dir)
+    try:
+        binding.connect()
+    except ProjectSetupError as error:
+        print(f"tex-mcp-web project is not ready: {error}", file=sys.stderr)
+    mcp = create_server(binding)
+    try:
+        asyncio.run(mcp.run_stdio_async())
+    finally:
+        binding.stop()

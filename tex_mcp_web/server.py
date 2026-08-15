@@ -15,6 +15,7 @@ automatic compilation is off.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import dataclasses
 import json
 import logging
@@ -248,6 +249,9 @@ class TexMcpWebServer:
         self.comments = CommentStore(self.watch_dir / ".tex-mcp-web" / "comments.json")
         self.websockets: set[web.WebSocketResponse] = set()
         self.watcher: Watcher | None = None
+        self._runner: web.AppRunner | None = None
+        self._store_watch: asyncio.Task[None] | None = None
+        self._initial_compile: asyncio.Task[CompileResult] | None = None
 
         self.app = self._build_app()
 
@@ -949,10 +953,16 @@ class TexMcpWebServer:
             last = mtime
             await asyncio.sleep(1.0)
 
-    async def start(self, port: int) -> None:
-        # Initial compile
-        await self.do_compile()
-        # Start watcher
+    async def setup(self, port: int) -> None:
+        """Bind the port, start watching, and kick off the first compile.
+
+        The port binds before compiling so a caller that waits for readiness
+        is not blocked by a LaTeX run.
+        """
+        self._runner = web.AppRunner(self.app)
+        await self._runner.setup()
+        await web.TCPSite(self._runner, "127.0.0.1", port).start()
+        logger.info("tex-mcp-web serving on http://127.0.0.1:%d", port)
         loop = asyncio.get_running_loop()
         self.watcher = Watcher(
             watch_dir=self.watch_dir,
@@ -961,21 +971,34 @@ class TexMcpWebServer:
             on_change=self.on_file_change,
         )
         self.watcher.start(loop)
-        store_watch = asyncio.create_task(self._watch_comment_store())
-        # Start aiohttp
-        runner = web.AppRunner(self.app)
-        await runner.setup()
-        site = web.TCPSite(runner, "127.0.0.1", port)
-        await site.start()
-        logger.info("tex-mcp-web serving on http://127.0.0.1:%d", port)
-        # Run until cancelled
+        self._store_watch = asyncio.create_task(self._watch_comment_store())
+        self._initial_compile = asyncio.create_task(self.do_compile())
+
+    async def cleanup(self) -> None:
+        # do_compile shields the build, so the build task is cancelled directly.
+        # Awaiting the cancellation lets a running compiler subprocess close its
+        # transport while the loop is still alive.
+        for task in (self._store_watch, self._initial_compile, self._compile_task):
+            if task is not None:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+        self._store_watch = None
+        self._initial_compile = None
+        self._compile_task = None
+        if self.watcher:
+            self.watcher.stop()
+            self.watcher = None
+        if self._runner is not None:
+            await self._runner.cleanup()
+            self._runner = None
+
+    async def start(self, port: int) -> None:
+        await self.setup(port)
         try:
             await asyncio.Event().wait()
         finally:
-            store_watch.cancel()
-            if self.watcher:
-                self.watcher.stop()
-            await runner.cleanup()
+            await self.cleanup()
 
 
 def run(config: Config, port: int) -> None:
