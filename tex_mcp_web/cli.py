@@ -1,12 +1,12 @@
 """tex-mcp-web command-line interface.
 
 Subcommands:
-    serve      run the daemon (default if no subcommand)
+    serve      run the viewer server on its own (default if no subcommand)
     init       scaffold .tex-mcp-web.yaml
     config     get/set values in .tex-mcp-web.yaml
     compile    one-shot compile, print structured errors
-    goto       tell a running daemon to scroll the viewer
-    mcp        run the MCP server (stdio transport)
+    goto       scroll a running viewer
+    mcp        run the MCP server (stdio transport) and serve the viewer
 
 Comment management lives in the browser (for humans) and the MCP tools
 (for the agent).  The CLI deliberately does not expose comment commands
@@ -218,9 +218,7 @@ def cmd_goto(args: argparse.Namespace) -> int:
 def cmd_mcp(args: argparse.Namespace) -> int:
     from .mcp_server import main as mcp_main
 
-    cfg = load_config()
-    port = args.port or cfg.port
-    mcp_main(port=port)
+    mcp_main()
     return 0
 
 
@@ -243,7 +241,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub = parser.add_subparsers(dest="cmd")
 
-    p = sub.add_parser("serve", help="run the daemon (default)")
+    p = sub.add_parser("serve", help="run the viewer server on its own (default)")
     p.add_argument("--main", help="main .tex file (overrides config)")
     p.set_defaults(func=cmd_serve)
 
@@ -262,11 +260,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--json", action="store_true", help="JSON output")
     p.set_defaults(func=cmd_compile)
 
-    p = sub.add_parser("goto", help="tell the daemon to scroll the viewer")
+    p = sub.add_parser("goto", help="scroll a running viewer")
     p.add_argument("target", help="section title, line number, file:line, or pN")
     p.set_defaults(func=cmd_goto)
 
-    p = sub.add_parser("mcp", help="run the MCP server (stdio)")
+    p = sub.add_parser("mcp", help="run the MCP server (stdio); serves the viewer too")
     p.set_defaults(func=cmd_mcp)
 
     return parser

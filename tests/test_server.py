@@ -498,11 +498,12 @@ async def test_reference_preview_returns_cited_entry_text(client_with_pdf):
 
 
 @pytest.mark.asyncio
-async def test_mcp_contract_is_typed_and_nonduplicative():
+async def test_mcp_contract_is_typed_and_nonduplicative(tmp_path: Path):
     pytest.importorskip("mcp")
+    from tex_mcp_web.mcp_client import ProjectBinding
     from tex_mcp_web.mcp_server import create_server
 
-    mcp = create_server()
+    mcp = create_server(ProjectBinding(tmp_path))
     tools = {tool.name: tool for tool in await mcp.list_tools()}
 
     assert set(tools) == {"paper", "compile", "comment", "image", "section", "goto"}
@@ -547,14 +548,51 @@ async def test_mcp_contract_is_typed_and_nonduplicative():
     assert set(tools["goto"].inputSchema["properties"]) == {"target"}
 
 
+def _free_port() -> int:
+    import socket
+
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        return int(listener.getsockname()[1])
+
+
+@pytest.fixture
+def bound_project(project: Path, monkeypatch):
+    """A project bound to an MCP process, served on a port of its own."""
+    from tex_mcp_web.mcp_client import ProjectBinding
+
+    (project / ".tex-mcp-web.yaml").write_text(
+        f"main: paper.tex\nauto_compile: false\nport: {_free_port()}\n"
+    )
+    monkeypatch.chdir(project)
+    binding = ProjectBinding(project)
+    yield binding
+    binding.stop()
+
+
 @pytest.mark.asyncio
-async def test_mcp_comment_and_section_runtime_contract(project, monkeypatch):
+async def test_mcp_tool_call_serves_the_viewer(bound_project, project):
+    pytest.importorskip("mcp")
+    import aiohttp
+
+    from tex_mcp_web.mcp_server import create_server
+
+    mcp = create_server(bound_project)
+    paper = json.loads((await mcp.call_tool("paper", {}))[0][0].text)
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f"{paper['review_url']}/paper") as response:
+            assert response.status == 200
+            served = await response.json()
+    assert Path(served["watch_dir"]).resolve() == project.resolve()
+
+
+@pytest.mark.asyncio
+async def test_mcp_comment_and_section_runtime_contract(bound_project, project):
     pytest.importorskip("mcp")
     from tex_mcp_web.mcp_server import create_server
 
-    (project / ".tex-mcp-web.yaml").write_text("main: paper.tex\n")
-    monkeypatch.chdir(project)
-    mcp = create_server()
+    mcp = create_server(bound_project)
 
     paper = await mcp.call_tool("paper", {})
     assert json.loads(paper[0][0].text)["auto_compile"] is False

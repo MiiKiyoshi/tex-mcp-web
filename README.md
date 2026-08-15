@@ -32,13 +32,13 @@ Codex:
 codex mcp add tex-mcp -- tex-mcp
 ```
 
-`tex-mcp` is the process that the agent starts for the MCP connection. You do not run it separately after registration.
+`tex-mcp` is the process that the agent starts for the MCP connection. You do not run it separately after registration. It also serves the review viewer for the project it is started in, so a paper needs no second process.
 
 ## Set up a paper
 
 Each paper needs a `.tex-mcp-web.yaml` in its project root. This file identifies the paper, tells the web server what to compile and watch, and lets the MCP process find the same project when the agent is working in a subdirectory.
 
-Without this file, `tex-web` falls back to `main.tex` on port `8765` in the current directory. That fallback does not mark the project root or assign a per-paper port, so the normal MCP workflow uses `.tex-mcp-web.yaml`.
+Without this file, the MCP process serves nothing and `tex-web` falls back to `main.tex` on port `8765` in the current directory. That fallback does not mark the project root or assign a per-paper port, so the normal MCP workflow uses `.tex-mcp-web.yaml`.
 
 Enter the paper directory and create the file if it does not already exist:
 
@@ -72,36 +72,37 @@ port: 8765
 | `ignore` | Paths checked before `watch`. A matching change does not trigger recompilation. |
 | `compiler` | `auto` uses `latexmk` for LaTeX and `pandoc` for Markdown or text. It can also name a supported compiler explicitly. |
 | `auto_compile` | `false` leaves compilation to the top-bar button or MCP agent. `true` compiles after watched source changes. |
-| `port` | Browser and MCP daemon port for this paper. |
+| `port` | Browser and MCP port for this paper. |
 
-Inspect the settings, then start the web server:
+Inspect the settings, then start Claude Code or Codex from the paper directory or one of its subdirectories:
 
 ```bash
 tex-mcp-web config
+```
+
+The agent session serves the viewer itself: the MCP process starts the web server for the project it finds, at the configured port. Open [http://localhost:8765](http://localhost:8765), or the address that `paper()` reports as `review_url`. The viewer stays up while that agent session runs, and a second session on the same paper shares the same server.
+
+To read the paper without an agent session, or to keep the viewer open across agent restarts, run the server on its own:
+
+```bash
 tex-web
 ```
 
-Open the address printed by `tex-web`, such as [http://localhost:8765](http://localhost:8765). Keep this process running while reviewing the paper. Start Claude Code or Codex from the paper directory or one of its subdirectories.
-
 ### Serve multiple papers
 
-Every paper running at the same time needs a different port. Set each port before starting `tex-web` and the corresponding agent session:
+Every paper running at the same time needs a different port:
 
 ```bash
 cd paper-a
 tex-mcp-web config port 8765
-tex-web
 ```
-
-In another terminal:
 
 ```bash
 cd paper-b
 tex-mcp-web config port 8766
-tex-web
 ```
 
-The papers are then available at `http://localhost:8765` and `http://localhost:8766`. If you change a port after starting the processes, restart `tex-web` and the agent session so both use the new value.
+The papers are then available at `http://localhost:8765` and `http://localhost:8766` once an agent session runs in each directory. A port already serving a different paper is reported as an error instead of being shared. After changing a port, restart the agent session, and `tex-web` if it is running.
 
 ## Review with the agent
 
@@ -198,10 +199,10 @@ Open [http://localhost:8876](http://localhost:8876). The demo starts with an emp
 
 If the browser opens without a PDF, run `tex-mcp-web config main` and confirm that it names the correct top-level source file. Then inspect the **Compile** tab or run `tex-mcp-web compile` in the paper directory.
 
-If a port is already in use, choose an unused value with `tex-mcp-web config port PORT`, then restart `tex-web` and the agent session.
+If a port is already in use, choose an unused value with `tex-mcp-web config port PORT`, then restart the agent session, and `tex-web` if it is running.
 
 If the agent opens the wrong paper, run `tex-mcp-web config` from its working directory. The first output line shows which `.tex-mcp-web.yaml` was found. The agent must run inside that project root or one of its subdirectories.
 
-If agent-triggered compilation or viewer navigation cannot reach the daemon, confirm that `tex-web` is running for the same project and port. If source edits do not update the PDF while **Auto: Off** is shown, use **Recompile** or ask the agent to call MCP `compile()`.
+If agent-triggered compilation or viewer navigation reports a failed request, run `tex-mcp-web config port` and confirm that no other paper holds that port. If source edits do not update the PDF while **Auto: Off** is shown, use **Recompile** or ask the agent to call MCP `compile()`.
 
 PDF viewing uses [EmbedPDF](https://github.com/embedpdf/embed-pdf-viewer) v2.14.4 and its PDFium WebAssembly engine. Their license notices are included in [`tex_mcp_web/static/embedpdf/LICENSE`](tex_mcp_web/static/embedpdf/LICENSE) and [`tex_mcp_web/static/embedpdf/LICENSE.pdfium`](tex_mcp_web/static/embedpdf/LICENSE.pdfium).
