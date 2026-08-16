@@ -648,8 +648,6 @@ class TexMcpWebServer:
         if err is not None:
             return err
         summary = (data.get("summary") or "").strip()
-        if not summary:
-            return web.json_response({"error": "summary is required"}, status=400)
         return await self._mutate_comment(
             cid,
             lambda: self.comments.resolve(
@@ -667,8 +665,6 @@ class TexMcpWebServer:
         if err is not None:
             return err
         reason = (data.get("reason") or "").strip()
-        if not reason:
-            return web.json_response({"error": "reason is required"}, status=400)
         return await self._mutate_comment(
             cid,
             lambda: self.comments.dismiss(

@@ -281,6 +281,24 @@ async def test_dismiss_marks_dismissed(client):
 
 
 @pytest.mark.asyncio
+async def test_closing_without_a_message_leaves_the_thread_alone(client):
+    tc, _ = client
+    resp = await tc.post("/comments", json={"anchor": {"kind": "paper"}, "text": "x"})
+    cid = (await resp.json())["id"]
+
+    resp = await tc.post(f"/comments/{cid}/resolve", json={})
+    assert resp.status == 200
+    stored = await (await tc.get(f"/comments/{cid}")).json()
+    assert stored["status"] == "resolved"
+    assert len(stored["thread"]) == 1
+
+    resp = await tc.post(f"/comments/{cid}/dismiss", json={})
+    assert (await resp.json())["status"] == "dismissed"
+    stored = await (await tc.get(f"/comments/{cid}")).json()
+    assert len(stored["thread"]) == 1
+
+
+@pytest.mark.asyncio
 async def test_reopen_endpoint_is_gone(client):
     """v0.5.0 dropped the reopen verb."""
     tc, _ = client
@@ -658,6 +676,18 @@ async def test_mcp_comment_and_section_runtime_contract(bound_project, project):
         "id": third["id"],
         "status": "resolved",
     }
+
+    silent_added = await mcp.call_tool(
+        "comment",
+        {"action": "add", "text": "review fourth", "anchor": {"kind": "paper"}},
+    )
+    silent = json.loads(silent_added[0][0].text)
+    closed = await mcp.call_tool("comment", {"action": "resolve", "id": silent["id"]})
+    assert json.loads(closed[0][0].text) == {"id": silent["id"], "status": "resolved"}
+    stored = json.loads((project / ".tex-mcp-web" / "comments.json").read_text())
+    silent_stored = next(c for c in stored["comments"] if c["id"] == silent["id"])
+    assert silent_stored["status"] == "resolved"
+    assert len(silent_stored["thread"]) == 1
 
     section = await mcp.call_tool(
         "section", {"name": "Methods", "include_image": True}

@@ -507,8 +507,8 @@ function renderSuggestion(suggestion) {
 function renderThreadEntry(entry) {
   const children = [
     h("div", { class: "thread-meta", text: `${entry.author} · ${entry.at}` }),
-    h("div", { class: "thread-text", text: entry.text }),
   ];
+  if (entry.text) children.push(h("div", { class: "thread-text", text: entry.text }));
   if (entry.edits?.length) {
     children.push(h("div", { class: "thread-edits" },
       ...entry.edits.map((edit) => h("span", { class: "edit", text: edit }))));
@@ -529,8 +529,10 @@ function actionButtons(comment) {
   if (comment.status !== "open") return [deleteButton];
   return [
     actionButton("cmt-reply", "Reply", () => setActiveForm(comment.id, "reply")),
-    actionButton("cmt-resolve", "Resolve…", () => setActiveForm(comment.id, "resolve")),
-    actionButton("cmt-dismiss", "Dismiss", () => setActiveForm(comment.id, "dismiss")),
+    // Closing is one click: the thread already holds what was said, so an empty
+    // summary flips the status without adding an entry.
+    actionButton("cmt-resolve", "Resolve", () => closeComment(comment.id, "resolve", "summary")),
+    actionButton("cmt-dismiss", "Dismiss", () => closeComment(comment.id, "dismiss", "reason")),
     deleteButton,
   ];
 }
@@ -548,10 +550,13 @@ function setActiveForm(commentId, mode) {
   input.focus({ preventScroll: true });
 }
 
+async function closeComment(commentId, action, key) {
+  if (state.activeForm?.commentId === commentId) state.activeForm = null;
+  await mutateAndRefresh(commentId, action, { [key]: "" });
+}
+
 const FORM_CONFIG = {
   reply: { placeholder: "Reply…", key: "text", label: "Post reply" },
-  resolve: { placeholder: "Summary of what was changed", key: "summary", label: "Resolve" },
-  dismiss: { placeholder: "Why dismiss?", key: "reason", label: "Dismiss" },
 };
 
 function renderActiveForm(comment) {
@@ -580,7 +585,7 @@ function renderActiveForm(comment) {
     submitting = true;
     textarea.disabled = true;
     submitButton.disabled = true;
-    submitButton.textContent = mode === "resolve" ? "Resolving…" : "Saving…";
+    submitButton.textContent = "Saving…";
     const saved = await doMutation(comment.id, mode, { [config.key]: text });
     if (saved) {
       state.activeForm = null;
@@ -1003,10 +1008,10 @@ function attachKeyboardNavigation() {
       setActiveForm(state.comments[index].id, "reply");
     } else if ((event.key === "R" || (event.key === "r" && event.shiftKey)) && index >= 0) {
       event.preventDefault();
-      setActiveForm(state.comments[index].id, "resolve");
+      closeComment(state.comments[index].id, "resolve", "summary");
     } else if (event.key === "d" && index >= 0) {
       event.preventDefault();
-      setActiveForm(state.comments[index].id, "dismiss");
+      closeComment(state.comments[index].id, "dismiss", "reason");
     } else if (event.key === "Escape" && state.activeForm) {
       event.preventDefault();
       state.activeForm = null;
