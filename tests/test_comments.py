@@ -317,6 +317,31 @@ def test_store_resolve_many_is_atomic(store: CommentStore, monkeypatch):
     assert updated[0].thread[-1].edits == ["paper.tex:1"]
 
 
+def test_store_closes_without_a_thread_entry_when_no_message_is_given(
+    store: CommentStore,
+):
+    comment = store.add(PaperAnchor(), "fix the wording")
+
+    resolved = store.resolve(comment.id, summary="")
+    assert resolved.status == "resolved"
+    assert len(resolved.thread) == 1
+
+    with_edits = store.resolve(comment.id, summary="", edits=["paper.tex:1"])
+    assert with_edits.thread[-1].text == ""
+    assert with_edits.thread[-1].edits == ["paper.tex:1"]
+
+    dismissed = store.dismiss(comment.id, reason="")
+    assert dismissed.status == "dismissed"
+    assert len(dismissed.thread) == len(with_edits.thread)
+
+    batch = store.resolve_many([(comment.id, "", [])])
+    assert batch[0].status == "resolved"
+    assert len(batch[0].thread) == len(with_edits.thread)
+
+    with pytest.raises(ValueError, match="empty"):
+        store.reply(comment.id, text="   ", author="agent")
+
+
 def test_store_resolve_many_rejects_missing_id_without_writing(
     store: CommentStore, monkeypatch
 ):

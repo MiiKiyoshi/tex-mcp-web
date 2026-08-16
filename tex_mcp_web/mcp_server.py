@@ -89,7 +89,7 @@ if HAS_MCP:
 
     class ResolutionInput(_InputModel):
         id: Annotated[str, Field(min_length=1)]
-        summary: Annotated[str, Field(min_length=1)]
+        summary: str = ""
         edits: list[str] = Field(default_factory=list)
 
 
@@ -366,9 +366,11 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         """Mutate a comment.
 
         ``add`` requires text and anchor; ``reply`` requires id and text;
-        ``resolve`` requires id and summary; ``resolve_many`` requires resolutions;
-        ``dismiss`` requires id and reason; ``delete`` requires id. ``suggestion``
-        is an add-only rewrite, while ``edits`` records changed source ranges.
+        ``resolve`` requires id; ``resolve_many`` requires resolutions;
+        ``dismiss`` requires id; ``delete`` requires id. ``summary`` and
+        ``reason`` are optional and unnecessary when replies or ``edits``
+        already record the outcome. ``suggestion`` is an add-only rewrite,
+        while ``edits`` records changed source ranges.
         """
         cfg, watch_dir, store = _load_project()
         try:
@@ -380,10 +382,10 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                 updated = store.reply(id, text=text, author="agent", edits=edits or [])
                 return _ok(_agent_comment_to_dict(updated))
             if action == "resolve":
-                if not id or not summary:
-                    return _err("resolve requires id and summary")
+                if not id:
+                    return _err("resolve requires id")
                 store.resolve(
-                    id, summary=summary, edits=edits or [], author="agent"
+                    id, summary=summary or "", edits=edits or [], author="agent"
                 )
                 return _ok({"id": id, "status": "resolved"})
             if action == "resolve_many":
@@ -403,9 +405,9 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                     ]
                 })
             if action == "dismiss":
-                if not id or not reason:
-                    return _err("dismiss requires id and reason")
-                updated = store.dismiss(id, reason=reason, author="agent")
+                if not id:
+                    return _err("dismiss requires id")
+                updated = store.dismiss(id, reason=reason or "", author="agent")
                 return _ok(_agent_comment_to_dict(updated))
             if action == "delete":
                 if not id:

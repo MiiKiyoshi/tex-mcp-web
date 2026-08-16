@@ -124,7 +124,7 @@ Other useful requests include:
 
 > Review the Methods section and add comments without editing the paper.
 
-The web interface also provides **Reply**, **Resolve**, and **Dismiss** actions. `j` and `k` move between comments, `r` opens a reply, `R` opens resolve, `d` opens dismiss, `Esc` cancels the current action, and `\` collapses the sidebar. `Ctrl`/`Cmd` + wheel zooms around the pointer.
+The web interface also provides **Reply**, **Resolve**, and **Dismiss** actions. Resolve and Dismiss close a comment in one click, with no message to write: the thread already holds what was said. `j` and `k` move between comments, `r` opens a reply, `R` resolves, `d` dismisses, `Esc` cancels the current action, and `\` collapses the sidebar. `Ctrl`/`Cmd` + wheel zooms around the pointer.
 
 ## Read and change project settings
 

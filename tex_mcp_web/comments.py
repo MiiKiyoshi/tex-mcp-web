@@ -878,14 +878,19 @@ class CommentStore:
         edits: list[str] | None = None,
         new_status: Status | None = None,
     ) -> Comment:
-        """Locate a comment, append a thread entry, optionally update status."""
+        """Locate a comment, append a thread entry, optionally update status.
+
+        Closing a comment may carry no message: replies already hold the
+        content, so an empty text flips the status without a thread entry.
+        """
         with self._locked():
             comments = self._all()
             for i, c in enumerate(comments):
                 if c.id == comment_id:
-                    c.thread.append(
-                        ThreadEntry(author=author, at=_now(), text=text, edits=list(edits or []))
-                    )
+                    if text.strip() or edits:
+                        c.thread.append(
+                            ThreadEntry(author=author, at=_now(), text=text, edits=list(edits or []))
+                        )
                     if new_status is not None:
                         c.status = new_status
                     c.updated = _now()
@@ -901,6 +906,8 @@ class CommentStore:
         author: Author,
         edits: list[str] | None = None,
     ) -> Comment:
+        if not text.strip():
+            raise ValueError("reply text must not be empty")
         return self._append_entry(comment_id, author, text, edits=edits)
 
     def resolve(
@@ -926,8 +933,6 @@ class CommentStore:
         ids = [comment_id for comment_id, _, _ in items]
         if len(set(ids)) != len(ids):
             raise ValueError("resolve_many comment ids must be unique")
-        if any(not summary.strip() for _, summary, _ in items):
-            raise ValueError("resolve_many summaries must not be empty")
 
         with self._locked():
             comments = self._all()
@@ -941,14 +946,15 @@ class CommentStore:
             for comment_id, summary, edits in items:
                 index = indexes[comment_id]
                 comment = comments[index]
-                comment.thread.append(
-                    ThreadEntry(
-                        author=author,
-                        at=now,
-                        text=summary,
-                        edits=list(edits),
+                if summary.strip() or edits:
+                    comment.thread.append(
+                        ThreadEntry(
+                            author=author,
+                            at=now,
+                            text=summary,
+                            edits=list(edits),
+                        )
                     )
-                )
                 comment.status = "resolved"
                 comment.updated = now
                 comments[index] = comment
