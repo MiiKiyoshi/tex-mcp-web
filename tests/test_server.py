@@ -281,6 +281,38 @@ async def test_dismiss_marks_dismissed(client):
 
 
 @pytest.mark.asyncio
+async def test_editing_a_thread_entry_rewrites_it_in_place(client):
+    tc, _ = client
+    resp = await tc.post("/comments", json={"anchor": {"kind": "paper"}, "text": "chek this"})
+    created = await resp.json()
+    cid = created["id"]
+    await tc.post(f"/comments/{cid}/reply", json={"text": "mine too"})
+
+    resp = await tc.post(f"/comments/{cid}/edit", json={"index": 0, "text": "check this"})
+    assert resp.status == 200
+    saved = await resp.json()
+    assert [entry["text"] for entry in saved["thread"]] == ["check this", "mine too"]
+    assert saved["thread"][0]["at"] == created["thread"][0]["at"]
+
+    assert (await tc.post(f"/comments/{cid}/edit", json={"index": 9, "text": "x"})).status == 400
+    assert (await tc.post(f"/comments/{cid}/edit", json={"index": 0, "text": " "})).status == 400
+    assert (await tc.post(f"/comments/{cid}/edit", json={"text": "x"})).status == 400
+
+
+@pytest.mark.asyncio
+async def test_agent_entries_are_not_editable_from_the_browser(client):
+    tc, server = client
+    resp = await tc.post("/comments", json={"anchor": {"kind": "paper"}, "text": "look"})
+    cid = (await resp.json())["id"]
+    server.comments.reply(cid, text="agent answer", author="agent")
+
+    resp = await tc.post(f"/comments/{cid}/edit", json={"index": 1, "text": "rewritten"})
+    assert resp.status == 400
+    stored = await (await tc.get(f"/comments/{cid}")).json()
+    assert stored["thread"][1]["text"] == "agent answer"
+
+
+@pytest.mark.asyncio
 async def test_closing_without_a_message_leaves_the_thread_alone(client):
     tc, _ = client
     resp = await tc.post("/comments", json={"anchor": {"kind": "paper"}, "text": "x"})

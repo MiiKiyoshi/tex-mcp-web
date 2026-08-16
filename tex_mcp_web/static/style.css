@@ -287,10 +287,25 @@ textarea {
 .thread-entry.author-agent { border-left-color: var(--accent); }
 .thread-entry.author-human { border-left-color: var(--ok); }
 .thread-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
   font-size: 0.75rem;
   color: var(--fg-dim);
   font-family: var(--mono);
 }
+.cmt-edit {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--fg-dim);
+  font-size: 0.75rem;
+  font-family: var(--mono);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.cmt-edit:hover { color: var(--fg); }
 .thread-text {
   font-size: 0.9rem;
   white-space: pre-wrap;
