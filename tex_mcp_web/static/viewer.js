@@ -25,6 +25,7 @@ const state = {
   warnings: [],
   expanded: new Set(),
   activeForm: null,
+  editingEntry: null,
   focusedCommentId: null,
   annotationCommentById: new Map(),
   referencePreviewRequest: 0,
@@ -476,7 +477,8 @@ function renderCommentItem(comment) {
   if (comment.suggestion) children.push(renderSuggestion(comment.suggestion));
   if (expanded) {
     children.push(
-      h("div", { class: "cmt-thread" }, ...comment.thread.map(renderThreadEntry)),
+      h("div", { class: "cmt-thread" },
+        ...comment.thread.map((entry, index) => renderThreadEntry(entry, comment.id, index))),
       h("div", { class: "cmt-actions" }, ...actionButtons(comment)),
     );
     const form = renderActiveForm(comment);
@@ -504,16 +506,72 @@ function renderSuggestion(suggestion) {
   );
 }
 
-function renderThreadEntry(entry) {
+function renderThreadEntry(entry, commentId, index) {
+  const editing = state.editingEntry?.commentId === commentId
+    && state.editingEntry.index === index;
   const children = [
-    h("div", { class: "thread-meta", text: `${entry.author} · ${entry.at}` }),
+    h("div", { class: "thread-meta" },
+      h("span", { text: `${entry.author} · ${entry.at}` }),
+      entry.author === "human" && !editing
+        ? actionButton("cmt-edit", "Edit", () => startEntryEdit(commentId, index, entry.text))
+        : null),
   ];
-  if (entry.text) children.push(h("div", { class: "thread-text", text: entry.text }));
+  if (editing) children.push(renderEntryEditor(commentId, index));
+  else if (entry.text) children.push(h("div", { class: "thread-text", text: entry.text }));
   if (entry.edits?.length) {
     children.push(h("div", { class: "thread-edits" },
       ...entry.edits.map((edit) => h("span", { class: "edit", text: edit }))));
   }
   return h("div", { class: `thread-entry author-${entry.author}` }, ...children);
+}
+
+function startEntryEdit(commentId, index, text) {
+  state.editingEntry = { commentId, index, draft: text };
+  renderComments();
+  const node = Array.from($("#comments-list").children).find(
+    (child) => child.dataset.commentId === commentId,
+  );
+  node?.querySelector(".entry-edit-input")?.focus({ preventScroll: true });
+}
+
+// Editing rewrites the entry in place: the author and time stay, so a typo fix
+// does not read as a new message in the thread.
+function renderEntryEditor(commentId, index) {
+  const editing = state.editingEntry;
+  const textarea = h("textarea", { class: "cmt-form-input entry-edit-input", rows: 3 });
+  textarea.value = editing.draft;
+  textarea.addEventListener("input", () => {
+    if (state.editingEntry === editing) editing.draft = textarea.value;
+  });
+  const save = async () => {
+    const text = textarea.value.trim();
+    if (!text) return;
+    textarea.disabled = true;
+    if (!await doMutation(commentId, "edit", { index, text })) {
+      textarea.disabled = false;
+      textarea.focus();
+      return;
+    }
+    state.editingEntry = null;
+    try {
+      await refreshComments();
+    } catch (error) {
+      alert(`Saved, but comments could not be refreshed: ${error.message}`);
+    }
+  };
+  textarea.addEventListener("keydown", (event) => {
+    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+      event.preventDefault();
+      save();
+    }
+  });
+  return h("div", { class: "cmt-form mode-edit" }, textarea,
+    h("div", { class: "cmt-form-actions" },
+      actionButton("cmt-form-cancel", "Cancel", () => {
+        state.editingEntry = null;
+        renderComments();
+      }),
+      actionButton("cmt-form-submit", "Save", save)));
 }
 
 function actionButton(className, label, onclick) {

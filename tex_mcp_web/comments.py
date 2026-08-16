@@ -972,6 +972,33 @@ class CommentStore:
             comment_id, author, reason, new_status="dismissed"
         )
 
+    def edit_entry(
+        self,
+        comment_id: str,
+        index: int,
+        text: str,
+        author: Author = "human",
+    ) -> Comment:
+        """Rewrite one thread entry in place, keeping its author and time."""
+        if not text.strip():
+            raise ValueError("thread text must not be empty")
+        with self._locked():
+            comments = self._all()
+            for position, comment in enumerate(comments):
+                if comment.id != comment_id:
+                    continue
+                if not 0 <= index < len(comment.thread):
+                    raise IndexError(f"comment {comment_id!r} has no thread entry {index}")
+                entry = comment.thread[index]
+                if entry.author != author:
+                    raise ValueError(f"thread entry {index} was written by {entry.author}")
+                entry.text = text.strip()
+                comment.updated = _now()
+                comments[position] = comment
+                self._save(comments)
+                return comment
+        raise KeyError(f"comment {comment_id!r} not found")
+
     def delete(self, comment_id: str) -> bool:
         with self._locked():
             comments = self._all()

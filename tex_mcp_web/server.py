@@ -272,6 +272,7 @@ class TexMcpWebServer:
         app.router.add_post(r"/comments/{id}/reply", self._handle_reply_comment)
         app.router.add_post(r"/comments/{id}/resolve", self._handle_resolve_comment)
         app.router.add_post(r"/comments/{id}/dismiss", self._handle_dismiss_comment)
+        app.router.add_post(r"/comments/{id}/edit", self._handle_edit_comment_entry)
         app.router.add_delete(r"/comments/{id}", self._handle_delete_comment)
         app.router.add_get("/synctex/source-to-pdf", self._handle_synctex_forward)
         app.router.add_post("/goto", self._handle_goto)
@@ -623,6 +624,24 @@ class TexMcpWebServer:
         if acknowledge_only:
             return web.json_response({"id": updated.id, "status": updated.status})
         return web.json_response(_comment_to_dict(updated))
+
+    async def _handle_edit_comment_entry(self, request: web.Request) -> web.Response:
+        cid = request.match_info["id"]
+        data, err = await self._read_json(request)
+        if err is not None:
+            return err
+        try:
+            index = int(data["index"])
+            text = str(data["text"])
+        except (KeyError, TypeError, ValueError):
+            return web.json_response({"error": "index and text are required"}, status=400)
+        try:
+            return await self._mutate_comment(
+                cid,
+                lambda: self.comments.edit_entry(cid, index, text, author="human"),
+            )
+        except (IndexError, ValueError) as error:
+            return web.json_response({"error": str(error)}, status=400)
 
     async def _handle_reply_comment(self, request: web.Request) -> web.Response:
         cid = request.match_info["id"]
