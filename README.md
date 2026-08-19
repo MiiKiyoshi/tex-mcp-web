@@ -2,15 +2,23 @@
 
 Review a LaTeX paper from its rendered PDF while Claude Code or Codex edits the source.
 
-tex-mcp-web is a hard fork of [queelius/scholia at commit `e6c7454`](https://github.com/queelius/scholia/commit/e6c745400d2ad70fb43eca053e31183d48765f89) (package version 0.6.1). It has since been independently developed under the MIT license. See [`LICENSE`](LICENSE).
+If it helps your writing, a star is very welcome.
 
 ![A highlighted PDF comment and an agent reply in tex-mcp-web](docs/images/discussion.png)
 
-You read the PDF in a browser and leave comments on selected text, sections, or the whole paper. The coding agent reads those comments through MCP, edits the LaTeX source, and compiles once after the edit batch. The web server displays the rebuilt PDF in the same browser.
+You read the PDF in a browser and comment on selected text, a section, or the whole paper. The agent reads those comments over MCP, edits the LaTeX, compiles once after the batch, and replies in the same thread. Because you point at the rendered PDF, you never hunt for the source line.
+
+```
+you:    select text in the PDF -> write a comment
+                  |
+agent:  read comments -> edit LaTeX -> compile -> reply or resolve
+                  |
+you:    read the rebuilt PDF -> comment again
+```
 
 ## Install
 
-tex-mcp-web requires Python 3.10 or newer and a supported document compiler on `PATH`. LaTeX projects use `latexmk` by default; `pdflatex`, `xelatex`, `lualatex`, and `pandoc` are also supported.
+Python 3.10 or newer and a compiler on `PATH` (`latexmk` for LaTeX by default; `pdflatex`, `xelatex`, `lualatex`, and `pandoc` are also supported).
 
 ```bash
 pip install "tex-mcp-web[mcp] @ git+https://github.com/MiiKiyoshi/tex-mcp-web"
@@ -18,7 +26,7 @@ pip install "tex-mcp-web[mcp] @ git+https://github.com/MiiKiyoshi/tex-mcp-web"
 
 ## Connect Claude Code or Codex
 
-Register tex-mcp-web once for the agent you use.
+Register the MCP server once for the agent you use.
 
 Claude Code:
 
@@ -32,24 +40,18 @@ Codex:
 codex mcp add tex-mcp -- tex-mcp
 ```
 
-`tex-mcp` is the process that the agent starts for the MCP connection. You do not run it separately after registration. It also serves the review viewer for the project it is started in, so a paper needs no second process.
+The agent starts `tex-mcp` itself; you do not run it separately. It also serves the review page for the project it starts in, so a paper needs no second process.
 
 ## Set up a paper
 
-Each paper needs a `.tex-mcp-web.yaml` in its project root. This file identifies the paper, tells the web server what to compile and watch, and lets the MCP process find the same project when the agent is working in a subdirectory.
-
-Without this file, the MCP process serves nothing and `tex-web` falls back to `main.tex` on port `8765` in the current directory. That fallback does not mark the project root or assign a per-paper port, so the normal MCP workflow uses `.tex-mcp-web.yaml`.
-
-Enter the paper directory and create the file if it does not already exist:
+Each paper needs a `.tex-mcp-web.yaml` at its root. Create it once in the paper directory:
 
 ```bash
 cd my-paper
 tex-mcp-web init --main main.tex
 ```
 
-`--main` is the path to the top-level source file, relative to the project root. `init` refuses to overwrite an existing `.tex-mcp-web.yaml`.
-
-The generated file contains:
+`--main` is the top-level source file that produces the PDF. `init` will not overwrite an existing file. It writes:
 
 ```yaml
 main: main.tex
@@ -68,141 +70,55 @@ port: 8765
 | Field | Effect |
 |---|---|
 | `main` | Top-level source file compiled into the PDF. |
-| `watch` | File patterns that trigger recompilation after a change. Patterns are matched against filenames and project-relative paths. |
-| `ignore` | Paths checked before `watch`. A matching change does not trigger recompilation. |
-| `compiler` | `auto` uses `latexmk` for LaTeX and `pandoc` for Markdown or text. It can also name a supported compiler explicitly. |
-| `auto_compile` | `false` leaves compilation to the top-bar button or MCP agent. `true` compiles after watched source changes. |
-| `port` | Browser and MCP port for this paper. |
+| `watch` | File patterns that trigger recompilation on save. |
+| `ignore` | Patterns checked before `watch`; a match does not recompile. |
+| `compiler` | `auto` (latexmk for LaTeX, pandoc for Markdown or text) or a named compiler. |
+| `auto_compile` | `true` recompiles on watched saves; `false` leaves it to the topbar button or the agent. |
+| `port` | The local port for this paper's review page and MCP server. |
 
-Inspect the settings, then start Claude Code or Codex from the paper directory or one of its subdirectories:
+Start Claude Code or Codex from the paper directory (or a subdirectory) and ask the agent to call `paper()`. The review page opens at the configured port, or the `review_url` that `paper()` reports.
+
+## Use it
+
+Drag over PDF text and write a comment; add a suggested wording in the replacement box when you have one. Use **+ Note** for a whole-paper comment and the **Sections** tab for a section comment. Then ask the agent in plain language:
+
+> Process the open tex-mcp comments.
+
+The agent reads them, edits the source, compiles, and either replies or resolves each one. If an edit misses, reply in the same thread.
+
+## Several papers at once
+
+Give each paper its own port, then start an agent session in each directory:
 
 ```bash
-tex-mcp-web config
+cd paper-a && tex-mcp-web config port 8765
+cd paper-b && tex-mcp-web config port 8766
 ```
 
-The agent session serves the viewer itself: the MCP process starts the web server for the project it finds, at the configured port. Open [http://localhost:8765](http://localhost:8765), or the address that `paper()` reports as `review_url`. The viewer stays up while that agent session runs, and a second session on the same paper shares the same server.
+They open at `http://localhost:8765` and `http://localhost:8766`. A port already serving another paper is an error, not shared; after changing a port, restart that paper's agent session.
 
-To read the paper without an agent session, or to keep the viewer open across agent restarts, run the server on its own:
+## Configuration
 
-```bash
-tex-web
-```
-
-### Serve multiple papers
-
-Every paper running at the same time needs a different port:
+`tex-mcp-web config` finds the nearest `.tex-mcp-web.yaml` from the current directory upward.
 
 ```bash
-cd paper-a
-tex-mcp-web config port 8765
-```
-
-```bash
-cd paper-b
-tex-mcp-web config port 8766
-```
-
-The papers are then available at `http://localhost:8765` and `http://localhost:8766` once an agent session runs in each directory. A port already serving a different paper is reported as an error instead of being shared. After changing a port, restart the agent session, and `tex-web` if it is running.
-
-## Review with the agent
-
-Select text in the PDF and write a comment. The comment dialog can also carry an exact replacement. Use **+ Note** for a paper-level comment or the **Sections** tab for a section-level comment.
-
-Click a numbered citation such as `[3]` to preview its bibliography entry as selectable text. Click the preview to select the entry for copying, or click elsewhere to close it.
-
-Then ask the agent:
-
-> Process the open tex-mcp-web comments.
-
-The agent reads the open comments and nearby source. With the default `auto_compile: false`, it makes the requested edits, calls the MCP `compile()` tool once, verifies the result, and only then replies to or resolves each comment. You can inspect the rebuilt PDF, reply in the same thread, or add another comment.
-
-The top bar shows **Auto: Off** or **Auto: On** beside **Recompile**. **Auto: Off** leaves source changes pending until **Recompile** or MCP `compile()` is called. **Auto: On** compiles future watched changes automatically. Changing the mode does not itself compile the paper. The selected mode is saved in `.tex-mcp-web.yaml` and shared with the agent.
-
-Other useful requests include:
-
-> Read my replies and continue the revision.
-
-> Review the Methods section and add comments without editing the paper.
-
-The web interface also provides **Reply**, **Resolve**, and **Dismiss** actions. Resolve and Dismiss close a comment in one click, with no message to write: the thread already holds what was said. Each message you wrote carries an **Edit** link that rewrites it in place, keeping its position and time, so a typo fix does not appear as a new message. Agent messages are read-only. `j` and `k` move between comments, `r` opens a reply, `R` resolves, `d` dismisses, `Esc` cancels the current action, and `\` collapses the sidebar. `Ctrl`/`Cmd` + wheel zooms around the pointer.
-
-## Read and change project settings
-
-`tex-mcp-web config` reads and edits the nearest `.tex-mcp-web.yaml` found in the current directory or its parents.
-
-```bash
-tex-mcp-web config                    # print the file and all settings
-tex-mcp-web config port               # print one value
-tex-mcp-web config port 8766          # change one value
-```
-
-The editable keys and value formats are:
-
-```bash
-tex-mcp-web config main paper.tex
-tex-mcp-web config port 8766
+tex-mcp-web config                 # print the whole config
+tex-mcp-web config port            # print one field
+tex-mcp-web config port 8766       # change one field
 tex-mcp-web config compiler xelatex
-tex-mcp-web config auto_compile true
 tex-mcp-web config watch 'main.tex,sections/**,*.bib'
-tex-mcp-web config ignore '*_backup.tex,old/**'
 ```
 
-`auto_compile` accepts `true` or `false`. `watch` and `ignore` accept comma-separated patterns. Supported compiler values are `auto`, `latexmk`, `pdflatex`, `xelatex`, `lualatex`, and `pandoc`.
+Comma-separated patterns set `watch` and `ignore`.
 
-### Choose what triggers recompilation
-
-Watcher paths are relative to the directory containing `.tex-mcp-web.yaml`. A filename pattern such as `*.tex` matches that filename extension at any depth. A path pattern such as `private/**` matches only that project directory and its contents. `ignore` is checked before `watch`, so an ignored path never triggers automatic recompilation when `auto_compile` is enabled. tex-mcp-web control files under `.tex-mcp-web/` and `.tex-mcp-web.yaml` never trigger compilation.
-
-For a paper that watches its LaTeX and bibliography files but ignores the entire `private/` directory:
-
-```yaml
-watch:
-- '*.tex'
-- '*.bib'
-ignore:
-- 'private/**'
-- '*_backup.tex'
-```
-
-This excludes both `private/note.tex` and nested paths such as `private/experiments/result.tex`. The same setting can be written from the shell:
+## More commands
 
 ```bash
-tex-mcp-web config ignore 'private/**,*_backup.tex'
+tex-mcp-web compile          # compile once, without the review page
+tex-mcp-web compile --json   # errors and warnings as JSON
+tex-mcp-web goto Methods     # move a running viewer to a section, page (p2), or tex/intro.tex:47
 ```
 
-`ignore` controls only whether a file change is considered by automatic compilation. It does not prevent LaTeX from reading an `\input` file, prevent the agent from opening the directory, or exclude files from Git. Repository privacy still belongs in `.gitignore`.
+## Acknowledgements
 
-## Other commands
-
-`tex-mcp-web compile` performs one compilation without starting the web server and reports errors and warnings. Add `--json` for structured output.
-
-`tex-mcp-web goto TARGET` moves a running viewer. A target can be a section title, a page such as `p2`, a line number, or a source location such as `tex/intro.tex:47`.
-
-Running `tex-mcp-web` without a subcommand starts the same web server as `tex-web`.
-
-## Try the included demo
-
-The repository includes a fictional one-page paper that is unrelated to any real manuscript:
-
-```bash
-cd examples/demo-paper
-tex-web
-```
-
-Open [http://localhost:8876](http://localhost:8876). The demo starts with an empty comment queue. Its source is [`examples/demo-paper/main.tex`](examples/demo-paper/main.tex), and its project settings are [`examples/demo-paper/.tex-mcp-web.yaml`](examples/demo-paper/.tex-mcp-web.yaml).
-
-## Project files and privacy
-
-`.tex-mcp-web.yaml` contains the project settings. Review conversations are stored in `.tex-mcp-web/comments.json` beside the paper. That file can contain selected manuscript text and discussion, so decide whether to track or ignore it according to the paper's privacy requirements.
-
-## Troubleshooting
-
-If the browser opens without a PDF, run `tex-mcp-web config main` and confirm that it names the correct top-level source file. Then inspect the **Compile** tab or run `tex-mcp-web compile` in the paper directory.
-
-If a port is already in use, choose an unused value with `tex-mcp-web config port PORT`, then restart the agent session, and `tex-web` if it is running.
-
-If the agent opens the wrong paper, run `tex-mcp-web config` from its working directory. The first output line shows which `.tex-mcp-web.yaml` was found. The agent must run inside that project root or one of its subdirectories.
-
-If agent-triggered compilation or viewer navigation reports a failed request, run `tex-mcp-web config port` and confirm that no other paper holds that port. If source edits do not update the PDF while **Auto: Off** is shown, use **Recompile** or ask the agent to call MCP `compile()`.
-
-PDF viewing uses [EmbedPDF](https://github.com/embedpdf/embed-pdf-viewer) v2.14.4 and its PDFium WebAssembly engine. Their license notices are included in [`tex_mcp_web/static/embedpdf/LICENSE`](tex_mcp_web/static/embedpdf/LICENSE) and [`tex_mcp_web/static/embedpdf/LICENSE.pdfium`](tex_mcp_web/static/embedpdf/LICENSE.pdfium).
+tex-mcp-web is a hard fork of [queelius/scholia at commit `e6c7454`](https://github.com/queelius/scholia/commit/e6c745400d2ad70fb43eca053e31183d48765f89) (version 0.6.1), independently developed since under the MIT license; see [`LICENSE`](LICENSE). PDF viewing uses [EmbedPDF](https://github.com/embedpdf/embed-pdf-viewer) and its PDFium WebAssembly engine, whose notices are in [`tex_mcp_web/static/embedpdf/LICENSE`](tex_mcp_web/static/embedpdf/LICENSE) and [`tex_mcp_web/static/embedpdf/LICENSE.pdfium`](tex_mcp_web/static/embedpdf/LICENSE.pdfium).
