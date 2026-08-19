@@ -33,7 +33,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-mcp = ["mcp>=1.0", "httpx"]
+mcp = ["mcp>=1.0", "httpx", "pydantic>=2.0"]
 dev = [
     "pytest>=7.0",
     "pytest-asyncio>=0.21",
