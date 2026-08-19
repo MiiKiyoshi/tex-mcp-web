@@ -46,8 +46,8 @@ tex-mcp = "tex_mcp_web.cli:main_mcp"
 tex-web = "tex_mcp_web.cli:main_serve"
 
 [project.urls]
-Homepage = "https://github.com/kiyoshi/tex-mcp-web"
-Repository = "https://github.com/kiyoshi/tex-mcp-web"
+Homepage = "https://github.com/MiiKiyoshi/tex-mcp-web"
+Repository = "https://github.com/MiiKiyoshi/tex-mcp-web"
 
 [tool.hatch.build.targets.wheel]
 packages = ["tex_mcp_web"]
