@@ -8,7 +8,6 @@ const $$ = (selector) => Array.from(document.querySelectorAll(selector));
 
 const state = {
   viewer: null,
-  registry: null,
   selection: null,
   annotations: null,
   scroll: null,
@@ -32,7 +31,6 @@ const state = {
   lastViewerPointer: null,
   appliedCompileTimestamp: null,
   compileRefreshPromise: null,
-  ws: null,
 };
 
 function h(tag, props = {}, ...children) {
@@ -103,7 +101,6 @@ async function initializePdfViewer(pdfView) {
   hideReferencePreview();
   const host = $("#pdf-viewer");
   clear(host);
-  state.registry = null;
   state.selection = null;
   state.annotations = null;
   state.scroll = null;
@@ -172,7 +169,6 @@ async function initializePdfViewer(pdfView) {
   if (!state.viewer) throw new Error("EmbedPDF did not create a viewer");
 
   const registry = await state.viewer.registry;
-  state.registry = registry;
   const viewerStyle = document.createElement("style");
   viewerStyle.textContent = `
     [data-epdf-i="main-toolbar"] {
@@ -951,7 +947,6 @@ async function handleWebSocketMessage(message) {
 function connectWebSocket() {
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
   const socket = new WebSocket(`${protocol}//${location.host}/ws`);
-  state.ws = socket;
   socket.onmessage = (event) => {
     const message = JSON.parse(event.data);
     handleWebSocketMessage(message).catch((error) => console.error(error));

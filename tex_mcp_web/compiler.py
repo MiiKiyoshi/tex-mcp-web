@@ -55,10 +55,6 @@ class CompileResult:
 
 
 # Patterns for parsing LaTeX log output
-ERROR_PATTERN = re.compile(
-    r"^(?:!|(?P<file>[^\s:]+):(?P<line>\d+):)\s*(?P<msg>.+?)$",
-    re.MULTILINE,
-)
 WARNING_PATTERN = re.compile(
     r"^(?:LaTeX|Package|Class)\s+(?:\w+\s+)?Warning:\s*(?P<msg>.+?)$",
     re.MULTILINE | re.IGNORECASE,
