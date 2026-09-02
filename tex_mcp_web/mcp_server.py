@@ -83,13 +83,13 @@ if HAS_MCP:
 
 
     class SuggestedEditInput(_InputModel):
-        old: Annotated[str, Field(description="Write the text literally, non-ASCII (Korean, CJK) included; never as \\uXXXX escapes, which cost tokens and miscount code points.")]
-        new: Annotated[str, Field(description="Write the text literally, non-ASCII (Korean, CJK) included; never as \\uXXXX escapes, which cost tokens and miscount code points.")]
+        old: Annotated[str, Field(description="Write the text literally, including non-ASCII; never as \\uXXXX escapes, which cost tokens and miscount code points.")]
+        new: Annotated[str, Field(description="Write the text literally, including non-ASCII; never as \\uXXXX escapes, which cost tokens and miscount code points.")]
 
 
     class ResolutionInput(_InputModel):
         id: Annotated[str, Field(min_length=1)]
-        summary: Annotated[str, Field(description="Write the text literally, non-ASCII (Korean, CJK) included; never as \\uXXXX escapes, which cost tokens and miscount code points.")] = ""
+        summary: Annotated[str, Field(description="Write the text literally, including non-ASCII; never as \\uXXXX escapes, which cost tokens and miscount code points.")] = ""
         edits: list[str] = Field(default_factory=list)
 
 
@@ -355,10 +355,10 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             "add", "reply", "resolve", "resolve_many", "dismiss", "delete"
         ],
         id: str | None = None,
-        text: Annotated[str | None, Field(description="Write the text literally, non-ASCII (Korean, CJK) included; never as \\uXXXX escapes, which cost tokens and miscount code points.")] = None,
+        text: Annotated[str | None, Field(description="Write the text literally, including non-ASCII; never as \\uXXXX escapes, which cost tokens and miscount code points.")] = None,
         anchor: CommentAnchorInput | None = None,
-        summary: Annotated[str | None, Field(description="Write the text literally, non-ASCII (Korean, CJK) included; never as \\uXXXX escapes, which cost tokens and miscount code points.")] = None,
-        reason: Annotated[str | None, Field(description="Write the text literally, non-ASCII (Korean, CJK) included; never as \\uXXXX escapes, which cost tokens and miscount code points.")] = None,
+        summary: Annotated[str | None, Field(description="Write the text literally, including non-ASCII; never as \\uXXXX escapes, which cost tokens and miscount code points.")] = None,
+        reason: Annotated[str | None, Field(description="Write the text literally, including non-ASCII; never as \\uXXXX escapes, which cost tokens and miscount code points.")] = None,
         edits: list[str] | None = None,
         suggestion: SuggestedEditInput | None = None,
         resolutions: list[ResolutionInput] | None = None,
