@@ -271,7 +271,6 @@ class TexMcpWebServer:
         app.router.add_get(r"/comments/{id}", self._handle_get_comment)
         app.router.add_post(r"/comments/{id}/reply", self._handle_reply_comment)
         app.router.add_post(r"/comments/{id}/resolve", self._handle_resolve_comment)
-        app.router.add_post(r"/comments/{id}/dismiss", self._handle_dismiss_comment)
         app.router.add_post(r"/comments/{id}/edit", self._handle_edit_comment_entry)
         app.router.add_delete(r"/comments/{id}", self._handle_delete_comment)
         app.router.add_get("/synctex/source-to-pdf", self._handle_synctex_forward)
@@ -442,7 +441,6 @@ class TexMcpWebServer:
         return {
             "open": len(open_comments),
             "resolved": len(self.comments.list(status="resolved")),
-            "dismissed": len(self.comments.list(status="dismissed")),
             "stale": sum(1 for c in open_comments if c.stale),
         }
 
@@ -478,7 +476,7 @@ class TexMcpWebServer:
 
     async def _handle_list_comments(self, request: web.Request) -> web.Response:
         status = request.query.get("status")
-        if status not in ("open", "resolved", "dismissed"):
+        if status not in ("open", "resolved"):
             status = None  # type: ignore[assignment]
         comments = self.comments.list(status=status)  # type: ignore[arg-type]
         return web.json_response(
@@ -676,19 +674,6 @@ class TexMcpWebServer:
                 author="human",
             ),
             acknowledge_only=True,
-        )
-
-    async def _handle_dismiss_comment(self, request: web.Request) -> web.Response:
-        cid = request.match_info["id"]
-        data, err = await self._read_json(request)
-        if err is not None:
-            return err
-        reason = (data.get("reason") or "").strip()
-        return await self._mutate_comment(
-            cid,
-            lambda: self.comments.dismiss(
-                cid, reason=reason, author="human"
-            ),
         )
 
     async def _handle_delete_comment(self, request: web.Request) -> web.Response:

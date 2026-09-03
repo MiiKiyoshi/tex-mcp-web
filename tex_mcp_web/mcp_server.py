@@ -4,7 +4,7 @@ Exposes 6 tools to agents via stdio:
 
     paper()                 paper state (sections and compact comments)
     compile()               recompile, return structured errors
-    comment(action, ...)    add/reply/resolve/dismiss/delete
+    comment(action, ...)    add/reply/resolve/delete
     image(...)              render a PDF page or exact region
     section(name)           section source, comments, and optional image
     goto(target)            scroll the viewer to a target
@@ -81,10 +81,6 @@ if HAS_MCP:
         PaperAnchorInput | SectionAnchorInput | SourceRangeAnchorInput | AreaAnchorInput,
         Field(discriminator="kind"),
     ]
-
-
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -302,7 +298,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
     @mcp.tool()
     async def paper(
         include_comments: bool = True,
-        comments_status: Literal["open", "resolved", "dismissed", "all"] = "open",
+        comments_status: Literal["open", "resolved", "all"] = "open",
     ) -> str:
         """Return the main file, automatic compilation mode, PDF path, section
         source ranges, and optionally comments filtered by status. Other TeX
@@ -329,9 +325,9 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             },
         }
         if include_comments:
-            if comments_status not in {"open", "resolved", "dismissed", "all"}:
+            if comments_status not in {"open", "resolved", "all"}:
                 return _err(
-                    "comments_status must be open, resolved, dismissed, or all"
+                    "comments_status must be open, resolved, or all"
                 )
             s = None if comments_status == "all" else comments_status
             comments = store.list(status=s)  # type: ignore[arg-type]
@@ -365,14 +361,10 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
 
     @mcp.tool()
     async def comment(
-        action: Literal[
-            "add", "reply", "resolve", "resolve_many", "dismiss", "delete"
-        ],
+        action: Literal["add", "reply", "resolve", "delete"],
         id: str | None = None,
         text: str | None = None,
         anchor: CommentAnchorInput | None = None,
-        summary: str | None = None,
-        reason: str | None = None,
         edits: list[str] | None = None,
         suggestion_old: str | None = None,
         suggestion_new: str | None = None,
@@ -384,15 +376,14 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         """Mutate a comment.
 
         ``add`` requires text and anchor; ``reply`` requires id and text;
-        ``resolve`` requires id; ``resolve_many`` requires resolutions_text;
-        ``dismiss`` requires id; ``delete`` requires id. ``summary`` and
-        ``reason`` are optional and unnecessary when replies or ``edits``
-        already record the outcome. ``suggestion_old`` and ``suggestion_new``
-        together are an add-only rewrite, while ``edits`` records changed
-        source ranges; ``edits`` given with ``resolve_many`` is recorded on
-        every resolution of the batch. Prose arrives in these top-level
-        strings and nowhere inside a list or an object, which an agent
-        serializes by hand and, by habit, as escapes.
+        ``resolve`` requires resolutions_text, one thread or many; ``delete``
+        requires id. A summary in a resolution is optional and unnecessary
+        when replies or ``edits`` already record the outcome. ``suggestion_old``
+        and ``suggestion_new`` together are an add-only rewrite, while
+        ``edits`` records changed source ranges; ``edits`` given with
+        ``resolve`` is recorded on every thread resolved. Prose arrives in
+        these top-level strings and nowhere inside a list or an object, which
+        an agent serializes by hand and, by habit, as escapes.
         """
         cfg, watch_dir, store = _load_project()
         try:
@@ -410,15 +401,8 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                 updated = store.reply(id, text=text, author="agent", edits=edits or [])
                 return _ok(_agent_comment_to_dict(updated))
             if action == "resolve":
-                if not id:
-                    return _err("resolve requires id")
-                store.resolve(
-                    id, summary=summary or "", edits=edits or [], author="agent"
-                )
-                return _ok({"id": id, "status": "resolved"})
-            if action == "resolve_many":
                 if not resolutions_text:
-                    return _err("resolve_many requires resolutions_text")
+                    return _err("resolve requires resolutions_text")
                 try:
                     batch = parse_resolutions(resolutions_text)
                 except ValueError as error:
@@ -433,11 +417,6 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                         for item in updated
                     ]
                 })
-            if action == "dismiss":
-                if not id:
-                    return _err("dismiss requires id")
-                updated = store.dismiss(id, reason=reason or "", author="agent")
-                return _ok(_agent_comment_to_dict(updated))
             if action == "delete":
                 if not id:
                     return _err("delete requires id")

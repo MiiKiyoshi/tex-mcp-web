@@ -215,7 +215,6 @@ textarea {
 }
 .cmt textarea { cursor: text; }
 .cmt.status-resolved { opacity: 0.6; }
-.cmt.status-dismissed { opacity: 0.4; }
 .cmt.is-focused {
   /* j/k keyboard focus indicator */
   box-shadow: 0 0 0 2px var(--accent), 0 0 0 4px var(--accent-soft);
@@ -336,7 +335,6 @@ textarea {
   border-radius: 3px;
 }
 .cmt-actions .cmt-resolve { background: var(--ok); color: white; border: none; }
-.cmt-actions .cmt-dismiss { background: var(--bg); }
 .cmt-actions .cmt-delete { color: var(--err); }
 
 /* ----- suggested rewrite (structured edit shown alongside text) ----- */
@@ -399,7 +397,7 @@ textarea {
   resize: vertical;
 }
 
-/* ----- inline comment form (reply / resolve / dismiss) ----- */
+/* ----- inline comment form (reply / resolve) ----- */
 .cmt-form {
   margin-top: 0.5rem;
   padding-top: 0.5rem;
@@ -423,7 +421,6 @@ textarea {
   resize: vertical;
 }
 .cmt-form.mode-resolve .cmt-form-input { border-left: 3px solid var(--ok); }
-.cmt-form.mode-dismiss .cmt-form-input { border-left: 3px solid var(--fg-dim); }
 .cmt-form-actions {
   display: flex;
   gap: 0.4rem;

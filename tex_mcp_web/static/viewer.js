@@ -586,7 +586,6 @@ function actionButtons(comment) {
     // Closing is one click: the thread already holds what was said, so an empty
     // summary flips the status without adding an entry.
     actionButton("cmt-resolve", "Resolve", () => closeComment(comment.id, "resolve", "summary")),
-    actionButton("cmt-dismiss", "Dismiss", () => closeComment(comment.id, "dismiss", "reason")),
     deleteButton,
   ];
 }
@@ -1062,9 +1061,6 @@ function attachKeyboardNavigation() {
     } else if ((event.key === "R" || (event.key === "r" && event.shiftKey)) && index >= 0) {
       event.preventDefault();
       closeComment(state.comments[index].id, "resolve", "summary");
-    } else if (event.key === "d" && index >= 0) {
-      event.preventDefault();
-      closeComment(state.comments[index].id, "dismiss", "reason");
     } else if (event.key === "Escape" && state.activeForm) {
       event.preventDefault();
       state.activeForm = null;

@@ -323,7 +323,9 @@ class SourceSelector:
 
 
 Author = Literal["human", "agent"]
-Status = Literal["open", "resolved", "dismissed"]
+# A thread is open or resolved. A third state, dismissed, closed a thread without
+# acting on it; a comment not worth acting on is resolved or deleted like any other.
+Status = Literal["open", "resolved"]
 
 
 @dataclass
@@ -961,16 +963,6 @@ class CommentStore:
                 updated.append(comment)
             self._save(comments)
         return updated
-
-    def dismiss(
-        self,
-        comment_id: str,
-        reason: str,
-        author: Author = "human",
-    ) -> Comment:
-        return self._append_entry(
-            comment_id, author, reason, new_status="dismissed"
-        )
 
     def edit_entry(
         self,
