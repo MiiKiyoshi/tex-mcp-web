@@ -271,16 +271,6 @@ async def test_resolve_comment(client):
 
 
 @pytest.mark.asyncio
-async def test_dismiss_marks_dismissed(client):
-    tc, _ = client
-    resp = await tc.post("/comments", json={"anchor": {"kind": "paper"}, "text": "x"})
-    cid = (await resp.json())["id"]
-
-    resp = await tc.post(f"/comments/{cid}/dismiss", json={"reason": "skip"})
-    assert (await resp.json())["status"] == "dismissed"
-
-
-@pytest.mark.asyncio
 async def test_editing_a_thread_entry_rewrites_it_in_place(client):
     tc, _ = client
     resp = await tc.post("/comments", json={"anchor": {"kind": "paper"}, "text": "chek this"})
@@ -324,10 +314,6 @@ async def test_closing_without_a_message_leaves_the_thread_alone(client):
     assert stored["status"] == "resolved"
     assert len(stored["thread"]) == 1
 
-    resp = await tc.post(f"/comments/{cid}/dismiss", json={})
-    assert (await resp.json())["status"] == "dismissed"
-    stored = await (await tc.get(f"/comments/{cid}")).json()
-    assert len(stored["thread"]) == 1
 
 
 @pytest.mark.asyncio
@@ -576,12 +562,12 @@ async def test_mcp_contract_is_typed_and_nonduplicative(tmp_path: Path):
 
     paper_schema = tools["paper"].inputSchema
     assert paper_schema["properties"]["comments_status"]["enum"] == [
-        "open", "resolved", "dismissed", "all"
+        "open", "resolved", "all"
     ]
 
     comment_schema = tools["comment"].inputSchema
     assert comment_schema["properties"]["action"]["enum"] == [
-        "add", "reply", "resolve", "resolve_many", "dismiss", "delete"
+        "add", "reply", "resolve", "delete"
     ]
     anchor_schema = comment_schema["properties"]["anchor"]["anyOf"][0]
     assert set(anchor_schema["discriminator"]["mapping"]) == {
@@ -711,7 +697,7 @@ async def test_mcp_comment_and_section_runtime_contract(bound_project, project):
     resolved = await mcp.call_tool(
         "comment",
         {
-            "action": "resolve_many",
+            "action": "resolve",
             "resolutions_text": f"{comment['id']}: fixed first\n{second['id']}: fixed second\n",
         },
     )
@@ -735,13 +721,11 @@ async def test_mcp_comment_and_section_runtime_contract(bound_project, project):
         "comment",
         {
             "action": "resolve",
-            "id": third["id"],
-            "summary": "fixed third",
+            "resolutions_text": f"{third['id']}: fixed third",
         },
     )
     assert json.loads(single[0][0].text) == {
-        "id": third["id"],
-        "status": "resolved",
+        "resolved": [{"id": third["id"], "status": "resolved"}],
     }
 
     silent_added = await mcp.call_tool(
@@ -749,8 +733,9 @@ async def test_mcp_comment_and_section_runtime_contract(bound_project, project):
         {"action": "add", "text": "review fourth", "anchor": {"kind": "paper"}},
     )
     silent = json.loads(silent_added[0][0].text)
-    closed = await mcp.call_tool("comment", {"action": "resolve", "id": silent["id"]})
-    assert json.loads(closed[0][0].text) == {"id": silent["id"], "status": "resolved"}
+    # A resolution with no summary is the id and its colon alone.
+    closed = await mcp.call_tool("comment", {"action": "resolve", "resolutions_text": f"{silent['id']}:"})
+    assert json.loads(closed[0][0].text) == {"resolved": [{"id": silent["id"], "status": "resolved"}]}
     stored = json.loads((project / ".tex-mcp-web" / "comments.json").read_text())
     silent_stored = next(c for c in stored["comments"] if c["id"] == silent["id"])
     assert silent_stored["status"] == "resolved"
