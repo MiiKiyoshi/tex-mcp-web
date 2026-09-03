@@ -598,6 +598,23 @@ async def test_mcp_contract_is_typed_and_nonduplicative(tmp_path: Path):
     assert set(tools["goto"].inputSchema["properties"]) == {"target"}
 
 
+def test_resolutions_are_one_text_with_a_comment_id_at_each_line_head():
+    """A batch written as a list of objects had its summaries serialized by hand and, by
+    habit, as \\uXXXX escapes; a top-level string is written as it is."""
+    from tex_mcp_web.mcp_server import parse_resolutions
+
+    assert parse_resolutions(
+        "c-1a2b3c4d: 첫 문장을 고쳤습니다: 콜론 포함.\n\nc-5e6f7a8b:\nc-9c0d1e2f: last one\n"
+    ) == [("c-1a2b3c4d", "첫 문장을 고쳤습니다: 콜론 포함."), ("c-5e6f7a8b", ""), ("c-9c0d1e2f", "last one")]
+    for bad, why in (
+        ("just prose", "no resolution"),
+        ("prose\nc-1a2b3c4d: then", "before the first"),
+        ("c-1a2b3c4d: one\nc-1a2b3c4d: twice", "at most once"),
+    ):
+        with pytest.raises(ValueError, match=why):
+            parse_resolutions(bad)
+
+
 def _free_port() -> int:
     import socket
 
@@ -661,6 +678,27 @@ async def test_mcp_comment_and_section_runtime_contract(bound_project, project):
     assert stored["comments"][0]["thread"][0]["author"] == "agent"
     assert comment["comment"] == "review this"
 
+    # A suggested rewrite is two top-level strings, so the LaTeX in them is written as it
+    # is rather than serialized by hand inside an object; one without the other is refused.
+    suggested = await mcp.call_tool(
+        "comment",
+        {
+            "action": "add",
+            "text": "이 문장을 바꾸세요",
+            "anchor": {"kind": "paper"},
+            "suggestion_old": "the original phrasing",
+            "suggestion_new": "the new phrasing: 새 문장",
+        },
+    )
+    with_suggestion = json.loads(suggested[0][0].text)
+    assert with_suggestion["suggestion"] == {"old": "the original phrasing", "new": "the new phrasing: 새 문장"}
+    half = await mcp.call_tool(
+        "comment",
+        {"action": "add", "text": "x", "anchor": {"kind": "paper"}, "suggestion_new": "only new"},
+    )
+    assert "go together" in half[0][0].text
+    await mcp.call_tool("comment", {"action": "delete", "id": with_suggestion["id"]})
+
     second_added = await mcp.call_tool(
         "comment",
         {
@@ -674,10 +712,7 @@ async def test_mcp_comment_and_section_runtime_contract(bound_project, project):
         "comment",
         {
             "action": "resolve_many",
-            "resolutions": [
-                {"id": comment["id"], "summary": "fixed first"},
-                {"id": second["id"], "summary": "fixed second"},
-            ],
+            "resolutions_text": f"{comment['id']}: fixed first\n{second['id']}: fixed second\n",
         },
     )
     assert json.loads(resolved[0][0].text) == {
