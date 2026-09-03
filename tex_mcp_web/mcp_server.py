@@ -19,6 +19,7 @@ Requires: pip install "mcp>=1.0"  (and httpx for goto)
 
 import asyncio
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -82,15 +83,8 @@ if HAS_MCP:
     ]
 
 
-    class SuggestedEditInput(_InputModel):
-        old: Annotated[str, Field(description="Write the text literally, including non-ASCII; never as \\uXXXX escapes, which cost tokens and miscount code points.")]
-        new: Annotated[str, Field(description="Write the text literally, including non-ASCII; never as \\uXXXX escapes, which cost tokens and miscount code points.")]
 
 
-    class ResolutionInput(_InputModel):
-        id: Annotated[str, Field(min_length=1)]
-        summary: Annotated[str, Field(description="Write the text literally, including non-ASCII; never as \\uXXXX escapes, which cost tokens and miscount code points.")] = ""
-        edits: list[str] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -118,6 +112,28 @@ def _load_project():
     watch_dir = get_watch_dir(cfg)
     store = CommentStore(watch_dir / ".tex-mcp-web" / "comments.json")
     return cfg, watch_dir, store
+
+
+RESOLUTION_HEAD = re.compile(r"^(c-[0-9a-f]{8}):[ \t]*", re.MULTILINE)
+
+
+def parse_resolutions(text: str) -> list[tuple[str, str]]:
+    """A batch of resolutions written as one text: each starts at a line head with its
+    comment id and a colon, the summary after it optional, and runs to the next head.
+    Only a line head starts one, so a colon in a summary is just a colon."""
+    heads = list(RESOLUTION_HEAD.finditer(text))
+    if not heads:
+        raise ValueError("resolutions_text holds no resolution: each starts at a line head with '<comment_id>:'")
+    if text[:heads[0].start()].strip():
+        raise ValueError("resolutions_text has text before the first '<comment_id>:' line head")
+    batch: list[tuple[str, str]] = []
+    for index, head in enumerate(heads):
+        end = heads[index + 1].start() if index + 1 < len(heads) else len(text)
+        batch.append((head.group(1), text[head.end():end].strip()))
+    ids = [comment_id for comment_id, _ in batch]
+    if len(set(ids)) != len(ids):
+        raise ValueError("each comment appears at most once in resolutions_text")
+    return batch
 
 
 def _err(message: str) -> str:
@@ -202,7 +218,7 @@ def _comment_add(
     watch_dir: Path,
     text: str | None,
     anchor: "CommentAnchorInput | None",
-    suggestion: "SuggestedEditInput | None" = None,
+    suggestion: dict[str, str] | None = None,
 ) -> str:
     """Implementation of ``comment(action="add", ...)``.
 
@@ -260,9 +276,7 @@ def _comment_add(
         author="agent",
         resolved_source=resolved,
         source_selector=source_selector,
-        suggestion=_suggestion_from_dict(
-            suggestion.model_dump() if suggestion is not None else None
-        ),
+        suggestion=_suggestion_from_dict(suggestion),
     )
     return _ok(_agent_comment_to_dict(comment))
 
@@ -355,26 +369,40 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             "add", "reply", "resolve", "resolve_many", "dismiss", "delete"
         ],
         id: str | None = None,
-        text: Annotated[str | None, Field(description="Write the text literally, including non-ASCII; never as \\uXXXX escapes, which cost tokens and miscount code points.")] = None,
+        text: str | None = None,
         anchor: CommentAnchorInput | None = None,
-        summary: Annotated[str | None, Field(description="Write the text literally, including non-ASCII; never as \\uXXXX escapes, which cost tokens and miscount code points.")] = None,
-        reason: Annotated[str | None, Field(description="Write the text literally, including non-ASCII; never as \\uXXXX escapes, which cost tokens and miscount code points.")] = None,
+        summary: str | None = None,
+        reason: str | None = None,
         edits: list[str] | None = None,
-        suggestion: SuggestedEditInput | None = None,
-        resolutions: list[ResolutionInput] | None = None,
+        suggestion_old: str | None = None,
+        suggestion_new: str | None = None,
+        resolutions_text: Annotated[str | None, Field(description=(
+            "The batch as one text: each resolution starts at a line head with its comment id "
+            "and a colon ('c-1a2b3c4d: summary', the summary optional) and runs to the next such "
+            "line head. Written as prose, as it is."))] = None,
     ) -> str:
         """Mutate a comment.
 
         ``add`` requires text and anchor; ``reply`` requires id and text;
-        ``resolve`` requires id; ``resolve_many`` requires resolutions;
+        ``resolve`` requires id; ``resolve_many`` requires resolutions_text;
         ``dismiss`` requires id; ``delete`` requires id. ``summary`` and
         ``reason`` are optional and unnecessary when replies or ``edits``
-        already record the outcome. ``suggestion`` is an add-only rewrite,
-        while ``edits`` records changed source ranges.
+        already record the outcome. ``suggestion_old`` and ``suggestion_new``
+        together are an add-only rewrite, while ``edits`` records changed
+        source ranges; ``edits`` given with ``resolve_many`` is recorded on
+        every resolution of the batch. Prose arrives in these top-level
+        strings and nowhere inside a list or an object, which an agent
+        serializes by hand and, by habit, as escapes.
         """
         cfg, watch_dir, store = _load_project()
         try:
             if action == "add":
+                if (suggestion_old is None) != (suggestion_new is None):
+                    return _err("suggestion_old and suggestion_new go together")
+                suggestion = (
+                    {"old": suggestion_old, "new": suggestion_new}
+                    if suggestion_old is not None else None
+                )
                 return _comment_add(store, cfg, watch_dir, text, anchor, suggestion)
             if action == "reply":
                 if not id or not text:
@@ -389,13 +417,14 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                 )
                 return _ok({"id": id, "status": "resolved"})
             if action == "resolve_many":
-                if not resolutions:
-                    return _err("resolve_many requires resolutions")
+                if not resolutions_text:
+                    return _err("resolve_many requires resolutions_text")
+                try:
+                    batch = parse_resolutions(resolutions_text)
+                except ValueError as error:
+                    return _err(str(error))
                 updated = store.resolve_many(
-                    [
-                        (item.id, item.summary, item.edits)
-                        for item in resolutions
-                    ],
+                    [(comment_id, summary, edits or []) for comment_id, summary in batch],
                     author="agent",
                 )
                 return _ok({
