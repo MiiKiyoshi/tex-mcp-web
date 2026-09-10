@@ -90,6 +90,16 @@ textarea {
 }
 #auto-compile-btn:disabled { cursor: wait; }
 #recompile-btn:disabled { cursor: wait; }
+/* The green dot beside Call agent: an agent is parked on wait_review right now. */
+.agent-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 0.35rem;
+  border-radius: 50%;
+  background: var(--ok);
+  vertical-align: middle;
+}
 
 /* ----- layout ----- */
 .layout {

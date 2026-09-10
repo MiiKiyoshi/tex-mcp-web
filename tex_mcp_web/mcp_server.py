@@ -291,7 +291,15 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             "comment's source location when present; otherwise locate its quote "
             "in the TeX source. After all source edits, call compile() once when "
             "auto_compile is false; when it is true, the watcher owns compilation. "
-            "Use image() only for rendered evidence before resolving the comment."
+            "Use image() only for rendered evidence before resolving the comment. "
+            "After handing a revision over, call wait_review() and do what its result "
+            "says; the waiter it returns is started once and serves every press of the "
+            "session. When the reviewer tells you to wait, in any words, that is this: "
+            "start the waiter if it is not running and end the turn. Presses made while "
+            "nobody waits are kept, presses that pile up coalesce into one wake-up, and a "
+            "wake-up can repeat if its delivery could not be confirmed, so treat one as "
+            "'there is something to read', not as a count. Waiting costs no tokens, so "
+            "prefer it to polling."
         ),
     )
 
@@ -655,6 +663,72 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                 return resp.text
         except Exception as exc:
             return _err(f"review server request failed: {exc}")
+
+    @mcp.tool()
+    async def wait_review() -> str:
+        """Return at once with a waiter script for the reviewer's Call agent button.
+        Start that script once as a persistent background monitor (Claude Code:
+        Monitor with persistent=true) and end the turn; it prints one line each
+        time the reviewer presses the button, at once if a press is already
+        waiting, and keeps waiting for the next, so each line is a wake-up and
+        the script is never started again. Being told to wait, in any words,
+        means this. Costs nothing while waiting.
+        """
+        _, watch_dir, _ = _load_project()
+        port = binding.require_shared().port
+        # The server keeps the press count and the consumption watermark, so the script
+        # carries no state of its own: a press made before this call answers it at once,
+        # and after a line is delivered the loop parks again rather than replaying the
+        # press it acked. The ack comes after the line is printed, so a press is offered
+        # until a waiter confirms it landed: delivery is at-least-once.
+        script = (
+            "#!/bin/sh\n"
+            f"# Prints one line each time the reviewer presses 'Call agent' on http://127.0.0.1:{port},\n"
+            "# at once if an unacknowledged press is waiting, and keeps waiting for the next. A server\n"
+            "# that goes away is waited for too: one [gone] line, then [back] when it answers again.\n"
+            "headers=$(mktemp)\n"
+            "trap 'rm -f \"$headers\"' EXIT\n"
+            "gone=0\n"
+            "delay=2\n"
+            "while :; do\n"
+            f"  out=$(curl -sf -D \"$headers\" --max-time 60 \"http://127.0.0.1:{port}/wait-review\"); rc=$?\n"
+            "  if [ $gone -eq 1 ] && { [ $rc -eq 0 ] || [ $rc -eq 28 ]; }; then\n"
+            "    printf '[back] review server reachable again\\n'; gone=0; delay=2\n"
+            "  fi\n"
+            "  if [ $rc -eq 0 ] && [ -n \"$out\" ]; then\n"
+            "    printf '%s\\n' \"$out\"\n"
+            "    press=$(tr -d '\\r' < \"$headers\" | sed -n 's/^[Xx]-[Pp]ress: *//p' | head -1)\n"
+            f"    [ -n \"$press\" ] && curl -sf -X POST \"http://127.0.0.1:{port}/wait-review/ack?upto=$press\" >/dev/null\n"
+            "  fi\n"
+            "  if [ $rc -ne 0 ] && [ $rc -ne 28 ]; then\n"
+            "    if [ $gone -eq 0 ]; then printf '[gone] review server unreachable (curl exit %s); waiting for it\\n' $rc; gone=1; fi\n"
+            "    sleep $delay\n"
+            "    [ $delay -lt 30 ] && delay=$((delay * 2))\n"
+            "  fi\n"
+            "done\n"
+        )
+        # Replaced atomically so a waiter started from the previous script keeps reading
+        # the file it opened.
+        directory = watch_dir / ".tex-mcp-web"
+        directory.mkdir(parents=True, exist_ok=True)
+        target = directory / "wait-review.sh"
+        staging = directory / "wait-review.sh.new"
+        staging.write_text(script, encoding="utf-8")
+        staging.chmod(0o755)
+        staging.replace(target)
+        return _ok({
+            "script": str(target),
+            "how": (
+                "Run the script once with the harness's persistent background monitor and end the turn: on "
+                "Claude Code, Monitor(command=<script>, description='waiting for the reviewer', "
+                "persistent=true, timeout_ms=3600000). It waits silently as long as it takes and prints "
+                "one line per press without exiting: [review] means comments are ready, so continue with "
+                "paper() and leave the monitor running for the next press. [gone] means the review "
+                "server is unreachable and the script keeps trying, [back] that it answered again; "
+                "neither needs anything from you. Without a background facility, running it with a "
+                "shell tool blocks until the button is pressed."
+            ),
+        })
 
     return mcp
 
