@@ -287,7 +287,10 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
     mcp = FastMCP(
         "tex-mcp-web",
         instructions=(
-            "Read the open queue and auto_compile mode with paper(). Use a "
+            "Read the open queue and auto_compile mode with paper(). The paper is the one "
+            "named by .tex-mcp-web.yaml, found upward from the session folder; when the "
+            "paper lives in another folder, a config in the session folder with "
+            "dir: <that folder> serves it there, so the session never has to move. Use a "
             "comment's source location when present; otherwise locate its quote "
             "in the TeX source. After all source edits, call compile() once when "
             "auto_compile is false; when it is true, the watcher owns compilation. "
