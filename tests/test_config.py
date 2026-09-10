@@ -230,6 +230,25 @@ class TestHelperFunctions:
         config = Config(main="test.tex", config_path=tmp_path / ".tex-mcp-web.yaml")
         assert get_watch_dir(config) == tmp_path
 
+    def test_get_watch_dir_with_relative_dir(self, tmp_path):
+        paper = tmp_path / "paper"
+        paper.mkdir()
+        config = Config(main="test.tex", dir="../paper",
+                        config_path=tmp_path / "project" / ".tex-mcp-web.yaml")
+        assert get_watch_dir(config) == paper
+        assert get_main_file(config) == paper / "test.tex"
+
+    def test_get_watch_dir_with_absolute_dir(self, tmp_path):
+        config = Config(main="test.tex", dir=str(tmp_path / "paper"),
+                        config_path=tmp_path / "project" / ".tex-mcp-web.yaml")
+        assert get_watch_dir(config) == tmp_path / "paper"
+
+    def test_dir_roundtrip(self):
+        config = Config.from_dict({"main": "main.tex", "dir": "../paper"})
+        assert config.dir == "../paper"
+        assert config.to_dict()["dir"] == "../paper"
+        assert "dir" not in Config.from_dict({"main": "main.tex"}).to_dict()
+
     def test_get_watch_dir_without_config_path(self):
         """Test get_watch_dir without config_path."""
         config = Config(main="test.tex")

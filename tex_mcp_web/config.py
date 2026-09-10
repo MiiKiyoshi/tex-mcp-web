@@ -19,6 +19,8 @@ class Config:
 
     Attributes:
         main: Main file to compile (relative to project directory).
+        dir: Project directory, relative to the config file's folder or absolute.
+            Unset means the config file's own folder.
         watch: Glob patterns for files that trigger recompilation.
         ignore: Glob patterns for files to exclude from watching.
         compiler: Compiler command ("auto", "latexmk", "pdflatex", etc.).
@@ -28,6 +30,7 @@ class Config:
     """
 
     main: str
+    dir: str | None = None
     watch: list[str] = field(default_factory=lambda: ["*.tex", "*.bib", "*.md", "*.txt"])
     ignore: list[str] = field(default_factory=list)
     compiler: str = "auto"
@@ -44,6 +47,7 @@ class Config:
             raise ValueError("auto_compile must be true or false")
         return cls(
             main=data.get("main", "main.tex"),
+            dir=data.get("dir"),
             watch=data.get("watch", ["*.tex", "*.bib", "*.md", "*.txt"]),
             ignore=data.get("ignore", []),
             compiler=data.get("compiler", "auto"),
@@ -54,7 +58,7 @@ class Config:
 
     def to_dict(self) -> dict[str, Any]:
         """Convert config to dictionary (for API responses)."""
-        return {
+        d: dict[str, Any] = {
             "main": self.main,
             "watch": self.watch,
             "ignore": self.ignore,
@@ -62,6 +66,9 @@ class Config:
             "auto_compile": self.auto_compile,
             "port": self.port,
         }
+        if self.dir is not None:
+            d["dir"] = self.dir
+        return d
 
 
 DEFAULT_CONFIG_NAME = ".tex-mcp-web.yaml"
@@ -179,7 +186,8 @@ def write_auto_compile(config_path: Path, enabled: bool) -> None:
 def get_watch_dir(config: Config) -> Path:
     """Get the directory to watch based on config."""
     if config.config_path:
-        return config.config_path.parent
+        base = config.config_path.parent
+        return (base / config.dir).resolve() if config.dir else base
     return Path.cwd()
 
 
