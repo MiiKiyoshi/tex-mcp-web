@@ -933,6 +933,10 @@ async function handleWebSocketMessage(message) {
       applyAutoCompile(message.auto_compile);
       if (message.result) applyCompileResult(message.result);
       if (message.compiling) applyCompiling(true);
+      if (message.review_waiters !== undefined) showAgentWaiting(message.review_waiters);
+      break;
+    case "review_waiters":
+      showAgentWaiting(message.waiters);
       break;
     case "auto_compile":
       applyAutoCompile(message.enabled);
@@ -940,6 +944,31 @@ async function handleWebSocketMessage(message) {
     case "goto":
       showGotoTarget(message);
       break;
+  }
+}
+
+// The green dot beside Call agent: an agent is parked on wait_review right now, so a
+// press reaches it at once rather than waiting to be picked up.
+function showAgentWaiting(waiters) {
+  $("#agent-waiting-dot").classList.toggle("hidden", !(waiters > 0));
+}
+
+async function callAgent() {
+  const button = $("#call-agent-btn");
+  const word = $("#call-agent-word");
+  button.disabled = true;
+  try {
+    const response = await fetch("/review-request", { method: "POST" });
+    if (!response.ok) throw new Error(await responseError(response));
+    const reply = await response.json();
+    // Delivered went straight to a parked agent; queued is kept by the server and
+    // answers the agent's next wait at once.
+    word.textContent = reply.delivered ? "Called" : "Queued";
+  } catch (error) {
+    word.textContent = "Failed";
+    console.error(error);
+  } finally {
+    setTimeout(() => { word.textContent = "Call agent"; button.disabled = false; }, 2000);
   }
 }
 
@@ -1105,6 +1134,7 @@ async function init() {
   });
   $("#auto-compile-btn").addEventListener("click", () => toggleAutoCompile());
   $("#recompile-btn").addEventListener("click", () => recompile());
+  $("#call-agent-btn").addEventListener("click", () => callAgent());
   $("#paper-comment-btn").addEventListener("click", () =>
     openCompose({ kind: "paper" }, "Paper-level comment"));
   $("#compose-form").addEventListener("submit", (event) => {

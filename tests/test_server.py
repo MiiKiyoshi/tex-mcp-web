@@ -542,13 +542,21 @@ async def test_mcp_contract_is_typed_and_nonduplicative(tmp_path: Path):
     mcp = create_server(ProjectBinding(tmp_path))
     tools = {tool.name: tool for tool in await mcp.list_tools()}
 
-    assert set(tools) == {"paper", "compile", "comment", "image", "section", "goto"}
+    assert set(tools) == {"paper", "compile", "comment", "image", "section", "goto", "wait_review"}
     assert mcp.instructions == (
         "Read the open queue and auto_compile mode with paper(). Use a "
         "comment's source location when present; otherwise locate its quote "
         "in the TeX source. After all source edits, call compile() once when "
         "auto_compile is false; when it is true, the watcher owns compilation. "
-        "Use image() only for rendered evidence before resolving the comment."
+        "Use image() only for rendered evidence before resolving the comment. "
+        "After handing a revision over, call wait_review() and do what its result "
+        "says; the waiter it returns is started once and serves every press of the "
+        "session. When the reviewer tells you to wait, in any words, that is this: "
+        "start the waiter if it is not running and end the turn. Presses made while "
+        "nobody waits are kept, presses that pile up coalesce into one wake-up, and a "
+        "wake-up can repeat if its delivery could not be confirmed, so treat one as "
+        "'there is something to read', not as a count. Waiting costs no tokens, so "
+        "prefer it to polling."
     )
     assert "call compile() once" in mcp.instructions
     compile_description = " ".join((tools["compile"].description or "").split())
@@ -1060,3 +1068,135 @@ def test_resolve_section_to_source_returns_none_for_unknown(project):
         resolve_section_to_source(structure, project, title="Nonexistent", label=None)
         is None
     )
+
+
+# ---------------------------------------------------------------------------
+# Call agent
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_call_button_wakes_a_parked_waiter_and_keeps_an_early_press(client) -> None:
+    """The reviewer's press is an interrupt, not a message the agent must be listening for.
+    The server keeps the press count and the consumption watermark, so a press made while
+    nobody waits answers the next wait at once. The watermark moves only on the waiter's
+    ack, so until the ack lands the press is offered again."""
+    from tex_mcp_web.comments import PaperAnchor
+
+    test_client, server = client
+
+    # Presses with nobody parked are kept, and coalesce into the next wait.
+    reply = await (await test_client.post("/review-request")).json()
+    assert reply == {"calls": 1, "delivered": False}
+    reply = await (await test_client.post("/review-request")).json()
+    assert reply == {"calls": 2, "delivered": False}
+    early = await test_client.get("/wait-review")
+    assert early.status == 200
+    assert early.headers["X-Press"] == "2"
+    line = await early.text()
+    assert line.startswith("[review] reviewer called (press #2)")
+    assert "paper()" in line
+    # The line counts threads whose last word is the reviewer's: a count of open threads
+    # sent an agent to read one it had already answered.
+    assert "no unanswered comments" in line
+    asked = server.comments.add(PaperAnchor(), "Is this right?")
+    assert "1 unanswered comments" in server._review_line()
+    server.comments.reply(asked.id, "Yes, checked.", author="agent")
+    assert "no unanswered comments" in server._review_line()
+
+    # Not acked yet (the line may never have reached the harness), so it is offered again.
+    again = await test_client.get("/wait-review")
+    assert again.status == 200
+    assert again.headers["X-Press"] == "2"
+
+    # Acked means consumed: the same waiter restarted parks rather than replaying.
+    acked = await (await test_client.post("/wait-review/ack?upto=2")).json()
+    assert acked == {"calls": 2, "consumed": 2}
+    server.REVIEW_POLL_TIMEOUT = 0.05
+    assert (await test_client.get("/wait-review")).status == 204
+    server.REVIEW_POLL_TIMEOUT = TexMcpWebServer.REVIEW_POLL_TIMEOUT
+
+    # A parked waiter is released by the press.
+    parked = asyncio.ensure_future(test_client.get("/wait-review"))
+    for _ in range(50):
+        if server.review_waiters == 1:
+            break
+        await asyncio.sleep(0.02)
+    assert server.review_waiters == 1
+    reply = await (await test_client.post("/review-request")).json()
+    assert reply == {"calls": 3, "delivered": True}
+    released = await parked
+    assert released.status == 200
+    assert (await released.text()).startswith("[review] reviewer called (press #3)")
+    assert server.review_waiters == 0
+
+    # An ack from a script that outlived a server restart clamps to what exists and a
+    # stale repeat never moves the watermark back.
+    over = await (await test_client.post("/wait-review/ack?upto=9")).json()
+    assert over == {"calls": 3, "consumed": 3}
+    stale = await (await test_client.post("/wait-review/ack?upto=1")).json()
+    assert stale == {"calls": 3, "consumed": 3}
+    server.REVIEW_POLL_TIMEOUT = 0.05
+    assert (await test_client.get("/wait-review")).status == 204
+
+
+@pytest.mark.asyncio
+async def test_presses_survive_a_server_restart(client) -> None:
+    """The counters persist, so a press made before a restart is still on offer to the
+    next server, and an ack it received is remembered too."""
+    test_client, server = client
+    await test_client.post("/review-request")
+    reborn = TexMcpWebServer(server.config)
+    assert (reborn.review_calls, reborn.review_consumed) == (1, 0)
+    reborn.REVIEW_POLL_TIMEOUT = 0.05
+    second_client = TestClient(TestServer(reborn.app))
+    await second_client.start_server()
+    try:
+        offered = await second_client.get("/wait-review")
+        assert offered.status == 200
+        assert offered.headers["X-Press"] == "1"
+        await second_client.post("/wait-review/ack?upto=1")
+        third = TexMcpWebServer(server.config)
+        assert (third.review_calls, third.review_consumed) == (1, 1)
+    finally:
+        await second_client.close()
+
+
+@pytest.mark.asyncio
+async def test_wait_review_writes_a_waiter_that_prints_a_press_and_acks_it(bound_project, project):
+    """The tool writes the waiter next to the comment store; run against the live review
+    server, it prints one line for a press already waiting and acks it."""
+    pytest.importorskip("mcp")
+    import subprocess
+    import time
+
+    import aiohttp
+
+    from tex_mcp_web.mcp_server import create_server
+
+    mcp = create_server(bound_project)
+    result = json.loads((await mcp.call_tool("wait_review", {}))[0][0].text)
+    script = Path(result["script"])
+    assert script == project / ".tex-mcp-web" / "wait-review.sh"
+    assert script.stat().st_mode & 0o111
+    assert "Monitor" in result["how"]
+    subprocess.run(["sh", "-n", str(script)], check=True)
+
+    base = bound_project.base_url()
+    async with aiohttp.ClientSession() as session:
+        async with session.post(f"{base}/review-request") as response:
+            assert (await response.json()) == {"calls": 1, "delivered": False}
+
+    waiter = subprocess.Popen(["sh", str(script)], stdout=subprocess.PIPE, text=True)
+    try:
+        line = waiter.stdout.readline()
+        assert line.startswith("[review] reviewer called (press #1)")
+        state_path = project / ".tex-mcp-web" / "review-state.json"
+        for _ in range(100):
+            if json.loads(state_path.read_text()) == {"calls": 1, "consumed": 1}:
+                break
+            time.sleep(0.05)
+        assert json.loads(state_path.read_text()) == {"calls": 1, "consumed": 1}
+    finally:
+        waiter.kill()
+        waiter.wait()

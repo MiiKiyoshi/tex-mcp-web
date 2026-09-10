@@ -230,6 +230,10 @@ def load_synctex_for_main(main_file: Path) -> SyncTeXData | None:
 class TexMcpWebServer:
     """Single-paper watch + serve + comment store."""
 
+    # A parked waiter is answered within this long even when nothing happened, so the
+    # script's curl never trips its own timeout and a lost connection is noticed.
+    REVIEW_POLL_TIMEOUT = 55.0
+
     def __init__(self, config: Config):
         self.config = config
         self.watch_dir = get_watch_dir(config)
@@ -247,6 +251,13 @@ class TexMcpWebServer:
         self._prev_page_hashes: list[str] = []
 
         self.comments = CommentStore(self.watch_dir / ".tex-mcp-web" / "comments.json")
+        # The reviewer's Call agent presses: how many were made and how many a waiter
+        # confirmed it delivered. Kept on disk so a press outlives a server restart.
+        self.review_state_path = self.watch_dir / ".tex-mcp-web" / "review-state.json"
+        self.review_calls, self.review_consumed = self._load_review_state()
+        self.review_called = asyncio.Event()
+        self.review_waiters = 0
+        self.closing = False
         self.websockets: set[web.WebSocketResponse] = set()
         self.watcher: Watcher | None = None
         self._runner: web.AppRunner | None = None
@@ -277,6 +288,9 @@ class TexMcpWebServer:
         app.router.add_post("/goto", self._handle_goto)
         app.router.add_get("/image", self._handle_image)
         app.router.add_get("/reference-preview", self._handle_reference_preview)
+        app.router.add_post("/review-request", self._handle_review_request)
+        app.router.add_get("/wait-review", self._handle_wait_review)
+        app.router.add_post("/wait-review/ack", self._handle_ack_review)
         return app
 
     # ----- compile + watch -----
@@ -390,6 +404,7 @@ class TexMcpWebServer:
                 "compiling": self.compiling,
                 "auto_compile": self.config.auto_compile,
                 "result": _result_to_dict(self.last_result),
+                "review_waiters": self.review_waiters,
             }
         )
         try:
@@ -400,6 +415,83 @@ class TexMcpWebServer:
         finally:
             self.websockets.discard(ws)
         return ws
+
+    # ----- API: Call agent -----
+
+    def _load_review_state(self) -> tuple[int, int]:
+        try:
+            data = json.loads(self.review_state_path.read_text(encoding="utf-8"))
+            calls, consumed = int(data["calls"]), int(data["consumed"])
+        except (FileNotFoundError, json.JSONDecodeError, KeyError, TypeError, ValueError):
+            return 0, 0
+        if calls < 0 or not 0 <= consumed <= calls:
+            return 0, 0
+        return calls, consumed
+
+    def _save_review_state(self) -> None:
+        self.review_state_path.parent.mkdir(parents=True, exist_ok=True)
+        staging = self.review_state_path.with_name(self.review_state_path.name + ".new")
+        staging.write_text(json.dumps(
+            {"calls": self.review_calls, "consumed": self.review_consumed}), encoding="utf-8")
+        staging.replace(self.review_state_path)
+
+    def _review_line(self) -> str:
+        # The line counts what a wake-up is for: open threads whose last word is the
+        # reviewer's. A count of open threads sent an agent to read one it had answered.
+        waiting = sum(comment.thread[-1].author == "human" for comment in self.comments.list(status="open"))
+        return (f"[review] reviewer called (press #{self.review_calls}): "
+                + (f"{waiting} unanswered comments" if waiting else "no unanswered comments")
+                + " -- read them with paper()")
+
+    async def _handle_review_request(self, request: web.Request) -> web.Response:
+        self.review_calls += 1
+        self._save_review_state()
+        delivered = self.review_waiters > 0
+        released = self.review_called
+        self.review_called = asyncio.Event()
+        released.set()
+        await self.broadcast({"type": "review_requested", "calls": self.review_calls, "delivered": delivered})
+        return web.json_response({"calls": self.review_calls, "delivered": delivered})
+
+    async def _handle_wait_review(self, request: web.Request) -> web.Response:
+        # The consumption watermark lives here, not in the waiter: a waiter carrying its
+        # own could never see a press made before its script was written. Waiting does
+        # not consume: the response can die on the wire after the watermark moved, and
+        # the wake-up died with it. The waiter acks what it printed (the X-Press header
+        # names it), and until then the press is offered again.
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + self.REVIEW_POLL_TIMEOUT
+        self.review_waiters += 1
+        await self.broadcast({"type": "review_waiters", "waiters": self.review_waiters})
+        try:
+            while self.review_calls <= self.review_consumed:
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    return web.Response(status=204)
+                waited = self.review_called
+                try:
+                    await asyncio.wait_for(waited.wait(), timeout=remaining)
+                except asyncio.TimeoutError:
+                    return web.Response(status=204)
+                if self.closing:
+                    return web.Response(status=204)
+            return web.Response(text=self._review_line(),
+                                headers={"X-Press": str(self.review_calls)})
+        finally:
+            self.review_waiters -= 1
+            await self.broadcast({"type": "review_waiters", "waiters": self.review_waiters})
+
+    async def _handle_ack_review(self, request: web.Request) -> web.Response:
+        try:
+            upto = int(request.query["upto"])
+        except (KeyError, ValueError) as error:
+            raise web.HTTPBadRequest(text="upto must be an integer") from error
+        # Idempotent and monotonic: a late or repeated ack never moves the watermark back,
+        # and one beyond the count (a script talking to a restarted server whose counters
+        # are behind it) clamps rather than marking presses that do not exist yet.
+        self.review_consumed = max(self.review_consumed, min(upto, self.review_calls))
+        self._save_review_state()
+        return web.json_response({"calls": self.review_calls, "consumed": self.review_consumed})
 
     # ----- static / PDF -----
 
@@ -975,6 +1067,10 @@ class TexMcpWebServer:
         self._initial_compile = asyncio.create_task(self.do_compile())
 
     async def cleanup(self) -> None:
+        # A parked waiter holds its connection for the whole poll; released here, it
+        # asks again at once and finds the port closed instead of holding it half-alive.
+        self.closing = True
+        self.review_called.set()
         # do_compile shields the build, so the build task is cancelled directly.
         # Awaiting the cancellation lets a running compiler subprocess close its
         # transport while the loop is still alive.
