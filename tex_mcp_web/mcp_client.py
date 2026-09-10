@@ -143,8 +143,13 @@ class ProjectBinding:
         shared = self.connect()
         if shared is None:
             raise RuntimeError(
-                f"{DEFAULT_CONFIG_NAME} was not found from {self.start_dir}; "
-                "run tex-mcp-web init in the project directory"
+                f"{DEFAULT_CONFIG_NAME} was not found from {self.start_dir}. Write it in "
+                f"{self.start_dir} with main: <top-level .tex file> and, when the paper "
+                "lives in another folder, dir: <that folder, relative to the file or "
+                "absolute>; port: <number> picks the review page's port (default 8765, "
+                "one port per paper). This session then serves that paper without moving. "
+                "The other way is tex-mcp-web init in the paper folder and a session "
+                "started there."
             )
         return shared
 
