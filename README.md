@@ -70,11 +70,22 @@ port: 8765
 | Field | Effect |
 |---|---|
 | `main` | Top-level source file compiled into the PDF. |
+| `dir` | Folder holding the paper, relative to this file or absolute. Unset means the folder holding this file. |
 | `watch` | File patterns that trigger recompilation on save. |
 | `ignore` | Patterns checked before `watch`; a match does not recompile. |
 | `compiler` | `auto` (latexmk for LaTeX, pandoc for Markdown or text) or a named compiler. |
 | `auto_compile` | `true` recompiles on watched saves; `false` leaves it to the topbar button or the agent. |
 | `port` | The local port for this paper's review page and MCP server. |
+
+To keep the paper out of the folder you start the agent in, put the config there and point `dir` at the paper:
+
+```bash
+cd my-project
+tex-mcp-web init --main main.tex
+tex-mcp-web config dir ../my-paper
+```
+
+The source, the PDF, and the comment store then stay under `../my-paper`; the project folder holds only the config file.
 
 Start Claude Code or Codex from the paper directory (or a subdirectory) and ask the agent to call `paper()`. The review page opens at the configured port, or the `review_url` that `paper()` reports.
 

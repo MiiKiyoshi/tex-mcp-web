@@ -77,7 +77,7 @@ def cmd_init(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 
-_CONFIG_KEYS = ("main", "port", "compiler", "auto_compile", "watch", "ignore")
+_CONFIG_KEYS = ("main", "dir", "port", "compiler", "auto_compile", "watch", "ignore")
 
 
 def cmd_config(args: argparse.Namespace) -> int:
