@@ -25,6 +25,9 @@ html, body {
   margin: 0;
   padding: 0;
   height: 100%;
+  /* A two-finger swipe on a trackpad that runs past the left edge is not a step back in
+     history: the page holds the gesture, on the root and inside the PDF's own scroller. */
+  overscroll-behavior-x: none;
   font-family: var(--sans);
   font-size: 14px;
   color: var(--fg);
@@ -118,6 +121,7 @@ textarea {
 
 /* ----- pdf ----- */
 #pdf-viewer { width: 100%; height: 100%; }
+#pdf-viewer * { overscroll-behavior-x: none; }
 .hidden { display: none !important; }
 .reference-preview {
   position: fixed;
