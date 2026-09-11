@@ -183,6 +183,9 @@ textarea {
   min-height: 0;
 }
 .tab-pane.active { display: block; }
+/* The comments tab is a column: the filter row stays put and the list below it scrolls,
+   so the buttons are in reach however far down the reviewer is. */
+#tab-comments.active { display: flex; flex-direction: column; overflow: hidden; }
 
 .placeholder {
   color: var(--fg-dim);
@@ -221,6 +224,9 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 .cmt {
   border: 1px solid var(--border);
