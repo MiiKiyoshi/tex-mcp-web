@@ -69,7 +69,12 @@ def wait_until(check, timeout: float = 30.0):
 
 @pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
 def test_browser_comment_actions(tmp_path: Path) -> None:
+    import fitz
+
     (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
+    with fitz.open() as pdf:
+        pdf.new_page().insert_text((72, 72), "Hello world.")
+        pdf.save(tmp_path / "paper.pdf")
     port = available_port()
     config_path = tmp_path / ".tex-mcp-web.yaml"
     config_path.write_text(
@@ -112,6 +117,32 @@ def test_browser_comment_actions(tmp_path: Path) -> None:
         ''')
         wait_until(lambda: browser.execute_script(
             f'return document.querySelector("[data-comment-id=\\"{cid}\\"] .cmt-edit") !== null'))
+
+        wait_until(lambda: browser.execute_script('''
+          const viewer = document.querySelector("embedpdf-container");
+          return viewer && !viewer.dispatchEvent(new KeyboardEvent("keydown", {
+            key: "c", metaKey: true, bubbles: true, cancelable: true, composed: true,
+          }));
+        '''))
+        assert browser.execute_script('''
+          const text = document.querySelector(".thread-text");
+          const range = document.createRange();
+          range.selectNodeContents(text);
+          const selection = window.getSelection();
+          selection.removeAllRanges();
+          selection.addRange(range);
+          const allowed = (target, modifier) => target.dispatchEvent(new KeyboardEvent(
+            "keydown", { key: "c", [modifier]: true, bubbles: true,
+              cancelable: true, composed: true }));
+          const result = {
+            selected: selection.toString(),
+            mac: allowed(text, "metaKey"),
+            ctrl: allowed(document.body, "ctrlKey"),
+          };
+          selection.removeAllRanges();
+          result.pdf = allowed(document.querySelector("embedpdf-container"), "metaKey");
+          return result;
+        ''') == {"selected": "typo herre", "mac": True, "ctrl": True, "pdf": False}
 
         browser.execute_script(f'''
           const findCard = () => Array.from(document.querySelectorAll("[data-comment-id]"))
