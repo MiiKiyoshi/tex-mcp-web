@@ -303,7 +303,10 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             "at its source location, or where its quote is. Then compile() once, unless "
             "auto_compile is true. Reply in the thread with what changed and the edited "
             "ranges in edits; do not resolve, the reviewer does that from the page. image() "
-            "only when a rendered check is needed before replying. Then call wait_review() "
+            "only when a rendered check is needed before replying. "
+            "After replying in the review thread, do not repeat the same reply in chat; use chat for "
+            "blockers, questions, or other context that needs a separate answer. "
+            "Then call wait_review() "
             "and follow its client-specific instructions to run the script and receive events. "
             "On [review], call list_comments(unanswered=True) and repeat."
         ),
