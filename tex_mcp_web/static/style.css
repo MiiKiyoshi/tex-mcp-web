@@ -121,6 +121,9 @@ textarea {
 
 /* ----- pdf ----- */
 #pdf-viewer { width: 100%; height: 100%; }
+/* The active tool's ring is 1px outside its button, and the toolbar sits on the top edge of
+   the viewer host, which clips: two pixels of room. */
+#pdf-viewer embedpdf-container { padding-top: 2px; }
 #pdf-viewer * { overscroll-behavior-x: none; }
 .hidden { display: none !important; }
 .reference-preview {
@@ -231,6 +234,8 @@ textarea {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  /* Room for the focus ring, 4px wide, which the scroll box would otherwise cut off. */
+  padding: 4px;
 }
 .cmt {
   border: 1px solid var(--border);
