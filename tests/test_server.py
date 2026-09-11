@@ -1115,12 +1115,14 @@ async def test_presses_survive_a_server_restart(client) -> None:
 
 
 @pytest.mark.asyncio
-async def test_wait_review(bound_project, project, monkeypatch):
+@pytest.mark.parametrize("codex", [False, True])
+async def test_wait_review(bound_project, project, monkeypatch, codex):
     """The tool writes the waiter next to the comment store; run against the live review
     server, it prints one line for a press already waiting and acks it."""
     pytest.importorskip("mcp")
     import subprocess
     import time
+    import os
 
     import aiohttp
 
@@ -1140,7 +1142,7 @@ async def test_wait_review(bound_project, project, monkeypatch):
         context.session.client_params.clientInfo.name = name
         selected = json.loads((await mcp.call_tool("wait_review", {}))[0][0].text)
         assert "Monitor" not in selected["how"]
-        assert ("write_stdin" in selected["how"]) == (name == "codex-mcp-client")
+        assert ("codex queue" in selected["how"]) == (name == "codex-mcp-client")
     tool = next(t for t in await mcp.list_tools() if t.name == "wait_review")
     assert "ctx" not in tool.inputSchema["properties"]
     subprocess.run(["sh", "-n", str(script)], check=True)
@@ -1150,8 +1152,26 @@ async def test_wait_review(bound_project, project, monkeypatch):
         async with session.post(f"{base}/review-request") as response:
             assert (await response.json()) == {"calls": 1, "delivered": False}
 
-    waiter = subprocess.Popen(["sh", str(script)], stdout=subprocess.PIPE, text=True)
+    args = []
+    if codex:
+        stub = project / "codex"
+        stub.write_text("#!/bin/sh\n"
+                        '[ "$1" = queue ] && [ "$2" = --thread ] && [ "$3" = test-thread ] && [ "$4" = --message ] || exit 2\n'
+                        '[ -f "$0.ready" ] || { touch "$0.failed"; exit 1; }\n'
+                        'printf "%s\\n" "$5" | tail -n +2\n')
+        stub.chmod(0o755)
+        monkeypatch.setenv("PATH", f"{project}:{os.environ['PATH']}")
+        args = ["--codex", "test-thread"]
+    waiter = subprocess.Popen(["sh", str(script), *args], stdout=subprocess.PIPE, text=True)
     try:
+        if codex:
+            deadline = time.monotonic() + 5
+            while not (project / "codex.failed").exists() and time.monotonic() < deadline:
+                await asyncio.sleep(0.02)
+            assert (project / "codex.failed").exists()
+            state_path = project / ".tex-mcp-web" / "review-state.json"
+            assert json.loads(state_path.read_text())["consumed"] == 0
+            (project / "codex.ready").touch()
         line = waiter.stdout.readline()
         assert line.startswith("[review] reviewer called (press #1)")
         state_path = project / ".tex-mcp-web" / "review-state.json"
