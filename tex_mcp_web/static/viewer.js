@@ -835,7 +835,12 @@ function syncCommentAnnotations() {
   }
   state.annotationCommentById.clear();
   for (const comment of state.comments) {
-    if (comment.status !== "open" || comment.stale) continue;
+    if (comment.status !== "open") continue;
+    // A stale comment's text has moved or gone; what the page still has is the place it
+    // was written at, and a faint mark in the STALE badge's red stands there: it says the
+    // comment was about this much of the page and no closer. Clicking it, or the card,
+    // still lands here.
+    const stale = comment.stale === true;
     const selections = comment.anchor.kind === "text_selection"
       ? [comment.anchor.selection]
       : comment.anchor.kind === "area"
@@ -850,8 +855,8 @@ function syncCommentAnnotations() {
         type: PdfAnnotationSubtype.HIGHLIGHT,
         rect: bboxToRect(selection.bbox),
         segmentRects: selection.rects.map(bboxToRect),
-        opacity: 0.35,
-        strokeColor: "#fbdc00",
+        opacity: stale ? 0.2 : 0.35,
+        strokeColor: stale ? "#b44a43" : "#fbdc00",
         contents: comment.thread[0]?.text ?? "",
         custom: { texWebCommentId: comment.id },
       });
