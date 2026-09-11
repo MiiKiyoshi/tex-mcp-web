@@ -360,6 +360,17 @@ async function responseError(response) {
   }
 }
 
+// Enter writes a new line, as it does in any box of text. What sends it is shift with
+// enter, which keeps the hand on the keyboard, or the command or control key with it.
+function sendOn(input, send) {
+  input.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    if (!(event.shiftKey || event.metaKey || event.ctrlKey) || event.altKey) return;
+    event.preventDefault();
+    send();
+  });
+}
+
 function applyComposeSubmitting(submitting) {
   state.composeSubmitting = submitting;
   const dialog = $("#compose-dialog");
@@ -555,12 +566,7 @@ function renderEntryEditor(commentId, index) {
       alert(`Saved, but comments could not be refreshed: ${error.message}`);
     }
   };
-  textarea.addEventListener("keydown", (event) => {
-    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-      event.preventDefault();
-      save();
-    }
-  });
+  sendOn(textarea, save);
   return h("div", { class: "cmt-form mode-edit" }, textarea,
     h("div", { class: "cmt-form-actions" },
       actionButton("cmt-form-cancel", "Cancel", () => {
@@ -655,11 +661,9 @@ function renderActiveForm(comment) {
     submitButton.textContent = config.label;
     textarea.focus();
   };
+  sendOn(textarea, submit);
   textarea.addEventListener("keydown", (event) => {
-    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-      event.preventDefault();
-      submit();
-    } else if (event.key === "Escape") {
+    if (event.key === "Escape") {
       event.preventDefault();
       state.activeForm = null;
       renderComments();
@@ -1140,6 +1144,9 @@ async function init() {
   $("#compose-form").addEventListener("submit", (event) => {
     submitCompose(event).catch((error) => alert(error.message));
   });
+  for (const box of $$("#compose-form textarea")) {
+    sendOn(box, () => $("#compose-form").requestSubmit());
+  }
   $("#compose-cancel").addEventListener("click", (event) => {
     event.preventDefault();
     $("#compose-dialog").close();
