@@ -923,6 +923,10 @@ class CommentStore:
             comment_id, author, summary, edits=edits, new_status="resolved"
         )
 
+    def reopen(self, comment_id: str, author: Author = "human") -> Comment:
+        """Reopen a closed comment: the status flips, the thread stays as it is."""
+        return self._append_entry(comment_id, author, "", new_status="open")
+
     def resolve_many(
         self,
         resolutions: Iterable[tuple[str, str, list[str]]],

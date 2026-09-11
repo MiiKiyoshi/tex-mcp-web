@@ -91,15 +91,7 @@ textarea {
 #auto-compile-btn:disabled { cursor: wait; }
 #recompile-btn:disabled { cursor: wait; }
 /* The green dot beside Call agent: an agent is parked on wait_review right now. */
-.agent-dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  margin-right: 0.35rem;
-  border-radius: 50%;
-  background: var(--ok);
-  vertical-align: middle;
-}
+.agent-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
 
 /* ----- layout ----- */
 .layout {
@@ -202,20 +194,29 @@ textarea {
 /* ----- comments list ----- */
 .filter-row {
   display: flex;
-  gap: 0.5rem;
+  align-items: center;
+  gap: 0.4rem;
   margin-bottom: 0.5rem;
 }
-.filter-row select,
-.filter-row button {
+.filter-row select {
   padding: 0.25rem 0.5rem;
-  font-size: 0.82rem;
   border: 1px solid var(--border);
   border-radius: 3px;
   background: var(--bg);
 }
-.filter-row button:hover { background: var(--accent-soft); }
-/* The select at the left edge, Call agent at the right. */
-#call-agent-btn { margin-left: auto; }
+.icon-btn {
+  flex: none; display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px 6px; font-size: 12px; line-height: 1; white-space: nowrap;
+  border: 1px solid var(--border); border-radius: 3px; background: var(--bg);
+}
+.icon-btn:hover:not(:disabled) { background: var(--accent-soft); }
+/* The select at the left edge, the buttons at the right: the first button takes the room
+   between, so the buttons keep their places whatever the row's width. */
+#fold-all-btn { margin-left: auto; }
+.icon-btn svg { display: block; }
+.icon-btn .count:empty { display: none; }
+.icon-btn:disabled { opacity: .45; }
+.comment-pick { flex: none; margin: 0; width: 14px; height: 14px; cursor: pointer; }
 .comments-list {
   display: flex;
   flex-direction: column;

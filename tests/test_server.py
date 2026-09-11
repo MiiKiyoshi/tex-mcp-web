@@ -251,6 +251,21 @@ async def test_create_source_range_anchor_captures_exact_selector(client):
 
 
 @pytest.mark.asyncio
+async def test_reopen_comment(client):
+    tc, _ = client
+    resp = await tc.post("/comments", json={"anchor": {"kind": "paper"}, "text": "x"})
+    cid = (await resp.json())["id"]
+    await tc.post(f"/comments/{cid}/resolve", json={})
+    resp = await tc.post(f"/comments/{cid}/reopen", json={})
+    assert resp.status == 200
+    assert await resp.json() == {"id": cid, "status": "open"}
+    stored = await (await tc.get(f"/comments/{cid}")).json()
+    assert stored["status"] == "open"
+    assert len(stored["thread"]) == 1  # reopening adds no entry
+    assert (await tc.post("/comments/c-00000000/reopen", json={})).status == 404
+
+
+@pytest.mark.asyncio
 async def test_resolve_comment(client):
     tc, _ = client
     # Create
@@ -314,16 +329,6 @@ async def test_closing_without_a_message_leaves_the_thread_alone(client):
     assert stored["status"] == "resolved"
     assert len(stored["thread"]) == 1
 
-
-
-@pytest.mark.asyncio
-async def test_reopen_endpoint_is_gone(client):
-    """v0.5.0 dropped the reopen verb."""
-    tc, _ = client
-    resp = await tc.post("/comments", json={"anchor": {"kind": "paper"}, "text": "x"})
-    cid = (await resp.json())["id"]
-    resp = await tc.post(f"/comments/{cid}/reopen", json={})
-    assert resp.status == 404  # route doesn't exist
 
 
 @pytest.mark.asyncio

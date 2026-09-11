@@ -23,6 +23,7 @@ const state = {
   errors: [],
   warnings: [],
   expanded: new Set(),
+  picked: new Set(),
   activeForm: null,
   editingEntry: null,
   focusedCommentId: null,
@@ -455,11 +456,100 @@ function renderComments() {
     }
   }
   updateCommentCount();
+  renderPickedActions();
+  renderFoldAction();
+}
+
+// What the picked comments can be sent to, which is decided by the state they are in:
+// open ones close, closed ones reopen. Both buttons show a count, so a mixed pick says
+// exactly what each press will touch.
+function renderPickedActions() {
+  const picked = state.comments.filter((comment) => state.picked.has(comment.id));
+  const open = picked.filter((comment) => comment.status === "open").map((comment) => comment.id);
+  const closed = picked.filter((comment) => comment.status !== "open").map((comment) => comment.id);
+  const shown = state.comments.length;
+  const all = $("#pick-all-btn");
+  all.disabled = shown === 0;
+  const clearing = picked.length === shown && shown > 0;
+  all.querySelector(".icon-select").classList.toggle("hidden", clearing);
+  all.querySelector(".icon-clear").classList.toggle("hidden", !clearing);
+  all.setAttribute("aria-label", clearing ? "Clear" : "Select all");
+  all.title = clearing ? "Let go of every picked comment" : "Pick every comment in this view";
+  // A button with nothing to do stays in place, greyed out: buttons that came and went
+  // moved everything beside them. The count shows only when there is one.
+  const resolve = $("#resolve-picked-btn");
+  resolve.disabled = open.length === 0;
+  resolve.querySelector(".count").textContent = open.length > 0 ? String(open.length) : "";
+  resolve.setAttribute("aria-label", open.length > 0 ? `Resolve ${open.length}` : "Resolve");
+  resolve.dataset.ids = open.join(" ");
+  const reopen = $("#reopen-picked-btn");
+  reopen.disabled = closed.length === 0;
+  reopen.querySelector(".count").textContent = closed.length > 0 ? String(closed.length) : "";
+  reopen.setAttribute("aria-label", closed.length > 0 ? `Reopen ${closed.length}` : "Reopen");
+  reopen.dataset.ids = closed.join(" ");
+}
+
+// Every card in the view opened, or every one closed: which of the two the button does
+// is read off the cards, so it always offers the one that changes something.
+function renderFoldAction() {
+  const shown = state.comments.map((comment) => comment.id);
+  const button = $("#fold-all-btn");
+  button.disabled = shown.length === 0;
+  const folding = shown.length > 0 && shown.every((id) => state.expanded.has(id));
+  button.querySelector(".icon-expand").classList.toggle("hidden", folding);
+  button.querySelector(".icon-collapse").classList.toggle("hidden", !folding);
+  button.setAttribute("aria-label", folding ? "Collapse all" : "Expand all");
+  button.title = folding ? "Close every comment in this view" : "Open every comment in this view";
+}
+
+function foldAll() {
+  const shown = state.comments.map((comment) => comment.id);
+  const allOpen = shown.every((id) => state.expanded.has(id));
+  for (const id of shown) {
+    if (allOpen) state.expanded.delete(id);
+    else state.expanded.add(id);
+  }
+  renderComments();
+}
+
+function pickAll() {
+  const shown = state.comments.map((comment) => comment.id);
+  const already = shown.every((id) => state.picked.has(id));
+  for (const id of shown) {
+    if (already) state.picked.delete(id);
+    else state.picked.add(id);
+  }
+  renderComments();
+}
+
+// Closing is one call per comment with an empty summary: the thread already holds what
+// was said. Reopening flips the status back and adds nothing.
+async function setPickedStatus(ids, status) {
+  const action = status === "open" ? "reopen" : "resolve";
+  for (const id of ids) {
+    const response = await fetch(`/comments/${id}/${action}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(action === "resolve" ? { summary: "" } : {}),
+    });
+    if (!response.ok) throw new Error(await responseError(response));
+    state.picked.delete(id);
+  }
+  await refreshComments();
 }
 
 function renderCommentItem(comment) {
   const expanded = state.expanded.has(comment.id);
   const replies = comment.thread.length - 1;
+  const box = h("input", { class: "comment-pick", type: "checkbox", title: "Pick this comment" });
+  box.checked = state.picked.has(comment.id);
+  // The box sits in the head, which opens the card: picking is not opening.
+  box.addEventListener("click", (event) => event.stopPropagation());
+  box.addEventListener("change", () => {
+    if (box.checked) state.picked.add(comment.id);
+    else state.picked.delete(comment.id);
+    renderPickedActions();
+  });
   const head = h("div", {
     class: "cmt-head",
     title: expanded ? "collapse" : "expand thread",
@@ -470,6 +560,7 @@ function renderCommentItem(comment) {
       renderComments();
     },
   },
+  box,
   h("span", {
     class: "cmt-toggle",
     text: expanded ? "▾" : replies > 0 ? `▸ ${replies} repl${replies > 1 ? "ies" : "y"}` : "▸",
@@ -972,7 +1063,7 @@ async function callAgent() {
     word.textContent = "Failed";
     console.error(error);
   } finally {
-    setTimeout(() => { word.textContent = "Call agent"; button.disabled = false; }, 2000);
+    setTimeout(() => { word.textContent = ""; button.disabled = false; }, 2000);
   }
 }
 
@@ -1139,6 +1230,24 @@ async function init() {
   $("#auto-compile-btn").addEventListener("click", () => toggleAutoCompile());
   $("#recompile-btn").addEventListener("click", () => recompile());
   $("#call-agent-btn").addEventListener("click", () => callAgent());
+  $("#fold-all-btn").addEventListener("click", foldAll);
+  $("#pick-all-btn").addEventListener("click", pickAll);
+  // The buttons carry the ids they were drawn with, so a press acts on what its label counted.
+  for (const [id, status] of [["#resolve-picked-btn", "resolved"], ["#reopen-picked-btn", "open"]]) {
+    $(id).addEventListener("click", async () => {
+      const button = $(id);
+      const ids = button.dataset.ids ? button.dataset.ids.split(" ") : [];
+      if (ids.length === 0) return;
+      button.disabled = true;
+      try {
+        await setPickedStatus(ids, status);
+      } catch (error) {
+        alert(`Could not save: ${error.message}`);
+      } finally {
+        button.disabled = false;
+      }
+    });
+  }
   $("#paper-comment-btn").addEventListener("click", () =>
     openCompose({ kind: "paper" }, "Paper-level comment"));
   $("#compose-form").addEventListener("submit", (event) => {
