@@ -205,12 +205,17 @@ textarea {
   gap: 0.5rem;
   margin-bottom: 0.5rem;
 }
-.filter-row select {
+.filter-row select,
+.filter-row button {
   padding: 0.25rem 0.5rem;
+  font-size: 0.82rem;
   border: 1px solid var(--border);
   border-radius: 3px;
   background: var(--bg);
 }
+.filter-row button:hover { background: var(--accent-soft); }
+/* The select at the left edge, Call agent at the right. */
+#call-agent-btn { margin-left: auto; }
 .comments-list {
   display: flex;
   flex-direction: column;
