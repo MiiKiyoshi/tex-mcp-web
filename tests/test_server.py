@@ -566,6 +566,8 @@ async def test_mcp_contract_is_typed_and_nonduplicative(tmp_path: Path):
     assert "list_comments(unanswered=True)" in mcp.instructions
     assert "read_comments(comment_ids=[...])" in mcp.instructions
     assert "compile() once" in mcp.instructions
+    assert "without asking for a second fix instruction" in mcp.instructions
+    assert "Explicit read-only, discussion-only, and separate-permission limits still control" in mcp.instructions
     compile_description = " ".join((tools["compile"].description or "").split())
     assert "paper().auto_compile" in compile_description
     assert "watcher owns compilation" in compile_description
