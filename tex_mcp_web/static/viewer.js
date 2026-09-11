@@ -425,7 +425,17 @@ async function refreshComments() {
   const response = await fetch(url);
   if (!response.ok) throw new Error(await responseError(response));
   const data = await response.json();
-  state.comments = data.comments;
+  // The open view keeps the order the comments were written in, which is the order the
+  // paper reads in. The resolved view leads with the comment closed last, the one the
+  // reader has just closed and looks for. The mixed view leads with the one written
+  // last, by when it was written and not by when it was last touched: closing a comment
+  // touches it, so by that measure every closed comment stood above every open one.
+  const moment = status === "resolved"
+    ? (comment) => comment.resolved ?? comment.created
+    : (comment) => comment.created;
+  state.comments = status === "open" ? data.comments
+    : [...data.comments].sort((first, second) => (moment(first) < moment(second) ? 1
+      : moment(first) > moment(second) ? -1 : 0));
   renderComments();
   syncCommentAnnotations();
 }
