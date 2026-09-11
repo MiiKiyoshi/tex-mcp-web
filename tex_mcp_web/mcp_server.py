@@ -1,13 +1,16 @@
 """MCP server for tex-mcp-web v0.7.0.
 
-Exposes 6 tools to agents via stdio:
+Exposes tools to agents via stdio:
 
-    paper()                 paper state (sections and compact comments)
+    paper()                 paper state, sections, and comment counts
+    list_comments(...)      latest requests without thread history
+    read_comments(ids)      selected comment details
     compile()               recompile, return structured errors
     comment(action, ...)    add/reply/delete
     image(...)              render a PDF page or exact region
     section(name)           section source, comments, and optional image
     goto(target)            scroll the viewer to a target
+    wait_review()           instructions for receiving review events
 
 The MCP process owns the review server: the first tool call starts it in a
 background thread, and a peer process bound to the same project shares that
@@ -21,6 +24,7 @@ import asyncio
 import json
 import re
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -290,26 +294,25 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
     mcp = FastMCP(
         "tex-mcp-web",
         instructions=(
-            "Call paper() first: main file, auto_compile, open comments. If no config is "
+            "Call paper() first: main file, auto_compile, sections, comment counts. If no config is "
             "found, write .tex-mcp-web.yaml in the session folder with main: <top-level .tex>, "
-            "and dir: <folder> when the paper lives elsewhere. For each comment, edit the TeX "
+            "and dir: <folder> when the paper lives elsewhere. Read requests with "
+            "list_comments(unanswered=True), then read_comments(comment_ids=[...]) for the "
+            "source, quote and history you need. Reuse those details until a new request arrives. "
+            "For each comment, edit the TeX "
             "at its source location, or where its quote is. Then compile() once, unless "
             "auto_compile is true. Reply in the thread with what changed and the edited "
             "ranges in edits; do not resolve, the reviewer does that from the page. image() "
             "only when a rendered check is needed before replying. Then call wait_review() "
             "and follow its client-specific instructions to run the script and receive events. "
-            "On [review], read comments with paper() and repeat."
+            "On [review], call list_comments(unanswered=True) and repeat."
         ),
     )
 
     @mcp.tool()
-    async def paper(
-        include_comments: bool = True,
-        comments_status: Literal["open", "resolved", "all"] = "open",
-    ) -> str:
+    async def paper() -> str:
         """Return the main file, automatic compilation mode, PDF path, section
-        source ranges, and optionally comments filtered by status. Other TeX
-        structure is intentionally omitted.
+        source ranges, and comment counts without comment text or threads.
         """
         from .config import get_main_file
         from .server import structure_to_dict
@@ -331,15 +334,64 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                 "path": str(pdf_path),
             },
         }
-        if include_comments:
-            if comments_status not in {"open", "resolved", "all"}:
-                return _err(
-                    "comments_status must be open, resolved, or all"
-                )
-            s = None if comments_status == "all" else comments_status
-            comments = store.list(status=s)  # type: ignore[arg-type]
-            result["comments"] = [_agent_comment_to_dict(c) for c in comments]
+        comments = store.list()
+        result["comment_counts"] = {
+            "open": sum(c.status == "open" for c in comments),
+            "resolved": sum(c.status == "resolved" for c in comments),
+            "unanswered": sum(c.status == "open" and c.thread[-1].author == "human" for c in comments),
+        }
         return _ok(result)
+
+    @mcp.tool()
+    async def list_comments(
+        status: Literal["open", "resolved", "all"] = "open",
+        unanswered: Annotated[bool, Field(description="Only threads whose latest entry is human, including a new request after an agent reply.")] = False,
+        since: Annotated[datetime | None, Field(description="Only requests with last_human_at strictly after this ISO 8601 time; pass the largest last_human_at already handled. Times without an offset use UTC.")] = None,
+    ) -> str:
+        """List latest requests and thread sizes without source anchors or reply history.
+
+        Use read_comments for selected details. last_human_at is null for
+        threads created by an agent with no human entry.
+        """
+        _, _, store = _load_project()
+        if since is not None and since.tzinfo is None:
+            since = since.replace(tzinfo=timezone.utc)
+        summaries = []
+        for comment in store.list(status=None if status == "all" else status):
+            if unanswered and comment.thread[-1].author != "human":
+                continue
+            human = next((entry for entry in reversed(comment.thread) if entry.author == "human"), None)
+            if since is not None:
+                if human is None:
+                    continue
+                at = datetime.fromisoformat(human.at)
+                if at.tzinfo is None:
+                    at = at.replace(tzinfo=timezone.utc)
+                if at <= since:
+                    continue
+            summaries.append({
+                "id": comment.id,
+                "status": comment.status,
+                "kind": comment.anchor.kind,
+                "request": (human if human is not None else comment.thread[0]).text,
+                "thread_entries": len(comment.thread),
+                "last_human_at": human.at if human is not None else None,
+            })
+        return _ok({"comments": summaries})
+
+    @mcp.tool()
+    async def read_comments(comment_ids: Annotated[list[str], Field(min_length=1)]) -> str:
+        """Read source locations, quotes, suggestions and reply history for selected IDs only."""
+        if len(set(comment_ids)) != len(comment_ids):
+            return _err("comment_ids must be unique")
+        _, _, store = _load_project()
+        comments = []
+        for comment_id in comment_ids:
+            comment = store.get(comment_id)
+            if comment is None:
+                return _err(f"comment not found: {comment_id}")
+            comments.append(_agent_comment_to_dict(comment))
+        return _ok({"comments": comments})
 
     @mcp.tool()
     async def compile() -> str:
@@ -711,7 +763,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             "how": (
                 _wait_method(ctx)
                 + " Start another copy only after the previous process has ended. "
-                "On [review], read paper() and handle the review. "
+                "On [review], call list_comments(unanswered=True) and handle the review. "
                 "[gone] means the review server is unreachable; the script keeps retrying. "
                 "[back] means it is reachable again."
             ),
