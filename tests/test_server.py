@@ -251,6 +251,20 @@ async def test_create_source_range_anchor_captures_exact_selector(client):
 
 
 @pytest.mark.asyncio
+async def test_resolving_stamps_the_comment_and_reopening_clears_it(client):
+    tc, _ = client
+    first = (await (await tc.post("/comments", json={"anchor": {"kind": "paper"}, "text": "a"})).json())["id"]
+    second = (await (await tc.post("/comments", json={"anchor": {"kind": "paper"}, "text": "b"})).json())["id"]
+    assert "resolved" not in await (await tc.get(f"/comments/{first}")).json()
+    await tc.post(f"/comments/{first}/resolve", json={})
+    await tc.post(f"/comments/{second}/resolve", json={})
+    stamps = {c["id"]: c["resolved"] for c in (await (await tc.get("/comments?status=resolved")).json())["comments"]}
+    assert stamps[first] <= stamps[second]
+    await tc.post(f"/comments/{second}/reopen", json={})
+    assert "resolved" not in await (await tc.get(f"/comments/{second}")).json()
+
+
+@pytest.mark.asyncio
 async def test_reopen_comment(client):
     tc, _ = client
     resp = await tc.post("/comments", json={"anchor": {"kind": "paper"}, "text": "x"})

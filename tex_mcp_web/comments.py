@@ -388,6 +388,8 @@ class Comment:
     suggestion: SuggestedEdit | None = None
     created: str = field(default_factory=_now)
     updated: str = field(default_factory=_now)
+    # When the comment was last closed; None while it is open.
+    resolved: str | None = None
     stale: bool = False
 
     @property
@@ -404,6 +406,8 @@ class Comment:
             "created": self.created,
             "updated": self.updated,
         }
+        if self.resolved is not None:
+            d["resolved"] = self.resolved
         if self.resolved_source is not None:
             d["resolved_source"] = self.resolved_source.to_dict()
         if self.source_selector is not None:
@@ -438,6 +442,7 @@ class Comment:
             ),
             created=str(d["created"]),
             updated=str(d["updated"]),
+            resolved=str(d["resolved"]) if "resolved" in d else None,
             stale=bool(d["stale"]) if "stale" in d else False,
         )
 
@@ -889,13 +894,15 @@ class CommentStore:
             comments = self._all()
             for i, c in enumerate(comments):
                 if c.id == comment_id:
+                    now = _now()
                     if text.strip() or edits:
                         c.thread.append(
-                            ThreadEntry(author=author, at=_now(), text=text, edits=list(edits or []))
+                            ThreadEntry(author=author, at=now, text=text, edits=list(edits or []))
                         )
                     if new_status is not None:
                         c.status = new_status
-                    c.updated = _now()
+                        c.resolved = now if new_status == "resolved" else None
+                    c.updated = now
                     comments[i] = c
                     self._save(comments)
                     return c
