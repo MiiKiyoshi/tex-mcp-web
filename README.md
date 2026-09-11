@@ -97,6 +97,8 @@ Drag over PDF text and write a comment; add a suggested wording in the replaceme
 
 The agent reads them, edits the source, compiles, and replies in each thread. Resolving is yours: pick the threads whose edit satisfies you and resolve them from the page, or reopen one the agent got wrong. If an edit misses, reply in the same thread.
 
+Over MCP, `paper()` returns paper state, section locations, and comment counts. `list_comments(unanswered=True)` returns the latest requests awaiting an agent reply; `read_comments(comment_ids=[...])` supplies source locations and conversation history only for the selected threads. To read requests after a time already handled, use `list_comments(since=...)` with the largest `last_human_at` handled so far.
+
 Or press **Call agent** in the topbar. The first time, ask the agent to wait for the reviewer: it calls `wait_review()` and parks a background waiter that wakes it on every press, so from then on you stay in the PDF and never type in the terminal. A green dot beside the button shows an agent is parked; a press with no agent parked is kept and answers the next wait.
 
 ## Several papers at once
