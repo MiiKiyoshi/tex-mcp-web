@@ -185,6 +185,12 @@ async function initializePdfViewer(pdfView) {
       height: 16px !important;
       width: 16px !important;
     }
+    /* While a selection is being dragged, existing highlights take no pointer events:
+       their hit boxes are excluded from interaction, so a drag that reached one never
+       saw the pointer come up and followed the mouse until it left the box. */
+    :host([data-tex-selecting]) [data-no-interaction] * {
+      pointer-events: none !important;
+    }
   `;
   state.viewer.shadowRoot.appendChild(viewerStyle);
   state.viewer.shadowRoot.addEventListener("pointerdown", (event) => {
@@ -198,6 +204,8 @@ async function initializePdfViewer(pdfView) {
   const ui = registry.getPlugin("ui").provides();
 
   state.selection = selectionCapability.forDocument(DOCUMENT_ID);
+  state.selection.onBeginSelection(() => state.viewer.setAttribute("data-tex-selecting", ""));
+  state.selection.onEndSelection(() => state.viewer.removeAttribute("data-tex-selecting"));
   state.annotations = annotationCapability.forDocument(DOCUMENT_ID);
   state.scroll = scrollCapability.forDocument(DOCUMENT_ID);
   state.zoom = zoomCapability.forDocument(DOCUMENT_ID);
