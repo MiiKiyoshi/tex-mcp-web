@@ -557,6 +557,7 @@ function renderCommentItem(comment) {
       if (expanded) state.expanded.delete(comment.id);
       else state.expanded.add(comment.id);
       renderComments();
+      jumpToComment(comment.id);
     },
   },
   box,
@@ -585,10 +586,6 @@ function renderCommentItem(comment) {
   return h("div", {
     class: `cmt status-${comment.status}${focused ? " is-focused" : ""}`,
     data: { commentId: comment.id },
-    onclick: (event) => {
-      if (event.target.closest("button, a, textarea, select, input")) return;
-      jumpToComment(comment.id);
-    },
   }, ...children);
 }
 
