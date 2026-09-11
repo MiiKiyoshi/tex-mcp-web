@@ -294,29 +294,6 @@ def test_store_crud(store: CommentStore):
     assert store.get(comment.id) is None
 
 
-def test_store_resolve_many_is_atomic(store: CommentStore, monkeypatch):
-    first = store.add(PaperAnchor(), "first")
-    second = store.add(PaperAnchor(), "second")
-    saves = 0
-    original_save = store._save
-
-    def counted_save(comments):
-        nonlocal saves
-        saves += 1
-        original_save(comments)
-
-    monkeypatch.setattr(store, "_save", counted_save)
-    updated = store.resolve_many([
-        (first.id, "fixed first", ["paper.tex:1"]),
-        (second.id, "fixed second", ["paper.tex:2"]),
-    ])
-
-    assert saves == 1
-    assert [comment.id for comment in updated] == [first.id, second.id]
-    assert all(comment.status == "resolved" for comment in updated)
-    assert updated[0].thread[-1].edits == ["paper.tex:1"]
-
-
 def test_store_closes_without_a_thread_entry_when_no_message_is_given(
     store: CommentStore,
 ):
@@ -330,27 +307,8 @@ def test_store_closes_without_a_thread_entry_when_no_message_is_given(
     assert with_edits.thread[-1].text == ""
     assert with_edits.thread[-1].edits == ["paper.tex:1"]
 
-    batch = store.resolve_many([(comment.id, "", [])])
-    assert batch[0].status == "resolved"
-    assert len(batch[0].thread) == len(with_edits.thread)
-
     with pytest.raises(ValueError, match="empty"):
         store.reply(comment.id, text="   ", author="agent")
-
-
-def test_store_resolve_many_rejects_missing_id_without_writing(
-    store: CommentStore, monkeypatch
-):
-    existing = store.add(PaperAnchor(), "existing")
-    monkeypatch.setattr(store, "_save", lambda comments: pytest.fail("must not write"))
-
-    with pytest.raises(KeyError):
-        store.resolve_many([
-            (existing.id, "fixed", []),
-            ("c-missing", "missing", []),
-        ])
-
-    assert store.get(existing.id).status == "open"
 
 
 def test_store_rejects_old_schema(tmp_path: Path):

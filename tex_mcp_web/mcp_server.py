@@ -4,7 +4,7 @@ Exposes 6 tools to agents via stdio:
 
     paper()                 paper state (sections and compact comments)
     compile()               recompile, return structured errors
-    comment(action, ...)    add/reply/resolve/delete
+    comment(action, ...)    add/reply/delete
     image(...)              render a PDF page or exact region
     section(name)           section source, comments, and optional image
     goto(target)            scroll the viewer to a target
@@ -108,28 +108,6 @@ def _load_project():
     watch_dir = get_watch_dir(cfg)
     store = CommentStore(watch_dir / ".tex-mcp-web" / "comments.json")
     return cfg, watch_dir, store
-
-
-RESOLUTION_HEAD = re.compile(r"^(c-[0-9a-f]{8}):[ \t]*", re.MULTILINE)
-
-
-def parse_resolutions(text: str) -> list[tuple[str, str]]:
-    """A batch of resolutions written as one text: each starts at a line head with its
-    comment id and a colon, the summary after it optional, and runs to the next head.
-    Only a line head starts one, so a colon in a summary is just a colon."""
-    heads = list(RESOLUTION_HEAD.finditer(text))
-    if not heads:
-        raise ValueError("resolutions_text holds no resolution: each starts at a line head with '<comment_id>:'")
-    if text[:heads[0].start()].strip():
-        raise ValueError("resolutions_text has text before the first '<comment_id>:' line head")
-    batch: list[tuple[str, str]] = []
-    for index, head in enumerate(heads):
-        end = heads[index + 1].start() if index + 1 < len(heads) else len(text)
-        batch.append((head.group(1), text[head.end():end].strip()))
-    ids = [comment_id for comment_id, _ in batch]
-    if len(set(ids)) != len(ids):
-        raise ValueError("each comment appears at most once in resolutions_text")
-    return batch
 
 
 def _err(message: str) -> str:
@@ -287,22 +265,15 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
     mcp = FastMCP(
         "tex-mcp-web",
         instructions=(
-            "Read the open queue and auto_compile mode with paper(). The paper is the one "
-            "named by .tex-mcp-web.yaml, found upward from the session folder; when the "
-            "paper lives in another folder, a config in the session folder with "
-            "dir: <that folder> serves it there, so the session never has to move. Use a "
-            "comment's source location when present; otherwise locate its quote "
-            "in the TeX source. After all source edits, call compile() once when "
-            "auto_compile is false; when it is true, the watcher owns compilation. "
-            "Use image() only for rendered evidence before resolving the comment. "
-            "After handing a revision over, call wait_review() and do what its result "
-            "says; the waiter it returns is started once and serves every press of the "
-            "session. When the reviewer tells you to wait, in any words, that is this: "
-            "start the waiter if it is not running and end the turn. Presses made while "
-            "nobody waits are kept, presses that pile up coalesce into one wake-up, and a "
-            "wake-up can repeat if its delivery could not be confirmed, so treat one as "
-            "'there is something to read', not as a count. Waiting costs no tokens, so "
-            "prefer it to polling."
+            "Call paper() first: main file, auto_compile, open comments. If no config is "
+            "found, write .tex-mcp-web.yaml in the session folder with main: <top-level .tex>, "
+            "and dir: <folder> when the paper lives elsewhere. For each comment, edit the TeX "
+            "at its source location, or where its quote is. Then compile() once, unless "
+            "auto_compile is true. Reply in the thread with what changed and the edited "
+            "ranges in edits; do not resolve, the reviewer does that from the page. image() "
+            "only when a rendered check is needed before replying. Then call wait_review() "
+            "and run its script once as a persistent background monitor: each line it prints "
+            "means new comments, so read them with paper() and repeat."
         ),
     )
 
@@ -372,29 +343,24 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
 
     @mcp.tool()
     async def comment(
-        action: Literal["add", "reply", "resolve", "delete"],
+        action: Literal["add", "reply", "delete"],
         id: str | None = None,
         text: str | None = None,
         anchor: CommentAnchorInput | None = None,
         edits: list[str] | None = None,
         suggestion_old: str | None = None,
         suggestion_new: str | None = None,
-        resolutions_text: Annotated[str | None, Field(description=(
-            "The batch as one text: each resolution starts at a line head with its comment id "
-            "and a colon ('c-1a2b3c4d: summary', the summary optional) and runs to the next such "
-            "line head. Written as prose, as it is."))] = None,
     ) -> str:
         """Mutate a comment.
 
         ``add`` requires text and anchor; ``reply`` requires id and text;
-        ``resolve`` requires resolutions_text, one thread or many; ``delete``
-        requires id. A summary in a resolution is optional and unnecessary
-        when replies or ``edits`` already record the outcome. ``suggestion_old``
-        and ``suggestion_new`` together are an add-only rewrite, while
-        ``edits`` records changed source ranges; ``edits`` given with
-        ``resolve`` is recorded on every thread resolved. Prose arrives in
-        these top-level strings and nowhere inside a list or an object, which
-        an agent serializes by hand and, by habit, as escapes.
+        ``delete`` requires id. A reply says what changed, with ``edits``
+        naming the changed source ranges; the thread stays open, and the
+        reviewer resolves it from the page. An agent does not resolve.
+        ``suggestion_old`` and ``suggestion_new`` together are an add-only
+        rewrite. Prose arrives in these top-level strings and nowhere inside
+        a list or an object, which an agent serializes by hand and, by habit,
+        as escapes.
         """
         cfg, watch_dir, store = _load_project()
         try:
@@ -411,23 +377,6 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                     return _err("reply requires id and text")
                 updated = store.reply(id, text=text, author="agent", edits=edits or [])
                 return _ok(_agent_comment_to_dict(updated))
-            if action == "resolve":
-                if not resolutions_text:
-                    return _err("resolve requires resolutions_text")
-                try:
-                    batch = parse_resolutions(resolutions_text)
-                except ValueError as error:
-                    return _err(str(error))
-                updated = store.resolve_many(
-                    [(comment_id, summary, edits or []) for comment_id, summary in batch],
-                    author="agent",
-                )
-                return _ok({
-                    "resolved": [
-                        {"id": item.id, "status": item.status}
-                        for item in updated
-                    ]
-                })
             if action == "delete":
                 if not id:
                     return _err("delete requires id")

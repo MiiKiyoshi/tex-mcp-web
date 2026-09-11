@@ -676,7 +676,12 @@ function actionButtons(comment) {
       mutateAndRefresh(comment.id, "delete", null);
     }
   });
-  if (comment.status !== "open") return [deleteButton];
+  if (comment.status !== "open") {
+    return [
+      actionButton("cmt-reopen", "Reopen", () => mutateAndRefresh(comment.id, "reopen", {})),
+      deleteButton,
+    ];
+  }
   return [
     actionButton("cmt-reply", "Reply", () => setActiveForm(comment.id, "reply")),
     // Closing is one click: the thread already holds what was said, so an empty

@@ -549,24 +549,17 @@ async def test_mcp_contract_is_typed_and_nonduplicative(tmp_path: Path):
 
     assert set(tools) == {"paper", "compile", "comment", "image", "section", "goto", "wait_review"}
     assert mcp.instructions == (
-        "Read the open queue and auto_compile mode with paper(). The paper is the one "
-        "named by .tex-mcp-web.yaml, found upward from the session folder; when the "
-        "paper lives in another folder, a config in the session folder with "
-        "dir: <that folder> serves it there, so the session never has to move. Use a "
-        "comment's source location when present; otherwise locate its quote "
-        "in the TeX source. After all source edits, call compile() once when "
-        "auto_compile is false; when it is true, the watcher owns compilation. "
-        "Use image() only for rendered evidence before resolving the comment. "
-        "After handing a revision over, call wait_review() and do what its result "
-        "says; the waiter it returns is started once and serves every press of the "
-        "session. When the reviewer tells you to wait, in any words, that is this: "
-        "start the waiter if it is not running and end the turn. Presses made while "
-        "nobody waits are kept, presses that pile up coalesce into one wake-up, and a "
-        "wake-up can repeat if its delivery could not be confirmed, so treat one as "
-        "'there is something to read', not as a count. Waiting costs no tokens, so "
-        "prefer it to polling."
+        "Call paper() first: main file, auto_compile, open comments. If no config is "
+        "found, write .tex-mcp-web.yaml in the session folder with main: <top-level .tex>, "
+        "and dir: <folder> when the paper lives elsewhere. For each comment, edit the TeX "
+        "at its source location, or where its quote is. Then compile() once, unless "
+        "auto_compile is true. Reply in the thread with what changed and the edited "
+        "ranges in edits; do not resolve, the reviewer does that from the page. image() "
+        "only when a rendered check is needed before replying. Then call wait_review() "
+        "and run its script once as a persistent background monitor: each line it prints "
+        "means new comments, so read them with paper() and repeat."
     )
-    assert "call compile() once" in mcp.instructions
+    assert "compile() once" in mcp.instructions
     compile_description = " ".join((tools["compile"].description or "").split())
     assert "paper().auto_compile" in compile_description
     assert "watcher owns compilation" in compile_description
@@ -583,7 +576,7 @@ async def test_mcp_contract_is_typed_and_nonduplicative(tmp_path: Path):
 
     comment_schema = tools["comment"].inputSchema
     assert comment_schema["properties"]["action"]["enum"] == [
-        "add", "reply", "resolve", "delete"
+        "add", "reply", "delete"
     ]
     anchor_schema = comment_schema["properties"]["anchor"]["anyOf"][0]
     assert set(anchor_schema["discriminator"]["mapping"]) == {
@@ -598,23 +591,6 @@ async def test_mcp_contract_is_typed_and_nonduplicative(tmp_path: Path):
     assert image_schema["margin"]["minimum"] == 0
 
     assert set(tools["goto"].inputSchema["properties"]) == {"target"}
-
-
-def test_resolutions_are_one_text_with_a_comment_id_at_each_line_head():
-    """A batch written as a list of objects had its summaries serialized by hand and, by
-    habit, as \\uXXXX escapes; a top-level string is written as it is."""
-    from tex_mcp_web.mcp_server import parse_resolutions
-
-    assert parse_resolutions(
-        "c-1a2b3c4d: 첫 문장을 고쳤습니다: 콜론 포함.\n\nc-5e6f7a8b:\nc-9c0d1e2f: last one\n"
-    ) == [("c-1a2b3c4d", "첫 문장을 고쳤습니다: 콜론 포함."), ("c-5e6f7a8b", ""), ("c-9c0d1e2f", "last one")]
-    for bad, why in (
-        ("just prose", "no resolution"),
-        ("prose\nc-1a2b3c4d: then", "before the first"),
-        ("c-1a2b3c4d: one\nc-1a2b3c4d: twice", "at most once"),
-    ):
-        with pytest.raises(ValueError, match=why):
-            parse_resolutions(bad)
 
 
 def _free_port() -> int:
@@ -710,53 +686,6 @@ async def test_mcp_comment_and_section_runtime_contract(bound_project, project):
         },
     )
     second = json.loads(second_added[0][0].text)
-    resolved = await mcp.call_tool(
-        "comment",
-        {
-            "action": "resolve",
-            "resolutions_text": f"{comment['id']}: fixed first\n{second['id']}: fixed second\n",
-        },
-    )
-    assert json.loads(resolved[0][0].text) == {
-        "resolved": [
-            {"id": comment["id"], "status": "resolved"},
-            {"id": second["id"], "status": "resolved"},
-        ]
-    }
-
-    third_added = await mcp.call_tool(
-        "comment",
-        {
-            "action": "add",
-            "text": "review third",
-            "anchor": {"kind": "paper"},
-        },
-    )
-    third = json.loads(third_added[0][0].text)
-    single = await mcp.call_tool(
-        "comment",
-        {
-            "action": "resolve",
-            "resolutions_text": f"{third['id']}: fixed third",
-        },
-    )
-    assert json.loads(single[0][0].text) == {
-        "resolved": [{"id": third["id"], "status": "resolved"}],
-    }
-
-    silent_added = await mcp.call_tool(
-        "comment",
-        {"action": "add", "text": "review fourth", "anchor": {"kind": "paper"}},
-    )
-    silent = json.loads(silent_added[0][0].text)
-    # A resolution with no summary is the id and its colon alone.
-    closed = await mcp.call_tool("comment", {"action": "resolve", "resolutions_text": f"{silent['id']}:"})
-    assert json.loads(closed[0][0].text) == {"resolved": [{"id": silent["id"], "status": "resolved"}]}
-    stored = json.loads((project / ".tex-mcp-web" / "comments.json").read_text())
-    silent_stored = next(c for c in stored["comments"] if c["id"] == silent["id"])
-    assert silent_stored["status"] == "resolved"
-    assert len(silent_stored["thread"]) == 1
-
     section = await mcp.call_tool(
         "section", {"name": "Methods", "include_image": True}
     )

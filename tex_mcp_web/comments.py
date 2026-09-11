@@ -927,47 +927,6 @@ class CommentStore:
         """Reopen a closed comment: the status flips, the thread stays as it is."""
         return self._append_entry(comment_id, author, "", new_status="open")
 
-    def resolve_many(
-        self,
-        resolutions: Iterable[tuple[str, str, list[str]]],
-        author: Author = "agent",
-    ) -> list[Comment]:
-        """Resolve a validated batch with one locked read-modify-write cycle."""
-        items = list(resolutions)
-        if not items:
-            raise ValueError("resolve_many requires at least one resolution")
-        ids = [comment_id for comment_id, _, _ in items]
-        if len(set(ids)) != len(ids):
-            raise ValueError("resolve_many comment ids must be unique")
-
-        with self._locked():
-            comments = self._all()
-            indexes = {comment.id: index for index, comment in enumerate(comments)}
-            missing = [comment_id for comment_id in ids if comment_id not in indexes]
-            if missing:
-                raise KeyError(", ".join(missing))
-
-            now = _now()
-            updated: list[Comment] = []
-            for comment_id, summary, edits in items:
-                index = indexes[comment_id]
-                comment = comments[index]
-                if summary.strip() or edits:
-                    comment.thread.append(
-                        ThreadEntry(
-                            author=author,
-                            at=now,
-                            text=summary,
-                            edits=list(edits),
-                        )
-                    )
-                comment.status = "resolved"
-                comment.updated = now
-                comments[index] = comment
-                updated.append(comment)
-            self._save(comments)
-        return updated
-
     def edit_entry(
         self,
         comment_id: str,
