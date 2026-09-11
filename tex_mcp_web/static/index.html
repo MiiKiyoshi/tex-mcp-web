@@ -39,12 +39,33 @@
 
       <div id="tab-comments" class="tab-pane active">
         <div class="filter-row">
-          <select id="comment-filter">
+          <select id="comment-filter" aria-label="Comment status">
             <option value="open" selected>open</option>
             <option value="resolved">resolved</option>
             <option value="all">all</option>
           </select>
-          <button id="call-agent-btn" type="button" title="Wake the agent to read the comments"><span id="agent-waiting-dot" class="agent-dot hidden"></span><span id="call-agent-word">Call agent</span></button>
+          <!-- Icons, with the words as title and aria-label. Each button shows the one drawing
+               that fits its state; a count rides beside the drawing where the action has one.
+               A button with nothing to do is greyed out, not taken away: the row keeps one shape. -->
+          <button id="fold-all-btn" class="icon-btn" type="button" aria-label="Expand all" title="Expand all">
+            <svg class="icon-expand" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4-4 4 4M4 10l4 4 4-4"/></svg>
+            <svg class="icon-collapse hidden" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 2l4 4 4-4M4 14l4-4 4 4"/></svg>
+          </button>
+          <button id="pick-all-btn" class="icon-btn" type="button" aria-label="Select all" title="Select all">
+            <svg class="icon-select" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="2"/><path d="M5 8.5l2 2 4-4"/></svg>
+            <svg class="icon-clear hidden" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="2"/><path d="M5 8h6"/></svg>
+          </button>
+          <button id="resolve-picked-btn" class="icon-btn" type="button" disabled aria-label="Resolve" title="Resolve the picked comments">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M5 8l2 2 4-4"/></svg><span class="count"></span>
+          </button>
+          <button id="reopen-picked-btn" class="icon-btn" type="button" disabled aria-label="Reopen" title="Reopen the picked comments">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.5-3.5"/><path d="M13 3v3h-3"/></svg><span class="count"></span>
+          </button>
+          <button id="call-agent-btn" class="icon-btn" type="button" aria-label="Call agent" title="Wake the agent to read the comments">
+            <span id="agent-waiting-dot" class="agent-dot hidden"></span>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11V7a4 4 0 0 1 8 0v4l1.5 1.5h-11z"/><path d="M6.5 14a1.5 1.5 0 0 0 3 0"/></svg>
+            <span id="call-agent-word" class="count"></span>
+          </button>
         </div>
         <div id="comments-list" class="comments-list"></div>
       </div>

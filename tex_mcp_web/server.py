@@ -282,6 +282,7 @@ class TexMcpWebServer:
         app.router.add_get(r"/comments/{id}", self._handle_get_comment)
         app.router.add_post(r"/comments/{id}/reply", self._handle_reply_comment)
         app.router.add_post(r"/comments/{id}/resolve", self._handle_resolve_comment)
+        app.router.add_post(r"/comments/{id}/reopen", self._handle_reopen_comment)
         app.router.add_post(r"/comments/{id}/edit", self._handle_edit_comment_entry)
         app.router.add_delete(r"/comments/{id}", self._handle_delete_comment)
         app.router.add_get("/synctex/source-to-pdf", self._handle_synctex_forward)
@@ -765,6 +766,14 @@ class TexMcpWebServer:
                 edits=data.get("edits") or [],
                 author="human",
             ),
+            acknowledge_only=True,
+        )
+
+    async def _handle_reopen_comment(self, request: web.Request) -> web.Response:
+        cid = request.match_info["id"]
+        return await self._mutate_comment(
+            cid,
+            lambda: self.comments.reopen(cid, author="human"),
             acknowledge_only=True,
         )
 
