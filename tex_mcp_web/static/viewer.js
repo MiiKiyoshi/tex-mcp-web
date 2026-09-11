@@ -185,9 +185,6 @@ async function initializePdfViewer(pdfView) {
       height: 16px !important;
       width: 16px !important;
     }
-    /* While a selection is being dragged, existing highlights take no pointer events:
-       their hit boxes are excluded from interaction, so a drag that reached one never
-       saw the pointer come up and followed the mouse until it left the box. */
     :host([data-tex-selecting]) [data-no-interaction] * {
       pointer-events: none !important;
     }
@@ -206,6 +203,31 @@ async function initializePdfViewer(pdfView) {
   state.selection = selectionCapability.forDocument(DOCUMENT_ID);
   state.selection.onBeginSelection(() => state.viewer.setAttribute("data-tex-selecting", ""));
   state.selection.onEndSelection(() => state.viewer.removeAttribute("data-tex-selecting"));
+  const root = state.viewer.shadowRoot;
+  let highlightPress = null;
+  root.addEventListener("pointerdown", (event) => {
+    if (!event.isTrusted || event.button !== 0 || !event.target.closest("[data-no-interaction]")) return;
+    highlightPress = { target: event.target, x: event.clientX, y: event.clientY, dragged: false };
+    state.viewer.setAttribute("data-tex-selecting", "");
+    const underneath = root.elementFromPoint(event.clientX, event.clientY);
+    event.stopImmediatePropagation();
+    underneath.dispatchEvent(new PointerEvent("pointerdown", event));
+  }, { capture: true });
+  root.addEventListener("pointermove", (event) => {
+    if (highlightPress && Math.hypot(event.clientX - highlightPress.x, event.clientY - highlightPress.y) >= 3) {
+      highlightPress.dragged = true;
+    }
+  }, { capture: true });
+  root.addEventListener("pointerup", (event) => {
+    const press = highlightPress;
+    highlightPress = null;
+    if (press && !press.dragged) press.target.dispatchEvent(new PointerEvent("pointerdown", event));
+    queueMicrotask(() => state.viewer.removeAttribute("data-tex-selecting"));
+  }, { capture: true });
+  root.addEventListener("pointercancel", () => {
+    highlightPress = null;
+    state.viewer.removeAttribute("data-tex-selecting");
+  }, { capture: true });
   state.annotations = annotationCapability.forDocument(DOCUMENT_ID);
   state.scroll = scrollCapability.forDocument(DOCUMENT_ID);
   state.zoom = zoomCapability.forDocument(DOCUMENT_ID);
