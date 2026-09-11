@@ -1213,6 +1213,16 @@ function focusComment(comment) {
 }
 
 function attachKeyboardNavigation() {
+  // EmbedPDF handles copy on document. Keep native sidebar selections out of that handler.
+  document.addEventListener("keydown", (event) => {
+    if (!(event.metaKey || event.ctrlKey) || event.altKey || event.key.toLowerCase() !== "c") return;
+    const selection = window.getSelection();
+    const sidebar = $("#sidebar");
+    if (selection && !selection.isCollapsed
+      && sidebar.contains(selection.anchorNode) && sidebar.contains(selection.focusNode)) {
+      event.stopImmediatePropagation();
+    }
+  }, { capture: true });
   document.addEventListener("keydown", (event) => {
     const tag = event.target.tagName.toUpperCase();
     if (["TEXTAREA", "INPUT", "SELECT"].includes(tag)) return;
