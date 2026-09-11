@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 
 try:
-    from mcp.server.fastmcp import FastMCP
+    from mcp.server.fastmcp import Context, FastMCP
     from mcp.types import ImageContent, TextContent
     from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -260,6 +260,30 @@ def _comment_add(
 # ---------------------------------------------------------------------------
 
 
+def _wait_method(ctx: "Context") -> str:
+    name = ctx.session.client_params.clientInfo.name.casefold()
+    if "claude" in name:
+        return (
+            "Run the script with Monitor(command=<script>, persistent=true, "
+            "timeout_ms=3600000), then end the turn. Keep the monitor for subsequent events."
+        )
+    if "codex" in name:
+        return (
+            "Run the script path, quoted for the shell, with exec_command. Retain its "
+            "session_id and read output with write_stdin using empty chars. Keep the turn "
+            "active while waiting; if a read returns no output, wait again on the same "
+            "session. Do not send a final answer expecting background output to start a "
+            "new turn. After handling an event, resume waiting on the same process."
+        )
+    return (
+        "Run the script with your shell tool and read its output. If the tool returns a "
+        "running session, retain it and use the tool that reads subsequent output. Keep "
+        "the turn active while waiting unless your client explicitly supports resuming "
+        "a completed turn from background output. After handling an event, resume "
+        "waiting on the same process."
+    )
+
+
 def create_server(binding: "ProjectBinding") -> "FastMCP":
     _check_deps()
     mcp = FastMCP(
@@ -272,8 +296,8 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             "auto_compile is true. Reply in the thread with what changed and the edited "
             "ranges in edits; do not resolve, the reviewer does that from the page. image() "
             "only when a rendered check is needed before replying. Then call wait_review() "
-            "and run its script once as a persistent background monitor: each line it prints "
-            "means new comments, so read them with paper() and repeat."
+            "and follow its client-specific instructions to run the script and receive events. "
+            "On [review], read comments with paper() and repeat."
         ),
     )
 
@@ -617,14 +641,11 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             return _err(f"review server request failed: {exc}")
 
     @mcp.tool()
-    async def wait_review() -> str:
-        """Return at once with a waiter script for the reviewer's Call agent button.
-        Start that script once as a persistent background monitor (Claude Code:
-        Monitor with persistent=true) and end the turn; it prints one line each
-        time the reviewer presses the button, at once if a press is already
-        waiting, and keeps waiting for the next, so each line is a wake-up and
-        the script is never started again. Being told to wait, in any words,
-        means this. Costs nothing while waiting.
+    async def wait_review(ctx: Context) -> str:
+        """Return a script and client-specific instructions for waiting on Call agent.
+
+        Run the returned script using the how field, selected for the connected
+        client. Reuse the process after handling each review event.
         """
         _, watch_dir, _ = _load_project()
         port = binding.require_shared().port
@@ -671,14 +692,11 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         return _ok({
             "script": str(target),
             "how": (
-                "Run the script once with the harness's persistent background monitor and end the turn: on "
-                "Claude Code, Monitor(command=<script>, description='waiting for the reviewer', "
-                "persistent=true, timeout_ms=3600000). It waits silently as long as it takes and prints "
-                "one line per press without exiting: [review] means comments are ready, so continue with "
-                "paper() and leave the monitor running for the next press. [gone] means the review "
-                "server is unreachable and the script keeps trying, [back] that it answered again; "
-                "neither needs anything from you. Without a background facility, running it with a "
-                "shell tool blocks until the button is pressed."
+                _wait_method(ctx)
+                + " Start another copy only after the previous process has ended. "
+                "On [review], read paper() and handle the review. "
+                "[gone] means the review server is unreachable; the script keeps retrying. "
+                "[back] means it is reachable again."
             ),
         })
 

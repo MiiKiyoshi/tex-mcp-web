@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import fitz
@@ -570,8 +571,8 @@ async def test_mcp_contract_is_typed_and_nonduplicative(tmp_path: Path):
         "auto_compile is true. Reply in the thread with what changed and the edited "
         "ranges in edits; do not resolve, the reviewer does that from the page. image() "
         "only when a rendered check is needed before replying. Then call wait_review() "
-        "and run its script once as a persistent background monitor: each line it prints "
-        "means new comments, so read them with paper() and repeat."
+        "and follow its client-specific instructions to run the script and receive events. "
+        "On [review], read comments with paper() and repeat."
     )
     assert "compile() once" in mcp.instructions
     compile_description = " ".join((tools["compile"].description or "").split())
@@ -1114,7 +1115,7 @@ async def test_presses_survive_a_server_restart(client) -> None:
 
 
 @pytest.mark.asyncio
-async def test_wait_review_writes_a_waiter_that_prints_a_press_and_acks_it(bound_project, project):
+async def test_wait_review(bound_project, project, monkeypatch):
     """The tool writes the waiter next to the comment store; run against the live review
     server, it prints one line for a press already waiting and acks it."""
     pytest.importorskip("mcp")
@@ -1126,11 +1127,22 @@ async def test_wait_review_writes_a_waiter_that_prints_a_press_and_acks_it(bound
     from tex_mcp_web.mcp_server import create_server
 
     mcp = create_server(bound_project)
+    context = SimpleNamespace(session=SimpleNamespace(client_params=SimpleNamespace(
+        clientInfo=SimpleNamespace(name="claude-code"))))
+    monkeypatch.setattr(mcp, "get_context", lambda: context)
     result = json.loads((await mcp.call_tool("wait_review", {}))[0][0].text)
     script = Path(result["script"])
     assert script == project / ".tex-mcp-web" / "wait-review.sh"
     assert script.stat().st_mode & 0o111
     assert "Monitor" in result["how"]
+    assert "write_stdin" not in result["how"]
+    for name in ("codex-mcp-client", "other-client"):
+        context.session.client_params.clientInfo.name = name
+        selected = json.loads((await mcp.call_tool("wait_review", {}))[0][0].text)
+        assert "Monitor" not in selected["how"]
+        assert ("write_stdin" in selected["how"]) == (name == "codex-mcp-client")
+    tool = next(t for t in await mcp.list_tools() if t.name == "wait_review")
+    assert "ctx" not in tool.inputSchema["properties"]
     subprocess.run(["sh", "-n", str(script)], check=True)
 
     base = bound_project.base_url()
