@@ -424,8 +424,7 @@ async function refreshComments() {
 
 function renderComments() {
   const list = $("#comments-list");
-  const pane = $("#tab-comments");
-  const scrollTop = pane.scrollTop;
+  const scrollTop = list.scrollTop;
   const activeInput = document.activeElement?.classList.contains("cmt-form-input")
     ? document.activeElement
     : null;
@@ -439,7 +438,7 @@ function renderComments() {
   clear(list);
   if (state.comments.length === 0) list.appendChild(placeholder("No comments at this filter."));
   else for (const comment of state.comments) list.appendChild(renderCommentItem(comment));
-  pane.scrollTop = scrollTop;
+  list.scrollTop = scrollTop;
   if (inputState?.commentId) {
     const commentNode = Array.from(list.children).find(
       (node) => node.dataset.commentId === inputState.commentId,
