@@ -237,9 +237,7 @@ textarea {
   border-radius: 4px;
   padding: 0.5rem;
   background: var(--bg);
-  cursor: pointer;
 }
-.cmt textarea { cursor: text; }
 .cmt.status-resolved .cmt-status { color: var(--ok); }
 .cmt.is-focused {
   /* j/k keyboard focus indicator */
