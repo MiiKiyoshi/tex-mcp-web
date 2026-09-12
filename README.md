@@ -89,6 +89,8 @@ The source, the PDF, and the comment store then stay under `../my-paper`; the pr
 
 Start Claude Code or Codex from the paper directory (or a subdirectory) and ask the agent to call `paper()`. The review page opens at the configured port, or the `review_url` that `paper()` reports.
 
+At the start of every new MCP connection, including after a client or server restart, the agent calls `wait_review()` once and starts the returned script exactly once using its instructions. It does not poll, start a duplicate, or assume an earlier waiter survived. An unacknowledged **Call agent** press stays queued and wakes the reconnected waiter.
+
 ## Use it
 
 Drag over PDF text and write a comment; add a suggested wording in the replacement box when you have one. Use **+ Note** for a whole-paper comment and the **Sections** tab for a section comment. Then ask the agent in plain language:
@@ -99,7 +101,7 @@ The agent reads them, edits the source, compiles, and replies in each thread. Re
 
 Over MCP, `paper()` returns paper state, section locations, and comment counts. `list_comments(unanswered=True)` returns the latest requests awaiting an agent reply; `read_comments(comment_ids=[...])` supplies source locations and conversation history only for the selected threads. To read requests after a time already handled, use `list_comments(since=...)` with the largest `last_human_at` handled so far.
 
-Or press **Call agent** in the topbar. The first time, ask the agent to wait for the reviewer: it calls `wait_review()` and parks a background waiter that wakes it on every press, so from then on you stay in the PDF and never type in the terminal. A green dot beside the button shows an agent is parked; a press with no agent parked is kept and answers the next wait.
+Or press **Call agent** in the topbar to wake the connection's waiter. A green dot beside the button shows a waiter is parked; a press with no waiter parked stays queued and answers the next connection's wait.
 
 ## Several papers at once
 

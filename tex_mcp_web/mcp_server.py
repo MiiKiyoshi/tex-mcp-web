@@ -273,8 +273,10 @@ def _wait_method(ctx: "Context") -> str:
         )
     if "codex" in name:
         return (
-            'Run sh <quoted-script-path> --codex "$CODEX_THREAD_ID" with exec_command '
-            "and a short yield_time_ms. Once running, end the turn; do not poll. "
+            'Run sh <quoted-script-path> --codex "$CODEX_THREAD_ID" with '
+            'exec_command(yield_time_ms=1000, sandbox_permissions="require_escalated", '
+            'justification="Allow the TeX review waiter to deliver events to this Codex thread?"). '
+            "Once running, end the turn; do not poll. "
             "The script uses codex queue to deliver events as labeled user messages, "
             "including while idle. Delivery may take about 10 seconds. "
             "Requires codex queue on PATH and CODEX_THREAD_ID in the agent shell. "
@@ -310,8 +312,8 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             "discussion-only, and separate-permission limits still control. "
             "After replying in the review thread, do not repeat the same reply in chat; use chat for "
             "blockers, questions, or other context that needs a separate answer. "
-            "Then call wait_review() "
-            "and follow its client-specific instructions to run the script and receive events. "
+            "Each new MCP connection or restart calls wait_review() once and runs its script exactly "
+            "once. Do not poll or duplicate it; unacknowledged presses stay queued. "
             "On [review], call list_comments(unanswered=True) and repeat."
         ),
     )
