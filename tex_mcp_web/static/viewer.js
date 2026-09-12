@@ -28,6 +28,8 @@ const state = {
   editingEntry: null,
   focusedCommentId: null,
   annotationCommentById: new Map(),
+  annotationObserver: null,
+  badgeFrame: null,
   referencePreviewRequest: 0,
   lastViewerPointer: null,
   appliedCompileTimestamp: null,
@@ -98,6 +100,10 @@ function capturePdfView() {
 }
 
 async function initializePdfViewer(pdfView) {
+  state.annotationObserver?.disconnect();
+  state.annotationObserver = null;
+  if (state.badgeFrame !== null) cancelAnimationFrame(state.badgeFrame);
+  state.badgeFrame = null;
   clearGotoHighlight();
   hideReferencePreview();
   const host = $("#pdf-viewer");
@@ -188,6 +194,27 @@ async function initializePdfViewer(pdfView) {
     :host([data-tex-selecting]) [data-no-interaction] * {
       pointer-events: none !important;
     }
+    .tex-comment-badge {
+      position: absolute;
+      min-width: 18px;
+      height: 18px;
+      padding: 0 4px;
+      border: 1px solid #8b7413;
+      border-radius: 9px;
+      color: #302900;
+      background: #ffe77a;
+      font: 11px/16px system-ui, sans-serif;
+      text-align: center;
+      transform-origin: top left;
+      pointer-events: auto;
+      cursor: pointer;
+      z-index: 2;
+    }
+    .tex-comment-badge.stale {
+      border-style: dashed;
+      color: #6d6650;
+      background: #f6f1e2;
+    }
   `;
   state.viewer.shadowRoot.appendChild(viewerStyle);
   state.viewer.shadowRoot.addEventListener("pointerdown", (event) => {
@@ -206,6 +233,7 @@ async function initializePdfViewer(pdfView) {
   const root = state.viewer.shadowRoot;
   let highlightPress = null;
   root.addEventListener("pointerdown", (event) => {
+    if (event.target.closest(".tex-comment-badge")) return;
     if (!event.isTrusted || event.button !== 0 || !event.target.closest("[data-no-interaction]")) return;
     highlightPress = { target: event.target, x: event.clientX, y: event.clientY, dragged: false };
     state.viewer.setAttribute("data-tex-selecting", "");
@@ -228,6 +256,23 @@ async function initializePdfViewer(pdfView) {
     highlightPress = null;
     state.viewer.removeAttribute("data-tex-selecting");
   }, { capture: true });
+  state.annotationObserver = new MutationObserver((records) => {
+    const onlyOwnedChanges = records.every((record) => {
+      if (record.type === "attributes") {
+        return record.target.classList.contains("tex-comment-badge")
+          || record.target.classList.contains("tex-comment-segment");
+      }
+      return [...record.addedNodes, ...record.removedNodes].every((node) =>
+        node.nodeType === Node.ELEMENT_NODE && node.classList.contains("tex-comment-badge"));
+    });
+    if (!onlyOwnedChanges) scheduleCommentBadges();
+  });
+  state.annotationObserver.observe(root, {
+    attributes: true,
+    attributeFilter: ["class", "style"],
+    childList: true,
+    subtree: true,
+  });
   state.annotations = annotationCapability.forDocument(DOCUMENT_ID);
   state.scroll = scrollCapability.forDocument(DOCUMENT_ID);
   state.zoom = zoomCapability.forDocument(DOCUMENT_ID);
@@ -868,6 +913,113 @@ function annotationId(commentId, page) {
   return `${ANNOTATION_PREFIX}${commentId}:p${page}`;
 }
 
+function commentBadgePlans() {
+  let number = 0;
+  const plans = new Map();
+  for (const comment of state.comments) {
+    if (comment.status !== "open") continue;
+    const selection = comment.anchor.kind === "text_selection"
+      ? comment.anchor.selection
+      : comment.anchor.kind === "area"
+        ? { page: comment.anchor.page, rects: [comment.anchor.bbox] }
+        : null;
+    if (selection === null) continue;
+    number += 1;
+    const pagePlans = plans.get(selection.page) ?? [];
+    pagePlans.push({
+      comment,
+      number,
+      segments: selection.rects.length,
+    });
+    plans.set(selection.page, pagePlans);
+  }
+  return plans;
+}
+
+function annotationPage(layer) {
+  let row = layer;
+  while (row.parentElement !== null) {
+    const parent = row.parentElement;
+    if (getComputedStyle(row).display === "flex"
+      && getComputedStyle(parent).flexDirection === "column") {
+      return Array.from(parent.children).indexOf(row) + 1;
+    }
+    row = parent;
+  }
+  return null;
+}
+
+function commentSegments(layer) {
+  return Array.from(layer.querySelectorAll("div")).filter((node) =>
+    node.classList.contains("tex-comment-segment")
+      || (node.style.position === "absolute"
+        && node.style.zIndex === "1"
+        && node.style.cursor === "pointer"
+        && (node.style.opacity === "0.2" || node.style.opacity === "0.35")));
+}
+
+function syncCommentBadges() {
+  state.badgeFrame = null;
+  if (!state.viewer) return;
+  const plans = commentBadgePlans();
+  const pageOffsets = new Map();
+  const shown = new Set();
+  for (const layer of state.viewer.shadowRoot.querySelectorAll("[data-no-interaction]")) {
+    const segments = commentSegments(layer);
+    if (segments.length === 0) continue;
+    const page = annotationPage(layer);
+    const pagePlans = plans.get(page);
+    const offset = pageOffsets.get(page) ?? 0;
+    const plan = pagePlans?.[offset];
+    pageOffsets.set(page, offset + 1);
+    if (plan === undefined || segments.length < plan.segments) continue;
+    const frame = segments[0]?.parentElement?.parentElement;
+    for (const segment of segments.slice(0, plan.segments)) {
+      segment.classList.add("tex-comment-segment");
+      segment.style.pointerEvents = "none";
+      segment.style.cursor = "text";
+    }
+    if (!frame) continue;
+    shown.add(plan.comment.id);
+    let badge = layer.querySelector(
+      `.tex-comment-badge[data-comment-id="${CSS.escape(plan.comment.id)}"]`,
+    );
+    if (badge === null) {
+      badge = document.createElement("button");
+      badge.type = "button";
+      badge.className = "tex-comment-badge";
+      badge.dataset.commentId = plan.comment.id;
+      badge.addEventListener("click", (event) => {
+        event.stopPropagation();
+        setSidebarCollapsed(false);
+        switchTab("comments");
+        const comment = state.comments.find((item) => item.id === plan.comment.id);
+        if (comment) focusComment(comment);
+      });
+      layer.appendChild(badge);
+    }
+    badge.classList.toggle("stale", plan.comment.stale === true);
+    if (badge.textContent !== String(plan.number)) badge.textContent = String(plan.number);
+    badge.title = plan.comment.thread[0]?.text ?? "";
+    badge.setAttribute("aria-label", `Open comment ${plan.number}`);
+    const localWidth = parseFloat(frame.style.width);
+    const scale = localWidth > 0 ? frame.getBoundingClientRect().width / localWidth : 1;
+    badge.style.left = `${Math.max(0, parseFloat(frame.style.left) - 20 / scale)}px`;
+    badge.style.top = `${Math.max(0, parseFloat(frame.style.top) - 1 / scale)}px`;
+    badge.style.transform = `scale(${1 / scale})`;
+  }
+  for (const badge of state.viewer.shadowRoot.querySelectorAll(".tex-comment-badge")) {
+    if (!shown.has(badge.dataset.commentId)) badge.remove();
+  }
+}
+
+function scheduleCommentBadges() {
+  if (state.badgeFrame !== null) return;
+  state.badgeFrame = requestAnimationFrame(() => {
+    state.badgeFrame = requestAnimationFrame(syncCommentBadges);
+  });
+}
+
 function syncCommentAnnotations() {
   if (!state.annotationsReady || !state.annotations) return;
   for (const tracked of state.annotations.getAnnotations()) {
@@ -904,6 +1056,7 @@ function syncCommentAnnotations() {
       });
     }
   }
+  scheduleCommentBadges();
 }
 
 function renderErrorBanner() {

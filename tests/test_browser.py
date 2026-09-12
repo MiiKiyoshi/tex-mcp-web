@@ -20,6 +20,7 @@ from tex_mcp_web.mcp_client import SharedProjectServer
 
 
 marionette = pytest.importorskip("marionette_driver.marionette")
+from marionette_driver.marionette import ActionSequence
 
 
 PAPER = (
@@ -165,6 +166,169 @@ def test_browser_comment_actions(tmp_path: Path) -> None:
         ''')
         wait_until(lambda: get_json(f"{base}/comments/{cid}")["status"] == "resolved")
         assert len(get_json(f"{base}/comments/{cid}")["thread"]) == 1
+    finally:
+        if browser is not None:
+            try:
+                browser.delete_session()
+            except Exception:
+                pass
+        if browser_process is not None:
+            browser_process.terminate()
+            try:
+                browser_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                browser_process.kill()
+        shutil.rmtree(profile, ignore_errors=True)
+        shared.stop()
+
+
+@pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
+def test_highlight_badges_leave_pdf_text_selectable(tmp_path: Path) -> None:
+    import fitz
+
+    sentence = "The quick brown fox jumps over the lazy dog."
+    (tmp_path / "paper.tex").write_text(
+        "\\documentclass{article}\n\\begin{document}\n"
+        f"{sentence}\n"
+        "\\end{document}\n",
+        encoding="utf-8",
+    )
+    with fitz.open() as pdf:
+        page = pdf.new_page()
+        page.insert_text((72, 72), sentence)
+        selections = [
+            (quote, list(page.search_for(quote)[0]))
+            for quote in ("quick brown fox", "lazy dog")
+        ]
+        pdf.save(tmp_path / "paper.pdf")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(
+        f"main: paper.tex\nauto_compile: false\nport: {port}\n", encoding="utf-8"
+    )
+    shared = SharedProjectServer(load_config(config_path))
+    profile = tempfile.mkdtemp(prefix="tex_mcp_highlight_")
+    marionette_port = available_port()
+    (Path(profile) / "user.js").write_text(
+        f'user_pref("marionette.port", {marionette_port});\n', encoding="utf-8"
+    )
+    browser_process = None
+    browser = None
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        wait_until(lambda: shared.server.pdf_digest is not None)
+        digest = shared.server.pdf_digest
+        ids = []
+        for quote, bbox in selections:
+            comment = post_json(f"{base}/comments", {
+                "anchor": {
+                    "kind": "text_selection",
+                    "quote": quote,
+                    "selection": {"page": 1, "bbox": bbox, "rects": [bbox]},
+                    "pdf_digest": digest,
+                },
+                "text": quote,
+            })
+            ids.append(comment["id"])
+        store_path = tmp_path / ".tex-mcp-web" / "comments.json"
+        stored = json.loads(store_path.read_text(encoding="utf-8"))
+        stored["comments"][1]["stale"] = True
+        store_path.write_text(json.dumps(stored), encoding="utf-8")
+
+        browser_process = subprocess.Popen(
+            ["firefox", "-marionette", "-headless", "-no-remote", "-profile", profile,
+             "about:blank"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        browser = marionette.Marionette(
+            host="127.0.0.1", port=marionette_port, startup_timeout=30
+        )
+        browser.start_session()
+        browser.set_window_rect(x=0, y=0, width=1200, height=800)
+        browser.navigate(base)
+        wait_until(lambda: browser.execute_script('''
+          const root = document.querySelector("embedpdf-container")?.shadowRoot;
+          return root?.querySelectorAll(".tex-comment-badge").length === 2;
+        '''))
+        marks = browser.execute_script('''
+          const root = document.querySelector("embedpdf-container").shadowRoot;
+          return {
+            badges: Array.from(root.querySelectorAll(".tex-comment-badge"))
+              .map((badge) => ({text: badge.textContent, stale: badge.classList.contains("stale")})),
+            pointers: Array.from(root.querySelectorAll(".tex-comment-segment"))
+              .map((segment) => getComputedStyle(segment).pointerEvents),
+            badgeWidth: root.querySelector(".tex-comment-badge").getBoundingClientRect().width,
+            segmentWidth: root.querySelector(".tex-comment-segment").getBoundingClientRect().width,
+          };
+        ''')
+        assert marks["badges"] == [
+            {"text": "1", "stale": False}, {"text": "2", "stale": True},
+        ]
+        assert marks["pointers"] == ["none", "none"]
+        browser.execute_script('''
+          const root = document.querySelector("embedpdf-container").shadowRoot;
+          root.querySelector('button[aria-label="Zoom In"]').click();
+          root.querySelector('button[aria-label="Zoom In"]').click();
+        ''')
+        zoomed = wait_until(lambda: browser.execute_script(f'''
+          const root = document.querySelector("embedpdf-container").shadowRoot;
+          const badge = root.querySelector(".tex-comment-badge");
+          const segment = root.querySelector(".tex-comment-segment");
+          if (!badge || !segment) return false;
+          const badgeWidth = badge.getBoundingClientRect().width;
+          const segmentWidth = segment.getBoundingClientRect().width;
+          return segmentWidth > {marks["segmentWidth"] * 1.1}
+            ? {{badgeWidth, segmentWidth}} : false;
+        '''))
+        assert abs(zoomed["badgeWidth"] - marks["badgeWidth"]) < 0.5
+
+        geometry = browser.execute_script('''
+          const root = document.querySelector("embedpdf-container").shadowRoot;
+          return Array.from(root.querySelectorAll(".tex-comment-segment")).map((segment) => {
+            const rect = segment.getBoundingClientRect();
+            return {left: rect.left, right: rect.right, y: rect.top + rect.height / 2};
+          });
+        ''')
+        first, second = geometry
+        ActionSequence(browser, "pointer", "mouse", {"pointerType": "mouse"}) \
+            .pointer_move(int(first["left"] + 5), int(first["y"])).pointer_down() \
+            .pointer_move(int(first["right"] + 70), int(first["y"])).pointer_up().perform()
+        wait_until(lambda: browser.execute_script('''
+          const root = document.querySelector("embedpdf-container").shadowRoot;
+          return Array.from(root.querySelectorAll("button")).some((button) =>
+            /comment/i.test(button.textContent) && button.getBoundingClientRect().width > 0);
+        '''))
+        ActionSequence(browser, "pointer", "mouse", {"pointerType": "mouse"}) \
+            .pointer_move(int(first["right"] + 250), int(first["y"] + 260)) \
+            .pointer_down().pointer_up() \
+            .perform()
+        wait_until(lambda: browser.execute_script('''
+          const root = document.querySelector("embedpdf-container").shadowRoot;
+          return !Array.from(root.querySelectorAll("button")).some((button) =>
+            /comment/i.test(button.textContent) && button.getBoundingClientRect().width > 0);
+        '''))
+        ActionSequence(browser, "pointer", "mouse", {"pointerType": "mouse"}) \
+            .pointer_move(int(second["left"] - 40), int(second["y"])).pointer_down() \
+            .pointer_move(int(second["left"] - 20), int(second["y"])) \
+            .pointer_move(int(second["left"] + 5), int(second["y"])).pointer_up().perform()
+        wait_until(lambda: browser.execute_script('''
+          const root = document.querySelector("embedpdf-container").shadowRoot;
+          return Array.from(root.querySelectorAll("button")).some((button) =>
+            /comment/i.test(button.textContent) && button.getBoundingClientRect().width > 0);
+        '''))
+
+        browser.execute_script('''
+          document.querySelector(".layout").classList.add("sidebar-collapsed");
+          const root = document.querySelector("embedpdf-container").shadowRoot;
+          root.querySelectorAll(".tex-comment-badge")[1].click();
+        ''')
+        wait_until(lambda: browser.execute_script(f'''
+          return !document.querySelector(".layout").classList.contains("sidebar-collapsed")
+            && document.querySelector('[data-comment-id="{ids[1]}"]').classList.contains("is-focused");
+        '''))
     finally:
         if browser is not None:
             try:
