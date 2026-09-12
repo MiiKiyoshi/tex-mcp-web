@@ -320,19 +320,26 @@ def test_highlight_badges_leave_pdf_text_selectable(tmp_path: Path) -> None:
             /comment/i.test(button.textContent) && button.getBoundingClientRect().width > 0);
         '''))
 
+        def click_badge(index):
+            rect = browser.execute_script(f'''
+              const root = document.querySelector("embedpdf-container").shadowRoot;
+              const rect = root.querySelectorAll(".tex-comment-badge")[{index}]
+                .getBoundingClientRect();
+              return {{x: rect.left + rect.width / 2, y: rect.top + rect.height / 2}};
+            ''')
+            ActionSequence(browser, "pointer", "mouse", {"pointerType": "mouse"}) \
+                .pointer_move(int(rect["x"]), int(rect["y"])) \
+                .pointer_down().pointer_up().perform()
+
         browser.execute_script('''
           document.querySelector(".layout").classList.add("sidebar-collapsed");
-          const root = document.querySelector("embedpdf-container").shadowRoot;
-          root.querySelectorAll(".tex-comment-badge")[1].click();
         ''')
+        click_badge(1)
         wait_until(lambda: browser.execute_script(f'''
           return !document.querySelector(".layout").classList.contains("sidebar-collapsed")
             && document.querySelector('[data-comment-id="{ids[1]}"]').classList.contains("is-focused");
         '''))
-        browser.execute_script('''
-          const root = document.querySelector("embedpdf-container").shadowRoot;
-          root.querySelectorAll(".tex-comment-badge")[1].click();
-        ''')
+        click_badge(1)
         wait_until(lambda: browser.execute_script('''
           return document.querySelector(".layout").classList.contains("sidebar-collapsed");
         '''))

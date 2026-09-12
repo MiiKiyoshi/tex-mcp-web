@@ -989,6 +989,7 @@ function syncCommentBadges() {
       badge.type = "button";
       badge.className = "tex-comment-badge";
       badge.dataset.commentId = plan.comment.id;
+      badge.addEventListener("pointerdown", (event) => event.stopPropagation());
       badge.addEventListener("click", (event) => {
         event.stopPropagation();
         if (!$(".layout").classList.contains("sidebar-collapsed")
