@@ -568,6 +568,8 @@ async def test_mcp_contract_is_typed_and_nonduplicative(tmp_path: Path):
     assert "compile() once" in mcp.instructions
     assert "without asking for a second fix instruction" in mcp.instructions
     assert "Explicit read-only, discussion-only, and separate-permission limits still control" in mcp.instructions
+    for needed in ("new MCP connection", "exactly once", "Do not poll", "stay queued"):
+        assert needed in mcp.instructions, needed
     compile_description = " ".join((tools["compile"].description or "").split())
     assert "paper().auto_compile" in compile_description
     assert "watcher owns compilation" in compile_description
@@ -1203,6 +1205,7 @@ async def test_wait_review(bound_project, project, monkeypatch, codex):
         selected = json.loads((await mcp.call_tool("wait_review", {}))[0][0].text)
         assert "Monitor" not in selected["how"]
         assert ("codex queue" in selected["how"]) == (name == "codex-mcp-client")
+        assert ('sandbox_permissions="require_escalated"' in selected["how"]) == (name == "codex-mcp-client")
     tool = next(t for t in await mcp.list_tools() if t.name == "wait_review")
     assert "ctx" not in tool.inputSchema["properties"]
     subprocess.run(["sh", "-n", str(script)], check=True)
