@@ -991,6 +991,11 @@ function syncCommentBadges() {
       badge.dataset.commentId = plan.comment.id;
       badge.addEventListener("click", (event) => {
         event.stopPropagation();
+        if (!$(".layout").classList.contains("sidebar-collapsed")
+          && state.focusedCommentId === plan.comment.id) {
+          setSidebarCollapsed(true);
+          return;
+        }
         setSidebarCollapsed(false);
         switchTab("comments");
         const comment = state.comments.find((item) => item.id === plan.comment.id);
