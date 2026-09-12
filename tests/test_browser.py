@@ -329,6 +329,13 @@ def test_highlight_badges_leave_pdf_text_selectable(tmp_path: Path) -> None:
           return !document.querySelector(".layout").classList.contains("sidebar-collapsed")
             && document.querySelector('[data-comment-id="{ids[1]}"]').classList.contains("is-focused");
         '''))
+        browser.execute_script('''
+          const root = document.querySelector("embedpdf-container").shadowRoot;
+          root.querySelectorAll(".tex-comment-badge")[1].click();
+        ''')
+        wait_until(lambda: browser.execute_script('''
+          return document.querySelector(".layout").classList.contains("sidebar-collapsed");
+        '''))
     finally:
         if browser is not None:
             try:
