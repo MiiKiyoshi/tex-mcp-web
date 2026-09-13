@@ -7,9 +7,8 @@ Single paper, no workspace abstraction.  Three responsibilities:
 3. Expose a JSON API for comments, paper state, errors, and SyncTeX
    resolution (used by the browser viewer and the MCP server).
 
-There is no editor. The human writes comments; the coding agent edits files
-through its own tools and requests one MCP compile after the edit batch when
-automatic compilation is off.
+The browser also exposes watched UTF-8 source files through a small editor;
+external agent edits and browser saves share the same watcher and compiler.
 """
 
 from __future__ import annotations
@@ -17,8 +16,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import dataclasses
+import hashlib
 import json
 import logging
+import stat
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -56,7 +57,7 @@ from .synctex import (
     selection_to_source_range,
     source_to_page,
 )
-from .watcher import Watcher
+from .watcher import Watcher, is_watched_source
 
 logger = logging.getLogger(__name__)
 
@@ -275,6 +276,9 @@ class TexMcpWebServer:
         app.router.add_get("/ws", self._handle_ws)
         app.router.add_get("/pdf", self._handle_pdf)
         app.router.add_get("/paper", self._handle_paper)
+        app.router.add_get("/sources", self._handle_sources)
+        app.router.add_get("/source", self._handle_source)
+        app.router.add_put("/source", self._handle_save_source)
         app.router.add_post("/compile", self._handle_compile)
         app.router.add_put("/auto-compile", self._handle_auto_compile)
         app.router.add_get("/comments", self._handle_list_comments)
@@ -371,6 +375,15 @@ class TexMcpWebServer:
         return self.last_result
 
     async def on_file_change(self, changed_path: str) -> None:
+        try:
+            path = Path(changed_path).resolve()
+            relative = path.relative_to(self.watch_dir.resolve()).as_posix()
+            revision = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
+            await self.broadcast(
+                {"type": "source_changed", "path": relative, "revision": revision}
+            )
+        except (OSError, ValueError):
+            pass
         if not self.config.auto_compile:
             logger.info("File change (%s); automatic compile is off", changed_path)
             return
@@ -526,6 +539,112 @@ class TexMcpWebServer:
                 "pdf_digest": self.pdf_digest,
                 **structure_to_dict(self.structure, self.watch_dir),
                 "comments": self._comment_summary(),
+            }
+        )
+
+    def _resolve_source_path(self, raw_path: str | None) -> Path:
+        """Resolve an existing editable source file inside the configured paper."""
+        if not raw_path:
+            raise web.HTTPBadRequest(text="path is required")
+        relative = Path(raw_path)
+        if relative.is_absolute() or ".." in relative.parts:
+            raise web.HTTPBadRequest(text="path must be relative to the paper")
+        try:
+            path = (self.watch_dir / relative).resolve(strict=True)
+            path.relative_to(self.watch_dir.resolve())
+        except FileNotFoundError as error:
+            raise web.HTTPNotFound(text=f"source not found: {raw_path}") from error
+        except (OSError, ValueError) as error:
+            raise web.HTTPForbidden(text="source must stay inside the paper") from error
+        if not path.is_file():
+            raise web.HTTPNotFound(text=f"source not found: {raw_path}")
+        if not is_watched_source(
+            path,
+            self.watch_dir,
+            self.config.watch,
+            self.config.ignore,
+        ):
+            raise web.HTTPForbidden(text="source is not included by the watch rules")
+        return path
+
+    @staticmethod
+    def _read_source(path: Path) -> tuple[str, str]:
+        data = path.read_bytes()
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise web.HTTPUnsupportedMediaType(
+                text="source must be UTF-8 text"
+            ) from error
+        return text, hashlib.sha256(data).hexdigest()
+
+    async def _handle_sources(self, request: web.Request) -> web.Response:
+        files: list[str] = []
+        for path in self.watch_dir.rglob("*"):
+            try:
+                resolved = path.resolve(strict=True)
+                relative = resolved.relative_to(self.watch_dir.resolve()).as_posix()
+            except (FileNotFoundError, OSError, ValueError):
+                continue
+            if resolved.is_file() and is_watched_source(
+                resolved,
+                self.watch_dir,
+                self.config.watch,
+                self.config.ignore,
+            ):
+                files.append(relative)
+        return web.json_response({"main_file": self.config.main, "files": sorted(set(files))})
+
+    async def _handle_source(self, request: web.Request) -> web.Response:
+        path = self._resolve_source_path(request.query.get("path"))
+        text, revision = self._read_source(path)
+        return web.json_response(
+            {
+                "path": path.relative_to(self.watch_dir.resolve()).as_posix(),
+                "text": text,
+                "revision": revision,
+            },
+            headers={"Cache-Control": "no-store"},
+        )
+
+    async def _handle_save_source(self, request: web.Request) -> web.Response:
+        path = self._resolve_source_path(request.query.get("path"))
+        data, error = await self._read_json(request)
+        if error is not None:
+            return error
+        if (
+            not isinstance(data, dict)
+            or not isinstance(data.get("text"), str)
+            or not isinstance(data.get("revision"), str)
+        ):
+            return web.json_response(
+                {"error": "text and revision are required"}, status=400
+            )
+
+        _, current_revision = self._read_source(path)
+        if data["revision"] != current_revision:
+            return web.json_response(
+                {"error": "source changed after it was opened", "revision": current_revision},
+                status=409,
+            )
+
+        encoded = data["text"].encode("utf-8")
+        staging_dir = self.watch_dir / ".tex-mcp-web"
+        staging_dir.mkdir(parents=True, exist_ok=True)
+        staging = staging_dir / "source-save.new"
+        mode = stat.S_IMODE(path.stat().st_mode)
+        try:
+            staging.write_bytes(encoded)
+            staging.chmod(mode)
+            staging.replace(path)
+        finally:
+            with contextlib.suppress(FileNotFoundError):
+                staging.unlink()
+        revision = hashlib.sha256(encoded).hexdigest()
+        return web.json_response(
+            {
+                "path": path.relative_to(self.watch_dir.resolve()).as_posix(),
+                "revision": revision,
             }
         )
 

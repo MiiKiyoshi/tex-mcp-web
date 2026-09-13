@@ -4,13 +4,18 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>tex-web</title>
-<link rel="stylesheet" href="/static/style.css?v=comment-submit-state">
+<link rel="stylesheet" href="/static/style.css?v=source-editor">
 </head>
 <body>
 <div id="app">
   <header class="topbar">
     <h1>tex-web</h1>
     <span id="main-file" class="main-file">—</span>
+    <nav class="view-tabs" aria-label="Workspace view">
+      <button class="view-tab active" type="button" data-view="pdf">PDF</button>
+      <button class="view-tab" type="button" data-view="source">Source</button>
+      <button class="view-tab" type="button" data-view="split">Split</button>
+    </nav>
     <span id="compile-status" class="compile-status">idle</span>
     <div class="actions">
       <button id="auto-compile-btn" type="button" aria-pressed="false" title="Compile automatically after source changes">Auto: Off</button>
@@ -20,17 +25,31 @@
     </div>
   </header>
 
-  <main class="layout">
-    <section id="pdf-pane">
-      <div id="pdf-viewer">
-        <p class="placeholder">No PDF yet — waiting for first compile…</p>
-      </div>
-      <div id="reference-preview" class="reference-preview hidden" title="Click to select reference text">
-        <div id="reference-preview-text"></div>
-      </div>
-    </section>
+  <main class="layout view-pdf">
+    <div id="workspace">
+      <section id="pdf-pane">
+        <div id="pdf-viewer">
+          <p class="placeholder">No PDF yet — waiting for first compile…</p>
+        </div>
+        <div id="reference-preview" class="reference-preview hidden" title="Click to select reference text">
+          <div id="reference-preview-text"></div>
+        </div>
+      </section>
+
+      <section id="source-pane" aria-label="Source editor">
+        <div class="source-toolbar">
+          <select id="source-file" aria-label="Source file"></select>
+          <span id="source-status" class="source-status">Open Source to edit</span>
+          <button id="source-reload-btn" type="button" disabled>Reload</button>
+          <button id="source-save-btn" type="button" disabled>Save</button>
+        </div>
+        <div id="source-editor"></div>
+      </section>
+    </div>
 
     <aside id="sidebar">
+      <div id="sidebar-grip" class="sidebar-grip" role="separator" aria-orientation="horizontal"
+           aria-label="Drag to resize the review panel" title="Drag to resize"></div>
       <div class="sidebar-tabs">
         <button class="tab-btn" data-tab="sections">Sections</button>
         <button class="tab-btn active" data-tab="comments">Comments<span id="comments-tab-count" class="tab-count hidden"></span></button>
@@ -100,6 +119,7 @@
   </form>
 </dialog>
 
-    <script type="module" src="/static/viewer.js?v=comment-submit-state"></script>
+    <script src="/static/ace/ace.js?v=1.44.0"></script>
+    <script type="module" src="/static/viewer.js?v=source-editor"></script>
 </body>
 </html>

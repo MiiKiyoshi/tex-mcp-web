@@ -110,9 +110,14 @@ async def test_file_change_respects_auto_compile_mode(project):
         Config(main="paper.tex", config_path=project / ".tex-mcp-web.yaml")
     )
     server.do_compile = AsyncMock()
+    server.broadcast = AsyncMock()
 
     await server.on_file_change(str(project / "paper.tex"))
     server.do_compile.assert_not_awaited()
+    change = server.broadcast.await_args.args[0]
+    assert change["type"] == "source_changed"
+    assert change["path"] == "paper.tex"
+    assert len(change["revision"]) == 64
 
     server.config.auto_compile = True
     await server.on_file_change(str(project / "paper.tex"))
@@ -137,7 +142,76 @@ async def test_root_exposes_auto_compile_control(client):
     html = await (await tc.get("/")).text()
     assert 'id="auto-compile-btn"' in html
     assert "Auto: Off" in html
-    assert "viewer.js?v=comment-submit-state" in html
+    assert [f'data-view="{view}"' in html for view in ("pdf", "source", "split")] == [True] * 3
+    assert "/static/ace/ace.js?v=1.44.0" in html
+    assert "viewer.js?v=source-editor" in html
+
+
+@pytest.mark.asyncio
+async def test_source_api_lists_and_reads_watched_files(client, project):
+    tc, server = client
+    (project / "references.bib").write_text("@book{x}\n", encoding="utf-8")
+    (project / "notes.tmp").write_text("not watched\n", encoding="utf-8")
+    (project / "ignored.tex").write_text("private draft\n", encoding="utf-8")
+    server.config.ignore = ["ignored.tex"]
+
+    listed = await (await tc.get("/sources")).json()
+    assert listed == {"main_file": "paper.tex", "files": ["paper.tex", "references.bib"]}
+
+    response = await tc.get("/source", params={"path": "paper.tex"})
+    assert response.status == 200
+    source = await response.json()
+    assert source["path"] == "paper.tex"
+    assert source["text"] == (project / "paper.tex").read_text(encoding="utf-8")
+    assert len(source["revision"]) == 64
+    assert response.headers["Cache-Control"] == "no-store"
+
+
+@pytest.mark.asyncio
+async def test_source_save_requires_current_revision(client, project):
+    tc, _ = client
+    path = project / "paper.tex"
+    path.chmod(0o640)
+    opened = await (await tc.get("/source", params={"path": "paper.tex"})).json()
+    edited = opened["text"].replace("Some methods.", "Revised methods.")
+
+    response = await tc.put(
+        "/source",
+        params={"path": "paper.tex"},
+        json={"text": edited, "revision": opened["revision"]},
+    )
+    assert response.status == 200
+    saved = await response.json()
+    assert path.read_text(encoding="utf-8") == edited
+    assert saved["revision"] != opened["revision"]
+    assert path.stat().st_mode & 0o777 == 0o640
+
+    path.write_text("external edit\n", encoding="utf-8")
+    stale = await tc.put(
+        "/source",
+        params={"path": "paper.tex"},
+        json={"text": "browser overwrite\n", "revision": saved["revision"]},
+    )
+    assert stale.status == 409
+    assert (await stale.json())["error"] == "source changed after it was opened"
+    assert path.read_text(encoding="utf-8") == "external edit\n"
+
+
+@pytest.mark.asyncio
+async def test_source_api_rejects_outside_ignored_and_non_utf8_files(client, project):
+    tc, server = client
+    outside = project.parent / "outside.tex"
+    outside.write_text("outside\n", encoding="utf-8")
+    (project / "outside-link.tex").symlink_to(outside)
+    (project / "ignored.tex").write_text("ignored\n", encoding="utf-8")
+    (project / "binary.tex").write_bytes(b"\xff")
+    server.config.ignore = ["ignored.tex"]
+
+    assert (await tc.get("/source", params={"path": "../outside.tex"})).status == 400
+    assert (await tc.get("/source", params={"path": "outside-link.tex"})).status == 403
+    assert (await tc.get("/source", params={"path": "ignored.tex"})).status == 403
+    assert (await tc.get("/source", params={"path": "missing.tex"})).status == 404
+    assert (await tc.get("/source", params={"path": "binary.tex"})).status == 415
 
 
 @pytest.mark.asyncio

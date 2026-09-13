@@ -56,6 +56,7 @@ textarea {
 .topbar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 1rem;
   padding: 0.2rem 0.8rem;
   background: var(--bg-elev);
@@ -70,6 +71,26 @@ textarea {
   font-family: var(--mono);
   font-size: 0.82rem;
   color: var(--fg-dim);
+}
+.view-tabs {
+  display: flex;
+  align-self: stretch;
+  margin: -0.2rem 0;
+}
+.topbar .view-tab {
+  min-width: 4rem;
+  padding: 0.2rem 0.65rem;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  color: var(--fg-dim);
+  background: transparent;
+}
+.topbar .view-tab:hover { background: var(--accent-soft); }
+.topbar .view-tab.active {
+  color: var(--fg);
+  border-bottom-color: var(--accent);
+  background: var(--bg);
 }
 .topbar .compile-status {
   margin-left: auto;
@@ -103,10 +124,71 @@ textarea {
   flex: 1;
   min-height: 0;
 }
+#workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+}
 #pdf-pane {
   position: relative;
   overflow: hidden;
   background: var(--bg-pdf);
+}
+#source-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-left: 1px solid var(--border);
+  background: var(--bg-elev);
+}
+.layout.view-pdf #source-pane { display: none; }
+.layout.view-source #pdf-pane { display: none; }
+.layout.view-split #workspace {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+.source-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 34px;
+  padding: 0.3rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+.source-toolbar select {
+  min-width: 12rem;
+  max-width: 50%;
+  padding: 0.2rem 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font: 0.8rem var(--mono);
+}
+.source-toolbar button {
+  padding: 0.2rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg-elev);
+}
+.source-toolbar button:hover:not(:disabled) { background: var(--accent-soft); }
+.source-toolbar button:disabled { cursor: default; opacity: 0.5; }
+.source-status {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fg-dim);
+  font: 0.78rem var(--mono);
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.source-status.dirty { color: var(--warn); }
+.source-status.conflict { color: var(--err); }
+#source-editor {
+  flex: 1;
+  min-height: 0;
+  font-family: var(--mono);
 }
 #sidebar {
   border-left: 1px solid var(--border);
@@ -118,6 +200,67 @@ textarea {
 .layout.sidebar-collapsed { grid-template-columns: 1fr; }
 .layout.sidebar-collapsed #sidebar { display: none; }
 #sidebar-toggle-btn.active { background: var(--accent-soft); }
+
+.sidebar-grip {
+  display: none;
+  flex: 0 0 auto;
+  height: 38px;
+  cursor: row-resize;
+  touch-action: none;
+  border-bottom: 1px solid var(--border);
+}
+.sidebar-grip::before {
+  content: "";
+  display: block;
+  width: 42px;
+  height: 4px;
+  margin: 17px auto 0;
+  border-radius: 2px;
+  background: var(--border);
+}
+
+@media (max-width: 780px) {
+  .layout { grid-template-columns: minmax(0, 1fr) 300px; }
+  .topbar h1 { display: none; }
+}
+
+@media (max-width: 560px), (orientation: portrait) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, var(--tex-mcp-panel-height, 45vh));
+  }
+  .layout.sidebar-collapsed {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) 0;
+  }
+  #sidebar {
+    border-top: 1px solid var(--border);
+    border-left: 0;
+  }
+  .sidebar-grip { display: block; }
+}
+
+@media (max-width: 560px) {
+  .topbar { gap: 0.4rem 0.6rem; padding: 0.3rem 0.5rem; }
+  .topbar .main-file { display: none; }
+  .view-tabs { order: 1; }
+  .topbar .compile-status { order: 2; }
+  .topbar .actions { order: 3; margin-left: auto; flex-wrap: wrap; }
+  .source-toolbar { flex-wrap: wrap; }
+  .source-toolbar select { flex: 1 1 10rem; min-width: 0; max-width: none; }
+  .source-status { order: 2; flex: 1 0 100%; text-align: left; }
+}
+
+@media (max-width: 950px) {
+  .layout.view-split #workspace {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .layout.view-split #source-pane {
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
+}
 
 /* ----- pdf ----- */
 #pdf-viewer { width: 100%; height: 100%; }

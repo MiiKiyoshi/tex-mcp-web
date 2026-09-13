@@ -109,9 +109,45 @@ def test_browser_comment_actions(tmp_path: Path) -> None:
         browser.start_session()
         browser.set_window_rect(x=0, y=0, width=1500, height=1000)
         browser.navigate(base)
-
         wait_until(lambda: browser.execute_script(
             'return document.querySelectorAll("[data-comment-id]").length === 1'))
+
+        browser.execute_script('document.querySelector("[data-view=source]").click()')
+        wait_until(lambda: browser.execute_script(
+            'return document.querySelector(".layout").classList.contains("view-source")'))
+        wait_until(lambda: browser.execute_script(
+            'return Boolean((window.wrappedJSObject || window).ace)'))
+        wait_until(lambda: browser.execute_script('''
+          const page = window.wrappedJSObject || window;
+          const editor = page.ace.edit("source-editor");
+          return editor.getValue().includes("Hello world.")
+            && editor.session.getMode().$id === "ace/mode/latex";
+        '''))
+        assert browser.execute_script('''
+          return [document.querySelector("#source-file").value,
+            getComputedStyle(document.querySelector("#pdf-pane")).display,
+            getComputedStyle(document.querySelector("#source-pane")).display];
+        ''') == ["paper.tex", "none", "flex"]
+        browser.execute_script('''
+          const page = window.wrappedJSObject || window;
+          const editor = page.ace.edit("source-editor");
+          editor.setValue(editor.getValue().replace("Hello world.", "Hello editor."), -1);
+          document.querySelector("#source-save-btn").click();
+        ''')
+        wait_until(lambda: "Hello editor." in (tmp_path / "paper.tex").read_text(encoding="utf-8"))
+        wait_until(lambda: browser.execute_script(
+            'return document.querySelector("#source-status").textContent === "Saved"'))
+
+        browser.execute_script('document.querySelector("[data-view=split]").click()')
+        wait_until(lambda: browser.execute_script('''
+          return document.querySelector(".layout").classList.contains("view-split")
+            && getComputedStyle(document.querySelector("#pdf-pane")).display !== "none"
+            && getComputedStyle(document.querySelector("#source-pane")).display === "flex";
+        '''))
+        browser.execute_script('document.querySelector("[data-view=pdf]").click()')
+        wait_until(lambda: browser.execute_script(
+            'return document.querySelector(".layout").classList.contains("view-pdf")'))
+
         assert browser.execute_script('''
           const button = document.querySelector("#call-agent-btn");
           return [button.classList.contains("agent-offline"), button.disabled,
@@ -194,6 +230,39 @@ def test_browser_comment_actions(tmp_path: Path) -> None:
         ''')
         wait_until(lambda: get_json(f"{base}/comments/{cid}")["status"] == "resolved")
         assert len(get_json(f"{base}/comments/{cid}")["thread"]) == 1
+
+        browser.set_window_rect(width=500, height=900)
+        wait_until(lambda: browser.execute_script("return window.innerWidth <= 560"))
+        mobile = browser.execute_script('''
+          const workspace = document.querySelector("#workspace").getBoundingClientRect();
+          const sidebar = document.querySelector("#sidebar").getBoundingClientRect();
+          const grip = document.querySelector("#sidebar-grip");
+          const topbar = document.querySelector(".topbar");
+          return {workspaceWidth: workspace.width, workspaceBottom: workspace.bottom,
+            sidebarWidth: sidebar.width, sidebarTop: sidebar.top, sidebarHeight: sidebar.height,
+            gripDisplay: getComputedStyle(grip).display,
+            topbarOverflow: topbar.scrollWidth - topbar.clientWidth};
+        ''')
+        assert mobile["sidebarTop"] >= mobile["workspaceBottom"] - 2
+        assert abs(mobile["sidebarWidth"] - mobile["workspaceWidth"]) <= 2
+        assert mobile["gripDisplay"] == "block"
+        assert mobile["topbarOverflow"] <= 1
+
+        grip_box = browser.execute_script('''
+          const box = document.querySelector("#sidebar-grip").getBoundingClientRect();
+          return {x: Math.round(box.left + box.width / 2),
+            y: Math.round(box.top + box.height / 2)};
+        ''')
+        drag = browser.actions.sequence("pointer", "mouse", {"pointerType": "mouse"})
+        drag.pointer_move(grip_box["x"], grip_box["y"]).pointer_down()
+        drag.pointer_move(grip_box["x"], grip_box["y"] - 80, duration=100)
+        drag.pointer_up().perform()
+        wait_until(lambda: browser.execute_script(
+            'return Number(localStorage.getItem("texMcpPanelHeight"))')
+            > mobile["sidebarHeight"] + 40)
+        dragged_height = browser.execute_script(
+            'return document.querySelector("#sidebar").getBoundingClientRect().height')
+        assert dragged_height > mobile["sidebarHeight"] + 40
     finally:
         if browser is not None:
             try:
@@ -349,14 +418,17 @@ def test_highlight_badges_leave_pdf_text_selectable(tmp_path: Path) -> None:
         '''))
 
         def click_badge(index):
-            rect = browser.execute_script(f'''
+            target = wait_until(lambda: browser.execute_script(f'''
               const root = document.querySelector("embedpdf-container").shadowRoot;
-              const rect = root.querySelectorAll(".tex-comment-badge")[{index}]
-                .getBoundingClientRect();
-              return {{x: rect.left + rect.width / 2, y: rect.top + rect.height / 2}};
-            ''')
+              const badge = root.querySelectorAll(".tex-comment-badge")[{index}];
+              const rect = badge.getBoundingClientRect();
+              const x = rect.left + rect.width / 2;
+              const y = rect.top + rect.height / 2;
+              const hit = root.elementFromPoint(x, y);
+              return hit === badge ? {{x, y}} : false;
+            '''))
             ActionSequence(browser, "pointer", "mouse", {"pointerType": "mouse"}) \
-                .pointer_move(int(rect["x"]), int(rect["y"])) \
+                .pointer_move(int(target["x"]), int(target["y"])) \
                 .pointer_down().pointer_up().perform()
 
         browser.execute_script('''
