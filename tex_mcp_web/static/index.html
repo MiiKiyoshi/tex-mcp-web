@@ -61,8 +61,8 @@
           <button id="reopen-picked-btn" class="icon-btn" type="button" disabled aria-label="Reopen" title="Reopen the picked comments">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.5-3.5"/><path d="M13 3v3h-3"/></svg><span class="count"></span>
           </button>
-          <button id="call-agent-btn" class="icon-btn" type="button" aria-label="Call agent" title="Wake the agent to read the comments">
-            <span id="agent-waiting-dot" class="agent-dot hidden"></span>
+          <button id="call-agent-btn" class="icon-btn agent-offline" type="button" aria-label="Queue call for agent" title="Agent is not waiting; queue this call until it reconnects">
+            <span id="agent-waiting-dot" class="agent-dot"></span>
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11V7a4 4 0 0 1 8 0v4l1.5 1.5h-11z"/><path d="M6.5 14a1.5 1.5 0 0 0 3 0"/></svg>
             <span id="call-agent-word" class="count"></span>
           </button>
