@@ -111,6 +111,12 @@ def test_browser_comment_actions(tmp_path: Path) -> None:
         browser.navigate(base)
         wait_until(lambda: browser.execute_script(
             'return document.querySelectorAll("[data-comment-id]").length === 1'))
+        pdf_zoom = wait_until(lambda: browser.execute_script('''
+          const input = document.querySelector("embedpdf-container")?.shadowRoot
+            ?.querySelector('input[name="zoom"]');
+          const value = Number(input?.value);
+          return value > 0 ? value : false;
+        '''))
 
         browser.execute_script('document.querySelector("[data-view=source]").click()')
         wait_until(lambda: browser.execute_script(
@@ -131,6 +137,39 @@ def test_browser_comment_actions(tmp_path: Path) -> None:
         browser.execute_script('''
           const page = window.wrappedJSObject || window;
           const editor = page.ace.edit("source-editor");
+          const Range = page.ace.require("ace/range").Range;
+          editor.selection.setRange(new Range(3, 0, 3, 12));
+          document.querySelector("#source-comment-btn").click();
+        ''')
+        wait_until(lambda: browser.execute_script(
+            'return document.querySelector("#compose-dialog").open'))
+        assert browser.execute_script('''
+          return [document.querySelector("#compose-anchor").textContent,
+            document.querySelector("#compose-suggestion-old").value];
+        ''') == ["Source: paper.tex:4-4", "Hello world."]
+        browser.execute_script('''
+          const input = document.querySelector("#compose-text");
+          input.value = "Clarify this source sentence.";
+          input.dispatchEvent(new Event("input", {bubbles: true}));
+          document.querySelector("#compose-form").requestSubmit();
+        ''')
+        source_comment = wait_until(lambda: next(
+            (item for item in get_json(f"{base}/comments")["comments"]
+             if item["anchor"]["kind"] == "source_range"),
+            None,
+        ))
+        source_cid = source_comment["id"]
+        assert source_comment["anchor"] == {
+            "kind": "source_range", "file": "paper.tex", "line_start": 4, "line_end": 4,
+        }
+        assert source_comment["source_selector"]["exact"] == "Hello world."
+        wait_until(lambda: browser.execute_script('''
+          return document.querySelectorAll("#source-editor .source-comment-highlight").length === 1
+            && document.querySelectorAll("#source-editor .source-comment-line").length === 1;
+        '''))
+        browser.execute_script('''
+          const page = window.wrappedJSObject || window;
+          const editor = page.ace.edit("source-editor");
           editor.setValue(editor.getValue().replace("Hello world.", "Hello editor."), -1);
           document.querySelector("#source-save-btn").click();
         ''')
@@ -143,6 +182,26 @@ def test_browser_comment_actions(tmp_path: Path) -> None:
           return document.querySelector(".layout").classList.contains("view-split")
             && getComputedStyle(document.querySelector("#pdf-pane")).display !== "none"
             && getComputedStyle(document.querySelector("#source-pane")).display === "flex";
+        '''))
+        split_zoom = wait_until(lambda: browser.execute_script('''
+          const input = document.querySelector("embedpdf-container")?.shadowRoot
+            ?.querySelector('input[name="zoom"]');
+          const value = Number(input?.value);
+          return value > 0 && value < arguments[0] ? value : false;
+        ''', script_args=[pdf_zoom]))
+        assert split_zoom < pdf_zoom
+        browser.execute_script('document.querySelector("[data-view=pdf]").click()')
+        wait_until(lambda: browser.execute_script(
+            'return document.querySelector(".layout").classList.contains("view-pdf")'))
+        browser.execute_script(f'''
+          const card = Array.from(document.querySelectorAll("[data-comment-id]"))
+            .find((node) => node.dataset.commentId === "{source_cid}");
+          card.querySelector(".cmt-preview, .cmt-id").click();
+        ''')
+        wait_until(lambda: browser.execute_script('''
+          const page = window.wrappedJSObject || window;
+          return document.querySelector(".layout").classList.contains("view-source")
+            && page.ace.edit("source-editor").getCursorPosition().row === 3;
         '''))
         browser.execute_script('document.querySelector("[data-view=pdf]").click()')
         wait_until(lambda: browser.execute_script(
