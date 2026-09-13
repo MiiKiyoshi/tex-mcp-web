@@ -190,6 +190,23 @@ textarea {
   min-height: 0;
   font-family: var(--mono);
 }
+#source-editor .ace_marker-layer .source-comment-highlight {
+  position: absolute;
+  background: rgba(252, 220, 0, 0.24);
+}
+#source-editor .ace_gutter-cell.source-comment-line::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  border: 1px solid #b69600;
+  border-radius: 50%;
+  background: #fbdc00;
+  transform: translateY(-50%);
+}
+#source-editor .ace_gutter-cell.source-comment-line { cursor: pointer; }
 #sidebar {
   border-left: 1px solid var(--border);
   background: var(--bg-elev);

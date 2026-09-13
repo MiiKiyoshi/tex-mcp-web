@@ -40,6 +40,9 @@ const state = {
   sourceRevision: null,
   sourceDirty: false,
   sourceLoading: false,
+  sourceCommentMarkers: [],
+  sourceCommentRows: new Set(),
+  sourceCommentsByRow: new Map(),
   panelDraggedAt: 0,
 };
 
@@ -460,6 +463,73 @@ function setSourceDirty(dirty) {
   state.sourceDirty = dirty;
   $("#source-save-btn").disabled = !dirty;
   if (dirty) setSourceStatus("Unsaved", "dirty");
+  updateSourceCommentButton();
+}
+
+function updateSourceCommentButton() {
+  const button = $("#source-comment-btn");
+  if (!button) return;
+  const selected = Boolean(state.editor?.getSelectedText().trim());
+  button.disabled = !selected || state.sourceDirty;
+  button.title = state.sourceDirty
+    ? "Save source before commenting"
+    : selected ? "Comment on the selected source lines" : "Select source text to comment";
+}
+
+function clearSourceCommentMarkers() {
+  if (!state.editor) return;
+  for (const marker of state.sourceCommentMarkers) state.editor.session.removeMarker(marker);
+  for (const row of state.sourceCommentRows) {
+    state.editor.session.removeGutterDecoration(row, "source-comment-line");
+  }
+  state.sourceCommentMarkers = [];
+  state.sourceCommentRows.clear();
+  state.sourceCommentsByRow.clear();
+}
+
+function syncSourceCommentMarkers() {
+  if (!state.editor) return;
+  clearSourceCommentMarkers();
+  if (!state.sourcePath) return;
+  const Range = window.ace.require("ace/range").Range;
+  for (const comment of state.comments) {
+    if (comment.status !== "open" || comment.anchor.kind !== "source_range"
+        || comment.anchor.file !== state.sourcePath) continue;
+    const firstRow = Math.max(0, comment.anchor.line_start - 1);
+    const lastRow = Math.max(firstRow, comment.anchor.line_end - 1);
+    state.sourceCommentMarkers.push(state.editor.session.addMarker(
+      new Range(firstRow, 0, lastRow, 1),
+      "source-comment-highlight",
+      "fullLine",
+      false,
+    ));
+    state.editor.session.addGutterDecoration(firstRow, "source-comment-line");
+    state.sourceCommentRows.add(firstRow);
+    const rowComments = state.sourceCommentsByRow.get(firstRow) ?? [];
+    rowComments.push(comment);
+    state.sourceCommentsByRow.set(firstRow, rowComments);
+  }
+}
+
+function openSourceCommentCompose() {
+  if (!state.editor || !state.sourcePath || state.sourceDirty) return;
+  const text = state.editor.getSelectedText().trim();
+  const range = state.editor.getSelectionRange();
+  if (!text || range.isEmpty()) return;
+  const lineStart = range.start.row + 1;
+  const lineEnd = range.end.row > range.start.row && range.end.column === 0
+    ? range.end.row
+    : range.end.row + 1;
+  openCompose(
+    {
+      kind: "source_range",
+      file: state.sourcePath,
+      line_start: lineStart,
+      line_end: lineEnd,
+    },
+    `Source: ${state.sourcePath}:${lineStart}-${lineEnd}`,
+    text,
+  );
 }
 
 async function openSource(path, line = null, force = false) {
@@ -491,6 +561,8 @@ async function openSource(path, line = null, force = false) {
   $("#source-save-btn").disabled = true;
   $("#source-reload-btn").disabled = false;
   setSourceStatus("Saved");
+  syncSourceCommentMarkers();
+  updateSourceCommentButton();
   if (line !== null) {
     state.editor.gotoLine(Math.max(1, Number(line)), 0, true);
     state.editor.focus();
@@ -539,6 +611,16 @@ async function initializeSourceEditor() {
   state.editor.on("change", () => {
     if (!state.sourceLoading) setSourceDirty(true);
   });
+  state.editor.on("changeSelection", updateSourceCommentButton);
+  state.editor.on("guttermousedown", (event) => {
+    const row = event.getDocumentPosition().row;
+    const comments = state.sourceCommentsByRow.get(row);
+    if (!comments?.length || !event.domEvent.target.classList.contains("source-comment-line")) return;
+    event.stop();
+    setSidebarCollapsed(false);
+    switchTab("comments");
+    focusComment(comments[0]);
+  });
   state.editor.commands.addCommand({
     name: "saveSource",
     bindKey: { win: "Ctrl-S", mac: "Command-S" },
@@ -575,6 +657,7 @@ async function saveSource() {
   state.sourceDirty = false;
   button.disabled = true;
   setSourceStatus("Saved");
+  updateSourceCommentButton();
 }
 
 async function reloadSource() {
@@ -585,6 +668,7 @@ async function reloadSource() {
 }
 
 async function setWorkspaceView(view) {
+  const zoomMode = state.zoom?.getState().zoomLevel;
   state.view = view;
   const layout = $(".layout");
   layout.classList.remove("view-pdf", "view-source", "view-split");
@@ -594,7 +678,10 @@ async function setWorkspaceView(view) {
   }
   localStorage.setItem("workspaceView", view);
   if (view !== "pdf") await initializeSourceEditor();
-  requestAnimationFrame(() => state.editor?.resize());
+  requestAnimationFrame(() => {
+    state.editor?.resize();
+    if (typeof zoomMode === "string") state.zoom?.requestZoom(zoomMode);
+  });
 }
 
 async function handleSourceChanged(message) {
@@ -677,6 +764,7 @@ async function refreshComments() {
       : moment(first) > moment(second) ? -1 : 0));
   renderComments();
   syncCommentAnnotations();
+  syncSourceCommentMarkers();
 }
 
 function renderComments() {
@@ -1538,7 +1626,10 @@ async function jumpToSource(file, line) {
 async function jumpToComment(commentId) {
   const comment = state.comments.find((item) => item.id === commentId);
   if (!comment) return;
-  if (comment.anchor.kind === "text_selection" || comment.anchor.kind === "area") {
+  if (comment.anchor.kind === "source_range") {
+    if (state.view === "pdf") await setWorkspaceView("source");
+    await openSource(comment.anchor.file, comment.anchor.line_start);
+  } else if (comment.anchor.kind === "text_selection" || comment.anchor.kind === "area") {
     const selection = comment.anchor.kind === "text_selection"
       ? comment.anchor.selection
       : { page: comment.anchor.page, bbox: comment.anchor.bbox };
@@ -1700,6 +1791,7 @@ async function init() {
   $("#source-reload-btn").addEventListener("click", () => {
     reloadSource().catch((error) => alert(`Could not reload: ${error.message}`));
   });
+  $("#source-comment-btn").addEventListener("click", openSourceCommentCompose);
   $("#source-file").addEventListener("change", (event) => {
     openSource(event.target.value).catch((error) => alert(`Could not open source: ${error.message}`));
   });
