@@ -12,6 +12,56 @@ from watchdog.observers import Observer
 
 logger = logging.getLogger(__name__)
 
+_AUX_EXTENSIONS = {
+    ".aux", ".log", ".out", ".toc", ".lof", ".lot",
+    ".bbl", ".blg", ".idx", ".ind", ".ilg",
+    ".fls", ".fdb_latexmk", ".synctex",
+    ".pdf", ".dvi", ".ps", ".gz",
+}
+_COMPOUND_AUX_EXTENSIONS = (".synctex.gz",)
+
+
+def matches_patterns(path: str | Path, watch_dir: Path, patterns: list[str]) -> bool:
+    """Return whether *path* matches a basename or project-relative glob."""
+    path_obj = Path(path)
+    name = path_obj.name
+    if path_obj.is_absolute():
+        try:
+            relative = path_obj.relative_to(watch_dir.resolve()).as_posix()
+        except ValueError:
+            return False
+    else:
+        relative = path_obj.as_posix()
+    return any(
+        fnmatch.fnmatch(name, pattern) or fnmatch.fnmatch(relative, pattern)
+        for pattern in patterns
+    )
+
+
+def is_watched_source(
+    path: str | Path,
+    watch_dir: Path,
+    watch_patterns: list[str],
+    ignore_patterns: list[str],
+) -> bool:
+    """Apply the watcher rules used to decide which project files are source."""
+    path_obj = Path(path)
+    if path_obj.is_absolute():
+        try:
+            relative = path_obj.relative_to(watch_dir.resolve()).as_posix()
+        except ValueError:
+            return False
+    else:
+        relative = path_obj.as_posix()
+
+    if relative == ".tex-mcp-web.yaml" or relative.startswith(".tex-mcp-web/"):
+        return False
+    if path_obj.suffix in _AUX_EXTENSIONS or path_obj.name.endswith(_COMPOUND_AUX_EXTENSIONS):
+        return False
+    if matches_patterns(path_obj, watch_dir, ignore_patterns):
+        return False
+    return matches_patterns(path_obj, watch_dir, watch_patterns)
+
 
 class TexFileHandler(FileSystemEventHandler):
     """Handle file system events for TeX files."""
@@ -48,60 +98,16 @@ class TexFileHandler(FileSystemEventHandler):
 
     def _matches_patterns(self, path: str, patterns: list[str]) -> bool:
         """Check if path matches any of the patterns."""
-        path_obj = Path(path)
-        name = path_obj.name
-        if path_obj.is_absolute():
-            relative = path_obj.relative_to(self.watch_dir).as_posix()
-        else:
-            relative = path_obj.as_posix()
-
-        for pattern in patterns:
-            if fnmatch.fnmatch(name, pattern):
-                return True
-            if fnmatch.fnmatch(relative, pattern):
-                return True
-
-        return False
+        return matches_patterns(path, self.watch_dir, patterns)
 
     def _should_process(self, path: str) -> bool:
         """Check if a file change should trigger recompilation."""
-        path_obj = Path(path)
-        name = path_obj.name
-
-        relative = (
-            path_obj.relative_to(self.watch_dir).as_posix()
-            if path_obj.is_absolute()
-            else path_obj.as_posix()
+        return is_watched_source(
+            path,
+            self.watch_dir,
+            self.watch_patterns,
+            self.ignore_patterns,
         )
-        # Control-state writes are not paper source changes.
-        if relative == ".tex-mcp-web.yaml" or relative.startswith(".tex-mcp-web/"):
-            return False
-
-        # Simple extensions (checked via suffix)
-        aux_extensions = {
-            ".aux", ".log", ".out", ".toc", ".lof", ".lot",
-            ".bbl", ".blg", ".idx", ".ind", ".ilg",
-            ".fls", ".fdb_latexmk", ".synctex",
-            ".pdf", ".dvi", ".ps", ".gz",
-        }
-        if path_obj.suffix in aux_extensions:
-            return False
-
-        # Compound extensions (checked via endswith on full name)
-        compound_extensions = (".synctex.gz",)
-        if name.endswith(compound_extensions):
-            return False
-
-        # Check ignore patterns
-        if self._matches_patterns(path, self.ignore_patterns):
-            logger.debug(f"Ignoring {path} (matches ignore pattern)")
-            return False
-
-        # Check watch patterns
-        if self._matches_patterns(path, self.watch_patterns):
-            return True
-
-        return False
 
     def _schedule_callback(self, src_path: str):
         """Schedule the callback with debouncing."""

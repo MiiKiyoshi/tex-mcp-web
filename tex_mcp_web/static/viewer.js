@@ -34,6 +34,13 @@ const state = {
   lastViewerPointer: null,
   appliedCompileTimestamp: null,
   compileRefreshPromise: null,
+  view: "pdf",
+  editor: null,
+  sourcePath: null,
+  sourceRevision: null,
+  sourceDirty: false,
+  sourceLoading: false,
+  panelDraggedAt: 0,
 };
 
 function h(tag, props = {}, ...children) {
@@ -434,6 +441,171 @@ async function responseError(response) {
   } catch (error) {
     return `${response.status}: ${text}`;
   }
+}
+
+function sourceMode(path) {
+  if (path.endsWith(".tex")) return "ace/mode/latex";
+  if (path.endsWith(".bib")) return "ace/mode/bibtex";
+  return "ace/mode/text";
+}
+
+function setSourceStatus(text, kind = "") {
+  const status = $("#source-status");
+  status.textContent = text;
+  status.classList.toggle("dirty", kind === "dirty");
+  status.classList.toggle("conflict", kind === "conflict");
+}
+
+function setSourceDirty(dirty) {
+  state.sourceDirty = dirty;
+  $("#source-save-btn").disabled = !dirty;
+  if (dirty) setSourceStatus("Unsaved", "dirty");
+}
+
+async function openSource(path, line = null, force = false) {
+  if (!state.editor || !path) return false;
+  if (!force && path === state.sourcePath) {
+    if (line !== null) {
+      state.editor.gotoLine(Math.max(1, Number(line)), 0, true);
+      state.editor.focus();
+    }
+    return true;
+  }
+  if (!force && state.sourceDirty && path !== state.sourcePath
+      && !confirm(`Discard unsaved changes to ${state.sourcePath}?`)) {
+    $("#source-file").value = state.sourcePath;
+    return false;
+  }
+
+  const response = await fetch(`/source?${new URLSearchParams({ path })}`);
+  if (!response.ok) throw new Error(await responseError(response));
+  const source = await response.json();
+  state.sourceLoading = true;
+  state.editor.session.setMode(sourceMode(source.path));
+  state.editor.setValue(source.text, -1);
+  state.sourceLoading = false;
+  state.sourcePath = source.path;
+  state.sourceRevision = source.revision;
+  state.sourceDirty = false;
+  $("#source-file").value = source.path;
+  $("#source-save-btn").disabled = true;
+  $("#source-reload-btn").disabled = false;
+  setSourceStatus("Saved");
+  if (line !== null) {
+    state.editor.gotoLine(Math.max(1, Number(line)), 0, true);
+    state.editor.focus();
+  }
+  return true;
+}
+
+async function refreshSourceFiles() {
+  const response = await fetch("/sources");
+  if (!response.ok) throw new Error(await responseError(response));
+  const result = await response.json();
+  const select = $("#source-file");
+  clear(select);
+  for (const path of result.files) {
+    select.appendChild(h("option", { value: path, text: path }));
+  }
+  if (result.files.length === 0) {
+    state.editor.setReadOnly(true);
+    setSourceStatus("No watched source files");
+    return;
+  }
+  state.editor.setReadOnly(false);
+  const preferred = result.files.includes(state.sourcePath)
+    ? state.sourcePath
+    : result.files.includes(result.main_file)
+      ? result.main_file
+      : result.files[0];
+  select.value = preferred;
+  if (preferred !== state.sourcePath) await openSource(preferred);
+}
+
+async function initializeSourceEditor() {
+  if (state.editor) return;
+  if (!window.ace) throw new Error("Ace Editor did not load");
+  window.ace.config.set("basePath", "/static/ace");
+  state.editor = window.ace.edit("source-editor");
+  state.editor.setTheme("ace/theme/textmate");
+  state.editor.session.setMode("ace/mode/latex");
+  state.editor.session.setUseWorker(false);
+  state.editor.session.setUseWrapMode(true);
+  state.editor.setOptions({
+    fontSize: "13px",
+    showPrintMargin: false,
+    scrollPastEnd: 0.25,
+  });
+  state.editor.on("change", () => {
+    if (!state.sourceLoading) setSourceDirty(true);
+  });
+  state.editor.commands.addCommand({
+    name: "saveSource",
+    bindKey: { win: "Ctrl-S", mac: "Command-S" },
+    exec: () => saveSource().catch((error) => alert(`Could not save: ${error.message}`)),
+  });
+  await refreshSourceFiles();
+}
+
+async function saveSource() {
+  if (!state.editor || !state.sourcePath || !state.sourceDirty) return;
+  const button = $("#source-save-btn");
+  button.disabled = true;
+  setSourceStatus("Saving…");
+  const response = await fetch(`/source?${new URLSearchParams({ path: state.sourcePath })}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      text: state.editor.getValue(),
+      revision: state.sourceRevision,
+    }),
+  });
+  if (response.status === 409) {
+    setSourceStatus("Changed on disk · reload", "conflict");
+    button.disabled = false;
+    return;
+  }
+  if (!response.ok) {
+    button.disabled = false;
+    setSourceStatus("Save failed", "conflict");
+    throw new Error(await responseError(response));
+  }
+  const result = await response.json();
+  state.sourceRevision = result.revision;
+  state.sourceDirty = false;
+  button.disabled = true;
+  setSourceStatus("Saved");
+}
+
+async function reloadSource() {
+  if (!state.sourcePath) return;
+  if (state.sourceDirty && !confirm(`Discard unsaved changes to ${state.sourcePath}?`)) return;
+  const line = state.editor.getCursorPosition().row + 1;
+  await openSource(state.sourcePath, line, true);
+}
+
+async function setWorkspaceView(view) {
+  state.view = view;
+  const layout = $(".layout");
+  layout.classList.remove("view-pdf", "view-source", "view-split");
+  layout.classList.add(`view-${view}`);
+  for (const button of $$(".view-tab")) {
+    button.classList.toggle("active", button.dataset.view === view);
+  }
+  localStorage.setItem("workspaceView", view);
+  if (view !== "pdf") await initializeSourceEditor();
+  requestAnimationFrame(() => state.editor?.resize());
+}
+
+async function handleSourceChanged(message) {
+  if (!state.editor || message.path !== state.sourcePath
+      || message.revision === state.sourceRevision) return;
+  if (state.sourceDirty) {
+    setSourceStatus("Changed on disk · reload", "conflict");
+    return;
+  }
+  const line = state.editor.getCursorPosition().row + 1;
+  await openSource(state.sourcePath, line, true);
 }
 
 // Enter writes a new line, as it does in any box of text. What sends it is shift with
@@ -1229,6 +1401,9 @@ async function handleWebSocketMessage(message) {
     case "comments_changed":
       await refreshComments();
       break;
+    case "source_changed":
+      await handleSourceChanged(message);
+      break;
     case "state":
       applyAutoCompile(message.auto_compile);
       if (message.result) applyCompileResult(message.result);
@@ -1344,6 +1519,15 @@ function showGotoTarget(target) {
 }
 
 async function jumpToSource(file, line) {
+  if (state.view === "source") {
+    await initializeSourceEditor();
+    await openSource(file, line);
+    return;
+  }
+  if (state.view === "split") {
+    await initializeSourceEditor();
+    await openSource(file, line);
+  }
   const params = new URLSearchParams({ file, line: String(line) });
   const response = await fetch(`/synctex/source-to-pdf?${params}`);
   if (!response.ok) throw new Error(await responseError(response));
@@ -1438,9 +1622,65 @@ function attachSidebarToggle() {
   setSidebarCollapsed(localStorage.getItem("sidebarCollapsed") === "1");
 }
 
+function attachSidebarResize() {
+  const grip = $("#sidebar-grip");
+  const layout = $(".layout");
+  const setPanelHeight = (pixels) => {
+    const limited = Math.round(Math.max(90, Math.min(pixels, window.innerHeight - 140)));
+    layout.style.setProperty("--tex-mcp-panel-height", `${limited}px`);
+    return limited;
+  };
+  const savedHeight = Number(localStorage.getItem("texMcpPanelHeight"));
+  if (savedHeight > 0) layout.style.setProperty("--tex-mcp-panel-height", `${savedHeight}px`);
+
+  $("#sidebar").addEventListener("click", (event) => {
+    if (performance.now() - state.panelDraggedAt >= 400) return;
+    event.preventDefault();
+    event.stopPropagation();
+  }, true);
+
+  grip.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    grip.setPointerCapture(event.pointerId);
+    const bottom = layout.getBoundingClientRect().bottom;
+    let pointerY = null;
+    let frame = null;
+    let height = null;
+    const apply = () => {
+      frame = null;
+      height = setPanelHeight(bottom - pointerY);
+      state.editor?.resize();
+    };
+    const move = (moved) => {
+      pointerY = moved.clientY;
+      if (frame === null) frame = requestAnimationFrame(apply);
+    };
+    const done = (ended) => {
+      if (frame !== null) cancelAnimationFrame(frame);
+      if (pointerY !== null) height = setPanelHeight(bottom - pointerY);
+      if (ended.cancelable) ended.preventDefault();
+      if (pointerY !== null) state.panelDraggedAt = performance.now();
+      grip.removeEventListener("pointermove", move);
+      grip.removeEventListener("pointerup", done);
+      grip.removeEventListener("pointercancel", done);
+      if (height !== null) localStorage.setItem("texMcpPanelHeight", String(height));
+      state.editor?.resize();
+    };
+    grip.addEventListener("pointermove", move);
+    grip.addEventListener("pointerup", done);
+    grip.addEventListener("pointercancel", done);
+  });
+}
+
 async function init() {
   attachKeyboardNavigation();
   attachSidebarToggle();
+  attachSidebarResize();
+  window.addEventListener("beforeunload", (event) => {
+    if (!state.sourceDirty) return;
+    event.preventDefault();
+    event.returnValue = "";
+  });
   document.addEventListener("pointerdown", (event) => {
     clearGotoHighlight();
     if (!event.target.closest("#reference-preview")) hideReferencePreview();
@@ -1454,6 +1694,20 @@ async function init() {
   });
   $("#auto-compile-btn").addEventListener("click", () => toggleAutoCompile());
   $("#recompile-btn").addEventListener("click", () => recompile());
+  $("#source-save-btn").addEventListener("click", () => {
+    saveSource().catch((error) => alert(`Could not save: ${error.message}`));
+  });
+  $("#source-reload-btn").addEventListener("click", () => {
+    reloadSource().catch((error) => alert(`Could not reload: ${error.message}`));
+  });
+  $("#source-file").addEventListener("change", (event) => {
+    openSource(event.target.value).catch((error) => alert(`Could not open source: ${error.message}`));
+  });
+  for (const button of $$(".view-tab")) {
+    button.addEventListener("click", () => {
+      setWorkspaceView(button.dataset.view).catch((error) => alert(error.message));
+    });
+  }
   $("#call-agent-btn").addEventListener("click", () => callAgent());
   $("#fold-all-btn").addEventListener("click", foldAll);
   $("#pick-all-btn").addEventListener("click", pickAll);
@@ -1496,6 +1750,8 @@ async function init() {
   await refreshPaper();
   await refreshComments();
   if (state.pdfDigest) await initializePdfViewer(null);
+  const savedView = localStorage.getItem("workspaceView");
+  if (["source", "split"].includes(savedView)) await setWorkspaceView(savedView);
   connectWebSocket();
 }
 
