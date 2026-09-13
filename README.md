@@ -11,7 +11,7 @@ You read the PDF in a browser and comment on selected PDF text, selected source 
 Use the topbar's **PDF**, **Source**, and **Split** tabs to review the rendered paper, make a small source edit, or see both together. Select source text and press **+ Comment** to start the same review thread from the editor. Source files follow the configured `watch` and `ignore` rules. Saving is explicit, and the editor refuses to overwrite a file changed by an agent or another editor after it was opened.
 
 ```
-you:    select PDF or source text -> write a comment
+you:    select text -> write a comment -> press Call agent
                   |
 agent:  read comments -> edit LaTeX -> compile -> reply
                   |
@@ -89,15 +89,17 @@ tex-mcp-web config dir ../my-paper
 
 The source, the PDF, and the comment store then stay under `../my-paper`; the project folder holds only the config file.
 
-Start Claude Code or Codex from the paper directory (or a subdirectory) and ask the agent to call `paper()`. The review page opens at the configured port, or the `review_url` that `paper()` reports.
+Start Claude Code or Codex from the paper directory (or a subdirectory), then tell the agent:
+
+> Open the review page and listen for **Call agent**.
+
+The agent opens the review page at the configured port and starts listening.
 
 At the start of every new MCP connection, including after a client or server restart, the agent calls `wait_review()` once and starts the returned script exactly once using its instructions. It does not poll, start a duplicate, or assume an earlier waiter survived. An unacknowledged **Call agent** press stays queued and wakes the reconnected waiter.
 
 ## Use it
 
-Drag over PDF text and write a comment; add a suggested wording in the replacement box when you have one. Use **+ Note** for a whole-paper comment and the **Sections** tab for a section comment. Then ask the agent in plain language:
-
-> Process the open tex-mcp comments.
+Drag over PDF text and write a comment; add a suggested wording in the replacement box when you have one. Use **+ Note** for a whole-paper comment and the **Sections** tab for a section comment. Press **Call agent** when the comments are ready.
 
 The agent reads them, edits the source, compiles, and replies in each thread. Resolving is yours: pick the threads whose edit satisfies you and resolve them from the page, or reopen one the agent got wrong. If an edit misses, reply in the same thread.
 
