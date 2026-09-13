@@ -1247,10 +1247,17 @@ async function handleWebSocketMessage(message) {
   }
 }
 
-// The green dot beside Call agent: an agent is parked on wait_review right now, so a
-// press reaches it at once rather than waiting to be picked up.
+// Green reaches a parked waiter now; red remains clickable because the server queues the
+// call until the next waiter connects.
 function showAgentWaiting(waiters) {
-  $("#agent-waiting-dot").classList.toggle("hidden", !(waiters > 0));
+  const waiting = waiters > 0;
+  const button = $("#call-agent-btn");
+  button.classList.toggle("agent-ready", waiting);
+  button.classList.toggle("agent-offline", !waiting);
+  button.setAttribute("aria-label", waiting ? "Call agent" : "Queue call for agent");
+  button.title = waiting
+    ? "Call the waiting agent now"
+    : "Agent is not waiting; queue this call until it reconnects";
 }
 
 async function callAgent() {
@@ -1279,7 +1286,10 @@ function connectWebSocket() {
     const message = JSON.parse(event.data);
     handleWebSocketMessage(message).catch((error) => console.error(error));
   };
-  socket.onclose = () => setTimeout(connectWebSocket, 2000);
+  socket.onclose = () => {
+    showAgentWaiting(0);
+    setTimeout(connectWebSocket, 2000);
+  };
 }
 
 function jumpToPage(page) {

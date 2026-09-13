@@ -11,6 +11,7 @@ import subprocess
 import tempfile
 import time
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -111,6 +112,33 @@ def test_browser_comment_actions(tmp_path: Path) -> None:
 
         wait_until(lambda: browser.execute_script(
             'return document.querySelectorAll("[data-comment-id]").length === 1'))
+        assert browser.execute_script('''
+          const button = document.querySelector("#call-agent-btn");
+          return [button.classList.contains("agent-offline"), button.disabled,
+            button.getAttribute("aria-label"), button.title, getComputedStyle(button).color];
+        ''') == [True, False, "Queue call for agent",
+                 "Agent is not waiting; queue this call until it reconnects", "rgb(180, 74, 67)"]
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            waiter = pool.submit(lambda: urllib.request.urlopen(
+                f"{base}/wait-review", timeout=10).read())
+            wait_until(lambda: browser.execute_script('''
+              const button = document.querySelector("#call-agent-btn");
+              return button.classList.contains("agent-ready")
+                && button.getAttribute("aria-label") === "Call agent"
+                && button.title === "Call the waiting agent now"
+                && getComputedStyle(button).color === "rgb(79, 119, 88)";
+            '''))
+            browser.execute_script('document.querySelector("#call-agent-btn").click()')
+            wait_until(lambda: browser.execute_script(
+                'return document.querySelector("#call-agent-word").textContent === "Called"'))
+            assert waiter.result(timeout=10).startswith(b"[review]")
+        wait_until(lambda: browser.execute_script('''
+          const button = document.querySelector("#call-agent-btn");
+          return button.classList.contains("agent-offline") && !button.disabled;
+        '''))
+        browser.execute_script('document.querySelector("#call-agent-btn").click()')
+        wait_until(lambda: browser.execute_script(
+            'return document.querySelector("#call-agent-word").textContent === "Queued"'))
         browser.execute_script(f'''
           const card = Array.from(document.querySelectorAll("[data-comment-id]"))
             .find((node) => node.dataset.commentId === "{cid}");

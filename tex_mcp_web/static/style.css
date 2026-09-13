@@ -93,8 +93,8 @@ textarea {
 }
 #auto-compile-btn:disabled { cursor: wait; }
 #recompile-btn:disabled { cursor: wait; }
-/* The green dot beside Call agent: an agent is parked on wait_review right now. */
-.agent-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+/* Green reaches a parked waiter now; red queues the call for the next waiter. */
+.agent-dot { width: 8px; height: 8px; border-radius: 50%; }
 
 /* ----- layout ----- */
 .layout {
@@ -227,6 +227,10 @@ textarea {
 .icon-btn .count:empty { display: none; }
 .icon-btn:disabled { opacity: .45; }
 .comment-pick { flex: none; margin: 0; width: 14px; height: 14px; cursor: pointer; }
+#call-agent-btn.agent-ready { color: var(--ok); border-color: var(--ok); background: #eef7ef; }
+#call-agent-btn.agent-ready .agent-dot { background: var(--ok); }
+#call-agent-btn.agent-offline { color: var(--err); border-color: var(--err); background: #faeeee; }
+#call-agent-btn.agent-offline .agent-dot { background: var(--err); }
 .comments-list {
   display: flex;
   flex-direction: column;
