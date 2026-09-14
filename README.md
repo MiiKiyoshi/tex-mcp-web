@@ -73,7 +73,7 @@ port: 8765
 |---|---|
 | `main` | Top-level source file compiled into the PDF. |
 | `dir` | Folder holding the paper, relative to this file or absolute. Unset means the folder holding this file. |
-| `watch` | File patterns that trigger recompilation on save. |
+| `watch` | File patterns that trigger recompilation on save. Only the directories the paper's sources live in are watched: those of `main` and the files it `\input`s, plus the directories of every project-local source the last latexmk run recorded (figures, `.bib`); the paper folder itself is watched flat. |
 | `ignore` | Patterns checked before `watch`; a match does not recompile. |
 | `compiler` | `auto` (latexmk for LaTeX, pandoc for Markdown or text) or a named compiler. |
 | `auto_compile` | `true` recompiles on watched saves; `false` leaves it to the topbar button or the agent. |

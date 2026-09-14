@@ -291,6 +291,35 @@ async def _communicate(process: "asyncio.subprocess.Process") -> tuple[bytes, by
         raise
 
 
+_FDB_SOURCE_RE = re.compile(r'^\s+"((?:[^"\\]|\\.)*)"\s+\S+\s+\S+\s+\S+\s+"((?:[^"\\]|\\.)*)"\s*$')
+
+
+def source_dependencies(main_file: Path, work_dir: Path) -> list[Path]:
+    """Source files the last latexmk run read, from its own dependency record.
+
+    latexmk writes ``<main>.fdb_latexmk`` on every run (its ``-recorder`` default).
+    A source line there is ``  "path" mtime size md5 "generator"``; generated files
+    name the rule that made them (``"pdflatex"``, ``"bibtex main"``), sources carry an
+    empty generator. Paths are as latexmk saw them, relative to the run directory or
+    absolute; only files under ``work_dir`` are returned. No record means no sources.
+    """
+    record = work_dir / (main_file.stem + ".fdb_latexmk")
+    try:
+        lines = record.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
+    root = work_dir.resolve()
+    found: list[Path] = []
+    for line in lines:
+        match = _FDB_SOURCE_RE.match(line)
+        if match is None or match.group(2) != "":
+            continue
+        path = (root / match.group(1).replace('\\"', '"')).resolve()
+        if root in path.parents and path not in found:
+            found.append(path)
+    return found
+
+
 async def compile_tex(
     main_file: Path,
     compiler: str = "latexmk",

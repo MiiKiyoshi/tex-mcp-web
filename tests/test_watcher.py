@@ -397,6 +397,7 @@ class TestWatcher:
             watch_patterns=["*.tex"],
             ignore_patterns=[],
             on_change=callback,
+            roots=[],
         )
 
         assert watcher.watch_dir == tmp_path
@@ -412,6 +413,7 @@ class TestWatcher:
             watch_patterns=["*.tex"],
             ignore_patterns=[],
             on_change=callback,
+            roots=[],
         )
 
         loop = asyncio.new_event_loop()
@@ -431,6 +433,7 @@ class TestWatcher:
             watch_patterns=["*.tex"],
             ignore_patterns=[],
             on_change=AsyncMock(),
+            roots=[],
         )
 
         assert not watcher.is_running
@@ -450,6 +453,7 @@ class TestWatcher:
             watch_patterns=["*.tex"],
             ignore_patterns=[],
             on_change=callback,
+            roots=[],
             debounce_seconds=10.0,  # Long debounce so it stays pending
         )
 
@@ -475,6 +479,7 @@ class TestWatcher:
             watch_patterns=["*.tex"],
             ignore_patterns=[],
             on_change=AsyncMock(),
+            roots=[],
         )
 
         loop = asyncio.new_event_loop()

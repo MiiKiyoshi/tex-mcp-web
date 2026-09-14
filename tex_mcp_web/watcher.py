@@ -186,7 +186,7 @@ class TexFileHandler(FileSystemEventHandler):
 
 
 class Watcher:
-    """Watch TeX files for changes and trigger recompilation."""
+    """Watch the directories that hold the paper's sources and trigger recompilation."""
 
     def __init__(
         self,
@@ -194,24 +194,71 @@ class Watcher:
         watch_patterns: list[str],
         ignore_patterns: list[str],
         on_change: Callable[[str], Coroutine],
+        roots: list[Path],
         debounce_seconds: float = 0.5,
     ):
         """Initialize watcher.
 
         Args:
-            watch_dir: Directory to watch.
+            watch_dir: Project directory, watched flat for the config and top-level files.
             watch_patterns: Glob patterns for files to watch.
             ignore_patterns: Glob patterns for files to ignore.
             on_change: Async callback when files change.
+            roots: Directories below watch_dir that hold sources, watched recursively.
+                Nothing else under the project is enumerated: a watch goes on every
+                directory under a recursive root, and the inotify limit is the login's.
             debounce_seconds: Minimum time between callbacks.
         """
         self.watch_dir = watch_dir
         self.watch_patterns = watch_patterns
         self.ignore_patterns = ignore_patterns
         self.on_change = on_change
+        self.roots: list[Path] = []
         self.debounce_seconds = debounce_seconds
         self._observer: Any = None  # Observer type not well-typed in watchdog stubs
         self._handler: TexFileHandler | None = None
+        self._watches: dict[Path, Any] = {}
+        self.set_roots(roots)
+
+    def _merge(self, roots: list[Path]) -> list[Path]:
+        """Roots below the project, an ancestor standing in for the roots under it.
+
+        The project directory itself is never one: it is watched flat, and watching it
+        recursively would walk every unrelated tree beside the sources."""
+        project = self.watch_dir.resolve()
+        inside = sorted({root.resolve() for root in roots if project in root.resolve().parents})
+        merged: list[Path] = []
+        for root in inside:
+            if not any(kept == root or kept in root.parents for kept in merged):
+                merged.append(root)
+        return merged
+
+    def set_roots(self, roots: list[Path]) -> tuple[list[Path], list[Path]]:
+        """Make these the source directories under watch; return (added, dropped).
+
+        The set is exact: a directory no source is read from any more gives its
+        watches back, and one a new source lives in takes its own.
+        """
+        wanted = self._merge(roots)
+        added = [root for root in wanted if root not in self.roots]
+        dropped = [root for root in self.roots if root not in wanted]
+        self.roots = wanted
+        if self._observer is not None:
+            for root in dropped:
+                watch = self._watches.pop(root, None)
+                if watch is not None:
+                    self._observer.unschedule(watch)
+            for root in added:
+                self._schedule(root)
+        return added, dropped
+
+    def _schedule(self, root: Path) -> None:
+        if not root.is_dir():
+            return
+        try:
+            self._watches[root] = self._observer.schedule(self._handler, str(root), recursive=True)
+        except OSError as error:
+            logger.error("Cannot watch %s: %s", root, error)
 
     def start(self, loop: asyncio.AbstractEventLoop) -> None:
         """Start watching for file changes.
@@ -229,13 +276,22 @@ class Watcher:
         )
 
         self._observer = Observer()
-        self._observer.schedule(
-            self._handler,
-            str(self.watch_dir),
-            recursive=True,
-        )
-        self._observer.start()
-        logger.info(f"Started watching {self.watch_dir} for {self.watch_patterns}")
+        self._watches = {}
+        try:
+            self._observer.schedule(self._handler, str(self.watch_dir), recursive=False)
+            for root in self.roots:
+                if root.is_dir():
+                    self._watches[root] = self._observer.schedule(self._handler, str(root), recursive=True)
+            self._observer.start()
+        except BaseException:
+            # A partially scheduled observer keeps its inotify descriptor and watches
+            # until it is stopped; leaking it on every failed start is how a process
+            # reaches the limit on its own.
+            self._observer.stop()
+            self._observer = None
+            raise
+        logger.info("Started watching %s (flat) and %s for %s",
+                    self.watch_dir, [str(root) for root in self.roots], self.watch_patterns)
 
     def stop(self) -> None:
         """Stop watching for file changes."""
