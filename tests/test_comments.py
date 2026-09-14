@@ -62,6 +62,7 @@ def test_agent_comment_view_hides_storage_only_anchor_data(store: CommentStore):
         "comment": "tighten this",
         "quote": "selected text",
         "page": 2,
+        "updated": comment.updated,
     }
     assert "selection" not in view
     assert "pdf_digest" not in view
