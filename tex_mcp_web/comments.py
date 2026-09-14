@@ -1010,6 +1010,9 @@ class CommentStore:
         """Reopen a closed comment: the status flips, the thread stays as it is."""
         return self._append_entry(comment_id, author, "", new_status="open")
 
+    def keep_as_reference(self, comment_id: str, author: Author = "human") -> Comment:
+        """Set the thread aside to be read again; its entries stay as they are."""
+        return self._append_entry(comment_id, author, "", new_status="reference")
     def edit_entry(
         self,
         comment_id: str,
@@ -1034,9 +1037,6 @@ class CommentStore:
                 comment.updated = _now()
                 comments[position] = comment
                 self._save(comments)
-    def keep_as_reference(self, comment_id: str, author: Author = "human") -> Comment:
-        """Set the thread aside to be read again; its entries stay as they are."""
-        return self._append_entry(comment_id, author, "", new_status="reference")
 
                 return comment
         raise KeyError(f"comment {comment_id!r} not found")
