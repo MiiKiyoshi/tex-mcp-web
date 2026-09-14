@@ -433,7 +433,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
 
     @mcp.tool()
     async def comment(
-        action: Literal["add", "reply", "delete"],
+        action: Literal["add", "reply", "edit", "delete"],
         id: str | None = None,
         text: str | None = None,
         anchor: CommentAnchorInput | None = None,
@@ -441,10 +441,14 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         suggestion_old: str | None = None,
         suggestion_new: str | None = None,
         replies_file: str | None = None,
+        entry: str | None = None,
+        updated: str | None = None,
     ) -> str:
         """Mutate a comment.
 
         ``add`` requires text and anchor; ``reply`` requires id/text or a saved draft's replies_file, exclusively;
+        ``edit`` rewrites your own earlier entry: entry (its id from read_comments), text, and
+        updated (the thread's stamp as read; refused if the thread changed since);
         ``delete`` requires id. A reply says what changed, with ``edits``
         naming the changed source ranges; the thread stays open, and the
         reviewer resolves it from the page. An agent does not resolve.
@@ -471,6 +475,14 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                     return _err("reply requires id and text")
                 updated = store.reply(id, text=text, author="agent", edits=edits or [])
                 return _ok({"id": updated.id, "status": updated.status, "updated": updated.updated})
+            if action == "edit":
+                if not entry or not text or not updated:
+                    return _err("edit requires entry, text and updated")
+                owner = next((c for c in store.list() if any(e.id == entry for e in c.thread)), None)
+                if owner is None:
+                    return _err(f"thread entry not found: {entry}")
+                changed = store.edit_agent_entries([(entry, text)], {owner.id: updated})[0]
+                return _ok({"id": changed.id, "status": changed.status, "updated": changed.updated})
             if action == "delete":
                 if not id:
                     return _err("delete requires id")

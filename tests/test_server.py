@@ -666,7 +666,7 @@ async def test_mcp_contract_is_typed_and_nonduplicative(tmp_path: Path):
 
     comment_schema = tools["comment"].inputSchema
     assert comment_schema["properties"]["action"]["enum"] == [
-        "add", "reply", "delete"
+        "add", "reply", "edit", "delete"
     ]
     anchor_schema = comment_schema["properties"]["anchor"]["anyOf"][0]
     assert set(anchor_schema["discriminator"]["mapping"]) == {
@@ -1437,3 +1437,35 @@ async def test_a_thread_kept_as_reference_is_listed_apart(client):
     resp = await tc.post(f"/comments/{kept}/reopen", json={})
     assert await resp.json() == {"id": kept, "status": "open"}
     assert (await tc.post("/comments/c-00000000/reference", json={})).status == 404
+
+
+@pytest.mark.asyncio
+async def test_mcp_edit_rewrites_the_agents_own_entry_and_refuses_the_rest(bound_project, project):
+    pytest.importorskip("mcp")
+    from tex_mcp_web.comments import CommentStore, PaperAnchor
+    from tex_mcp_web.mcp_server import create_server
+
+    mcp = create_server(bound_project)
+
+    async def call(tool_name, **arguments):
+        return json.loads((await mcp.call_tool(tool_name, arguments))[0][0].text)
+
+    store = CommentStore(project / ".tex-mcp-web" / "comments.json")
+    comment = store.add(PaperAnchor(), "Check this")
+    replied = await call("comment", action="reply", id=comment.id, text="first answer")
+    thread = store.get(comment.id).thread
+    human, agent = thread
+    read = (await call("read_comments", comment_ids=[comment.id]))["comments"][0]
+    assert read["replies"][0]["id"] == agent.id and "updated_at" not in read["replies"][0]
+
+    assert "written by human" in (await call("comment", action="edit", entry=human.id, text="x", updated=replied["updated"]))["error"]
+    assert "stale" in (await call("comment", action="edit", entry=agent.id, text="x", updated="old"))["error"]
+    assert "not found" in (await call("comment", action="edit", entry="e-deadbeef", text="x", updated=replied["updated"]))["error"]
+    assert "requires entry" in (await call("comment", action="edit", entry=agent.id, text="x"))["error"]
+
+    changed = await call("comment", action="edit", entry=agent.id, text="better answer", updated=replied["updated"])
+    assert changed["id"] == comment.id and changed["updated"] != replied["updated"]
+    entry = store.get(comment.id).thread[1]
+    assert entry.text == "better answer" and entry.at == agent.at and entry.updated_at is not None
+    read = (await call("read_comments", comment_ids=[comment.id]))["comments"][0]
+    assert read["replies"][0]["updated_at"] == entry.updated_at
