@@ -189,7 +189,13 @@ def _agent_comment_to_dict(comment) -> dict[str, Any]:
     if comment.resolved_source is not None:
         payload["source"] = comment.resolved_source.to_dict()
     if len(comment.thread) > 1:
-        payload["replies"] = [entry.to_dict() for entry in comment.thread[1:]]
+        # Only the agent's own entries can be rewritten, so only those carry the id to name them by.
+        payload["replies"] = [
+            {key: value for key, value in entry.to_dict().items() if key != "id" or entry.author == "agent"}
+            for entry in comment.thread[1:]
+        ]
+    # The stamp a rewrite of an entry must quote; it moves with every change to the thread.
+    payload["updated"] = comment.updated
     if comment.suggestion is not None:
         payload["suggestion"] = comment.suggestion.to_dict()
     if comment.stale:
@@ -447,8 +453,9 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         """Mutate a comment.
 
         ``add`` requires text and anchor; ``reply`` requires id/text or a saved draft's replies_file, exclusively;
-        ``edit`` rewrites your own earlier entry: entry (its id from read_comments), text, and
-        updated (the thread's stamp as read; refused if the thread changed since);
+        ``edit`` rewrites your own earlier entry: id (the comment), entry (the entry's id from
+        read_comments), text, and updated (the thread's stamp as read; refused if the thread
+        changed since);
         ``delete`` requires id. A reply says what changed, with ``edits``
         naming the changed source ranges; the thread stays open, and the
         reviewer resolves it from the page. An agent does not resolve.
@@ -476,12 +483,9 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                 updated = store.reply(id, text=text, author="agent", edits=edits or [])
                 return _ok({"id": updated.id, "status": updated.status, "updated": updated.updated})
             if action == "edit":
-                if not entry or not text or not updated:
-                    return _err("edit requires entry, text and updated")
-                owner = next((c for c in store.list() if any(e.id == entry for e in c.thread)), None)
-                if owner is None:
-                    return _err(f"thread entry not found: {entry}")
-                changed = store.edit_agent_entries([(entry, text)], {owner.id: updated})[0]
+                if not id or not entry or not text or not updated:
+                    return _err("edit requires id, entry, text and updated")
+                changed = store.edit_agent_entries([(id, entry, text)], {id: updated})[0]
                 return _ok({"id": changed.id, "status": changed.status, "updated": changed.updated})
             if action == "delete":
                 if not id:

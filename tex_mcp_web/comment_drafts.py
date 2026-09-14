@@ -83,9 +83,9 @@ def export(root: Path, comments: list[dict]) -> dict:
     return {"path": str(root / (key + ".md")), "sha256": hashlib.sha256(body.encode("utf-8")).hexdigest(), "comment_ids": ids}
 
 
-def load(root: Path, path: str) -> tuple[dict[str, str], list[tuple[str, str]], dict[str, str]]:
-    """Read a filled draft back: (replies by comment id, entry rewrites as (entry id, text),
-    expected updated stamps by comment id). Only blocks that were changed count."""
+def load(root: Path, path: str) -> tuple[dict[str, str], list[tuple[str, str, str]], dict[str, str]]:
+    """Read a filled draft back: (replies by comment id, entry rewrites as (comment id,
+    entry id, text), expected updated stamps by comment id). Only changed blocks count."""
     candidate = Path(path)
     if ".." in candidate.parts or candidate.parent != root.absolute() or not re.fullmatch(r"[0-9a-f]{32}\.md", candidate.name):
         raise ValueError("replies_file must be a server-created draft path")
@@ -98,7 +98,7 @@ def load(root: Path, path: str) -> tuple[dict[str, str], list[tuple[str, str]], 
         if match is None or len(match.groups()) != len(snapshot["slots"]):
             raise ValueError("malformed draft: edit only Reply and Edit blocks")
         replies: dict[str, str] = {}
-        entry_edits: list[tuple[str, str]] = []
+        entry_edits: list[tuple[str, str, str]] = []
         for slot, value in zip(snapshot["slots"], match.groups()):
             if slot[0] == "reply":
                 if value.strip():
@@ -106,7 +106,7 @@ def load(root: Path, path: str) -> tuple[dict[str, str], list[tuple[str, str]], 
             elif value.strip() != slot[3].strip():
                 if not value.strip():
                     raise ValueError(f"the Edit block for {slot[2]} must not be emptied")
-                entry_edits.append((slot[2], value.strip()))
+                entry_edits.append((slot[1], slot[2], value.strip()))
         if not replies and not entry_edits:
             raise ValueError("the draft holds no reply and no changed Edit block")
         expected = dict(zip(snapshot["ids"], snapshot["updated"]))

@@ -1023,43 +1023,44 @@ class CommentStore:
         replies, entry_edits, expected = load(self.path.parent / "drafts", path)
         return self.apply_batch(replies, entry_edits, expected, edits)
 
-    def edit_agent_entries(self, entry_edits: list[tuple[str, str]],
+    def edit_agent_entries(self, entry_edits: list[tuple[str, str, str]],
                            expected_updated: dict[str, str]) -> list[Comment]:
-        """Rewrite agent entries named by id, all or none. expected_updated maps each
-        touched comment to the updated stamp the caller read; a thread that moved on
-        since refuses the whole batch."""
+        """Rewrite agent entries named by (comment id, entry id), all or none.
+        expected_updated maps each touched comment to the updated stamp the caller read;
+        a thread that moved on since refuses the whole batch."""
         return self.apply_batch({}, entry_edits, expected_updated, None)
 
     def apply_batch(
         self,
         replies: dict[str, str],
-        entry_edits: list[tuple[str, str]],
+        entry_edits: list[tuple[str, str, str]],
         expected_updated: dict[str, str],
         edits: list[str] | None,
     ) -> list[Comment]:
         """Append agent replies and rewrite agent entries under one lock and one save.
 
         Every comment in expected_updated is checked against the store first; nothing is
-        written unless all of it can be. Entries are named by their ids, which are unique
-        across comments; a human's entry is refused."""
+        written unless all of it can be. An entry is named by its comment and its own id,
+        (comment_id, entry_id, text); an entry that is not in that thread, or a human's,
+        is refused."""
         if not replies and not entry_edits:
             raise ValueError("nothing to apply")
-        if any(not text.strip() for text in replies.values()) or any(not text.strip() for _, text in entry_edits):
+        if any(not text.strip() for text in replies.values()) or any(not text.strip() for _, _, text in entry_edits):
             raise ValueError("thread text must not be empty")
-        if len({entry_id for entry_id, _ in entry_edits}) != len(entry_edits):
+        if len({entry_id for _, entry_id, _ in entry_edits}) != len(entry_edits):
             raise ValueError("each entry appears at most once")
         with self._locked():
             comments = self._all()
             by_id = {comment.id: comment for comment in comments}
-            entries = {entry.id: (comment, entry) for comment in comments for entry in comment.thread}
+            entries = {(comment.id, entry.id): entry for comment in comments for entry in comment.thread}
             touched: dict[str, Comment] = {}
-            for entry_id, _ in entry_edits:
-                if entry_id not in entries:
-                    raise KeyError(f"thread entry {entry_id!r} not found")
-                comment, entry = entries[entry_id]
+            for comment_id, entry_id, _ in entry_edits:
+                if (comment_id, entry_id) not in entries:
+                    raise KeyError(f"thread entry {entry_id!r} not found in {comment_id!r}")
+                entry = entries[(comment_id, entry_id)]
                 if entry.author != "agent":
                     raise ValueError(f"thread entry {entry_id} was written by {entry.author}")
-                touched[comment.id] = comment
+                touched[comment_id] = by_id[comment_id]
             for comment_id in replies:
                 if comment_id not in by_id:
                     raise KeyError(f"comment {comment_id!r} not found")
@@ -1070,8 +1071,8 @@ class CommentStore:
                 if comment.updated != expected_updated[comment_id]:
                     raise ValueError(f"stale: {comment_id} changed since it was read")
             now = _now()
-            for entry_id, text in entry_edits:
-                _, entry = entries[entry_id]
+            for comment_id, entry_id, text in entry_edits:
+                entry = entries[(comment_id, entry_id)]
                 entry.text = text.strip()
                 entry.updated_at = now
             for comment_id, text in replies.items():

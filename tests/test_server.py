@@ -1457,13 +1457,16 @@ async def test_mcp_edit_rewrites_the_agents_own_entry_and_refuses_the_rest(bound
     human, agent = thread
     read = (await call("read_comments", comment_ids=[comment.id]))["comments"][0]
     assert read["replies"][0]["id"] == agent.id and "updated_at" not in read["replies"][0]
+    assert read["updated"] == replied["updated"]
+    other = store.add(PaperAnchor(), "Another")
 
-    assert "written by human" in (await call("comment", action="edit", entry=human.id, text="x", updated=replied["updated"]))["error"]
-    assert "stale" in (await call("comment", action="edit", entry=agent.id, text="x", updated="old"))["error"]
-    assert "not found" in (await call("comment", action="edit", entry="e-deadbeef", text="x", updated=replied["updated"]))["error"]
-    assert "requires entry" in (await call("comment", action="edit", entry=agent.id, text="x"))["error"]
+    assert "written by human" in (await call("comment", action="edit", id=comment.id, entry=human.id, text="x", updated=read["updated"]))["error"]
+    assert "stale" in (await call("comment", action="edit", id=comment.id, entry=agent.id, text="x", updated="old"))["error"]
+    assert "not found" in (await call("comment", action="edit", id=comment.id, entry="e-deadbeef", text="x", updated=read["updated"]))["error"]
+    assert "not found" in (await call("comment", action="edit", id=other.id, entry=agent.id, text="x", updated=store.get(other.id).updated))["error"]
+    assert "requires id" in (await call("comment", action="edit", entry=agent.id, text="x", updated=read["updated"]))["error"]
 
-    changed = await call("comment", action="edit", entry=agent.id, text="better answer", updated=replied["updated"])
+    changed = await call("comment", action="edit", id=comment.id, entry=agent.id, text="better answer", updated=read["updated"])
     assert changed["id"] == comment.id and changed["updated"] != replied["updated"]
     entry = store.get(comment.id).thread[1]
     assert entry.text == "better answer" and entry.at == agent.at and entry.updated_at is not None
