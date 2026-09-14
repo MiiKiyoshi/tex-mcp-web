@@ -984,6 +984,30 @@ class CommentStore:
                     return c
         raise KeyError(f"comment {comment_id!r} not found")
 
+    def export_comments(self, comment_ids: list[str]) -> dict:
+        from .comment_drafts import export
+
+        with self._locked():
+            by_id = {comment.id: comment for comment in self._all()}
+            return export(self.path.parent / "drafts", [by_id[key].to_dict() for key in comment_ids])
+
+    def reply_file(self, path: str, edits: list[str] | None = None) -> list[Comment]:
+        from .comment_drafts import load
+
+        replies, expected = load(self.path.parent / "drafts", path)
+        with self._locked():
+            comments = self._all()
+            by_id = {comment.id: comment for comment in comments}
+            selected = [by_id[key] for key in replies]
+            if any(comment.updated != expected[comment.id] for comment in selected):
+                raise ValueError("stale draft: export comments again")
+            now = _now()
+            for comment in selected:
+                comment.thread.append(ThreadEntry(author="agent", at=now, text=replies[comment.id], edits=list(edits or [])))
+                comment.updated = now
+            self._save(comments)
+            return selected
+
     def reply(
         self,
         comment_id: str,
@@ -1013,6 +1037,7 @@ class CommentStore:
     def keep_as_reference(self, comment_id: str, author: Author = "human") -> Comment:
         """Set the thread aside to be read again; its entries stay as they are."""
         return self._append_entry(comment_id, author, "", new_status="reference")
+
     def edit_entry(
         self,
         comment_id: str,
@@ -1037,7 +1062,6 @@ class CommentStore:
                 comment.updated = _now()
                 comments[position] = comment
                 self._save(comments)
-
                 return comment
         raise KeyError(f"comment {comment_id!r} not found")
 

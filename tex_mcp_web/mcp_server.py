@@ -388,11 +388,16 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         return _ok({"comments": summaries})
 
     @mcp.tool()
-    async def read_comments(comment_ids: Annotated[list[str], Field(min_length=1)]) -> str:
-        """Read source locations, quotes, suggestions and reply history for selected IDs only."""
+    async def read_comments(comment_ids: Annotated[list[str], Field(min_length=1)], save: bool = False) -> str:
+        """Read selected threads; save returns a Markdown draft path/hash/IDs. Edit only Reply blocks."""
         if len(set(comment_ids)) != len(comment_ids):
             return _err("comment_ids must be unique")
         _, _, store = _load_project()
+        if save:
+            try:
+                return _ok(store.export_comments(comment_ids))
+            except (OSError, KeyError, TypeError, ValueError) as error:
+                return _err(str(error))
         comments = []
         for comment_id in comment_ids:
             comment = store.get(comment_id)
@@ -435,10 +440,11 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         edits: list[str] | None = None,
         suggestion_old: str | None = None,
         suggestion_new: str | None = None,
+        replies_file: str | None = None,
     ) -> str:
         """Mutate a comment.
 
-        ``add`` requires text and anchor; ``reply`` requires id and text;
+        ``add`` requires text and anchor; ``reply`` requires id/text or a saved draft's replies_file, exclusively;
         ``delete`` requires id. A reply says what changed, with ``edits``
         naming the changed source ranges; the thread stays open, and the
         reviewer resolves it from the page. An agent does not resolve.
@@ -447,6 +453,11 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         """
         cfg, watch_dir, store = _load_project()
         try:
+            if replies_file is not None:
+                if action != "reply" or any(value is not None for value in (id, text, anchor, suggestion_old, suggestion_new)):
+                    return _err("replies_file requires reply and excludes inline comment fields")
+                updated = store.reply_file(replies_file, edits=edits)
+                return _ok({"updated": [{"id": c.id, "status": c.status, "updated": c.updated} for c in updated]})
             if action == "add":
                 if (suggestion_old is None) != (suggestion_new is None):
                     return _err("suggestion_old and suggestion_new go together")
