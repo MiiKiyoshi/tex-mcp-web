@@ -1758,12 +1758,15 @@ function attachSidebarResize() {
     event.preventDefault();
     grip.setPointerCapture(event.pointerId);
     const bottom = layout.getBoundingClientRect().bottom;
+    // A split stacked above keeps its bar where it is on the screen while this one moves.
+    const splitY = state.split.holdable() ? state.split.centerY() : null;
     let pointerY = null;
     let frame = null;
     let height = null;
     const apply = () => {
       frame = null;
       height = setPanelHeight(bottom - pointerY);
+      if (splitY !== null) state.split.holdAt(splitY);
       state.editor?.resize();
     };
     const move = (moved) => {
@@ -1772,13 +1775,14 @@ function attachSidebarResize() {
     };
     const done = (ended) => {
       if (frame !== null) cancelAnimationFrame(frame);
-      if (pointerY !== null) height = setPanelHeight(bottom - pointerY);
+      if (pointerY !== null) apply();
       if (ended.cancelable) ended.preventDefault();
       if (pointerY !== null) state.panelDraggedAt = performance.now();
       grip.removeEventListener("pointermove", move);
       grip.removeEventListener("pointerup", done);
       grip.removeEventListener("pointercancel", done);
       if (height !== null) localStorage.setItem("texMcpPanelHeight", String(height));
+      if (splitY !== null) state.split.keep();
       state.editor?.resize();
     };
     grip.addEventListener("pointermove", move);
@@ -1807,6 +1811,22 @@ function attachSplitResize() {
   const orientation = () => {
     grip.setAttribute("aria-orientation", stacked.matches ? "horizontal" : "vertical");
     requestAnimationFrame(resize);
+  };
+  // With the panes stacked, the comments' bar under them changes the height the split
+  // divides, and a ratio kept through that drag carried the split's bar up the screen
+  // with it. The drag holds the bar where it was by moving the ratio instead.
+  state.split = {
+    holdable: () => stacked.matches && $(".layout").classList.contains("view-split"),
+    centerY: () => {
+      const box = grip.getBoundingClientRect();
+      return box.top + box.height / 2;
+    },
+    holdAt: (y) => {
+      const top = $("#pdf-pane").getBoundingClientRect().top;
+      const rows = workspace.getBoundingClientRect().bottom - top - 10;
+      apply((y - top - 5) / Math.max(1, rows));
+    },
+    keep: () => localStorage.setItem("texMcpSplitRatio", String(ratio)),
   };
   apply(ratio);
   orientation();
