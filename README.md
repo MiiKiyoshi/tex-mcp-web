@@ -101,6 +101,8 @@ Drag over PDF text and write a comment; add a suggested wording in the replaceme
 
 The agent reads them, edits the source, compiles, and replies in each thread. Resolving is yours: pick the threads whose edit satisfies you and resolve them from the page, or reopen one the agent got wrong. If an edit misses, reply in the same thread. **Reference** sets a thread aside to read again: it stays out of the open and resolved lists, still takes replies, and goes back to either with **Reopen** or **Resolve**.
 
+For a long answer, the agent can ask `read_comments(save=true)` for a Markdown draft of the selected threads under `.tex-mcp-web/drafts/`, write its replies into the draft's Reply blocks, and send the file back with `comment(action="reply", replies_file=...)`; the whole batch is applied together, and a draft made before a thread changed is refused.
+
 If the agent restarts or stops receiving calls, ask it to listen for **Call agent** again. Calls made while it is disconnected stay queued.
 
 ## Several papers at once
