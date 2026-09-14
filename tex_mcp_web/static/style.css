@@ -145,8 +145,25 @@ textarea {
 }
 .layout.view-pdf #source-pane { display: none; }
 .layout.view-source #pdf-pane { display: none; }
+#split-grip { display: none; }
+.layout.view-split #split-grip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: col-resize;
+  touch-action: none;
+  background: var(--bg);
+}
+#split-grip::after {
+  content: "";
+  width: 3px;
+  height: 32px;
+  border-radius: 2px;
+  background: var(--border);
+}
+#split-grip:hover::after, #split-grip:focus-visible::after { background: var(--accent); }
 .layout.view-split #workspace {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, var(--split-first, 1fr)) 10px minmax(0, var(--split-second, 1fr));
 }
 .source-toolbar {
   display: flex;
@@ -271,8 +288,10 @@ textarea {
 @media (max-width: 950px) {
   .layout.view-split #workspace {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: minmax(0, var(--split-first, 1fr)) 10px minmax(0, var(--split-second, 1fr));
   }
+  .layout.view-split #split-grip { cursor: row-resize; }
+  .layout.view-split #split-grip::after { width: 32px; height: 3px; }
   .layout.view-split #source-pane {
     border-left: 0;
     border-top: 1px solid var(--border);

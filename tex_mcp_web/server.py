@@ -34,6 +34,7 @@ from .comments import (
     PaperAnchor,
     ResolvedSource,
     SectionAnchor,
+    SourceRangeAnchor,
     SourceSelector,
     SuggestedEdit,
     TextSelectionAnchor,
@@ -379,6 +380,7 @@ class TexMcpWebServer:
             path = Path(changed_path).resolve()
             relative = path.relative_to(self.watch_dir.resolve()).as_posix()
             revision = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
+            self.comments.refresh_source_anchors(self.watch_dir)
             await self.broadcast(
                 {"type": "source_changed", "path": relative, "revision": revision}
             )
@@ -641,6 +643,7 @@ class TexMcpWebServer:
             with contextlib.suppress(FileNotFoundError):
                 staging.unlink()
         revision = hashlib.sha256(encoded).hexdigest()
+        self.comments.refresh_source_anchors(self.watch_dir)
         return web.json_response(
             {
                 "path": path.relative_to(self.watch_dir.resolve()).as_posix(),
@@ -727,6 +730,10 @@ class TexMcpWebServer:
                 {"error": f"invalid comment input: {exc}"}, status=400
             )
 
+        if isinstance(anchor, SourceRangeAnchor) and "source_revision" in data:
+            _, revision = self._read_source(self._resolve_source_path(anchor.file))
+            if data["source_revision"] != revision:
+                return web.json_response({"error": "Source changed after this text was selected; reload and select again"}, status=409)
         if isinstance(anchor, TextSelectionAnchor):
             if not anchor.quote.strip():
                 return web.json_response(
@@ -754,6 +761,8 @@ class TexMcpWebServer:
                 )
 
         resolved, source_selector = self._resolve_anchor(anchor)
+        if isinstance(anchor, SourceRangeAnchor) and source_selector is None:
+            return web.json_response({"error": "Source selection is out of bounds"}, status=400)
         comment = self.comments.add(
             anchor=anchor,
             text=text,
@@ -808,7 +817,8 @@ class TexMcpWebServer:
             return resolved, None
 
         selector = capture_source_selector(
-            self.watch_dir / resolved.file, resolved.line_start, resolved.line_end
+            self.watch_dir / resolved.file, resolved.line_start, resolved.line_end,
+            column_start=resolved.column_start, column_end=resolved.column_end,
         )
         return resolved, selector
 
