@@ -9,15 +9,14 @@ Exposes tools to agents via stdio:
     comment(action, ...)    add/reply/delete
     image(...)              render a PDF page or exact region
     section(name)           section source and file range
-    goto(target)            scroll the viewer to a target
     wait_review()           instructions for receiving review events
 
 The MCP process owns the review server: the first tool call starts it in a
 background thread, and a peer process bound to the same project shares that
-listener. ``compile`` and ``goto`` reach it over HTTP so compilation, PDF
-refresh, anchor reattachment, and viewer notification remain one transaction.
+listener. ``compile`` reaches it over HTTP so compilation, PDF refresh, anchor
+reattachment, and viewer notification remain one transaction.
 
-Requires: pip install "mcp>=1.0"  (and httpx for goto)
+Requires: pip install "mcp>=1.0"  (and httpx for compile)
 """
 
 import asyncio
@@ -597,27 +596,6 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         })
 
     @mcp.tool()
-    async def goto(target: Annotated[str, Field(min_length=1)]) -> str:
-        """Scroll the running viewer to a section title, label, exact PDF quote,
-        ``pN``, ``file:line``, or a line number in the main file. Positioned
-        targets remain highlighted until the next pointer action.
-        """
-        try:
-            import httpx
-        except ImportError:
-            return _err("httpx not installed; install tex-mcp-web[mcp]")
-
-        cfg, _, _ = _load_project()
-        body = parse_goto_target(target, default_file=cfg.main)
-        try:
-            base = binding.base_url()
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.post(f"{base}/goto", json=body)
-                return resp.text
-        except Exception as exc:
-            return _err(f"review server request failed: {exc}")
-
-    @mcp.tool()
     async def wait_review(ctx: Context) -> str:
         """Return a script and client-specific instructions for waiting on Call agent.
 
@@ -705,7 +683,7 @@ _LABEL_LIKE = re.compile(r"^[a-zA-Z]{2,8}:[A-Za-z0-9_.\-:]+$")
 
 
 def parse_goto_target(target: str, default_file: str) -> dict[str, Any]:
-    """Convert a CLI/MCP goto target string into a request body for ``/goto``.
+    """Convert a CLI goto target string into a request body for ``/goto``.
 
     Recognized forms (in order):
       ``pN``         -> ``{"page": N}``

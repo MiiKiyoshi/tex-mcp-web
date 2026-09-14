@@ -636,7 +636,10 @@ async def test_mcp_contract_is_typed_and_nonduplicative(tmp_path: Path):
     mcp = create_server(ProjectBinding(tmp_path))
     tools = {tool.name: tool for tool in await mcp.list_tools()}
 
-    assert set(tools) == {"paper", "list_comments", "read_comments", "compile", "comment", "image", "section", "goto", "wait_review"}
+    assert set(tools) == {
+        "paper", "list_comments", "read_comments", "compile", "comment",
+        "image", "section", "wait_review",
+    }
     assert "list_comments(unanswered=True)" in mcp.instructions
     assert "read_comments(comment_ids=[...])" in mcp.instructions
     assert "compile() once" in mcp.instructions
@@ -676,9 +679,6 @@ async def test_mcp_contract_is_typed_and_nonduplicative(tmp_path: Path):
     assert image_schema["bbox"]["anyOf"][0]["minItems"] == 4
     assert image_schema["bbox"]["anyOf"][0]["maxItems"] == 4
     assert image_schema["margin"]["minimum"] == 0
-
-    assert set(tools["goto"].inputSchema["properties"]) == {"target"}
-
 
 def _free_port() -> int:
     import socket
