@@ -477,8 +477,8 @@ def test_highlight_badges_leave_pdf_text_selectable(tmp_path: Path) -> None:
             /comment/i.test(button.textContent) && button.getBoundingClientRect().width > 0);
         '''))
 
-        def click_badge(index):
-            target = wait_until(lambda: browser.execute_script(f'''
+        def badge_center(index):
+            return browser.execute_script(f'''
               const root = document.querySelector("embedpdf-container").shadowRoot;
               const badge = root.querySelectorAll(".tex-comment-badge")[{index}];
               const rect = badge.getBoundingClientRect();
@@ -486,7 +486,20 @@ def test_highlight_badges_leave_pdf_text_selectable(tmp_path: Path) -> None:
               const y = rect.top + rect.height / 2;
               const hit = root.elementFromPoint(x, y);
               return hit === badge ? {{x, y}} : false;
-            '''))
+            ''')
+
+        def click_badge(index):
+            # Collapsing the sidebar widens the viewer, which re-fits the page a moment
+            # later and moves the badges with it: a click aimed before that lands beside
+            # the badge. The badge is clicked once it has stayed put.
+            def settled():
+                before = badge_center(index)
+                if not before:
+                    return False
+                time.sleep(0.3)
+                after = badge_center(index)
+                return after if after == before else False
+            target = wait_until(settled)
             ActionSequence(browser, "pointer", "mouse", {"pointerType": "mouse"}) \
                 .pointer_move(int(target["x"]), int(target["y"])) \
                 .pointer_down().pointer_up().perform()
