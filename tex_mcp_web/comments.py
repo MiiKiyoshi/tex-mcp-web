@@ -197,21 +197,38 @@ class SourceRangeAnchor:
     file: str
     line_start: int
     line_end: int
+    column_start: int | None = None
+    column_end: int | None = None
     kind: Literal["source_range"] = "source_range"
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        data = {
             "kind": self.kind,
             "file": self.file,
             "line_start": self.line_start,
             "line_end": self.line_end,
         }
+        if self.column_start is not None:
+            data.update(column_start=self.column_start, column_end=self.column_end)
+        return data
+
+    def __post_init__(self) -> None:
+        if (self.column_start is None) != (self.column_end is None):
+            raise ValueError("Both source columns are required")
+        if self.column_start is not None:
+            if type(self.column_start) is not int or type(self.column_end) is not int:
+                raise ValueError("Source columns must be integers")
+            if self.column_start < 0 or self.column_end < 0:
+                raise ValueError("Source columns must be nonnegative")
+            if self.line_end < self.line_start or (self.line_start == self.line_end and self.column_end <= self.column_start):
+                raise ValueError("Source selection must be nonempty and ordered")
 
     def resolve_source(self, ctx: ResolveContext) -> "ResolvedSource | None":
         # Already a literal source range; the file existence check is
         # left to staleness, not creation.
         return ResolvedSource(
-            file=self.file, line_start=self.line_start, line_end=self.line_end
+            file=self.file, line_start=self.line_start, line_end=self.line_end,
+            column_start=self.column_start, column_end=self.column_end
         )
 
     def image_target(self, ctx: ResolveContext) -> tuple[int, BBox] | None:
@@ -261,6 +278,7 @@ def anchor_from_dict(d: dict[str, Any]) -> Anchor:
             file=str(d["file"]),
             line_start=int(d["line_start"]),
             line_end=int(d["line_end"]),
+            column_start=d.get("column_start"), column_end=d.get("column_end"),
         )
     if kind == "paper":
         return PaperAnchor()
@@ -284,9 +302,11 @@ class ResolvedSource:
     file: str
     line_start: int
     line_end: int
+    column_start: int | None = None
+    column_end: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        return {key: value for key, value in asdict(self).items() if value is not None}
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "ResolvedSource":
@@ -294,6 +314,7 @@ class ResolvedSource:
             file=str(d["file"]),
             line_start=int(d["line_start"]),
             line_end=int(d["line_end"]),
+            column_start=d.get("column_start"), column_end=d.get("column_end"),
         )
 
 
@@ -453,21 +474,74 @@ class Comment:
 
 
 def capture_source_selector(
-    file: Path, line_start: int, line_end: int, context: int = 2
+    file: Path, line_start: int, line_end: int, context: int = 2,
+    *, column_start: int | None = None, column_end: int | None = None,
 ) -> SourceSelector | None:
     """Capture selected source separately from its surrounding context."""
     try:
-        lines = file.read_text(encoding="utf-8", errors="replace").splitlines()
+        text = file.read_text(encoding="utf-8", errors="replace")
+        lines = text.split("\n") if column_start is not None else text.splitlines()
     except OSError:
         return None
     if line_start < 1 or line_end < line_start or line_end > len(lines):
         return None
+    if column_start is not None:
+        try:
+            start = source_offset(text, line_start, column_start)
+            end = source_offset(text, line_end, column_end)
+        except (ValueError, UnicodeError):
+            return None
+        if end <= start:
+            return None
+        return SourceSelector(text[start:end], text[max(0, start - 80):start], text[end:end + 80])
     selected_start = line_start - 1
     return SourceSelector(
         exact="\n".join(lines[selected_start:line_end]),
         prefix="\n".join(lines[max(0, selected_start - context):selected_start]),
         suffix="\n".join(lines[line_end:min(len(lines), line_end + context)]),
     )
+
+
+def source_offset(text: str, line: int, column: int) -> int:
+    """Convert a 1-based line and 0-based UTF-16 editor column to a text offset."""
+    lines = text.split("\n")
+    if line < 1 or line > len(lines) or column < 0:
+        raise ValueError("Source position is out of bounds")
+    encoded = lines[line - 1].encode("utf-16-le")
+    if column * 2 > len(encoded):
+        raise ValueError("Source column is out of bounds")
+    prefix = encoded[:column * 2].decode("utf-16-le")
+    return sum(len(value) + 1 for value in lines[:line - 1]) + len(prefix)
+
+
+def find_source_characters(selector: SourceSelector, file: Path, name: str) -> ResolvedSource | None:
+    """Relocate exact characters; ambiguous or changed text stays stale."""
+    try:
+        text = file.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    candidates = []
+    position = 0
+    while selector.exact:
+        start = text.find(selector.exact, position)
+        if start < 0:
+            break
+        candidates.append(start)
+        position = start + 1
+    if len(candidates) > 1:
+        candidates = [start for start in candidates
+                      if text[:start].endswith(selector.prefix)
+                      and text[start + len(selector.exact):].startswith(selector.suffix)]
+    if len(candidates) != 1:
+        return None
+    start = candidates[0]
+    end = start + len(selector.exact)
+    def coordinate(offset):
+        before = text[:offset]
+        return before.count("\n") + 1, len(before.rsplit("\n", 1)[-1].encode("utf-16-le")) // 2
+    ls, cs = coordinate(start)
+    le, ce = coordinate(end)
+    return ResolvedSource(name, ls, le, cs, ce)
 
 
 def _strip_for_match(s: str) -> str:
@@ -973,6 +1047,20 @@ class CommentStore:
 
     # ----- staleness -----
 
+    def refresh_source_anchors(self, watch_dir: Path) -> None:
+        """Update source comments even when automatic compilation is disabled."""
+        with self._locked():
+            comments = self._all()
+            changed = False
+            for comment in comments:
+                if not isinstance(comment.anchor, SourceRangeAnchor):
+                    continue
+                stale, modified = self._refresh_anchor(comment, watch_dir, "", None, None, None)
+                changed |= modified or stale != comment.stale
+                comment.stale = stale
+            if changed:
+                self._save(comments)
+
     def refresh_anchors(
         self,
         watch_dir: Path,
@@ -1118,6 +1206,13 @@ class CommentStore:
         file_path = watch_dir / resolved.file
         if not file_path.is_file():
             return True, False
+        if resolved.column_start is not None:
+            located = find_source_characters(c.source_selector, file_path, resolved.file)
+            if located is None:
+                return True, False
+            modified = located != resolved
+            c.resolved_source = located
+            return False, modified
         located = find_source_selector(c.source_selector, file_path)
         if located is None:
             return True, False

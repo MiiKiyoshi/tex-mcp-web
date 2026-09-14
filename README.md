@@ -6,9 +6,9 @@ If it helps your writing, a star is very welcome.
 
 ![A highlighted PDF caption, its LaTeX source, and the review thread in Split view](docs/images/discussion.png)
 
-You read the PDF in a browser and comment on selected PDF text, selected source lines, a section, or the whole paper. The agent reads those comments over MCP, edits the LaTeX, compiles once after the batch, and replies in the same thread.
+You read the PDF in a browser and comment on selected PDF text, selected source text, a section, or the whole paper. The agent reads those comments over MCP, edits the LaTeX, compiles once after the batch, and replies in the same thread.
 
-Use the topbar's **PDF**, **Source**, and **Split** tabs to review the rendered paper, make a small source edit, or see both together. Select source text and press **+ Comment** to start the same review thread from the editor. Source files follow the configured `watch` and `ignore` rules. Saving is explicit, and the editor refuses to overwrite a file changed by an agent or another editor after it was opened.
+Use the topbar's **PDF**, **Source**, and **Split** tabs to review the rendered paper, make a small source edit, or see both together. Drag the handle between the panes to adjust their sizes. Select source text and press **+ Comment** to highlight exactly those characters, including text that wraps onto another display line. Source files follow the configured `watch` and `ignore` rules. Saving is explicit, and the editor refuses to overwrite a file changed by an agent or another editor after it was opened.
 
 ```
 you:    select text -> write a comment -> press Call agent

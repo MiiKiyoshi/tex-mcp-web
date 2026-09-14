@@ -19,6 +19,7 @@ const state = {
   comments: [],
   paper: null,
   pendingAnchor: null,
+  pendingSourceRevision: null,
   composeSubmitting: false,
   errors: [],
   warnings: [],
@@ -422,6 +423,7 @@ async function openTextSelectionCompose() {
 
 function openCompose(anchor, label, selectionText = "") {
   state.pendingAnchor = anchor;
+  state.pendingSourceRevision = anchor.kind === "source_range" ? state.sourceRevision : null;
   $("#compose-anchor").textContent = label;
   $("#compose-text").value = "";
   $("#compose-suggestion-old").value = selectionText;
@@ -462,7 +464,10 @@ function setSourceStatus(text, kind = "") {
 function setSourceDirty(dirty) {
   state.sourceDirty = dirty;
   $("#source-save-btn").disabled = !dirty;
-  if (dirty) setSourceStatus("Unsaved", "dirty");
+  if (dirty) {
+    setSourceStatus("Unsaved", "dirty");
+    clearSourceCommentMarkers();
+  }
   updateSourceCommentButton();
 }
 
@@ -473,7 +478,7 @@ function updateSourceCommentButton() {
   button.disabled = !selected || state.sourceDirty;
   button.title = state.sourceDirty
     ? "Save source before commenting"
-    : selected ? "Comment on the selected source lines" : "Select source text to comment";
+    : selected ? "Comment on the selected source text" : "Select source text to comment";
 }
 
 function clearSourceCommentMarkers() {
@@ -495,12 +500,16 @@ function syncSourceCommentMarkers() {
   for (const comment of state.comments) {
     if (comment.status !== "open" || comment.anchor.kind !== "source_range"
         || comment.anchor.file !== state.sourcePath) continue;
-    const firstRow = Math.max(0, comment.anchor.line_start - 1);
-    const lastRow = Math.max(firstRow, comment.anchor.line_end - 1);
+    if (comment.stale || state.sourceDirty) continue;
+    const source = comment.resolved_source ?? comment.anchor;
+    const firstRow = Math.max(0, source.line_start - 1);
+    const lastRow = Math.max(firstRow, source.line_end - 1);
+    const startColumn = source.column_start ?? 0;
+    const endColumn = source.column_end ?? state.editor.session.getLine(lastRow).length;
     state.sourceCommentMarkers.push(state.editor.session.addMarker(
-      new Range(firstRow, 0, lastRow, 1),
+      new Range(firstRow, startColumn, lastRow, endColumn),
       "source-comment-highlight",
-      "fullLine",
+      "text",
       false,
     ));
     state.editor.session.addGutterDecoration(firstRow, "source-comment-line");
@@ -513,19 +522,19 @@ function syncSourceCommentMarkers() {
 
 function openSourceCommentCompose() {
   if (!state.editor || !state.sourcePath || state.sourceDirty) return;
-  const text = state.editor.getSelectedText().trim();
+  const text = state.editor.getSelectedText();
   const range = state.editor.getSelectionRange();
   if (!text || range.isEmpty()) return;
   const lineStart = range.start.row + 1;
-  const lineEnd = range.end.row > range.start.row && range.end.column === 0
-    ? range.end.row
-    : range.end.row + 1;
+  const lineEnd = range.end.row + 1;
   openCompose(
     {
       kind: "source_range",
       file: state.sourcePath,
       line_start: lineStart,
       line_end: lineEnd,
+      column_start: range.start.column,
+      column_end: range.end.column,
     },
     `Source: ${state.sourcePath}:${lineStart}-${lineEnd}`,
     text,
@@ -657,6 +666,7 @@ async function saveSource() {
   state.sourceDirty = false;
   button.disabled = true;
   setSourceStatus("Saved");
+  await refreshComments();
   updateSourceCommentButton();
 }
 
@@ -692,6 +702,7 @@ async function handleSourceChanged(message) {
     return;
   }
   const line = state.editor.getCursorPosition().row + 1;
+  await refreshComments();
   await openSource(state.sourcePath, line, true);
 }
 
@@ -722,6 +733,7 @@ async function submitCompose(event) {
   const text = $("#compose-text").value.trim();
   if (!text || !state.pendingAnchor) return;
   const body = { anchor: state.pendingAnchor, text };
+  if (state.pendingSourceRevision !== null) body.source_revision = state.pendingSourceRevision;
   const suggestionOld = $("#compose-suggestion-old").value.trim();
   const suggestionNew = $("#compose-suggestion-new").value.trim();
   if (suggestionOld && suggestionNew) body.suggestion = { old: suggestionOld, new: suggestionNew };
@@ -1628,7 +1640,11 @@ async function jumpToComment(commentId) {
   if (!comment) return;
   if (comment.anchor.kind === "source_range") {
     if (state.view === "pdf") await setWorkspaceView("source");
-    await openSource(comment.anchor.file, comment.anchor.line_start);
+    const source = comment.resolved_source ?? comment.anchor;
+    await openSource(source.file, source.line_start);
+    if (!comment.stale && source.column_start !== undefined) {
+      state.editor.gotoLine(source.line_start, source.column_start, true);
+    }
   } else if (comment.anchor.kind === "text_selection" || comment.anchor.kind === "area") {
     const selection = comment.anchor.kind === "text_selection"
       ? comment.anchor.selection
@@ -1763,10 +1779,66 @@ function attachSidebarResize() {
   });
 }
 
+function attachSplitResize() {
+  const grip = $("#split-grip");
+  const workspace = $("#workspace");
+  const stacked = matchMedia("(max-width: 950px)");
+  let ratio = Number(localStorage.getItem("texMcpSplitRatio")) || 0.5;
+  const resize = () => {
+    state.editor?.resize();
+    const zoomMode = state.zoom?.getState().zoomLevel;
+    if (typeof zoomMode === "string") state.zoom?.requestZoom(zoomMode);
+  };
+  const apply = (value) => {
+    ratio = Math.max(0.15, Math.min(0.85, value));
+    workspace.style.setProperty("--split-first", `${ratio}fr`);
+    workspace.style.setProperty("--split-second", `${1 - ratio}fr`);
+    grip.setAttribute("aria-valuenow", String(Math.round(ratio * 100)));
+    state.editor?.resize();
+  };
+  const orientation = () => {
+    grip.setAttribute("aria-orientation", stacked.matches ? "horizontal" : "vertical");
+    requestAnimationFrame(resize);
+  };
+  apply(ratio);
+  orientation();
+  stacked.addEventListener("change", orientation);
+  grip.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    grip.setPointerCapture(event.pointerId);
+    const move = (moved) => {
+      const rect = workspace.getBoundingClientRect();
+      const size = stacked.matches ? rect.height : rect.width;
+      const position = stacked.matches ? moved.clientY - rect.top : moved.clientX - rect.left;
+      apply((position - 5) / (size - 10));
+    };
+    const done = () => {
+      grip.removeEventListener("pointermove", move);
+      grip.removeEventListener("lostpointercapture", done);
+      localStorage.setItem("texMcpSplitRatio", String(ratio));
+      resize();
+    };
+    grip.addEventListener("pointermove", move);
+    grip.addEventListener("lostpointercapture", done);
+  });
+  grip.addEventListener("keydown", (event) => {
+    const decrease = stacked.matches ? "ArrowUp" : "ArrowLeft";
+    const increase = stacked.matches ? "ArrowDown" : "ArrowRight";
+    if (![decrease, increase, "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    apply(event.key === "Home" ? 0.15 : event.key === "End" ? 0.85
+      : ratio + (event.key === decrease ? -0.05 : 0.05));
+    localStorage.setItem("texMcpSplitRatio", String(ratio));
+    resize();
+  });
+}
+
 async function init() {
   attachKeyboardNavigation();
   attachSidebarToggle();
   attachSidebarResize();
+  attachSplitResize();
   window.addEventListener("beforeunload", (event) => {
     if (!state.sourceDirty) return;
     event.preventDefault();

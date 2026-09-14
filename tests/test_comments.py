@@ -436,3 +436,37 @@ def test_text_anchor_captures_and_follows_resolved_source(
         text_resolver=lambda _: pytest.fail("selector should reattach first"),
     )
     assert store.get(comment.id).resolved_source == ResolvedSource("paper.tex", 3, 3)
+
+
+@pytest.mark.parametrize("start,end,expected", [((1, 3), (1, 6), "b c"),
+                                             ((1, 3), (2, 2), "b cd\nne"),
+                                             ((1, 0), (2, 0), "a😀b cd\n"),
+                                             ((2, 0), (3, 0), "next\n")])
+def test_character_selector_utf16_and_newlines(tmp_path, start, end, expected):
+    from tex_mcp_web.comments import capture_source_selector, find_source_characters, ResolvedSource
+    path = tmp_path / "paper.tex"
+    path.write_text("a😀b cd\nnext\n", encoding="utf-8")
+    selector = capture_source_selector(path, start[0], end[0], column_start=start[1], column_end=end[1])
+    assert selector.exact == expected
+    assert find_source_characters(selector, path, path.name) == ResolvedSource(path.name, start[0], end[0], start[1], end[1])
+    path.write_text("inserted\n" + path.read_text(), encoding="utf-8")
+    found = find_source_characters(selector, path, path.name)
+    assert (found.line_start, found.column_start, found.line_end, found.column_end) == (start[0] + 1, start[1], end[0] + 1, end[1])
+
+
+def test_character_selector_does_not_guess_changed_or_ambiguous_text(tmp_path):
+    from tex_mcp_web.comments import capture_source_selector, find_source_characters
+    path = tmp_path / "paper.tex"
+    path.write_text("before exact words after")
+    selector = capture_source_selector(path, 1, 1, column_start=7, column_end=18)
+    path.write_text("before exact  words after")
+    assert find_source_characters(selector, path, path.name) is None
+    path.write_text("before exact words after\nbefore exact words after")
+    assert find_source_characters(selector, path, path.name) is None
+
+
+def test_character_selector_rejects_half_surrogate(tmp_path):
+    from tex_mcp_web.comments import capture_source_selector
+    path = tmp_path / "paper.tex"
+    path.write_text("a😀b")
+    assert capture_source_selector(path, 1, 1, column_start=2, column_end=3) is None

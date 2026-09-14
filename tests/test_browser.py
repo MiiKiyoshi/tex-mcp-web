@@ -161,6 +161,7 @@ def test_browser_comment_actions(tmp_path: Path) -> None:
         source_cid = source_comment["id"]
         assert source_comment["anchor"] == {
             "kind": "source_range", "file": "paper.tex", "line_start": 4, "line_end": 4,
+            "column_start": 0, "column_end": 12,
         }
         assert source_comment["source_selector"]["exact"] == "Hello world."
         wait_until(lambda: browser.execute_script('''
@@ -502,6 +503,136 @@ def test_highlight_badges_leave_pdf_text_selectable(tmp_path: Path) -> None:
         wait_until(lambda: browser.execute_script('''
           return document.querySelector(".layout").classList.contains("sidebar-collapsed");
         '''))
+    finally:
+        if browser is not None:
+            try:
+                browser.delete_session()
+            except Exception:
+                pass
+        if browser_process is not None:
+            browser_process.terminate()
+            try:
+                browser_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                browser_process.kill()
+        shutil.rmtree(profile, ignore_errors=True)
+        shared.stop()
+
+
+@pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
+def test_browser_source_selection_and_split_resize(tmp_path: Path) -> None:
+    import fitz
+
+    (tmp_path / "paper.tex").write_text(PAPER.replace("Hello world.", "prefix " * 15 + "SELECTED " * 10 + " suffix" * 30), encoding="utf-8")
+    with fitz.open() as pdf:
+        pdf.new_page().insert_text((72, 72), "Hello world.")
+        pdf.save(tmp_path / "paper.pdf")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(
+        f"main: paper.tex\nauto_compile: false\nport: {port}\n", encoding="utf-8"
+    )
+
+    shared = SharedProjectServer(load_config(config_path))
+    profile = tempfile.mkdtemp(prefix="tex_mcp_browser_")
+    marionette_port = available_port()
+    (Path(profile) / "user.js").write_text(
+        f'user_pref("marionette.port", {marionette_port});\n', encoding="utf-8"
+    )
+    browser_process = None
+    browser = None
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        comment = post_json(
+            f"{base}/comments", {"anchor": {"kind": "paper"}, "text": "typo herre"}
+        )
+        cid = comment["id"]
+
+        browser_process = subprocess.Popen(
+            ["firefox", "-marionette", "-headless", "-no-remote", "-profile", profile, "about:blank"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        browser = marionette.Marionette(host="127.0.0.1", port=marionette_port, startup_timeout=30)
+        browser.start_session()
+        browser.set_window_rect(x=0, y=0, width=1500, height=1000)
+        browser.navigate(base)
+
+        browser.execute_script('document.querySelector("[data-view=split]").click()')
+        wait_until(lambda: browser.execute_script('''
+          const page = window.wrappedJSObject || window;
+          return page.ace?.edit("source-editor").getValue().includes("SELECTED");
+        '''))
+        coords = browser.execute_script('''
+          const editor = (window.wrappedJSObject || window).ace.edit("source-editor");
+          return [90, 175].map(column => {
+            const point = editor.renderer.textToScreenCoordinates(3, column);
+            return {x: point.pageX, y: point.pageY + editor.renderer.lineHeight / 2};
+          });
+        ''')
+        assert coords[1]["y"] > coords[0]["y"]  # One source line, several visual lines.
+        ActionSequence(browser, "pointer", "mouse", {"pointerType": "mouse"}) \
+            .pointer_move(round(coords[0]["x"]), round(coords[0]["y"])) \
+            .pointer_down().pointer_move(round(coords[1]["x"]), round(coords[1]["y"]), duration=300) \
+            .pointer_up().perform()
+        selection = browser.execute_script('''
+          const editor = (window.wrappedJSObject || window).ace.edit("source-editor");
+          return {text: editor.getSelectedText(), start: editor.getSelectionRange().start,
+            end: editor.getSelectionRange().end};
+        ''')
+        assert selection["start"] == {"row": 3, "column": 90}
+        assert selection["end"] == {"row": 3, "column": 175}
+        browser.execute_script('''
+          document.querySelector("#source-comment-btn").click();
+          const input = document.querySelector("#compose-text");
+          input.value = "Only these characters";
+          input.dispatchEvent(new Event("input", {bubbles: true}));
+          document.querySelector("#compose-form").requestSubmit();
+        ''')
+        comment = wait_until(lambda: next((item for item in get_json(f"{base}/comments")["comments"]
+            if item["anchor"]["kind"] == "source_range"), None))
+        assert comment["source_selector"]["exact"] == selection["text"]
+        assert (comment["anchor"]["column_start"], comment["anchor"]["column_end"]) == (90, 175)
+        coverage = '''
+          const editor = (window.wrappedJSObject || window).ace.edit("source-editor");
+          const rects = Array.from(document.querySelectorAll(".source-comment-highlight"), n => n.getBoundingClientRect());
+          return [89, 90, 130, 174, 175].map(column => {
+            const point = editor.renderer.textToScreenCoordinates(3, column);
+            const x = point.pageX + editor.renderer.characterWidth / 2;
+            const y = point.pageY + editor.renderer.lineHeight / 2;
+            return rects.some(r => x >= r.left && x < r.right && y >= r.top && y < r.bottom);
+          });
+        '''
+        wait_until(lambda: browser.execute_script(coverage) == [False, True, True, True, False])
+        grip = browser.execute_script('''
+          const r = document.querySelector("#split-grip").getBoundingClientRect();
+          return {x: r.x + r.width / 2, y: r.y + r.height / 2,
+            before: document.querySelector("#pdf-pane").getBoundingClientRect().width};
+        ''')
+        ActionSequence(browser, "pointer", "mouse", {"pointerType": "mouse"}) \
+            .pointer_move(round(grip["x"]), round(grip["y"])).pointer_down() \
+            .pointer_move(round(grip["x"] - 130), round(grip["y"]), duration=300).pointer_up().perform()
+        wait_until(lambda: browser.execute_script('return document.querySelector("#pdf-pane").getBoundingClientRect().width') < grip["before"] - 110)
+        wait_until(lambda: browser.execute_script(coverage) == [False, True, True, True, False])
+        ratio = browser.execute_script('return document.querySelector("#split-grip").getAttribute("aria-valuenow")')
+        browser.refresh()
+        wait_until(lambda: browser.execute_script('return document.querySelector("#split-grip").getAttribute("aria-valuenow")') == ratio)
+        wait_until(lambda: browser.execute_script(coverage) == [False, True, True, True, False])
+        import base64
+        (tmp_path / "split-selection.png").write_bytes(base64.b64decode(browser.screenshot()))
+        browser.set_window_rect(width=800, height=1000)
+        wait_until(lambda: browser.execute_script('return document.querySelector("#split-grip").getAttribute("aria-orientation")') == "horizontal")
+        grip = browser.execute_script('''
+          const r = document.querySelector("#split-grip").getBoundingClientRect();
+          return {x: r.x + r.width / 2, y: r.y + r.height / 2,
+            before: document.querySelector("#pdf-pane").getBoundingClientRect().height};
+        ''')
+        ActionSequence(browser, "pointer", "mouse", {"pointerType": "mouse"}) \
+            .pointer_move(round(grip["x"]), round(grip["y"])).pointer_down() \
+            .pointer_move(round(grip["x"]), round(grip["y"] + 65), duration=300).pointer_up().perform()
+        wait_until(lambda: browser.execute_script('return document.querySelector("#pdf-pane").getBoundingClientRect().height') > grip["before"] + 45)
     finally:
         if browser is not None:
             try:

@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>tex-web</title>
-<link rel="stylesheet" href="/static/style.css?v=source-comments">
+<link rel="stylesheet" href="/static/style.css?v=precise-source">
 </head>
 <body>
 <div id="app">
@@ -36,6 +36,9 @@
         </div>
       </section>
 
+      <div id="split-grip" role="separator" tabindex="0" aria-label="Resize PDF and source panes"
+           aria-controls="pdf-pane source-pane" aria-orientation="vertical"
+           aria-valuemin="15" aria-valuemax="85" aria-valuenow="50" title="Drag to resize PDF and source"></div>
       <section id="source-pane" aria-label="Source editor">
         <div class="source-toolbar">
           <select id="source-file" aria-label="Source file"></select>
@@ -121,6 +124,6 @@
 </dialog>
 
     <script src="/static/ace/ace.js?v=1.44.0"></script>
-    <script type="module" src="/static/viewer.js?v=source-editor"></script>
+    <script type="module" src="/static/viewer.js?v=precise-source"></script>
 </body>
 </html>

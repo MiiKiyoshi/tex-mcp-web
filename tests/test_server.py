@@ -144,7 +144,7 @@ async def test_root_exposes_auto_compile_control(client):
     assert "Auto: Off" in html
     assert [f'data-view="{view}"' in html for view in ("pdf", "source", "split")] == [True] * 3
     assert "/static/ace/ace.js?v=1.44.0" in html
-    assert "viewer.js?v=source-editor" in html
+    assert "viewer.js?v=precise-source" in html
 
 
 @pytest.mark.asyncio
@@ -640,9 +640,9 @@ async def test_mcp_contract_is_typed_and_nonduplicative(tmp_path: Path):
     assert "list_comments(unanswered=True)" in mcp.instructions
     assert "read_comments(comment_ids=[...])" in mcp.instructions
     assert "compile() once" in mcp.instructions
-    assert "without asking for a second fix instruction" in mcp.instructions
-    assert "Explicit read-only, discussion-only, and separate-permission limits still control" in mcp.instructions
-    for needed in ("new MCP connection", "exactly once", "Do not poll", "stay queued"):
+    assert "Within the user's editing scope" in mcp.instructions
+    assert "Respect read-only or discussion-only requests" in mcp.instructions
+    for needed in ("new MCP connection", "follow how", "Do not poll", "stay queued"):
         assert needed in mcp.instructions, needed
     compile_description = " ".join((tools["compile"].description or "").split())
     assert "paper().auto_compile" in compile_description
@@ -654,6 +654,8 @@ async def test_mcp_contract_is_typed_and_nonduplicative(tmp_path: Path):
     assert "100-200" not in descriptions
 
     assert tools["paper"].inputSchema["properties"] == {}
+    assert set(tools["section"].inputSchema["properties"]) == {"name"}
+    assert all(mcp.instructions not in (tool.description or "") for tool in tools.values())
     assert tools["list_comments"].inputSchema["properties"]["status"]["enum"] == [
         "open", "resolved", "all"
     ]
@@ -725,8 +727,8 @@ async def test_mcp_comment_discovery_reads_only_selected_history(bound_project, 
 
     mcp = create_server(bound_project)
 
-    async def call(name, **arguments):
-        return json.loads((await mcp.call_tool(name, arguments))[0][0].text)
+    async def call(tool_name, **arguments):
+        return json.loads((await mcp.call_tool(tool_name, arguments))[0][0].text)
 
     moment = "2026-01-01T00:00:00+00:00"
     monkeypatch.setattr("tex_mcp_web.comments._now", lambda: moment)
@@ -775,12 +777,21 @@ async def test_mcp_comment_discovery_reads_only_selected_history(bound_project, 
     assert "unique" in (await call("read_comments", comment_ids=[first.id, first.id]))["error"]
     assert "not found" in (await call("read_comments", comment_ids=[first.id, "missing"]))["error"]
 
+    source = await call("section", name="Methods")
+    assert set(source) == {"section", "source"}
+    assert history not in json.dumps(source)
+    receipt = await call("comment", action="reply", id=first.id, text="Fixed the boundary", edits=["paper.tex:6-8"])
+    assert receipt == {"id": first.id, "status": "open", "updated": moment}
+    saved = (await call("read_comments", comment_ids=[first.id]))["comments"][0]
+    assert saved["replies"][-1]["text"] == "Fixed the boundary"
+    assert saved["replies"][-1]["edits"] == ["paper.tex:6-8"]
+
     store.resolve(second.id, "", author="human")
     assert [c["id"] for c in (await call("list_comments", status="resolved"))["comments"]] == [second.id]
     all_comments = (await call("list_comments", status="all"))["comments"]
     assert len(all_comments) == 3
     assert next(c for c in all_comments if c["id"] == agent_only.id)["last_human_at"] is None
-    assert (await call("paper"))["comment_counts"] == {"open": 2, "resolved": 1, "unanswered": 1}
+    assert (await call("paper"))["comment_counts"] == {"open": 2, "resolved": 1, "unanswered": 0}
 
 
 @pytest.mark.asyncio
@@ -805,7 +816,8 @@ async def test_mcp_comment_and_section_runtime_contract(bound_project, project):
     stored = json.loads((project / ".tex-mcp-web" / "comments.json").read_text())
     assert stored["version"] == 5
     assert stored["comments"][0]["thread"][0]["author"] == "agent"
-    assert comment["comment"] == "review this"
+    assert set(comment) == {"id", "status", "updated"}
+    assert stored["comments"][0]["thread"][0]["text"] == "review this"
 
     # A suggested rewrite is two top-level strings, so the LaTeX in them is written as it
     # is rather than serialized by hand inside an object; one without the other is refused.
@@ -820,7 +832,9 @@ async def test_mcp_comment_and_section_runtime_contract(bound_project, project):
         },
     )
     with_suggestion = json.loads(suggested[0][0].text)
-    assert with_suggestion["suggestion"] == {"old": "the original phrasing", "new": "the new phrasing: 새 문장"}
+    assert set(with_suggestion) == {"id", "status", "updated"}
+    details = await mcp.call_tool("read_comments", {"comment_ids": [with_suggestion["id"]]})
+    assert json.loads(details[0][0].text)["comments"][0]["suggestion"] == {"old": "the original phrasing", "new": "the new phrasing: 새 문장"}
     half = await mcp.call_tool(
         "comment",
         {"action": "add", "text": "x", "anchor": {"kind": "paper"}, "suggestion_new": "only new"},
@@ -837,13 +851,12 @@ async def test_mcp_comment_and_section_runtime_contract(bound_project, project):
         },
     )
     second = json.loads(second_added[0][0].text)
-    section = await mcp.call_tool(
-        "section", {"name": "Methods", "include_image": True}
-    )
-    assert json.loads(section[0][0].text)["section"]["file"] == "paper.tex"
-    assert json.loads(section[0][1].text) == {
-        "error": "section image requested but no PDF exists"
-    }
+    section = await mcp.call_tool("section", {"name": "Methods"})
+    payload = json.loads(section[0][0].text)
+    assert set(payload) == {"section", "source"}
+    assert payload["section"]["file"] == "paper.tex"
+    assert "Methods" in payload["source"]
+
 
 
 @pytest.mark.asyncio
@@ -1320,3 +1333,86 @@ async def test_wait_review(bound_project, project, monkeypatch, codex):
     finally:
         waiter.kill()
         waiter.wait()
+
+
+@pytest.mark.asyncio
+async def test_exact_source_selection_revision_and_save(client, project):
+    tc, server = client
+    source = await (await tc.get("/source?path=paper.tex")).json()
+    anchor = {"kind": "source_range", "file": "paper.tex", "line_start": 5,
+              "line_end": 5, "column_start": 5, "column_end": 10}
+    response = await tc.post("/comments", json={"anchor": anchor, "text": "clarify",
+                                             "source_revision": source["revision"]})
+    assert response.status == 201
+    comment = await response.json()
+    assert comment["source_selector"]["exact"] == "prose"
+    assert comment["resolved_source"]["column_start"] == 5
+    # The same source text moves down and right with automatic compilation off.
+    changed = source["text"].replace("Some prose", "\nSome extra prose")
+    response = await tc.put("/source?path=paper.tex", json={"text": changed, "revision": source["revision"]})
+    assert response.status == 200
+    saved = server.comments.get(comment["id"])
+    assert not saved.stale
+    assert (saved.resolved_source.line_start, saved.resolved_source.column_start,
+            saved.resolved_source.column_end) == (6, 11, 16)
+    response = await tc.post("/comments", json={"anchor": anchor, "text": "old selection",
+                                             "source_revision": source["revision"]})
+    assert response.status == 409
+    # File watcher updates source anchors without a PDF or a compile.
+    (project / "paper.tex").write_text(changed.replace("prose", "replacement"))
+    await server.on_file_change(str(project / "paper.tex"))
+    assert server.comments.get(comment["id"]).stale
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("columns", [{"column_start": 1}, {"column_start": -1, "column_end": 2},
+                                    {"column_start": 3, "column_end": 2},
+                                    {"column_start": 0, "column_end": 1000},
+                                    {"column_start": 1.5, "column_end": 2}])
+async def test_invalid_source_columns_rejected(client, columns):
+    tc, server = client
+    response = await tc.post("/comments", json={"anchor": {"kind": "source_range", "file": "paper.tex",
+                            "line_start": 5, "line_end": 5, **columns}, "text": "invalid"})
+    assert response.status == 400
+    assert server.comments.list() == []
+
+
+@pytest.mark.asyncio
+async def test_stdio_source_and_reply_use_explicit_detail_reads(project):
+    import os
+    import socket
+    import sys
+    from mcp import ClientSession, StdioServerParameters
+    from mcp.client.stdio import stdio_client
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = listener.getsockname()[1]
+    (project / ".tex-mcp-web.yaml").write_text(f"main: paper.tex\nauto_compile: false\nport: {port}\n")
+    params = StdioServerParameters(command=sys.executable,
+        args=["-c", "from tex_mcp_web.cli import main_mcp; raise SystemExit(main_mcp())"],
+        cwd=project, env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1])})
+    async with stdio_client(params) as (read, write):
+        async with ClientSession(read, write) as session:
+            initialized = await session.initialize()
+            tools = (await session.list_tools()).tools
+            assert all(initialized.instructions not in (tool.description or "") for tool in tools)
+            assert set(next(t for t in tools if t.name == "section").inputSchema["properties"]) == {"name"}
+            async def call(tool, arguments):
+                result = await session.call_tool(tool, arguments)
+                assert not result.isError
+                return json.loads(result.content[0].text)
+            receipt = await call("comment", {"action": "add", "text": "Clarify this word",
+                "anchor": {"kind": "source_range", "file": "paper.tex", "line_start": 5,
+                           "line_end": 5, "column_start": 5, "column_end": 10}})
+            assert set(receipt) == {"id", "status", "updated"}
+            reply = await call("comment", {"action": "reply", "id": receipt["id"],
+                "text": "A detailed explanation. " * 50, "edits": ["paper.tex:5"]})
+            assert set(reply) == {"id", "status", "updated"}
+            section = await call("section", {"name": "Introduction"})
+            assert set(section) == {"section", "source"}
+            assert "A detailed explanation" not in section["source"]
+            detail = (await call("read_comments", {"comment_ids": [receipt["id"]]}))["comments"][0]
+            assert detail["quote"] == "prose"
+            assert detail["source"]["column_start"] == 5
+            assert detail["source"]["column_end"] == 10
+            assert detail["replies"][-1]["text"] == "A detailed explanation. " * 50

@@ -8,7 +8,7 @@ Exposes tools to agents via stdio:
     compile()               recompile, return structured errors
     comment(action, ...)    add/reply/delete
     image(...)              render a PDF page or exact region
-    section(name)           section source, comments, and optional image
+    section(name)           section source and file range
     goto(target)            scroll the viewer to a target
     wait_review()           instructions for receiving review events
 
@@ -60,11 +60,17 @@ if HAS_MCP:
         file: Annotated[str, Field(min_length=1)]
         line_start: Annotated[int, Field(ge=1)]
         line_end: Annotated[int, Field(ge=1)]
+        column_start: Annotated[int | None, Field(ge=0, description="Zero-based UTF-16 column; provide both columns for an exact selection")] = None
+        column_end: Annotated[int | None, Field(ge=0, description="Exclusive end column")] = None
 
         @model_validator(mode="after")
         def validate_range(self):
             if self.line_end < self.line_start:
                 raise ValueError("line_end must be at least line_start")
+            if (self.column_start is None) != (self.column_end is None):
+                raise ValueError("Both source columns are required")
+            if self.column_start is not None and self.line_start == self.line_end and self.column_end <= self.column_start:
+                raise ValueError("Source selection must be nonempty and ordered")
             return self
 
 
@@ -159,7 +165,7 @@ def _load_synctex_cached(main_file: Path):
 
 def _agent_comment_to_dict(comment) -> dict[str, Any]:
     """Return only the comment information an agent can act on."""
-    from .comments import AreaAnchor, SectionAnchor, TextSelectionAnchor
+    from .comments import AreaAnchor, SectionAnchor, SourceRangeAnchor, TextSelectionAnchor
 
     anchor = comment.anchor
     payload: dict[str, Any] = {
@@ -173,6 +179,8 @@ def _agent_comment_to_dict(comment) -> dict[str, Any]:
             "quote": anchor.quote,
             "page": anchor.selection.page,
         })
+    elif isinstance(anchor, SourceRangeAnchor) and anchor.column_start is not None and comment.source_selector is not None:
+        payload["quote"] = comment.source_selector.exact
     elif isinstance(anchor, AreaAnchor):
         payload["page"] = anchor.page
     elif isinstance(anchor, SectionAnchor):
@@ -227,10 +235,11 @@ def _comment_add(
         file = anchor_data["file"]
         ls = int(anchor_data["line_start"])
         le = int(anchor_data["line_end"])
-        source_selector = capture_source_selector(watch_dir / file, ls, le)
+        columns = {key: anchor_data[key] for key in ("column_start", "column_end") if key in anchor_data}
+        source_selector = capture_source_selector(watch_dir / file, ls, le, **columns)
         if source_selector is None:
             return _err("source_range does not identify readable source lines")
-        resolved = ResolvedSource(file=file, line_start=ls, line_end=le)
+        resolved = ResolvedSource(file=file, line_start=ls, line_end=le, **columns)
     elif kind == "section":
         resolved = resolve_section_to_source(
             parse_structure(watch_dir, get_main_file(cfg)),
@@ -256,7 +265,7 @@ def _comment_add(
         source_selector=source_selector,
         suggestion=_suggestion_from_dict(suggestion),
     )
-    return _ok(_agent_comment_to_dict(comment))
+    return _ok({"id": comment.id, "status": comment.status, "updated": comment.updated})
 
 
 # ---------------------------------------------------------------------------
@@ -296,25 +305,15 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
     mcp = FastMCP(
         "tex-mcp-web",
         instructions=(
-            "Call paper() first: main file, auto_compile, sections, comment counts. If no config is "
-            "found, write .tex-mcp-web.yaml in the session folder with main: <top-level .tex>, "
-            "and dir: <folder> when the paper lives elsewhere. Read requests with "
-            "list_comments(unanswered=True), then read_comments(comment_ids=[...]) for the "
-            "source, quote and history you need. Reuse those details until a new request arrives. "
-            "For each comment, edit the TeX "
-            "at its source location, or where its quote is. Then compile() once, unless "
-            "auto_compile is true. Reply in the thread with what changed and the edited "
-            "ranges in edits; do not resolve, the reviewer does that from the page. image() "
-            "only when a rendered check is needed before replying. "
-            "Within an already authorized document-editing task, treat a review question that identifies "
-            "a concrete problem as a request to inspect; if it holds, make and verify the scoped correction "
-            "and reply in its thread without asking for a second fix instruction. Explicit read-only, "
-            "discussion-only, and separate-permission limits still control. "
-            "After replying in the review thread, do not repeat the same reply in chat; use chat for "
-            "blockers, questions, or other context that needs a separate answer. "
-            "Each new MCP connection or restart calls wait_review() once and runs its script exactly "
-            "once. Do not poll or duplicate it; unacknowledged presses stay queued. "
-            "On [review], call list_comments(unanswered=True) and repeat."
+            "Call paper() for paths, auto_compile and section locations; reuse them until configuration "
+            "or document structure changes. Read list_comments(unanswered=True), then "
+            "read_comments(comment_ids=[...]) only for needed details; reuse unchanged threads. "
+            "Use section() for source and image() for rendered checks. Within the user's editing scope, "
+            "inspect reported problems, make scoped corrections, compile() once unless auto_compile is "
+            "true, verify, and reply with edited ranges. Respect read-only or discussion-only requests. "
+            "The reviewer resolves threads; do not repeat thread replies in chat. For notifications, "
+            "call wait_review() on each new MCP connection and follow how. Do not poll or duplicate "
+            "its process; unacknowledged presses stay queued."
         ),
     )
 
@@ -444,9 +443,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         naming the changed source ranges; the thread stays open, and the
         reviewer resolves it from the page. An agent does not resolve.
         ``suggestion_old`` and ``suggestion_new`` together are an add-only
-        rewrite. Prose arrives in these top-level strings and nowhere inside
-        a list or an object, which an agent serializes by hand and, by habit,
-        as escapes.
+        rewrite. Returns only id, status and updated; read_comments retrieves details.
         """
         cfg, watch_dir, store = _load_project()
         try:
@@ -462,7 +459,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                 if not id or not text:
                     return _err("reply requires id and text")
                 updated = store.reply(id, text=text, author="agent", edits=edits or [])
-                return _ok(_agent_comment_to_dict(updated))
+                return _ok({"id": updated.id, "status": updated.status, "updated": updated.updated})
             if action == "delete":
                 if not id:
                     return _err("delete requires id")
@@ -574,112 +571,30 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         ]
 
     @mcp.tool()
-    async def section(
-        name: str,
-        include_image: bool = False,
-        dpi: int = 150,
-    ) -> list[ImageContent | TextContent]:
-        """Return one section's unexpanded source slice and its open section or
-        source-range comments. Name matches a title or label. ``include_image``
-        adds one crop from the page with the most SyncTeX matches, not an entire
-        multi-page section.
-        """
-        import base64
+    async def section(name: str) -> str:
+        """Read one section's unexpanded source and file range by title or label.
 
-        from . import imaging
-        from .comments import SectionAnchor
+        Request comments with read_comments and rendered regions with image(source=...).
+        """
         from .config import get_main_file
         from .server import resolve_section_to_source
         from .structure import parse_structure
 
-        cfg, watch_dir, store = _load_project()
+        cfg, watch_dir, _ = _load_project()
         structure = parse_structure(watch_dir, get_main_file(cfg))
         resolved = resolve_section_to_source(structure, watch_dir, name, name)
         if resolved is None:
-            return [TextContent(type="text",
-                text=_err(f"no section matches {name!r}"))]
-
-        # Read the verbatim source slice.  Section line ranges include the
-        # heading itself; we keep that for context.
+            return _err(f"no section matches {name!r}")
         source_path = watch_dir / resolved.file
         try:
             lines = source_path.read_text(encoding="utf-8", errors="replace").splitlines()
-            slice_text = "\n".join(lines[resolved.line_start - 1 : resolved.line_end])
         except OSError as exc:
-            return [TextContent(type="text", text=_err(
-                f"could not read section source {resolved.file}: {exc}"
-            ))]
-
-        # Area anchors have no source range and remain in the global queue.
-        scoped: list = []
-        lc_name = name.lower()
-        for c in store.list(status="open"):
-            if isinstance(c.anchor, SectionAnchor):
-                title_match = c.anchor.title.lower() == lc_name
-                label_match = c.anchor.label is not None and c.anchor.label == name
-                if title_match or label_match:
-                    scoped.append(c)
-                    continue
-            if c.resolved_source is None:
-                continue
-            if (
-                c.resolved_source.file == resolved.file
-                and resolved.line_start <= c.resolved_source.line_start <= resolved.line_end
-            ):
-                scoped.append(c)
-
-        payload = {
-            "section": {
-                "name": name,
-                "file": resolved.file,
-                "line_start": resolved.line_start,
-                "line_end": resolved.line_end,
-            },
-            "source": slice_text,
-            "comments": [_agent_comment_to_dict(c) for c in scoped],
-        }
-
-        results: list[ImageContent | TextContent] = [
-            TextContent(type="text", text=_ok(payload))
-        ]
-
-        if include_image:
-            from .server import _clamp_dpi
-            pdf_path = get_main_file(cfg).with_suffix(".pdf")
-            if pdf_path.exists():
-                synctex = _load_synctex_cached(get_main_file(cfg))
-                pair = imaging.resolve_source_to_region(
-                    synctex,
-                    resolved.file,
-                    resolved.line_start,
-                    resolved.line_end,
-                ) if synctex else None
-                if pair is None:
-                    results.append(TextContent(type="text", text=_err(
-                        "section image requested but SyncTeX has no PDF coverage"
-                    )))
-                    return results
-                page, bbox = pair
-                try:
-                    png = await asyncio.to_thread(
-                        imaging.render_region,
-                        pdf_path, page, bbox, _clamp_dpi(dpi),
-                    )
-                except imaging.ImagingError as exc:
-                    results.append(TextContent(type="text", text=_err(str(exc))))
-                    return results
-                results.append(ImageContent(
-                    type="image",
-                    data=base64.b64encode(png).decode("ascii"),
-                    mimeType="image/png",
-                ))
-            else:
-                results.append(TextContent(type="text", text=_err(
-                    "section image requested but no PDF exists"
-                )))
-                return results
-
-        return results
+            return _err(f"could not read section source {resolved.file}: {exc}")
+        return _ok({
+            "section": {"name": name, "file": resolved.file,
+                        "line_start": resolved.line_start, "line_end": resolved.line_end},
+            "source": "\n".join(lines[resolved.line_start - 1:resolved.line_end]),
+        })
 
     @mcp.tool()
     async def goto(target: Annotated[str, Field(min_length=1)]) -> str:
