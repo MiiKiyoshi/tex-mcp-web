@@ -660,7 +660,7 @@ async def test_mcp_contract_is_typed_and_nonduplicative(tmp_path: Path):
     assert set(tools["section"].inputSchema["properties"]) == {"name"}
     assert all(mcp.instructions not in (tool.description or "") for tool in tools.values())
     assert tools["list_comments"].inputSchema["properties"]["status"]["enum"] == [
-        "open", "resolved", "all"
+        "open", "resolved", "reference", "all"
     ]
     assert tools["read_comments"].inputSchema["properties"]["comment_ids"]["minItems"] == 1
 
@@ -740,7 +740,7 @@ async def test_mcp_comment_discovery_reads_only_selected_history(bound_project, 
 
     paper = await call("paper")
     assert "comments" not in paper
-    assert paper["comment_counts"] == {"open": 3, "resolved": 0, "unanswered": 2}
+    assert paper["comment_counts"] == {"open": 3, "resolved": 0, "reference": 0, "unanswered": 2}
     assert paper["sections"]
     requests = (await call("list_comments", unanswered=True))["comments"]
     assert requests == [
@@ -755,7 +755,7 @@ async def test_mcp_comment_discovery_reads_only_selected_history(bound_project, 
     history = "Detailed explanation. " * 1000
     store.reply(first.id, history, author="agent")
     assert [c["id"] for c in (await call("list_comments", unanswered=True))["comments"]] == [second.id]
-    assert await call("paper") == {**paper, "comment_counts": {"open": 3, "resolved": 0, "unanswered": 1}}
+    assert await call("paper") == {**paper, "comment_counts": {"open": 3, "resolved": 0, "reference": 0, "unanswered": 1}}
     assert history not in json.dumps(await call("list_comments"))
 
     moment = "2026-01-01T00:00:02+00:00"
@@ -791,7 +791,7 @@ async def test_mcp_comment_discovery_reads_only_selected_history(bound_project, 
     all_comments = (await call("list_comments", status="all"))["comments"]
     assert len(all_comments) == 3
     assert next(c for c in all_comments if c["id"] == agent_only.id)["last_human_at"] is None
-    assert (await call("paper"))["comment_counts"] == {"open": 2, "resolved": 1, "unanswered": 0}
+    assert (await call("paper"))["comment_counts"] == {"open": 2, "resolved": 1, "reference": 0, "unanswered": 0}
 
 
 @pytest.mark.asyncio
@@ -1416,3 +1416,24 @@ async def test_stdio_source_and_reply_use_explicit_detail_reads(project):
             assert detail["source"]["column_start"] == 5
             assert detail["source"]["column_end"] == 10
             assert detail["replies"][-1]["text"] == "A detailed explanation. " * 50
+
+
+@pytest.mark.asyncio
+async def test_a_thread_kept_as_reference_is_listed_apart(client):
+    tc, server = client
+    kept = (await (await tc.post("/comments", json={"anchor": {"kind": "paper"}, "text": "keep"})).json())["id"]
+    working = (await (await tc.post("/comments", json={"anchor": {"kind": "paper"}, "text": "work"})).json())["id"]
+    resp = await tc.post(f"/comments/{kept}/reference", json={})
+    assert resp.status == 200 and await resp.json() == {"id": kept, "status": "reference"}
+    stored = await (await tc.get(f"/comments/{kept}")).json()
+    assert stored["status"] == "reference" and "resolved" not in stored and len(stored["thread"]) == 1
+    listed = (await (await tc.get("/comments?status=reference")).json())["comments"]
+    assert [c["id"] for c in listed] == [kept]
+    listed = (await (await tc.get("/comments?status=open")).json())["comments"]
+    assert [c["id"] for c in listed] == [working]
+    assert server._comment_summary() == {"open": 1, "resolved": 0, "reference": 1, "stale": 0}
+    await tc.post(f"/comments/{kept}/reply", json={"text": "still true"})
+    assert (await (await tc.get(f"/comments/{kept}")).json())["status"] == "reference"
+    resp = await tc.post(f"/comments/{kept}/reopen", json={})
+    assert await resp.json() == {"id": kept, "status": "open"}
+    assert (await tc.post("/comments/c-00000000/reference", json={})).status == 404

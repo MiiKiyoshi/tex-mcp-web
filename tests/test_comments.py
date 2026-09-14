@@ -470,3 +470,22 @@ def test_character_selector_rejects_half_surrogate(tmp_path):
     path = tmp_path / "paper.tex"
     path.write_text("a😀b")
     assert capture_source_selector(path, 1, 1, column_start=2, column_end=3) is None
+
+
+def test_a_thread_kept_as_reference_stays_readable_and_comes_back(store: CommentStore):
+    """Reference is a third status beside open and resolved, for a thread worth reading
+    again: it takes replies without changing, and goes back to either with one flip."""
+    comment = store.add(PaperAnchor(), "keep this reasoning")
+    kept = store.keep_as_reference(comment.id)
+    assert kept.status == "reference" and kept.resolved is None
+    assert len(kept.thread) == 1                      # a status flip adds no entry
+    assert [c.id for c in store.list(status="reference")] == [comment.id]
+    assert store.list(status="open") == [] and store.list(status="resolved") == []
+
+    replied = store.reply(comment.id, "one more thought", author="agent")
+    assert replied.status == "reference" and len(replied.thread) == 2
+    assert store.resolve(comment.id, summary="").status == "resolved"
+    assert store.keep_as_reference(comment.id).resolved is None      # resolved -> reference
+    assert store.reopen(comment.id).status == "open"
+    assert len(store.get(comment.id).thread) == 2      # the flips left the thread alone
+    assert "reference" not in json.dumps(CommentStore(store.path).get(comment.id).to_dict()["status"])

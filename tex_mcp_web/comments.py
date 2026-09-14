@@ -344,9 +344,11 @@ class SourceSelector:
 
 
 Author = Literal["human", "agent"]
-# A thread is open or resolved. A third state, dismissed, closed a thread without
-# acting on it; a comment not worth acting on is resolved or deleted like any other.
-Status = Literal["open", "resolved"]
+# A thread is open, resolved, or kept as reference: a thread worth reading again after
+# the work it asked for is done, or instead of it, listed on its own. A dismissed state
+# once closed a thread without acting on it; a comment not worth acting on is resolved
+# or deleted like any other.
+Status = Literal["open", "resolved", "reference"]
 
 
 @dataclass
@@ -1032,6 +1034,10 @@ class CommentStore:
                 comment.updated = _now()
                 comments[position] = comment
                 self._save(comments)
+    def keep_as_reference(self, comment_id: str, author: Author = "human") -> Comment:
+        """Set the thread aside to be read again; its entries stay as they are."""
+        return self._append_entry(comment_id, author, "", new_status="reference")
+
                 return comment
         raise KeyError(f"comment {comment_id!r} not found")
 

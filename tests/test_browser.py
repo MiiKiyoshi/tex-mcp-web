@@ -647,3 +647,99 @@ def test_browser_source_selection_and_split_resize(tmp_path: Path) -> None:
                 browser_process.kill()
         shutil.rmtree(profile, ignore_errors=True)
         shared.stop()
+
+
+@pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
+def test_a_thread_kept_as_reference_has_its_own_view_and_row_of_actions(tmp_path: Path) -> None:
+    """Reference is the third status: its view lists the kept threads apart, the card
+    says [reference], and the row offers Reply, Reopen and Resolve, while an open card
+    offers Reference."""
+    import fitz
+
+    (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
+    with fitz.open() as pdf:
+        pdf.new_page().insert_text((72, 72), "Hello world.")
+        pdf.save(tmp_path / "paper.pdf")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nauto_compile: false\nport: {port}\n", encoding="utf-8")
+
+    shared = SharedProjectServer(load_config(config_path))
+    profile = tempfile.mkdtemp(prefix="tex_mcp_reference_")
+    marionette_port = available_port()
+    (Path(profile) / "user.js").write_text(
+        f'user_pref("marionette.port", {marionette_port});\n', encoding="utf-8")
+    browser_process = None
+    browser = None
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        kept = post_json(f"{base}/comments", {"anchor": {"kind": "paper"}, "text": "keep me"})["id"]
+        working = post_json(f"{base}/comments", {"anchor": {"kind": "paper"}, "text": "work on me"})["id"]
+        post_json(f"{base}/comments/{kept}/reference", {})
+
+        browser_process = subprocess.Popen(
+            ["firefox", "-marionette", "-headless", "-no-remote", "-profile", profile, "about:blank"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        browser = marionette.Marionette(host="127.0.0.1", port=marionette_port, startup_timeout=30)
+        browser.start_session()
+        browser.set_window_rect(x=0, y=0, width=1500, height=1000)
+        browser.navigate(base)
+
+        def shown(status, expected):
+            # The view is asked for and then waited for by its content: the cards of the
+            # view before it stand until the new ones arrive, and both views may hold one.
+            browser.execute_script(f"""
+              const filter = document.querySelector("#comment-filter");
+              filter.value = "{status}";
+              filter.dispatchEvent(new Event("change", {{bubbles: true}}));
+            """)
+            return wait_until(lambda: browser.execute_script(
+                'const ids = Array.from(document.querySelectorAll("[data-comment-id]"))'
+                '  .map((card) => card.dataset.commentId);'
+                f'return JSON.stringify([...ids].sort()) === {json.dumps(json.dumps(sorted(expected), separators=(",", ":")))} ? ids : false;'))
+
+        assert browser.execute_script(
+            'return Array.from(document.querySelectorAll("#comment-filter option")).map((o) => o.value);'
+        ) == ["open", "resolved", "reference", "all"]
+        assert shown("open", [working]) == [working]
+        assert shown("reference", [kept]) == [kept]
+
+        def expanded_actions(comment_id):
+            browser.execute_script(f'document.querySelector("[data-comment-id=\'{comment_id}\'] .cmt-head").click();')
+            return wait_until(lambda: browser.execute_script(f'''
+              const card = document.querySelector("[data-comment-id='{comment_id}']");
+              const buttons = Array.from(card.querySelectorAll(".cmt-actions button")).map((b) => b.textContent);
+              return buttons.length ? [card.querySelector(".cmt-status").textContent, buttons] : false;
+            '''))
+
+        assert expanded_actions(kept) == ["[reference]", ["Reply", "Reopen", "Resolve", "Delete"]]
+
+        # An open card offers Reference, and one click moves the thread to that view.
+        assert shown("open", [working]) == [working]
+        assert expanded_actions(working) == ["[open]", ["Reply", "Resolve", "Reference", "Delete"]]
+        browser.execute_script(f'''
+          const card = document.querySelector("[data-comment-id='{working}']");
+          Array.from(card.querySelectorAll("button")).find((b) => b.textContent === "Reference").click();
+        ''')
+        wait_until(lambda: get_json(f"{base}/comments/{working}")["status"] == "reference")
+        # The flip refreshes the open view it was made in; that refresh lands before the
+        # view is switched, or its (now empty) result would land on top of the next view.
+        wait_until(lambda: browser.execute_script(
+            'return document.querySelectorAll("[data-comment-id]").length === 0;'))
+        assert set(shown("reference", [working, kept])) == {working, kept}
+    finally:
+        if browser is not None:
+            try:
+                browser.delete_session()
+            except Exception:
+                pass
+        if browser_process is not None:
+            browser_process.terminate()
+            try:
+                browser_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                browser_process.kill()
+        shutil.rmtree(profile, ignore_errors=True)
+        shared.stop()

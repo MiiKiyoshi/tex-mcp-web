@@ -345,13 +345,14 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         result["comment_counts"] = {
             "open": sum(c.status == "open" for c in comments),
             "resolved": sum(c.status == "resolved" for c in comments),
+            "reference": sum(c.status == "reference" for c in comments),
             "unanswered": sum(c.status == "open" and c.thread[-1].author == "human" for c in comments),
         }
         return _ok(result)
 
     @mcp.tool()
     async def list_comments(
-        status: Literal["open", "resolved", "all"] = "open",
+        status: Literal["open", "resolved", "reference", "all"] = "open",
         unanswered: Annotated[bool, Field(description="Only threads whose latest entry is human, including a new request after an agent reply.")] = False,
         since: Annotated[datetime | None, Field(description="Only requests with last_human_at strictly after this ISO 8601 time; pass the largest last_human_at already handled. Times without an offset use UTC.")] = None,
     ) -> str:
