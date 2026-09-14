@@ -9,7 +9,7 @@ Exposes tools to agents via stdio:
     comment(action, ...)    add/reply/delete
     image(...)              render a PDF page or exact region
     section(name)           section source and file range
-    wait_review()           instructions for receiving review events
+    listen()                instructions for receiving review events
 
 The MCP process owns the review server: the first tool call starts it in a
 background thread, and a peer process bound to the same project shares that
@@ -311,7 +311,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             "inspect reported problems, make scoped corrections, compile() once unless auto_compile is "
             "true, verify, and reply with edited ranges. Respect read-only or discussion-only requests. "
             "The reviewer resolves threads; do not repeat thread replies in chat. For notifications, "
-            "call wait_review() on each new MCP connection and follow how. Do not poll or duplicate "
+            "call listen() on each new MCP connection and follow how. Do not poll or duplicate "
             "its process; unacknowledged presses stay queued."
         ),
     )
@@ -597,8 +597,8 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         })
 
     @mcp.tool()
-    async def wait_review(ctx: Context) -> str:
-        """Return a script and client-specific instructions for waiting on Call agent.
+    async def listen(ctx: Context) -> str:
+        """Return a script and client-specific instructions for listening for Call agent.
 
         Run the returned script using the how field, selected for the connected
         client. Reuse the process after handling each review event.

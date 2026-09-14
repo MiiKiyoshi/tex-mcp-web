@@ -638,7 +638,7 @@ async def test_mcp_contract_is_typed_and_nonduplicative(tmp_path: Path):
 
     assert set(tools) == {
         "paper", "list_comments", "read_comments", "compile", "comment",
-        "image", "section", "wait_review",
+        "image", "section", "listen",
     }
     assert "list_comments(unanswered=True)" in mcp.instructions
     assert "read_comments(comment_ids=[...])" in mcp.instructions
@@ -1265,7 +1265,7 @@ async def test_presses_survive_a_server_restart(client) -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("codex", [False, True])
-async def test_wait_review(bound_project, project, monkeypatch, codex):
+async def test_listen(bound_project, project, monkeypatch, codex):
     """The tool writes the waiter next to the comment store; run against the live review
     server, it prints one line for a press already waiting and acks it."""
     pytest.importorskip("mcp")
@@ -1281,7 +1281,7 @@ async def test_wait_review(bound_project, project, monkeypatch, codex):
     context = SimpleNamespace(session=SimpleNamespace(client_params=SimpleNamespace(
         clientInfo=SimpleNamespace(name="claude-code"))))
     monkeypatch.setattr(mcp, "get_context", lambda: context)
-    result = json.loads((await mcp.call_tool("wait_review", {}))[0][0].text)
+    result = json.loads((await mcp.call_tool("listen", {}))[0][0].text)
     script = Path(result["script"])
     assert script == project / ".tex-mcp-web" / "wait-review.sh"
     assert script.stat().st_mode & 0o111
@@ -1289,11 +1289,11 @@ async def test_wait_review(bound_project, project, monkeypatch, codex):
     assert "write_stdin" not in result["how"]
     for name in ("codex-mcp-client", "other-client"):
         context.session.client_params.clientInfo.name = name
-        selected = json.loads((await mcp.call_tool("wait_review", {}))[0][0].text)
+        selected = json.loads((await mcp.call_tool("listen", {}))[0][0].text)
         assert "Monitor" not in selected["how"]
         assert ("codex queue" in selected["how"]) == (name == "codex-mcp-client")
         assert ('sandbox_permissions="require_escalated"' in selected["how"]) == (name == "codex-mcp-client")
-    tool = next(t for t in await mcp.list_tools() if t.name == "wait_review")
+    tool = next(t for t in await mcp.list_tools() if t.name == "listen")
     assert "ctx" not in tool.inputSchema["properties"]
     subprocess.run(["sh", "-n", str(script)], check=True)
 
