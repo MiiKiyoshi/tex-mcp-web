@@ -646,6 +646,46 @@ def test_browser_source_selection_and_split_resize(tmp_path: Path) -> None:
             .pointer_move(round(grip["x"]), round(grip["y"])).pointer_down() \
             .pointer_move(round(grip["x"]), round(grip["y"] + 65), duration=300).pointer_up().perform()
         wait_until(lambda: browser.execute_script('return document.querySelector("#pdf-pane").getBoundingClientRect().height') > grip["before"] + 45)
+
+        # Upright, the comments sit under the stacked panes, and their bar changes the height
+        # those panes share: the split's own bar was carried up the screen with it. It stays
+        # where it was, and the ratio that keeps it there is what the split remembers.
+        wait_until(lambda: browser.execute_script(
+            'return getComputedStyle(document.querySelector("#sidebar-grip")).display') == "block")
+        split_center = '''
+          const r = document.querySelector("#split-grip").getBoundingClientRect();
+          return r.top + r.height / 2;'''
+        split_ratio = 'return document.querySelector("#split-grip").getAttribute("aria-valuenow")'
+        held = browser.execute_script(split_center)
+        ratio_before = browser.execute_script(split_ratio)
+        side_before = browser.execute_script(
+            'return document.querySelector("#sidebar").getBoundingClientRect().height')
+        box = browser.execute_script('''
+          const r = document.querySelector("#sidebar-grip").getBoundingClientRect();
+          return {x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2)};
+        ''')
+        drag = ActionSequence(browser, "pointer", "mouse", {"pointerType": "mouse"})
+        drag.pointer_move(box["x"], box["y"]).pointer_down()
+        for step in range(1, 5):
+            drag.pointer_move(box["x"], box["y"] - 40 * step, duration=30)
+        drag.pointer_up().perform()
+        wait_until(lambda: browser.execute_script(
+            'return document.querySelector("#sidebar").getBoundingClientRect().height') > side_before + 120)
+        assert abs(browser.execute_script(split_center) - held) <= 2
+        ratio_after = browser.execute_script(split_ratio)
+        assert ratio_after != ratio_before
+        stored = browser.execute_script('return Number(localStorage.getItem("texMcpSplitRatio"))')
+        assert round(stored * 100) == int(ratio_after)
+        # The two bars are drawn alike, and the band around the comments' bar still answers
+        # a finger.
+        bars = browser.execute_script('''
+          const split = getComputedStyle(document.querySelector("#split-grip"), "::after");
+          const grip = document.querySelector("#sidebar-grip");
+          return {split: split.height, side: getComputedStyle(grip, "::before").height,
+                  band: grip.getBoundingClientRect().height};
+        ''')
+        assert bars["split"] == bars["side"] == "3px", bars
+        assert bars["band"] >= 36, bars
     finally:
         if browser is not None:
             try:

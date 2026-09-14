@@ -247,8 +247,8 @@ textarea {
   content: "";
   display: block;
   width: 42px;
-  height: 4px;
-  margin: 17px auto 0;
+  height: 3px;
+  margin: 17.5px auto 0;
   border-radius: 2px;
   background: var(--border);
 }
