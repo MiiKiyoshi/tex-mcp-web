@@ -768,8 +768,11 @@ async function refreshComments() {
   // reader has just closed and looks for. The mixed view leads with the one written
   // last, by when it was written and not by when it was last touched: closing a comment
   // touches it, so by that measure every closed comment stood above every open one.
+  // The reference view leads with the thread touched last: what was kept to be read
+  // again is read again when something is added to it.
   const moment = status === "resolved"
     ? (comment) => comment.resolved ?? comment.created
+    : status === "reference" ? (comment) => comment.updated
     : (comment) => comment.created;
   state.comments = status === "open" ? data.comments
     : [...data.comments].sort((first, second) => (moment(first) < moment(second) ? 1
@@ -1030,19 +1033,24 @@ function actionButtons(comment) {
       mutateAndRefresh(comment.id, "delete", null);
     }
   });
-  if (comment.status !== "open") {
-    return [
-      actionButton("cmt-reopen", "Reopen", () => mutateAndRefresh(comment.id, "reopen", {})),
-      deleteButton,
-    ];
+  // Every status flip is one click: the thread already holds what was said, so an
+  // empty summary flips the status without adding an entry. A thread kept as
+  // reference still takes replies, and goes back to open or resolved from the same row.
+  const buttons = [];
+  if (comment.status !== "resolved") {
+    buttons.push(actionButton("cmt-reply", "Reply", () => setActiveForm(comment.id, "reply")));
   }
-  return [
-    actionButton("cmt-reply", "Reply", () => setActiveForm(comment.id, "reply")),
-    // Closing is one click: the thread already holds what was said, so an empty
-    // summary flips the status without adding an entry.
-    actionButton("cmt-resolve", "Resolve", () => closeComment(comment.id, "resolve", "summary")),
-    deleteButton,
-  ];
+  if (comment.status !== "open") {
+    buttons.push(actionButton("cmt-reopen", "Reopen", () => mutateAndRefresh(comment.id, "reopen", {})));
+  }
+  if (comment.status !== "resolved") {
+    buttons.push(actionButton("cmt-resolve", "Resolve", () => closeComment(comment.id, "resolve", "summary")));
+  }
+  if (comment.status !== "reference") {
+    buttons.push(actionButton("cmt-reference", "Reference", () => mutateAndRefresh(comment.id, "reference", {})));
+  }
+  buttons.push(deleteButton);
+  return buttons;
 }
 
 function setActiveForm(commentId, mode) {

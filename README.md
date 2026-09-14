@@ -99,7 +99,7 @@ The agent opens the review page at the configured port and starts listening.
 
 Drag over PDF text and write a comment; add a suggested wording in the replacement box when you have one. Use **+ Note** for a whole-paper comment and the **Sections** tab for a section comment. Press **Call agent** when the comments are ready.
 
-The agent reads them, edits the source, compiles, and replies in each thread. Resolving is yours: pick the threads whose edit satisfies you and resolve them from the page, or reopen one the agent got wrong. If an edit misses, reply in the same thread.
+The agent reads them, edits the source, compiles, and replies in each thread. Resolving is yours: pick the threads whose edit satisfies you and resolve them from the page, or reopen one the agent got wrong. If an edit misses, reply in the same thread. **Reference** sets a thread aside to read again: it stays out of the open and resolved lists, still takes replies, and goes back to either with **Reopen** or **Resolve**.
 
 If the agent restarts or stops receiving calls, ask it to listen for **Call agent** again. Calls made while it is disconnected stay queued.
 
