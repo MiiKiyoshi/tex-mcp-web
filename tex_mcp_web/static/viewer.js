@@ -242,7 +242,39 @@ async function initializePdfViewer(pdfView) {
   state.selection.onBeginSelection(() => state.viewer.setAttribute("data-tex-selecting", ""));
   state.selection.onEndSelection(() => state.viewer.removeAttribute("data-tex-selecting"));
   const root = state.viewer.shadowRoot;
+  // The viewer selects text by a pointer dragged across it or a double click on a word.
+  // A finger held still on a word, which is how a tablet asks for a selection, did
+  // nothing, and the browser's own long-press menu took the touch away. The hold
+  // selects the word as a double click there would. A hold on a comment's highlight
+  // selects the word under the highlight; the lift is not the press that opens the
+  // comment.
   let highlightPress = null;
+  let touchHold = null;
+  const endTouchHold = () => {
+    if (touchHold === null) return;
+    clearTimeout(touchHold.timer);
+    touchHold = null;
+  };
+  root.addEventListener("pointerdown", (event) => {
+    endTouchHold();
+    if (event.pointerType !== "touch" || !event.isPrimary) return;
+    const { clientX, clientY } = event;
+    touchHold = { x: clientX, y: clientY, timer: setTimeout(() => {
+      highlightPress = null;
+      root.elementFromPoint(clientX, clientY)?.dispatchEvent(
+        new MouseEvent("dblclick", { bubbles: true, clientX, clientY }));
+    }, 500) };
+  }, { capture: true });
+  root.addEventListener("pointermove", (event) => {
+    if (touchHold !== null && Math.hypot(event.clientX - touchHold.x, event.clientY - touchHold.y) >= 10) {
+      endTouchHold();
+    }
+  }, { capture: true });
+  root.addEventListener("pointerup", endTouchHold, { capture: true });
+  root.addEventListener("pointercancel", endTouchHold, { capture: true });
+  root.addEventListener("contextmenu", (event) => {
+    if (touchHold !== null) event.preventDefault();
+  });
   root.addEventListener("pointerdown", (event) => {
     if (event.target.closest(".tex-comment-badge")) return;
     if (!event.isTrusted || event.button !== 0 || !event.target.closest("[data-no-interaction]")) return;
