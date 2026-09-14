@@ -44,10 +44,11 @@ from .comments import (
     locate_pdf_quote,
     pdf_digest,
 )
-from .compiler import CompileResult, compile_tex
+from .compiler import CompileResult, compile_tex, source_dependencies
 from .config import Config, get_main_file, get_watch_dir, write_auto_compile
 from .structure import (
     DocumentStructure,
+    _files_reachable_from,
     find_section,
     parse_structure,
 )
@@ -337,6 +338,10 @@ class TexMcpWebServer:
             # changed visually" signal without rendering everything.
             if self.last_result.success and self.last_result.output_file:
                 from . import imaging
+                # The run's dependency record is authoritative for what to watch; a
+                # failed run leaves the last good set in place.
+                if self.watcher is not None:
+                    self.watcher.set_roots(self.source_roots())
                 self.pdf_digest = pdf_digest(self.last_result.output_file)
                 self.comments.refresh_anchors(
                     self.watch_dir,
@@ -1199,10 +1204,20 @@ class TexMcpWebServer:
             watch_patterns=self.config.watch,
             ignore_patterns=self.config.ignore,
             on_change=self.on_file_change,
+            roots=self.source_roots(),
         )
         self.watcher.start(loop)
         self._store_watch = asyncio.create_task(self._watch_comment_store())
         self._initial_compile = asyncio.create_task(self.do_compile())
+
+    def source_roots(self) -> list[Path]:
+        """Directories the paper's sources live in: the main file's, those of the
+        .tex files reachable from it through \\input and \\include, and those of every
+        project-local source the last latexmk run recorded (figures and .bib among
+        them). Nothing else under the project is watched."""
+        files = _files_reachable_from(self.main_file, self.watch_dir)
+        files += source_dependencies(self.main_file, self.watch_dir)
+        return [self.main_file.parent, *(path.parent for path in files)]
 
     async def cleanup(self) -> None:
         # A parked waiter holds its connection for the whole poll; released here, it

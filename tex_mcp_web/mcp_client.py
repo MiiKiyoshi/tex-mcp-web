@@ -24,6 +24,8 @@ class ProjectSetupError(RuntimeError):
 class SharedProjectServer:
     """One MCP process serves; peers using the same project share its listener."""
 
+    START_TIMEOUT = 10
+
     def __init__(self, config: Config):
         if config.config_path is None:
             raise ValueError("configuration has no file path")
@@ -31,9 +33,11 @@ class SharedProjectServer:
         self.watch_dir = get_watch_dir(config).resolve()
         self.port = config.port
         self.lock_handle = None
+        self.lock_guard = threading.Lock()
         self.thread: threading.Thread | None = None
         self.ready = threading.Event()
         self.start_error: BaseException | None = None
+        self.start_task: asyncio.Task | None = None
         self.loop: asyncio.AbstractEventLoop | None = None
         self.server: Any = None
 
@@ -57,19 +61,42 @@ class SharedProjectServer:
                 self.server = TexMcpWebServer(load_config(self.config_path))
                 await self.server.setup(self.port)
             except BaseException as error:
+                # A cancelled start lands here too, once the synchronous setup returns.
                 self.start_error = error
+                if self.server is not None:
+                    # Whatever setup started (the watcher, the listener) is released
+                    # here, or a failed start leaks its watches and its port.
+                    await self.server.cleanup()
+                    self.server = None
             finally:
                 self.ready.set()
 
-        loop.run_until_complete(start())
-        if self.start_error is None:
-            loop.run_forever()
-            loop.run_until_complete(self.server.cleanup())
-        loop.close()
+        try:
+            self.start_task = loop.create_task(start())
+            loop.run_until_complete(self.start_task)
+            if self.start_error is None:
+                loop.run_forever()
+                loop.run_until_complete(self.server.cleanup())
+        finally:
+            loop.close()
+            # The lock is tied to this thread's life: a start that was given up on still
+            # frees it when its cleanup is done.
+            self._release_lock()
 
     def ensure(self) -> None:
         if self.thread is not None and self.thread.is_alive():
-            return
+            if self.ready.is_set() and self.start_error is None:
+                return
+            # A start given up on earlier is still winding down; a second thread on top
+            # of it would take another set of watches.
+            if not self.ready.wait(timeout=self.START_TIMEOUT):
+                raise RuntimeError(
+                    "review server is still starting; its earlier start was cancelled and "
+                    "is cleaning up, try again")
+            self.thread.join(timeout=self.START_TIMEOUT)
+            if self.thread.is_alive():
+                raise RuntimeError("review server is still cleaning up a cancelled start; try again")
+            self.thread = None
         identity = self._remote_identity()
         if identity is not None:
             if Path(identity).resolve() != self.watch_dir:
@@ -94,12 +121,21 @@ class SharedProjectServer:
         self.lock_handle = handle
         self.ready.clear()
         self.start_error = None
+        self.start_task = None
         self.thread = threading.Thread(target=self._serve, name="tex-mcp-web", daemon=True)
         self.thread.start()
-        if not self.ready.wait(timeout=10):
-            raise RuntimeError("review server did not start within 10 seconds")
+        if not self.ready.wait(timeout=self.START_TIMEOUT):
+            # Setup runs synchronously on the loop, so the cancel takes effect only once
+            # it returns; the thread then cleans up what it started and frees the lock.
+            if self.loop is not None and self.start_task is not None:
+                self.loop.call_soon_threadsafe(self.start_task.cancel)
+            raise RuntimeError(
+                f"review server did not start within {self.START_TIMEOUT} seconds; "
+                "the start is cancelled and cleans up in the background, try again")
         if self.start_error is not None:
-            raise RuntimeError(f"review server failed to start: {self.start_error}")
+            error = self.start_error
+            self.stop()
+            raise RuntimeError(f"review server failed to start: {error}")
 
     def stop(self) -> None:
         if self.loop is not None and self.loop.is_running():
@@ -109,10 +145,14 @@ class SharedProjectServer:
         self.thread = None
         self.loop = None
         self.server = None
-        if self.lock_handle is not None:
-            fcntl.flock(self.lock_handle.fileno(), fcntl.LOCK_UN)
-            self.lock_handle.close()
-            self.lock_handle = None
+        self._release_lock()
+
+    def _release_lock(self) -> None:
+        with self.lock_guard:
+            if self.lock_handle is not None:
+                fcntl.flock(self.lock_handle.fileno(), fcntl.LOCK_UN)
+                self.lock_handle.close()
+                self.lock_handle = None
 
 
 class ProjectBinding:
