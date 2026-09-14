@@ -533,6 +533,174 @@ def test_highlight_badges_leave_pdf_text_selectable(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
+def test_a_finger_held_on_a_word_selects_it(tmp_path: Path) -> None:
+    """The viewer selects by a drag or a double click; a tablet asks with a finger held
+    still. The hold selects the word under it, a highlight in between or not, the
+    browser's long-press menu is kept off the touch, and a drag, a tap, a cancelled
+    touch and a mouse do what they did."""
+    import fitz
+
+    sentence = "The quick brown fox jumps over the lazy dog."
+    (tmp_path / "paper.tex").write_text(
+        "\\documentclass{article}\n\\begin{document}\n"
+        f"{sentence}\n"
+        "\\end{document}\n",
+        encoding="utf-8",
+    )
+    with fitz.open() as pdf:
+        page = pdf.new_page()
+        page.insert_text((72, 72), sentence)
+        bbox = list(page.search_for("quick brown fox")[0])
+        pdf.save(tmp_path / "paper.pdf")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(
+        f"main: paper.tex\nauto_compile: false\nport: {port}\n", encoding="utf-8"
+    )
+    shared = SharedProjectServer(load_config(config_path))
+    profile = tempfile.mkdtemp(prefix="tex_mcp_hold_")
+    marionette_port = available_port()
+    (Path(profile) / "user.js").write_text(
+        f'user_pref("marionette.port", {marionette_port});\n', encoding="utf-8"
+    )
+    browser_process = None
+    browser = None
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        wait_until(lambda: shared.server.pdf_digest is not None)
+        post_json(f"{base}/comments", {
+            "anchor": {
+                "kind": "text_selection",
+                "quote": "quick brown fox",
+                "selection": {"page": 1, "bbox": bbox, "rects": [bbox]},
+                "pdf_digest": shared.server.pdf_digest,
+            },
+            "text": "quick brown fox",
+        })
+
+        browser_process = subprocess.Popen(
+            ["firefox", "-marionette", "-headless", "-no-remote", "-profile", profile,
+             "about:blank"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        browser = marionette.Marionette(
+            host="127.0.0.1", port=marionette_port, startup_timeout=30
+        )
+        browser.start_session()
+        browser.set_window_rect(x=0, y=0, width=800, height=1100)
+        browser.navigate(base)
+        wait_until(lambda: browser.execute_script('''
+          const root = document.querySelector("embedpdf-container")?.shadowRoot;
+          return root?.querySelectorAll(".tex-comment-segment").length === 1;
+        '''))
+        highlight = browser.execute_script('''
+          const root = document.querySelector("embedpdf-container").shadowRoot;
+          const rect = root.querySelector(".tex-comment-segment").getBoundingClientRect();
+          return {left: rect.left, right: rect.right, y: rect.top + rect.height / 2};
+        ''')
+        y = int(highlight["y"])
+        menu_shown = '''
+          const root = document.querySelector("embedpdf-container").shadowRoot;
+          return Array.from(root.querySelectorAll("button")).some((button) =>
+            /comment/i.test(button.textContent) && button.getBoundingClientRect().width > 0);
+        '''
+
+        def finger():
+            return ActionSequence(browser, "pointer", "finger", {"pointerType": "touch"})
+
+        def quoted():
+            wait_until(lambda: browser.execute_script(menu_shown))
+            browser.execute_script('''
+              const root = document.querySelector("embedpdf-container").shadowRoot;
+              Array.from(root.querySelectorAll("button")).find((button) =>
+                /comment/i.test(button.textContent) && button.getBoundingClientRect().width > 0).click();
+            ''')
+            wait_until(lambda: browser.execute_script(
+                'return document.querySelector("#compose-dialog").open'))
+            anchor = browser.execute_script(
+                'return document.querySelector("#compose-anchor").textContent')
+            browser.execute_script('document.querySelector("#compose-cancel").click()')
+            wait_until(lambda: not browser.execute_script(
+                'return document.querySelector("#compose-dialog").open'))
+            ActionSequence(browser, "pointer", "mouse", {"pointerType": "mouse"}) \
+                .pointer_move(int(highlight["right"] + 200), y + 300) \
+                .pointer_down().pointer_up().perform()
+            wait_until(lambda: not browser.execute_script(menu_shown))
+            return anchor
+
+        # Held still on a bare word, the finger selects that word.
+        bare_x = int(highlight["right"] + 12)                 # inside "jumps"
+        finger().pointer_move(bare_x, y).pointer_down().pause(700).pointer_up().perform()
+        assert quoted() == 'PDF text: "jumps"'
+
+        # Held on a comment's highlight, it selects the word under the highlight and
+        # does not open the comment.
+        finger().pointer_move(int(highlight["left"] + 5), y).pointer_down().pause(700) \
+            .pointer_up().perform()
+        assert quoted() == 'PDF text: "quick"'
+        assert not browser.execute_script(
+            'return Boolean(document.querySelector("[data-comment-id].is-focused"))')
+
+        # Dragged on after the hold, it selects from the word onward.
+        finger().pointer_move(int(highlight["left"] + 5), y).pointer_down().pause(700) \
+            .pointer_move(int(highlight["right"] + 60), y).pointer_up().perform()
+        assert "brown fox jumps" in quoted()
+
+        # Dragged at once, it selects the range as before.
+        finger().pointer_move(int(highlight["left"] + 5), y).pointer_down() \
+            .pointer_move(int(highlight["left"] + 40), y) \
+            .pointer_move(int(highlight["right"] + 60), y).pointer_up().perform()
+        assert "brown fox jumps" in quoted()
+
+        # A tap selects nothing.
+        finger().pointer_move(bare_x, y).pointer_down().pause(80).pointer_up().perform()
+        time.sleep(0.8)
+        assert not browser.execute_script(menu_shown)
+
+        # While the finger is held, the browser's long-press menu is refused; a mouse
+        # keeps its menu.
+        contextmenu = f'''
+          const root = document.querySelector("embedpdf-container").shadowRoot;
+          return root.elementFromPoint({bare_x}, {y}).dispatchEvent(new PointerEvent("contextmenu",
+            {{bubbles: true, cancelable: true, composed: true, clientX: {bare_x}, clientY: {y},
+              pointerType: arguments[0]}}));
+        '''
+        assert browser.execute_script(contextmenu, script_args=["mouse"]) is True
+        finger().pointer_move(bare_x, y).pointer_down().perform()
+        assert browser.execute_script(contextmenu, script_args=["touch"]) is False
+        finger().pause(700).pointer_up().perform()
+        assert quoted() == 'PDF text: "jumps"'
+
+        # A touch the browser cancels before the hold is up selects nothing.
+        finger().pointer_move(bare_x, y).pointer_down().perform()
+        browser.execute_script(f'''
+          const root = document.querySelector("embedpdf-container").shadowRoot;
+          root.elementFromPoint({bare_x}, {y}).dispatchEvent(new PointerEvent("pointercancel",
+            {{bubbles: true, composed: true, pointerType: "touch", isPrimary: true}}));
+        ''')
+        finger().pause(700).pointer_up().perform()
+        time.sleep(0.8)
+        assert not browser.execute_script(menu_shown)
+    finally:
+        if browser is not None:
+            try:
+                browser.delete_session()
+            except Exception:
+                pass
+        if browser_process is not None:
+            browser_process.terminate()
+            try:
+                browser_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                browser_process.kill()
+        shutil.rmtree(profile, ignore_errors=True)
+        shared.stop()
+
+
+@pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
 def test_browser_source_selection_and_split_resize(tmp_path: Path) -> None:
     import fitz
 
