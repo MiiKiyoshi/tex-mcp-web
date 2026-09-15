@@ -95,9 +95,11 @@ def test_browser_comment_actions(tmp_path: Path) -> None:
         shared.ensure()
         base = f"http://127.0.0.1:{port}"
         wait_until(lambda: get_json(f"{base}/paper") is not None)
-        comment = post_json(
-            f"{base}/comments", {"anchor": {"kind": "paper"}, "text": "typo herre"}
-        )
+        comment = post_json(f"{base}/comments", {
+            "anchor": {"kind": "paper"},
+            "text": "typo herre",
+            "suggestion": {"old": "typo herre", "new": "typo here"},
+        })
         cid = comment["id"]
 
         browser_process = subprocess.Popen(
@@ -111,6 +113,8 @@ def test_browser_comment_actions(tmp_path: Path) -> None:
         browser.navigate(base)
         wait_until(lambda: browser.execute_script(
             'return document.querySelectorAll("[data-comment-id]").length === 1'))
+        assert browser.execute_script(
+            'return document.querySelectorAll(".sugg-apply").length') == 0
         pdf_zoom = wait_until(lambda: browser.execute_script('''
           const input = document.querySelector("embedpdf-container")?.shadowRoot
             ?.querySelector('input[name="zoom"]');
@@ -151,6 +155,7 @@ def test_browser_comment_actions(tmp_path: Path) -> None:
           const input = document.querySelector("#compose-text");
           input.value = "Clarify this source sentence.";
           input.dispatchEvent(new Event("input", {bubbles: true}));
+          document.querySelector("#compose-suggestion-new").value = "Hello applied.";
           document.querySelector("#compose-form").requestSubmit();
         ''')
         source_comment = wait_until(lambda: next(
@@ -164,6 +169,40 @@ def test_browser_comment_actions(tmp_path: Path) -> None:
             "column_start": 0, "column_end": 12,
         }
         assert source_comment["source_selector"]["exact"] == "Hello world."
+        assert source_comment["suggestion"] == {
+            "old": "Hello world.", "new": "Hello applied.",
+        }
+        wait_until(lambda: browser.execute_script(f'''
+          const cards = Array.from(document.querySelectorAll("[data-comment-id]"));
+          const source = cards.find((node) => node.dataset.commentId === "{source_cid}");
+          return document.querySelectorAll(".sugg-apply").length === 1
+            && source?.querySelector(".sugg-apply")?.textContent === "Apply suggestion";
+        '''))
+        browser.execute_script(f'''
+          const source = Array.from(document.querySelectorAll("[data-comment-id]"))
+            .find((node) => node.dataset.commentId === "{source_cid}");
+          source.querySelector(".sugg-apply").click();
+        ''')
+        applied = wait_until(lambda: (
+            current
+            if (current := get_json(f"{base}/comments/{source_cid}")).get("suggestion_applied")
+            else None
+        ))
+        assert applied["status"] == "open"
+        assert applied["thread"][-1]["edits"] == ["paper.tex:4-4"]
+        wait_until(lambda: browser.execute_script(f'''
+          const source = Array.from(document.querySelectorAll("[data-comment-id]"))
+            .find((node) => node.dataset.commentId === "{source_cid}");
+          const button = source?.querySelector(".sugg-apply");
+          return button?.textContent === "Applied" && button.disabled;
+        '''))
+        wait_until(lambda: browser.execute_script('''
+          const page = window.wrappedJSObject || window;
+          return page.ace.edit("source-editor").getValue().includes("Hello applied.");
+        '''))
+        refreshed = get_json(f"{base}/comments/{source_cid}")
+        assert refreshed["status"] == "open"
+        assert "stale" not in refreshed
         wait_until(lambda: browser.execute_script('''
           return document.querySelectorAll("#source-editor .source-comment-highlight").length === 1
             && document.querySelectorAll("#source-editor .source-comment-line").length === 1;
@@ -171,7 +210,7 @@ def test_browser_comment_actions(tmp_path: Path) -> None:
         browser.execute_script('''
           const page = window.wrappedJSObject || window;
           const editor = page.ace.edit("source-editor");
-          editor.setValue(editor.getValue().replace("Hello world.", "Hello editor."), -1);
+          editor.setValue(editor.getValue().replace("Hello applied.", "Hello editor."), -1);
           document.querySelector("#source-save-btn").click();
         ''')
         wait_until(lambda: "Hello editor." in (tmp_path / "paper.tex").read_text(encoding="utf-8"))

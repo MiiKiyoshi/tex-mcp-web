@@ -20,6 +20,7 @@ import hashlib
 import json
 import logging
 import stat
+import tempfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -43,6 +44,7 @@ from .comments import (
     canonicalize_pdf_selection,
     locate_pdf_quote,
     pdf_digest,
+    source_offset,
 )
 from .compiler import CompileResult, compile_tex, source_dependencies
 from .config import Config, get_main_file, get_watch_dir, write_auto_compile
@@ -127,10 +129,60 @@ def _suggestion_from_dict(d: Any) -> SuggestedEdit | None:
         return None
     if not isinstance(d, dict):
         raise TypeError("suggestion must be an object")
+    if (
+        "old" not in d
+        or "new" not in d
+        or not isinstance(d["old"], str)
+        or not isinstance(d["new"], str)
+    ):
+        raise TypeError("suggestion old and new must be strings")
     sugg = SuggestedEdit.from_dict(d)
     if not sugg.old and not sugg.new:
         return None
     return sugg
+
+
+def _source_coordinate(text: str, offset: int) -> tuple[int, int]:
+    """Return a 1-based line and UTF-16 column for a Python text offset."""
+    if offset < 0 or offset > len(text):
+        raise ValueError("Source position is out of bounds")
+    before = text[:offset]
+    return (
+        before.count("\n") + 1,
+        len(before.rsplit("\n", 1)[-1].encode("utf-16-le")) // 2,
+    )
+
+
+def _resolved_source_span(text: str, source: ResolvedSource) -> tuple[int, int]:
+    """Return the exact Python offsets covered by a resolved source range."""
+    if source.column_start is not None:
+        if source.column_end is None:
+            raise ValueError("Source range has incomplete columns")
+        start = source_offset(text, source.line_start, source.column_start)
+        end = source_offset(text, source.line_end, source.column_end)
+    else:
+        lines = text.split("\n")
+        if source.line_end < source.line_start or source.line_end > len(lines):
+            raise ValueError("Source range is out of bounds")
+        start = source_offset(text, source.line_start, 0)
+        end_column = len(lines[source.line_end - 1].encode("utf-16-le")) // 2
+        end = source_offset(text, source.line_end, end_column)
+    if end <= start:
+        raise ValueError("Source range is empty or out of bounds")
+    return start, end
+
+
+def _exact_matches(text: str, needle: str) -> list[int]:
+    """Return every overlapping exact occurrence of a nonempty string."""
+    positions: list[int] = []
+    offset = 0
+    while needle:
+        found = text.find(needle, offset)
+        if found < 0:
+            break
+        positions.append(found)
+        offset = found + 1
+    return positions
 
 
 def _parse_bbox(spec: str) -> tuple[float, float, float, float]:
@@ -286,6 +338,10 @@ class TexMcpWebServer:
         app.router.add_get("/comments", self._handle_list_comments)
         app.router.add_post("/comments", self._handle_create_comment)
         app.router.add_get(r"/comments/{id}", self._handle_get_comment)
+        app.router.add_post(
+            r"/comments/{id}/apply-suggestion",
+            self._handle_apply_suggestion,
+        )
         app.router.add_post(r"/comments/{id}/reply", self._handle_reply_comment)
         app.router.add_post(r"/comments/{id}/resolve", self._handle_resolve_comment)
         app.router.add_post(r"/comments/{id}/reopen", self._handle_reopen_comment)
@@ -586,6 +642,28 @@ class TexMcpWebServer:
             ) from error
         return text, hashlib.sha256(data).hexdigest()
 
+    @staticmethod
+    def _replace_source(path: Path, encoded: bytes) -> None:
+        """Atomically replace one source file while preserving its mode."""
+        mode = stat.S_IMODE(path.stat().st_mode)
+        staging: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                "wb",
+                dir=path.parent,
+                prefix=f".{path.name}-",
+                suffix=".tmp",
+                delete=False,
+            ) as handle:
+                handle.write(encoded)
+                staging = Path(handle.name)
+            staging.chmod(mode)
+            staging.replace(path)
+        finally:
+            if staging is not None:
+                with contextlib.suppress(FileNotFoundError):
+                    staging.unlink()
+
     async def _handle_sources(self, request: web.Request) -> web.Response:
         files: list[str] = []
         for path in self.watch_dir.rglob("*"):
@@ -637,17 +715,7 @@ class TexMcpWebServer:
             )
 
         encoded = data["text"].encode("utf-8")
-        staging_dir = self.watch_dir / ".tex-mcp-web"
-        staging_dir.mkdir(parents=True, exist_ok=True)
-        staging = staging_dir / "source-save.new"
-        mode = stat.S_IMODE(path.stat().st_mode)
-        try:
-            staging.write_bytes(encoded)
-            staging.chmod(mode)
-            staging.replace(path)
-        finally:
-            with contextlib.suppress(FileNotFoundError):
-                staging.unlink()
+        self._replace_source(path, encoded)
         revision = hashlib.sha256(encoded).hexdigest()
         self.comments.refresh_source_anchors(self.watch_dir)
         return web.json_response(
@@ -869,6 +937,89 @@ class TexMcpWebServer:
             )
         except (IndexError, ValueError) as error:
             return web.json_response({"error": str(error)}, status=400)
+
+    def _replace_comment_suggestion(
+        self, comment: Comment
+    ) -> tuple[str, ResolvedSource, SourceSelector]:
+        anchor = comment.anchor
+        source = comment.resolved_source
+        suggestion = comment.suggestion
+        if not isinstance(anchor, SourceRangeAnchor) or source is None or suggestion is None:
+            raise ValueError("suggestion has no current source range")
+        if source.file != anchor.file:
+            raise ValueError("source anchor file is inconsistent")
+
+        path = self._resolve_source_path(source.file)
+        text, _ = self._read_source(path)
+        try:
+            start, end = _resolved_source_span(text, source)
+        except (UnicodeError, ValueError) as error:
+            raise ValueError("source changed: anchored range is out of bounds") from error
+
+        matches = _exact_matches(text, suggestion.old)
+        if len(matches) > 1:
+            raise ValueError("ambiguous source: suggestion.old occurs more than once")
+        if not matches:
+            raise ValueError("source changed: suggestion.old no longer matches")
+        match = matches[0]
+        match_end = match + len(suggestion.old)
+        if (match, match_end) != (start, end):
+            if match_end <= start or match >= end:
+                raise ValueError("suggestion.old matches outside the anchored range")
+            raise ValueError(
+                "source changed: suggestion.old does not exactly match the anchored range"
+            )
+        if text[start:end] != suggestion.old:
+            raise ValueError("source changed: anchored text no longer matches suggestion.old")
+
+        updated_text = text[:start] + suggestion.new + text[end:]
+        new_end = start + len(suggestion.new)
+        line_start, column_start = _source_coordinate(updated_text, start)
+        line_end, column_end = _source_coordinate(updated_text, new_end)
+        updated_source = ResolvedSource(
+            file=source.file,
+            line_start=line_start,
+            line_end=line_end,
+            column_start=column_start,
+            column_end=column_end,
+        )
+        selector = SourceSelector(
+            exact=suggestion.new,
+            prefix=updated_text[max(0, start - 80):start],
+            suffix=updated_text[new_end:new_end + 80],
+        )
+        self._replace_source(path, updated_text.encode("utf-8"))
+        edit = f"{source.file}:{line_start}-{line_end}"
+        return edit, updated_source, selector
+
+    async def _handle_apply_suggestion(self, request: web.Request) -> web.Response:
+        cid = request.match_info["id"]
+        data, err = await self._read_json(request)
+        if err is not None:
+            return err
+        if (
+            not isinstance(data, dict)
+            or not isinstance(data.get("updated"), str)
+            or not data["updated"]
+        ):
+            return web.json_response({"error": "updated stamp is required"}, status=400)
+        try:
+            updated = self.comments.apply_suggestion(
+                cid,
+                data["updated"],
+                self._replace_comment_suggestion,
+            )
+        except KeyError:
+            return web.json_response({"error": f"no comment {cid}"}, status=404)
+        except ValueError as error:
+            return web.json_response({"error": str(error)}, status=409)
+        except OSError:
+            return web.json_response(
+                {"error": "source changed while the suggestion was being applied"},
+                status=409,
+            )
+        await self.broadcast({"type": "comment_updated", "comment": _comment_to_dict(updated)})
+        return web.json_response(_comment_to_dict(updated))
 
     async def _handle_reply_comment(self, request: web.Request) -> web.Response:
         cid = request.match_info["id"]

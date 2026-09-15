@@ -579,6 +579,23 @@ textarea {
   width: 1ch;
 }
 .cmt-suggestion .sugg-text { flex: 1; }
+.cmt-suggestion .sugg-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.35rem 0.5rem;
+  border-top: 1px solid var(--border);
+}
+.cmt-suggestion .sugg-apply {
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg);
+  font: inherit;
+}
+.cmt-suggestion .sugg-apply.is-applied {
+  color: var(--ok);
+  border-color: var(--ok);
+}
 
 /* ----- compose-dialog suggestion section (collapsible) ----- */
 .compose-suggestion {
