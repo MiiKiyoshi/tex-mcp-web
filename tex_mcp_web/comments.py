@@ -38,7 +38,7 @@ import tempfile
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable, Iterator, Literal
+from typing import Any, Callable, Iterable, Iterator, Literal
 
 import pymupdf
 
@@ -366,8 +366,8 @@ class SuggestedEdit:
     proposed replacement.
 
     The agent can either apply the suggestion verbatim, modify it, or
-    discuss it via ``reply``.  ``old`` is advisory: the agent should
-    locate it in the source itself rather than trusting line numbers.
+    discuss it via ``reply``.  Reviewer application succeeds only when
+    ``old`` still exactly occupies the anchored source range.
     """
 
     old: str
@@ -426,6 +426,7 @@ class Comment:
     # When the comment was last closed; None while it is open.
     resolved: str | None = None
     stale: bool = False
+    suggestion_applied: bool = False
 
     @property
     def text(self) -> str:
@@ -449,6 +450,8 @@ class Comment:
             d["source_selector"] = self.source_selector.to_dict()
         if self.suggestion is not None:
             d["suggestion"] = self.suggestion.to_dict()
+        if self.suggestion_applied:
+            d["suggestion_applied"] = True
         if self.stale:
             d["stale"] = True
         return d
@@ -479,6 +482,7 @@ class Comment:
             updated=str(d["updated"]),
             resolved=str(d["resolved"]) if "resolved" in d else None,
             stale=bool(d["stale"]) if "stale" in d else False,
+            suggestion_applied=bool(d.get("suggestion_applied", False)),
         )
 
 
@@ -1093,6 +1097,57 @@ class CommentStore:
         if not text.strip():
             raise ValueError("reply text must not be empty")
         return self._append_entry(comment_id, author, text, edits=edits)
+
+    def apply_suggestion(
+        self,
+        comment_id: str,
+        expected_updated: str,
+        replace_source: Callable[
+            [Comment], tuple[str, ResolvedSource, SourceSelector]
+        ],
+    ) -> Comment:
+        """Apply one current source suggestion and record it in its open thread."""
+        with self._locked():
+            comments = self._all()
+            for position, comment in enumerate(comments):
+                if comment.id != comment_id:
+                    continue
+                if comment.suggestion_applied:
+                    raise ValueError("suggestion already applied")
+                if comment.updated != expected_updated:
+                    raise ValueError("stale thread: comment changed since it was read")
+                if comment.status != "open":
+                    raise ValueError("suggestion belongs to a comment that is not open")
+                if not isinstance(comment.anchor, SourceRangeAnchor):
+                    raise ValueError("suggestion is not anchored to a source range")
+                if (
+                    comment.suggestion is None
+                    or not comment.suggestion.old
+                    or not comment.suggestion.new
+                ):
+                    raise ValueError("suggestion must include complete old and new text")
+                if comment.stale:
+                    raise ValueError("stale source anchor: reload the comment before applying")
+
+                edit, resolved, selector = replace_source(comment)
+                now = _now()
+                comment.thread.append(
+                    ThreadEntry(
+                        author="human",
+                        at=now,
+                        text="Applied suggestion.",
+                        edits=[edit],
+                    )
+                )
+                comment.resolved_source = resolved
+                comment.source_selector = selector
+                comment.suggestion_applied = True
+                comment.stale = False
+                comment.updated = now
+                comments[position] = comment
+                self._save(comments)
+                return comment
+        raise KeyError(f"comment {comment_id!r} not found")
 
     def resolve(
         self,

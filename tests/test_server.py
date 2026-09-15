@@ -17,6 +17,12 @@ import pytest
 import yaml
 from aiohttp.test_utils import TestClient, TestServer
 
+from tex_mcp_web.comments import (
+    ResolvedSource,
+    SourceRangeAnchor,
+    SourceSelector,
+    SuggestedEdit,
+)
 from tex_mcp_web.config import Config
 from tex_mcp_web.compiler import CompileResult
 from tex_mcp_web.server import TexMcpWebServer
@@ -144,7 +150,7 @@ async def test_root_exposes_auto_compile_control(client):
     assert "Auto: Off" in html
     assert [f'data-view="{view}"' in html for view in ("pdf", "source", "split")] == [True] * 3
     assert "/static/ace/ace.js?v=1.44.0" in html
-    assert "viewer.js?v=precise-source" in html
+    assert "viewer.js?v=apply-suggestion" in html
 
 
 @pytest.mark.asyncio
@@ -269,6 +275,303 @@ async def test_empty_suggestion_omitted(client):
     )
     data = await resp.json()
     assert "suggestion" not in data
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("suggestion", [{"old": "x"}, {"old": "x", "new": None}])
+async def test_incomplete_suggestion_rejected(client, suggestion):
+    tc, _ = client
+    response = await tc.post(
+        "/comments",
+        json={"anchor": {"kind": "paper"}, "text": "x", "suggestion": suggestion},
+    )
+    assert response.status == 400
+    assert "suggestion old and new must be strings" in (await response.json())["error"]
+
+
+async def _source_suggestion(
+    tc,
+    *,
+    old: str = "Some prose with \\cite{ref1}.",
+    new: str = "Clear prose with \\cite{ref1}.",
+    anchor: dict | None = None,
+) -> dict:
+    response = await tc.post(
+        "/comments",
+        json={
+            "anchor": anchor or {
+                "kind": "source_range",
+                "file": "paper.tex",
+                "line_start": 5,
+                "line_end": 5,
+            },
+            "text": "Use the suggested wording.",
+            "suggestion": {"old": old, "new": new},
+        },
+    )
+    assert response.status == 201
+    return await response.json()
+
+
+@pytest.mark.asyncio
+async def test_apply_source_suggestion_replaces_only_anchor_and_keeps_comment_open(
+    client, project
+):
+    tc, server = client
+    path = project / "paper.tex"
+    path.chmod(0o640)
+    before = path.read_text(encoding="utf-8")
+    comment = await _source_suggestion(tc)
+    server.config.auto_compile = True
+    server.do_compile = AsyncMock()
+
+    response = await tc.post(
+        f"/comments/{comment['id']}/apply-suggestion",
+        json={"updated": comment["updated"]},
+    )
+
+    assert response.status == 200
+    applied = await response.json()
+    assert path.read_text(encoding="utf-8") == before.replace(
+        "Some prose with \\cite{ref1}.", "Clear prose with \\cite{ref1}.", 1
+    )
+    assert path.stat().st_mode & 0o777 == 0o640
+    assert applied["status"] == "open"
+    assert applied["suggestion_applied"] is True
+    assert applied["thread"][-1]["author"] == "human"
+    assert applied["thread"][-1]["edits"] == ["paper.tex:5-5"]
+    assert applied["resolved_source"] == {
+        "file": "paper.tex",
+        "line_start": 5,
+        "line_end": 5,
+        "column_start": 0,
+        "column_end": 29,
+    }
+    server.comments.refresh_source_anchors(project)
+    stored = server.comments.get(comment["id"])
+    assert stored is not None
+    assert stored.status == "open"
+    assert not stored.stale
+    server.do_compile.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_apply_source_suggestion_rejects_stale_thread(client, project):
+    tc, server = client
+    path = project / "paper.tex"
+    before = path.read_text(encoding="utf-8")
+    comment = await _source_suggestion(tc)
+    server.comments.reply(comment["id"], "The thread moved on.", author="human")
+
+    response = await tc.post(
+        f"/comments/{comment['id']}/apply-suggestion",
+        json={"updated": comment["updated"]},
+    )
+
+    assert response.status == 409
+    assert "stale thread" in (await response.json())["error"]
+    assert path.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.asyncio
+async def test_apply_source_suggestion_rechecks_changed_source(client, project):
+    tc, _ = client
+    path = project / "paper.tex"
+    comment = await _source_suggestion(tc)
+    changed = path.read_text(encoding="utf-8").replace("Some prose", "Other prose", 1)
+    path.write_text(changed, encoding="utf-8")
+
+    response = await tc.post(
+        f"/comments/{comment['id']}/apply-suggestion",
+        json={"updated": comment["updated"]},
+    )
+
+    assert response.status == 409
+    assert "source changed" in (await response.json())["error"]
+    assert path.read_text(encoding="utf-8") == changed
+
+
+@pytest.mark.asyncio
+async def test_apply_source_suggestion_rejects_stale_anchor(client, project):
+    tc, server = client
+    path = project / "paper.tex"
+    comment = await _source_suggestion(tc)
+    changed = path.read_text(encoding="utf-8").replace("Some prose", "Other prose", 1)
+    path.write_text(changed, encoding="utf-8")
+    server.comments.refresh_source_anchors(project)
+    assert server.comments.get(comment["id"]).stale
+
+    response = await tc.post(
+        f"/comments/{comment['id']}/apply-suggestion",
+        json={"updated": comment["updated"]},
+    )
+
+    assert response.status == 409
+    assert "stale source anchor" in (await response.json())["error"]
+    assert path.read_text(encoding="utf-8") == changed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("anchor", "new", "error"),
+    [
+        ({"kind": "paper"}, "Replacement.", "not anchored to a source range"),
+        (None, "", "complete old and new text"),
+    ],
+)
+async def test_apply_requires_complete_source_range_suggestion(
+    client, project, anchor, new, error
+):
+    tc, _ = client
+    path = project / "paper.tex"
+    before = path.read_text(encoding="utf-8")
+    comment = await _source_suggestion(tc, anchor=anchor, new=new)
+
+    response = await tc.post(
+        f"/comments/{comment['id']}/apply-suggestion",
+        json={"updated": comment["updated"]},
+    )
+
+    assert response.status == 409
+    assert error in (await response.json())["error"]
+    assert path.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("source_suffix", "old", "error"),
+    [
+        ("Some prose with \\cite{ref1}.\n", "Some prose with \\cite{ref1}.", "more than once"),
+        ("", "Some methods.", "outside the anchored range"),
+    ],
+)
+async def test_apply_source_suggestion_rejects_ambiguous_or_outside_match(
+    client, project, source_suffix, old, error
+):
+    tc, _ = client
+    path = project / "paper.tex"
+    if source_suffix:
+        path.write_text(path.read_text(encoding="utf-8") + source_suffix, encoding="utf-8")
+    comment = await _source_suggestion(tc, old=old, new="Replacement.")
+    before = path.read_text(encoding="utf-8")
+
+    response = await tc.post(
+        f"/comments/{comment['id']}/apply-suggestion",
+        json={"updated": comment["updated"]},
+    )
+
+    assert response.status == 409
+    assert error in (await response.json())["error"]
+    assert path.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outside_path", ["../outside.tex", "outside-link.tex"])
+async def test_apply_source_suggestion_rejects_source_outside_project(
+    client, project, outside_path
+):
+    tc, server = client
+    outside = project.parent / "outside.tex"
+    outside.write_text("outside text\n", encoding="utf-8")
+    if outside_path == "outside-link.tex":
+        (project / outside_path).symlink_to(outside)
+    comment = server.comments.add(
+        SourceRangeAnchor(file=outside_path, line_start=1, line_end=1),
+        "Do not escape the project.",
+        resolved_source=ResolvedSource(file=outside_path, line_start=1, line_end=1),
+        source_selector=SourceSelector(exact="outside text", prefix="", suffix=""),
+        suggestion=SuggestedEdit(old="outside text", new="changed outside text"),
+    )
+
+    response = await tc.post(
+        f"/comments/{comment.id}/apply-suggestion",
+        json={"updated": comment.updated},
+    )
+
+    assert response.status in {400, 403}
+    assert outside.read_text(encoding="utf-8") == "outside text\n"
+
+
+@pytest.mark.asyncio
+async def test_apply_source_suggestion_is_single_use_under_concurrency(client, project):
+    tc, _ = client
+    path = project / "paper.tex"
+    comment = await _source_suggestion(tc)
+
+    first, second = await asyncio.gather(
+        tc.post(
+            f"/comments/{comment['id']}/apply-suggestion",
+            json={"updated": comment["updated"]},
+        ),
+        tc.post(
+            f"/comments/{comment['id']}/apply-suggestion",
+            json={"updated": comment["updated"]},
+        ),
+    )
+    responses = [(first.status, await first.json()), (second.status, await second.json())]
+
+    assert sorted(status for status, _ in responses) == [200, 409]
+    rejected = next(body for status, body in responses if status == 409)
+    assert rejected["error"] == "suggestion already applied"
+    assert path.read_text(encoding="utf-8").count("Clear prose with \\cite{ref1}.") == 1
+    stored = await (await tc.get(f"/comments/{comment['id']}")).json()
+    assert stored["status"] == "open"
+    assert len(stored["thread"]) == 2
+
+    duplicate = await tc.post(
+        f"/comments/{comment['id']}/apply-suggestion",
+        json={"updated": stored["updated"]},
+    )
+    assert duplicate.status == 409
+    assert (await duplicate.json())["error"] == "suggestion already applied"
+
+
+@pytest.mark.asyncio
+async def test_apply_source_suggestion_preserves_unicode_multiline_range(client, project):
+    tc, _ = client
+    path = project / "paper.tex"
+    text = (
+        "\\documentclass{article}\n"
+        "\\begin{document}\n"
+        "앞 문장.\n"
+        "첫 줄 😀 α\n"
+        "둘째 줄 β\n"
+        "뒤 문장.\n"
+        "\\end{document}\n"
+    )
+    path.write_text(text, encoding="utf-8")
+    old = "첫 줄 😀 α\n둘째 줄 β"
+    new = "새 첫 줄 😀 γ\n새 둘째 줄 δ"
+    comment = await _source_suggestion(
+        tc,
+        old=old,
+        new=new,
+        anchor={
+            "kind": "source_range",
+            "file": "paper.tex",
+            "line_start": 4,
+            "line_end": 5,
+            "column_start": 0,
+            "column_end": 6,
+        },
+    )
+
+    response = await tc.post(
+        f"/comments/{comment['id']}/apply-suggestion",
+        json={"updated": comment["updated"]},
+    )
+
+    assert response.status == 200
+    applied = await response.json()
+    assert path.read_text(encoding="utf-8") == text.replace(old, new, 1)
+    assert applied["status"] == "open"
+    assert applied["resolved_source"] == {
+        "file": "paper.tex",
+        "line_start": 4,
+        "line_end": 5,
+        "column_start": 0,
+        "column_end": 8,
+    }
 
 
 @pytest.mark.asyncio

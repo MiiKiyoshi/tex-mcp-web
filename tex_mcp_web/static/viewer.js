@@ -964,7 +964,7 @@ function renderCommentItem(comment) {
 
   const children = [head];
   if (!expanded) children.push(h("div", { class: "cmt-preview", text: comment.thread[0]?.text ?? "" }));
-  if (comment.suggestion) children.push(renderSuggestion(comment.suggestion));
+  if (comment.suggestion) children.push(renderSuggestion(comment));
   if (expanded) {
     children.push(
       h("div", { class: "cmt-thread" },
@@ -981,7 +981,31 @@ function renderCommentItem(comment) {
   }, ...children);
 }
 
-function renderSuggestion(suggestion) {
+function renderSuggestion(comment) {
+  const suggestion = comment.suggestion;
+  const completeSourceSuggestion = comment.anchor.kind === "source_range"
+    && typeof suggestion.old === "string" && suggestion.old.length > 0
+    && typeof suggestion.new === "string" && suggestion.new.length > 0;
+  let applyButton = null;
+  if (completeSourceSuggestion && comment.suggestion_applied) {
+    applyButton = actionButton("sugg-apply is-applied", "Applied", () => {});
+    applyButton.disabled = true;
+  } else if (completeSourceSuggestion && comment.status === "open") {
+    applyButton = actionButton("sugg-apply", "Apply suggestion", async () => {
+      applyButton.disabled = true;
+      applyButton.textContent = "Applying…";
+      if (await doMutation(comment.id, "apply-suggestion", { updated: comment.updated })) {
+        try {
+          await refreshComments();
+        } catch (error) {
+          alert(`Applied, but comments could not be refreshed: ${error.message}`);
+        }
+        return;
+      }
+      applyButton.disabled = false;
+      applyButton.textContent = "Apply suggestion";
+    });
+  }
   return h("div", { class: "cmt-suggestion" },
     h("div", { class: "sugg-old", title: "current text" },
       h("span", { class: "sugg-marker", text: "−" }),
@@ -989,6 +1013,7 @@ function renderSuggestion(suggestion) {
     h("div", { class: "sugg-new", title: "proposed replacement" },
       h("span", { class: "sugg-marker", text: "+" }),
       h("span", { class: "sugg-text", text: suggestion.new })),
+    applyButton ? h("div", { class: "sugg-actions" }, applyButton) : null,
   );
 }
 
