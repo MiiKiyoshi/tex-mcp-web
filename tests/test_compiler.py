@@ -1,6 +1,11 @@
 """Tests for compiler module."""
 
+from pathlib import Path
+
+import fitz
 import pytest
+
+from tex_mcp_web import compiler as compiler_module
 
 from tex_mcp_web.compiler import (
     CompileMessage,
@@ -10,9 +15,28 @@ from tex_mcp_web.compiler import (
     _parse_errors,
     _parse_pandoc_errors,
     _parse_warnings,
+    _pdf_validation_error,
     check_compiler_available,
+    compile_tex,
     enrich_error_context,
 )
+
+
+class _FakeProcess:
+    def __init__(self, returncode: int, output: bytes):
+        self.returncode = returncode
+        self.output = output
+
+    async def communicate(self):
+        return self.output, None
+
+
+def _write_one_page_pdf(path: Path) -> None:
+    with fitz.open() as document:
+        document.new_page().insert_text((72, 72), "valid")
+        document.save(path)
+
+
 class TestGetCompilerCommand:
     """Tests for _get_compiler_command function."""
 
@@ -26,6 +50,14 @@ class TestGetCompilerCommand:
         assert "-synctex=1" in cmd
         assert "-file-line-error" in cmd
         assert "main.tex" in cmd
+
+    def test_latexmk_force_rebuild(self, tmp_path):
+        main_file = tmp_path / "main.tex"
+        cmd = _get_compiler_command(
+            "latexmk", main_file, tmp_path, force_rebuild=True
+        )
+
+        assert "-g" in cmd
 
     def test_pdflatex(self, tmp_path):
         """Test pdflatex command generation."""
@@ -157,6 +189,103 @@ class TestCompileResult:
         assert len(result.warnings) == 1
         assert result.errors[0].line == 10
         assert result.warnings[0].line == 20
+
+
+@pytest.mark.parametrize("existing", ["missing", "corrupt"])
+@pytest.mark.asyncio
+async def test_missing_or_corrupt_pdf_forces_latexmk_rebuild(
+    tmp_path, monkeypatch, existing
+):
+    main_file = tmp_path / "main.tex"
+    main_file.write_text("source", encoding="utf-8")
+    pdf_path = tmp_path / "main.pdf"
+    if existing == "corrupt":
+        pdf_path.write_bytes(b"not a pdf")
+    command = []
+
+    async def fake_exec(*args, **kwargs):
+        command.extend(args)
+        if pdf_path.exists():
+            pdf_path.unlink()
+        _write_one_page_pdf(pdf_path)
+        return _FakeProcess(0, b"Latexmk: applying rule 'pdflatex'\n")
+
+    monkeypatch.setattr(
+        compiler_module.shutil, "which", lambda name: f"/usr/bin/{name}"
+    )
+    monkeypatch.setattr(compiler_module.asyncio, "create_subprocess_exec", fake_exec)
+
+    result = await compile_tex(main_file, work_dir=tmp_path)
+
+    assert "-g" in command
+    assert result.success is True
+    assert result.output_file == pdf_path
+    assert _pdf_validation_error(pdf_path) is None
+
+
+@pytest.mark.asyncio
+async def test_zero_return_with_corrupt_pdf_is_not_success(tmp_path, monkeypatch):
+    main_file = tmp_path / "main.tex"
+    main_file.write_text("source", encoding="utf-8")
+    pdf_path = tmp_path / "main.pdf"
+    pdf_path.write_bytes(b"not a pdf")
+
+    async def fake_exec(*args, **kwargs):
+        return _FakeProcess(0, b"Latexmk: All targets are up-to-date\n")
+
+    monkeypatch.setattr(
+        compiler_module.shutil, "which", lambda name: f"/usr/bin/{name}"
+    )
+    monkeypatch.setattr(compiler_module.asyncio, "create_subprocess_exec", fake_exec)
+
+    result = await compile_tex(main_file, work_dir=tmp_path)
+
+    assert result.success is False
+    assert result.output_file is None
+    assert any("could not be parsed" in error.message for error in result.errors)
+
+
+@pytest.mark.asyncio
+async def test_nonzero_return_without_parsed_error_reports_raw_tail(tmp_path, monkeypatch):
+    main_file = tmp_path / "main.tex"
+    main_file.write_text("source", encoding="utf-8")
+    _write_one_page_pdf(tmp_path / "main.pdf")
+
+    async def fake_exec(*args, **kwargs):
+        return _FakeProcess(
+            12,
+            b"Latexmk: applying rule 'pdflatex'\nEmergency stop without TeX marker\n",
+        )
+
+    monkeypatch.setattr(
+        compiler_module.shutil, "which", lambda name: f"/usr/bin/{name}"
+    )
+    monkeypatch.setattr(compiler_module.asyncio, "create_subprocess_exec", fake_exec)
+
+    result = await compile_tex(main_file, work_dir=tmp_path)
+
+    assert result.success is False
+    assert len(result.errors) == 1
+    assert "Compiler exited with status 12" in result.errors[0].message
+    assert "Emergency stop without TeX marker" in result.errors[0].message
+
+
+def test_pdf_validation_rejects_zero_pages(tmp_path, monkeypatch):
+    pdf_path = tmp_path / "main.pdf"
+    pdf_path.write_bytes(b"placeholder")
+
+    class EmptyDocument:
+        page_count = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+    monkeypatch.setattr(compiler_module.fitz, "open", lambda path: EmptyDocument())
+
+    assert _pdf_validation_error(pdf_path) == "Output PDF has no pages"
 
 
 class TestDetectCompiler:
