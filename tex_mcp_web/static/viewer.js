@@ -800,7 +800,7 @@ async function refreshComments() {
   // reader has just closed and looks for. The mixed view leads with the one written
   // last, by when it was written and not by when it was last touched: closing a comment
   // touches it, so by that measure every closed comment stood above every open one.
-  // The reference view leads with the thread touched last: what was kept to be read
+  // The archive view leads with the thread touched last: what was kept to be read
   // again is read again when something is added to it.
   const moment = status === "resolved"
     ? (comment) => comment.resolved ?? comment.created
@@ -852,11 +852,12 @@ function renderComments() {
 }
 
 // What the picked comments can be sent to, which is decided by the state they are in:
-// open ones close, closed ones reopen. Both buttons show a count, so a mixed pick says
+// open ones close, unarchived ones archive, and closed ones reopen. The counts say
 // exactly what each press will touch.
 function renderPickedActions() {
   const picked = state.comments.filter((comment) => state.picked.has(comment.id));
   const open = picked.filter((comment) => comment.status === "open").map((comment) => comment.id);
+  const archivable = picked.filter((comment) => comment.status !== "reference").map((comment) => comment.id);
   const closed = picked.filter((comment) => comment.status !== "open").map((comment) => comment.id);
   const shown = state.comments.length;
   const all = $("#pick-all-btn");
@@ -873,6 +874,11 @@ function renderPickedActions() {
   resolve.querySelector(".count").textContent = open.length > 0 ? String(open.length) : "";
   resolve.setAttribute("aria-label", open.length > 0 ? `Resolve ${open.length}` : "Resolve");
   resolve.dataset.ids = open.join(" ");
+  const archive = $("#archive-picked-btn");
+  archive.disabled = archivable.length === 0;
+  archive.querySelector(".count").textContent = archivable.length > 0 ? String(archivable.length) : "";
+  archive.setAttribute("aria-label", archivable.length > 0 ? `Archive ${archivable.length}` : "Archive");
+  archive.dataset.ids = archivable.join(" ");
   const reopen = $("#reopen-picked-btn");
   reopen.disabled = closed.length === 0;
   reopen.querySelector(".count").textContent = closed.length > 0 ? String(closed.length) : "";
@@ -913,10 +919,9 @@ function pickAll() {
   renderComments();
 }
 
-// Closing is one call per comment with an empty summary: the thread already holds what
-// was said. Reopening flips the status back and adds nothing.
+// A picked status change is one call per comment; the thread already holds what was said.
 async function setPickedStatus(ids, status) {
-  const action = status === "open" ? "reopen" : "resolve";
+  const action = status === "open" ? "reopen" : status === "reference" ? "reference" : "resolve";
   for (const id of ids) {
     const response = await fetch(`/comments/${id}/${action}`, {
       method: "POST",
@@ -958,7 +963,8 @@ function renderCommentItem(comment) {
     text: expanded ? "▾" : replies > 0 ? `▸ ${replies} repl${replies > 1 ? "ies" : "y"}` : "▸",
   }),
   h("span", { class: "cmt-id", text: comment.id }),
-  h("span", { class: "cmt-status", text: `[${comment.status}]` }),
+  h("span", { class: "cmt-status",
+              text: `[${comment.status === "reference" ? "archived" : comment.status}]` }),
   comment.stale ? h("span", { class: "stale", text: "STALE" }) : null,
   h("span", { class: "cmt-anchor", text: anchorLabel(comment.anchor) }));
 
@@ -1091,8 +1097,8 @@ function actionButtons(comment) {
     }
   });
   // Every status flip is one click: the thread already holds what was said, so an
-  // empty summary flips the status without adding an entry. A thread kept as
-  // reference still takes replies, and goes back to open or resolved from the same row.
+  // empty summary flips the status without adding an entry. An archived thread still
+  // takes replies, and goes back to open or resolved from the same row.
   const buttons = [];
   if (comment.status !== "resolved") {
     buttons.push(actionButton("cmt-reply", "Reply", () => setActiveForm(comment.id, "reply")));
@@ -1104,7 +1110,7 @@ function actionButtons(comment) {
     buttons.push(actionButton("cmt-resolve", "Resolve", () => closeComment(comment.id, "resolve", "summary")));
   }
   if (comment.status !== "reference") {
-    buttons.push(actionButton("cmt-reference", "Reference", () => mutateAndRefresh(comment.id, "reference", {})));
+    buttons.push(actionButton("cmt-reference", "Archive", () => mutateAndRefresh(comment.id, "reference", {})));
   }
   buttons.push(deleteButton);
   return buttons;
@@ -1961,7 +1967,7 @@ async function init() {
   $("#fold-all-btn").addEventListener("click", foldAll);
   $("#pick-all-btn").addEventListener("click", pickAll);
   // The buttons carry the ids they were drawn with, so a press acts on what its label counted.
-  for (const [id, status] of [["#resolve-picked-btn", "resolved"], ["#reopen-picked-btn", "open"]]) {
+  for (const [id, status] of [["#resolve-picked-btn", "resolved"], ["#archive-picked-btn", "reference"], ["#reopen-picked-btn", "open"]]) {
     $(id).addEventListener("click", async () => {
       const button = $(id);
       const ids = button.dataset.ids ? button.dataset.ids.split(" ") : [];
