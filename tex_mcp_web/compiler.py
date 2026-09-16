@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
+import fitz
+
 
 @dataclass
 class CompileMessage:
@@ -87,7 +89,13 @@ def _detect_compiler(main_file: Path) -> str:
     return "latexmk"
 
 
-def _get_compiler_command(compiler: str, main_file: Path, work_dir: Path) -> list[str]:
+def _get_compiler_command(
+    compiler: str,
+    main_file: Path,
+    work_dir: Path,
+    *,
+    force_rebuild: bool = False,
+) -> list[str]:
     """Build the compiler command."""
     # Validate compiler against whitelist for security
     if compiler not in ALLOWED_COMPILERS:
@@ -116,14 +124,17 @@ def _get_compiler_command(compiler: str, main_file: Path, work_dir: Path) -> lis
             main_file.stem + ".pdf",
         ]
     elif compiler == "latexmk":
-        return [
+        command = [
             "latexmk",
             "-pdf",
             "-interaction=nonstopmode",
             "-synctex=1",
             "-file-line-error",
-            str(main_file_relative),
         ]
+        if force_rebuild:
+            command.append("-g")
+        command.append(str(main_file_relative))
+        return command
     elif compiler in ("pdflatex", "xelatex", "lualatex"):
         return [
             compiler,
@@ -219,6 +230,28 @@ def _parse_pandoc_errors(stderr: str) -> list[CompileMessage]:
     if not stderr.strip():
         return []
     return [CompileMessage(file="", line=None, message=stderr.strip()[:200], type="error")]
+
+
+def _pdf_validation_error(pdf_path: Path) -> str | None:
+    """Return why *pdf_path* cannot be served, or ``None`` for a real PDF page."""
+    if not pdf_path.is_file():
+        return "Output PDF was not produced"
+    try:
+        with fitz.open(pdf_path) as document:
+            if document.page_count < 1:
+                return "Output PDF has no pages"
+            document.load_page(0)
+    except Exception as error:
+        return f"Output PDF could not be parsed: {error}"
+    return None
+
+
+def _compiler_output_tail(output: str, limit: int = 2000) -> str:
+    """Keep the useful end of otherwise unparsed compiler output."""
+    output = output.strip()
+    if len(output) <= limit:
+        return output
+    return "…" + output[-limit:]
 
 
 def enrich_error_context(
@@ -358,8 +391,21 @@ async def compile_tex(
             ],
         )
 
+    start_time = datetime.now(timezone.utc)
+    is_pandoc = resolved_compiler == "pandoc"
+    pdf_path = work_dir / (main_file.stem + ".pdf")
+    force_rebuild = (
+        resolved_compiler == "latexmk"
+        and _pdf_validation_error(pdf_path) is not None
+    )
+
     try:
-        cmd = _get_compiler_command(compiler, main_file, work_dir)
+        cmd = _get_compiler_command(
+            compiler,
+            main_file,
+            work_dir,
+            force_rebuild=force_rebuild,
+        )
     except ValueError as exc:
         return CompileResult(
             success=False,
@@ -372,8 +418,6 @@ async def compile_tex(
                 )
             ],
         )
-    start_time = datetime.now(timezone.utc)
-    is_pandoc = resolved_compiler == "pandoc"
 
     try:
         if is_pandoc:
@@ -399,11 +443,8 @@ async def compile_tex(
 
         end_time = datetime.now(timezone.utc)
 
-        # Determine output PDF path
-        pdf_name = main_file.stem + ".pdf"
-        pdf_path = work_dir / pdf_name
-
-        success = process.returncode == 0 and pdf_path.exists()
+        pdf_error = _pdf_validation_error(pdf_path)
+        success = process.returncode == 0 and pdf_error is None
 
         if is_pandoc:
             errors = _parse_pandoc_errors(stderr_text) if not success else []
@@ -413,6 +454,30 @@ async def compile_tex(
             errors = _parse_errors(unwrapped, str(main_file.name))
             warnings = _parse_warnings(unwrapped, str(main_file.name))
 
+        if process.returncode != 0 and not errors:
+            raw_output = "\n".join(part for part in (log_output, stderr_text) if part)
+            tail = _compiler_output_tail(raw_output)
+            message = f"Compiler exited with status {process.returncode}"
+            if tail:
+                message += f":\n{tail}"
+            errors.append(
+                CompileMessage(
+                    file=str(main_file.name),
+                    line=None,
+                    message=message,
+                    type="error",
+                )
+            )
+        if pdf_error is not None:
+            errors.append(
+                CompileMessage(
+                    file=pdf_path.name,
+                    line=None,
+                    message=pdf_error,
+                    type="error",
+                )
+            )
+
         # Enrich errors and warnings with surrounding source lines
         enrich_error_context(errors, work_dir)
         enrich_error_context(warnings, work_dir)
@@ -421,7 +486,7 @@ async def compile_tex(
             success=success,
             errors=errors,
             warnings=warnings,
-            output_file=pdf_path if pdf_path.exists() else None,
+            output_file=pdf_path if pdf_error is None else None,
             timestamp=end_time,
             duration_seconds=(end_time - start_time).total_seconds(),
             log_output=log_output,
