@@ -910,10 +910,9 @@ def test_browser_source_selection_and_split_resize(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
-def test_a_thread_kept_as_reference_has_its_own_view_and_row_of_actions(tmp_path: Path) -> None:
-    """Reference is the third status: its view lists the kept threads apart, the card
-    says [reference], and the row offers Reply, Reopen and Resolve, while an open card
-    offers Reference."""
+def test_archived_threads_have_their_own_view_and_picked_archive_action(tmp_path: Path) -> None:
+    """Archive is the third visible status: its view lists kept threads apart, and the
+    archive-box action moves only picked threads there."""
     import fitz
 
     (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
@@ -937,6 +936,7 @@ def test_a_thread_kept_as_reference_has_its_own_view_and_row_of_actions(tmp_path
         wait_until(lambda: get_json(f"{base}/paper") is not None)
         kept = post_json(f"{base}/comments", {"anchor": {"kind": "paper"}, "text": "keep me"})["id"]
         working = post_json(f"{base}/comments", {"anchor": {"kind": "paper"}, "text": "work on me"})["id"]
+        untouched = post_json(f"{base}/comments", {"anchor": {"kind": "paper"}, "text": "leave me"})["id"]
         post_json(f"{base}/comments/{kept}/reference", {})
 
         browser_process = subprocess.Popen(
@@ -963,7 +963,10 @@ def test_a_thread_kept_as_reference_has_its_own_view_and_row_of_actions(tmp_path
         assert browser.execute_script(
             'return Array.from(document.querySelectorAll("#comment-filter option")).map((o) => o.value);'
         ) == ["open", "resolved", "reference", "all"]
-        assert shown("open", [working]) == [working]
+        assert browser.execute_script(
+            'return Array.from(document.querySelectorAll("#comment-filter option")).map((o) => o.textContent);'
+        ) == ["open", "resolved", "archived", "all"]
+        assert shown("open", [working, untouched]) == [working, untouched]
         assert shown("reference", [kept]) == [kept]
 
         def expanded_actions(comment_id):
@@ -974,20 +977,25 @@ def test_a_thread_kept_as_reference_has_its_own_view_and_row_of_actions(tmp_path
               return buttons.length ? [card.querySelector(".cmt-status").textContent, buttons] : false;
             '''))
 
-        assert expanded_actions(kept) == ["[reference]", ["Reply", "Reopen", "Resolve", "Delete"]]
+        assert expanded_actions(kept) == ["[archived]", ["Reply", "Reopen", "Resolve", "Delete"]]
 
-        # An open card offers Reference, and one click moves the thread to that view.
-        assert shown("open", [working]) == [working]
-        assert expanded_actions(working) == ["[open]", ["Reply", "Resolve", "Reference", "Delete"]]
+        # An open card calls the action Archive, and the archive-box button moves only the
+        # picked thread while leaving the other open thread alone.
+        assert shown("open", [working, untouched]) == [working, untouched]
+        assert expanded_actions(working) == ["[open]", ["Reply", "Resolve", "Archive", "Delete"]]
         browser.execute_script(f'''
-          const card = document.querySelector("[data-comment-id='{working}']");
-          Array.from(card.querySelectorAll("button")).find((b) => b.textContent === "Reference").click();
+          document.querySelector("[data-comment-id='{working}'] .comment-pick").click();
         ''')
+        assert browser.execute_script('''
+          const button = document.querySelector("#archive-picked-btn");
+          return [button.disabled, button.getAttribute("aria-label"), button.title];
+        ''') == [False, "Archive 1", "Archive the picked comments"]
+        browser.find_element("css selector", "#archive-picked-btn").click()
         wait_until(lambda: get_json(f"{base}/comments/{working}")["status"] == "reference")
-        # The flip refreshes the open view it was made in; that refresh lands before the
-        # view is switched, or its (now empty) result would land on top of the next view.
         wait_until(lambda: browser.execute_script(
-            'return document.querySelectorAll("[data-comment-id]").length === 0;'))
+            f'return document.querySelectorAll("[data-comment-id]").length === 1'
+            f' && document.querySelector("[data-comment-id=\'{untouched}\']") !== null;'))
+        assert get_json(f"{base}/comments/{untouched}")["status"] == "open"
         assert set(shown("reference", [working, kept])) == {working, kept}
     finally:
         if browser is not None:

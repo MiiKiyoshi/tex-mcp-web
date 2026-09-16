@@ -65,7 +65,7 @@
           <select id="comment-filter" aria-label="Comment status">
             <option value="open" selected>open</option>
             <option value="resolved">resolved</option>
-            <option value="reference">reference</option>
+            <option value="reference">archived</option>
             <option value="all">all</option>
           </select>
           <!-- Icons, with the words as title and aria-label. Each button shows the one drawing
@@ -81,6 +81,9 @@
           </button>
           <button id="resolve-picked-btn" class="icon-btn" type="button" disabled aria-label="Resolve" title="Resolve the picked comments">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M5 8l2 2 4-4"/></svg><span class="count"></span>
+          </button>
+          <button id="archive-picked-btn" class="icon-btn" type="button" disabled aria-label="Archive" title="Archive the picked comments">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 3h12v3H2z"/><path d="M3 6v7h10V6M6 9h4"/></svg><span class="count"></span>
           </button>
           <button id="reopen-picked-btn" class="icon-btn" type="button" disabled aria-label="Reopen" title="Reopen the picked comments">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.5-3.5"/><path d="M13 3v3h-3"/></svg><span class="count"></span>
