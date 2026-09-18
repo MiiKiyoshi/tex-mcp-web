@@ -1196,9 +1196,11 @@ async def test_mcp_comment_discovery_reads_only_selected_history(bound_project, 
     assert paper["sections"]
     requests = (await call("read_comments", unanswered=True))["comments"]
     assert requests == [
-        {"id": first.id, "status": "open", "kind": "section", "request": "Check this method",
+        {"id": first.id, "rev": revision_of(first.updated), "status": "open",
+         "kind": "section", "request": "Check this method",
          "thread_entries": 1, "last_human_at": moment},
-        {"id": second.id, "status": "open", "kind": "paper", "request": "Check this paper",
+        {"id": second.id, "rev": revision_of(second.updated), "status": "open",
+         "kind": "paper", "request": "Check this paper",
          "thread_entries": 1, "last_human_at": moment},
     ]
     assert (await call("read_comments", since=moment))["comments"] == []
@@ -2065,3 +2067,16 @@ async def test_list_comments_shows_an_opening_and_counts_the_rest(bound_project,
     capped = await listed(limit=2)
     assert [c["request"] for c in capped["comments"]] == ["short 2", "short 3"]
     assert capped["older"] == 3
+    # The listing carries what a write has to quote back, so answering a thread does not
+    # cost a read of it first. A thread grows; the listing row does not.
+    row = everything["comments"][-1]
+    assert set(row) == {"id", "rev", "status", "kind", "request", "thread_entries",
+                        "last_human_at"}
+    replied = json.loads((await mcp.call_tool("write_comments", {
+        "action": "reply", "id": row["id"], "text": "answered from the listing alone"}))[0][0].text)
+    assert replied["id"] == row["id"]
+    store.reply(row["id"], "and the reviewer moved it on", author="human")
+    stale = json.loads((await mcp.call_tool("write_comments", {
+        "action": "edit", "id": row["id"], "entry": "e-nope", "text": "x",
+        "rev": row["rev"]}))[0][0].text)
+    assert "stale" in stale["error"]
