@@ -947,18 +947,17 @@ async def test_mcp_contract_is_typed_and_nonduplicative(tmp_path: Path):
     tools = {tool.name: tool for tool in await mcp.list_tools()}
 
     assert set(tools) == {
-        "paper", "list_comments", "read_comments", "compile", "comment",
-        "image", "section", "listen",
+        "state", "read_comments", "write_comments", "compile", "image", "listen",
     }
-    assert "list_comments(unanswered=True)" in mcp.instructions
-    assert "read_comments(comment_ids=[...])" in mcp.instructions
+    assert "read_comments(unanswered=True)" in mcp.instructions
+    assert "read_comments(ids=[...])" in mcp.instructions
     assert "compile() once" in mcp.instructions
     assert "Within the user's editing scope" in mcp.instructions
     assert "Respect read-only or discussion-only requests" in mcp.instructions
     for needed in ("new MCP connection", "follow how", "Do not poll", "stay queued"):
         assert needed in mcp.instructions, needed
     compile_description = " ".join((tools["compile"].description or "").split())
-    assert "paper().auto_compile" in compile_description
+    assert "state().auto_compile" in compile_description
     assert "watcher owns compilation" in compile_description
 
     descriptions = "\n".join(tool.description or "" for tool in tools.values())
@@ -966,15 +965,15 @@ async def test_mcp_contract_is_typed_and_nonduplicative(tmp_path: Path):
     assert "only for rendered evidence" not in descriptions
     assert "100-200" not in descriptions
 
-    assert tools["paper"].inputSchema["properties"] == {}
-    assert set(tools["section"].inputSchema["properties"]) == {"name"}
+    assert tools["state"].inputSchema["properties"] == {}
+    # Source is read with the agent's own file tools, so no tool ships the paper's text.
+    assert "section" not in tools
     assert all(mcp.instructions not in (tool.description or "") for tool in tools.values())
-    assert tools["list_comments"].inputSchema["properties"]["status"]["enum"] == [
-        "open", "resolved", "archived", "all"
-    ]
-    assert tools["read_comments"].inputSchema["properties"]["comment_ids"]["minItems"] == 1
+    read_schema = tools["read_comments"].inputSchema["properties"]
+    assert read_schema["status"]["enum"] == ["open", "resolved", "archived", "all"]
+    assert set(read_schema) == {"ids", "status", "unanswered", "since", "limit", "save"}
 
-    comment_schema = tools["comment"].inputSchema
+    comment_schema = tools["write_comments"].inputSchema
     assert comment_schema["properties"]["action"]["enum"] == [
         "add", "reply", "suggest", "withdraw", "edit", "delete"
     ]
@@ -1024,7 +1023,7 @@ async def test_mcp_tool_call_serves_the_viewer(bound_project, project):
     from tex_mcp_web.mcp_server import create_server
 
     mcp = create_server(bound_project)
-    paper = json.loads((await mcp.call_tool("paper", {}))[0][0].text)
+    paper = json.loads((await mcp.call_tool("state", {}))[0][0].text)
 
     async with aiohttp.ClientSession() as session:
         async with session.get(f"{paper['review_url']}/paper") as response:
@@ -1052,60 +1051,60 @@ async def test_mcp_comment_discovery_reads_only_selected_history(bound_project, 
     second = store.add(PaperAnchor(), "Check this paper")
     agent_only = store.add(PaperAnchor(), "An agent note", author="agent")
 
-    paper = await call("paper")
+    paper = await call("state")
     assert "comments" not in paper
     assert paper["comment_counts"] == {"open": 3, "resolved": 0, "archived": 0, "unanswered": 2}
     assert paper["sections"]
-    requests = (await call("list_comments", unanswered=True))["comments"]
+    requests = (await call("read_comments", unanswered=True))["comments"]
     assert requests == [
         {"id": first.id, "status": "open", "kind": "section", "request": "Check this method",
          "thread_entries": 1, "last_human_at": moment},
         {"id": second.id, "status": "open", "kind": "paper", "request": "Check this paper",
          "thread_entries": 1, "last_human_at": moment},
     ]
-    assert (await call("list_comments", since=moment))["comments"] == []
+    assert (await call("read_comments", since=moment))["comments"] == []
 
     moment = "2026-01-01T00:00:01+00:00"
     history = "Detailed explanation. " * 1000
     store.reply(first.id, history, author="agent")
-    assert [c["id"] for c in (await call("list_comments", unanswered=True))["comments"]] == [second.id]
-    assert await call("paper") == {**paper, "comment_counts": {"open": 3, "resolved": 0, "archived": 0, "unanswered": 1}}
-    assert history not in json.dumps(await call("list_comments"))
+    assert [c["id"] for c in (await call("read_comments", unanswered=True))["comments"]] == [second.id]
+    assert await call("state") == {**paper, "comment_counts": {"open": 3, "resolved": 0, "archived": 0, "unanswered": 1}}
+    assert history not in json.dumps(await call("read_comments"))
 
     moment = "2026-01-01T00:00:02+00:00"
     store.reply(first.id, "Please check the boundary too", author="human")
-    requests = (await call("list_comments", unanswered=True, since="2026-01-01T09:00:01+09:00"))["comments"]
+    requests = (await call("read_comments", unanswered=True, since="2026-01-01T09:00:01+09:00"))["comments"]
     assert len(requests) == 1
     assert requests[0]["id"] == first.id
     assert requests[0]["request"] == "Please check the boundary too"
     assert requests[0]["last_human_at"] == moment
     assert requests[0]["thread_entries"] == 3
-    assert (await call("list_comments", since="2026-01-01T00:00:02"))["comments"] == []
+    assert (await call("read_comments", since="2026-01-01T00:00:02"))["comments"] == []
 
-    details = (await call("read_comments", comment_ids=[first.id]))["comments"]
+    details = (await call("read_comments", ids=[first.id]))["comments"]
     assert len(details) == 1
     assert details[0]["source"] == {"file": "paper.tex", "line_start": 6, "line_end": 8}
     assert [entry["text"] for entry in details[0]["replies"]] == [history, "Please check the boundary too"]
-    assert "replies" not in (await call("read_comments", comment_ids=[second.id]))["comments"][0]
-    assert [c["id"] for c in (await call("read_comments", comment_ids=[second.id, first.id]))["comments"]] == [second.id, first.id]
-    assert "unique" in (await call("read_comments", comment_ids=[first.id, first.id]))["error"]
-    assert "not found" in (await call("read_comments", comment_ids=[first.id, "missing"]))["error"]
+    assert "replies" not in (await call("read_comments", ids=[second.id]))["comments"][0]
+    assert [c["id"] for c in (await call("read_comments", ids=[second.id, first.id]))["comments"]] == [second.id, first.id]
+    assert "unique" in (await call("read_comments", ids=[first.id, first.id]))["error"]
+    assert "not found" in (await call("read_comments", ids=[first.id, "missing"]))["error"]
 
-    source = await call("section", name="Methods")
-    assert set(source) == {"section", "source"}
-    assert history not in json.dumps(source)
-    receipt = await call("comment", action="reply", id=first.id, text="Fixed the boundary", edits=["paper.tex:6-8"])
+    located = next(s for s in (await call("state"))["sections"] if s["title"] == "Methods")
+    assert (located["file"], located["line"]) == ("paper.tex", 6)
+    assert history not in json.dumps(await call("state"))
+    receipt = await call("write_comments", action="reply", id=first.id, text="Fixed the boundary", edits=["paper.tex:6-8"])
     assert receipt == {"id": first.id, "status": "open", "updated": moment}
-    saved = (await call("read_comments", comment_ids=[first.id]))["comments"][0]
+    saved = (await call("read_comments", ids=[first.id]))["comments"][0]
     assert saved["replies"][-1]["text"] == "Fixed the boundary"
     assert saved["replies"][-1]["edits"] == ["paper.tex:6-8"]
 
     store.resolve(second.id, "", author="human")
-    assert [c["id"] for c in (await call("list_comments", status="resolved"))["comments"]] == [second.id]
-    all_comments = (await call("list_comments", status="all"))["comments"]
+    assert [c["id"] for c in (await call("read_comments", status="resolved"))["comments"]] == [second.id]
+    all_comments = (await call("read_comments", status="all"))["comments"]
     assert len(all_comments) == 3
     assert next(c for c in all_comments if c["id"] == agent_only.id)["last_human_at"] is None
-    assert (await call("paper"))["comment_counts"] == {"open": 2, "resolved": 1, "archived": 0, "unanswered": 0}
+    assert (await call("state"))["comment_counts"] == {"open": 2, "resolved": 1, "archived": 0, "unanswered": 0}
 
 
 @pytest.mark.asyncio
@@ -1115,11 +1114,11 @@ async def test_mcp_comment_and_section_runtime_contract(bound_project, project):
 
     mcp = create_server(bound_project)
 
-    paper = await mcp.call_tool("paper", {})
+    paper = await mcp.call_tool("state", {})
     assert json.loads(paper[0][0].text)["auto_compile"] is False
 
     added = await mcp.call_tool(
-        "comment",
+        "write_comments",
         {
             "action": "add",
             "text": "review this",
@@ -1137,10 +1136,10 @@ async def test_mcp_comment_and_section_runtime_contract(bound_project, project):
     # replaces the way an editing tool takes it, so it never counts columns, and it never
     # sends back the text it is not changing.
     async def call_comment(**payload):
-        return json.loads((await mcp.call_tool("comment", payload))[0][0].text)
+        return json.loads((await mcp.call_tool("write_comments", payload))[0][0].text)
 
     async def reread(comment_id):
-        result = await mcp.call_tool("read_comments", {"comment_ids": [comment_id]})
+        result = await mcp.call_tool("read_comments", {"ids": [comment_id]})
         return json.loads(result[0][0].text)["comments"][0]
 
     anchored = await call_comment(
@@ -1193,10 +1192,10 @@ async def test_mcp_comment_and_section_runtime_contract(bound_project, project):
     detail = await reread(anchored["id"])
     assert "suggestion" not in detail
     assert len(detail["replies"]) == 3
-    await mcp.call_tool("comment", {"action": "delete", "id": anchored["id"]})
+    await mcp.call_tool("write_comments", {"action": "delete", "id": anchored["id"]})
 
     second_added = await mcp.call_tool(
-        "comment",
+        "write_comments",
         {
             "action": "add",
             "text": "review second",
@@ -1204,11 +1203,9 @@ async def test_mcp_comment_and_section_runtime_contract(bound_project, project):
         },
     )
     second = json.loads(second_added[0][0].text)
-    section = await mcp.call_tool("section", {"name": "Methods"})
-    payload = json.loads(section[0][0].text)
-    assert set(payload) == {"section", "source"}
-    assert payload["section"]["file"] == "paper.tex"
-    assert "Methods" in payload["source"]
+    reported = json.loads((await mcp.call_tool("state", {}))[0][0].text)
+    located = next(s for s in reported["sections"] if s["title"] == "Methods")
+    assert located["file"] == "paper.tex" and located["line"] >= 1
 
 
 
@@ -1549,7 +1546,7 @@ async def test_call_button_wakes_a_parked_waiter_and_keeps_an_early_press(client
     assert early.headers["X-Press"] == "2"
     line = await early.text()
     assert line.startswith("[review] reviewer called (press #2)")
-    assert "list_comments(unanswered=True)" in line
+    assert "read_comments(unanswered=True)" in line
     # The line counts threads whose last word is the reviewer's: a count of open threads
     # sent an agent to read one it had already answered.
     assert "no unanswered comments" in line
@@ -1749,26 +1746,31 @@ async def test_stdio_source_and_reply_use_explicit_detail_reads(project):
             initialized = await session.initialize()
             tools = (await session.list_tools()).tools
             assert all(initialized.instructions not in (tool.description or "") for tool in tools)
-            assert set(next(t for t in tools if t.name == "section").inputSchema["properties"]) == {"name"}
+            # An agent anchors by whole lines; nothing in the surface asks it for a column.
+            assert "column_start" not in json.dumps(
+                next(t for t in tools if t.name == "write_comments").inputSchema)
             async def call(tool, arguments):
                 result = await session.call_tool(tool, arguments)
                 assert not result.isError
                 return json.loads(result.content[0].text)
-            receipt = await call("comment", {"action": "add", "text": "Clarify this word",
-                "anchor": {"kind": "source_range", "file": "paper.tex", "line_start": 5,
-                           "line_end": 5, "column_start": 5, "column_end": 10}})
+            receipt = await call("write_comments", {"action": "add", "text": "Clarify this word",
+                "anchor": {"kind": "source_range", "file": "paper.tex",
+                           "line_start": 5, "line_end": 5}})
             assert set(receipt) == {"id", "status", "updated"}
-            reply = await call("comment", {"action": "reply", "id": receipt["id"],
+            reply = await call("write_comments", {"action": "reply", "id": receipt["id"],
                 "text": "A detailed explanation. " * 50, "edits": ["paper.tex:5"]})
             assert set(reply) == {"id", "status", "updated"}
-            section = await call("section", {"name": "Introduction"})
-            assert set(section) == {"section", "source"}
-            assert "A detailed explanation" not in section["source"]
-            detail = (await call("read_comments", {"comment_ids": [receipt["id"]]}))["comments"][0]
-            assert detail["quote"] == "prose"
-            assert detail["source"]["column_start"] == 5
-            assert detail["source"]["column_end"] == 10
+            # state() locates a section; its text is read with the agent's own file tools.
+            located = next(s for s in (await call("state", {}))["sections"]
+                           if s["title"] == "Introduction")
+            assert located["file"] == "paper.tex"
+            detail = (await call("read_comments", {"ids": [receipt["id"]]}))["comments"][0]
+            assert detail["quote"] == "Some prose with \\cite{ref1}."
+            assert detail["source"] == {"file": "paper.tex", "line_start": 5, "line_end": 5}
             assert detail["replies"][-1]["text"] == "A detailed explanation. " * 50
+            # A listing and a full read now come from the one reading tool.
+            listing = await call("read_comments", {})
+            assert [c["id"] for c in listing["comments"]] == [receipt["id"]]
 
 
 @pytest.mark.asyncio
@@ -1805,25 +1807,25 @@ async def test_mcp_edit_rewrites_the_agents_own_entry_and_refuses_the_rest(bound
 
     store = CommentStore(project / ".tex-mcp-web" / "comments.json")
     comment = store.add(PaperAnchor(), "Check this")
-    replied = await call("comment", action="reply", id=comment.id, text="first answer")
+    replied = await call("write_comments", action="reply", id=comment.id, text="first answer")
     thread = store.get(comment.id).thread
     human, agent = thread
-    read = (await call("read_comments", comment_ids=[comment.id]))["comments"][0]
+    read = (await call("read_comments", ids=[comment.id]))["comments"][0]
     assert read["replies"][0]["id"] == agent.id and "updated_at" not in read["replies"][0]
     assert read["updated"] == replied["updated"]
     other = store.add(PaperAnchor(), "Another")
 
-    assert "written by human" in (await call("comment", action="edit", id=comment.id, entry=human.id, text="x", updated=read["updated"]))["error"]
-    assert "stale" in (await call("comment", action="edit", id=comment.id, entry=agent.id, text="x", updated="old"))["error"]
-    assert "not found" in (await call("comment", action="edit", id=comment.id, entry="e-deadbeef", text="x", updated=read["updated"]))["error"]
-    assert "not found" in (await call("comment", action="edit", id=other.id, entry=agent.id, text="x", updated=store.get(other.id).updated))["error"]
-    assert "requires id" in (await call("comment", action="edit", entry=agent.id, text="x", updated=read["updated"]))["error"]
+    assert "written by human" in (await call("write_comments", action="edit", id=comment.id, entry=human.id, text="x", updated=read["updated"]))["error"]
+    assert "stale" in (await call("write_comments", action="edit", id=comment.id, entry=agent.id, text="x", updated="old"))["error"]
+    assert "not found" in (await call("write_comments", action="edit", id=comment.id, entry="e-deadbeef", text="x", updated=read["updated"]))["error"]
+    assert "not found" in (await call("write_comments", action="edit", id=other.id, entry=agent.id, text="x", updated=store.get(other.id).updated))["error"]
+    assert "requires id" in (await call("write_comments", action="edit", entry=agent.id, text="x", updated=read["updated"]))["error"]
 
-    changed = await call("comment", action="edit", id=comment.id, entry=agent.id, text="better answer", updated=read["updated"])
+    changed = await call("write_comments", action="edit", id=comment.id, entry=agent.id, text="better answer", updated=read["updated"])
     assert changed["id"] == comment.id and changed["updated"] != replied["updated"]
     entry = store.get(comment.id).thread[1]
     assert entry.text == "better answer" and entry.at == agent.at and entry.updated_at is not None
-    read = (await call("read_comments", comment_ids=[comment.id]))["comments"][0]
+    read = (await call("read_comments", ids=[comment.id]))["comments"][0]
     assert read["replies"][0]["updated_at"] == entry.updated_at
 
 
@@ -1840,7 +1842,7 @@ async def test_mcp_delete_refuses_a_thread_the_reviewer_has_written_in(bound_pro
     store = CommentStore(project / ".tex-mcp-web" / "comments.json")
 
     async def call_comment(**payload):
-        return json.loads((await mcp.call_tool("comment", payload))[0][0].text)
+        return json.loads((await mcp.call_tool("write_comments", payload))[0][0].text)
 
     own = await call_comment(action="add", text="my own note", anchor={"kind": "paper"})
     assert await call_comment(action="delete", id=own["id"]) == {"deleted": own["id"], "ok": True}
@@ -1904,7 +1906,7 @@ async def test_list_comments_shows_an_opening_and_counts_the_rest(bound_project,
         store.add(PaperAnchor(), f"short {index}")
 
     async def listed(**payload):
-        return json.loads((await mcp.call_tool("list_comments", payload))[0][0].text)
+        return json.loads((await mcp.call_tool("read_comments", payload))[0][0].text)
 
     everything = await listed()
     assert len(everything["comments"]) == 5 and "older" not in everything

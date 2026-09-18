@@ -556,7 +556,7 @@ class TexMcpWebServer:
         waiting = sum(comment.thread[-1].author == "human" for comment in self.comments.list(status="open"))
         return (f"[review] reviewer called (press #{self.review_calls}): "
                 + (f"{waiting} unanswered comments" if waiting else "no unanswered comments")
-                + " -- read them with list_comments(unanswered=True)")
+                + " -- read them with read_comments(unanswered=True)")
 
     async def _handle_review_request(self, request: web.Request) -> web.Response:
         self.review_calls += 1

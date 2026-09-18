@@ -2,14 +2,15 @@
 
 Exposes tools to agents via stdio:
 
-    paper()                 paper state, sections, and comment counts
-    list_comments(...)      latest requests without thread history
-    read_comments(ids)      selected comment details
+    state()                 paths, automatic compilation, sections, comment counts
+    read_comments(...)      a listing, or selected threads in full
+    write_comments(...)     add/reply/suggest/withdraw/edit/delete
     compile()               recompile, return structured errors
-    comment(action, ...)    add/reply/suggest/withdraw/edit/delete
     image(...)              render a PDF page or exact region
-    section(name)           section source and file range
     listen()                instructions for receiving review events
+
+Source is read with the agent's own file tools: ``state`` reports every
+section's file and line range, which is what naming one needs.
 
 The MCP process owns the review server: the first tool call starts it in a
 background thread, and a peer process bound to the same project shares that
@@ -225,7 +226,7 @@ def _comment_add(
     text: str | None,
     anchor: "CommentAnchorInput | None",
 ) -> str:
-    """Implementation of ``comment(action="add", ...)``.
+    """Implementation of ``write_comments(action="add", ...)``.
 
     Source ranges and sections receive the same source selectors as browser
     comments. Area anchors are tied to the current compiled PDF.
@@ -321,13 +322,14 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
     mcp = FastMCP(
         "tex-mcp-web",
         instructions=(
-            "Call paper() for paths, auto_compile and section locations; reuse them until configuration "
-            "or document structure changes. Read list_comments(unanswered=True), then "
-            "read_comments(comment_ids=[...]) only for needed details; reuse unchanged threads. "
-            "Use section() for source and image() for rendered checks. Within the user's editing scope, "
+            "Call state() for paths, auto_compile and section locations; reuse them until configuration "
+            "or document structure changes. Read read_comments(unanswered=True), then "
+            "read_comments(ids=[...]) only for needed details; reuse unchanged threads. "
+            "Read source with your own file tools and check the rendering with image(). "
+            "Within the user's editing scope, "
             "inspect reported problems, make scoped corrections, compile() once unless auto_compile is "
             "true, verify, and reply with edited ranges. When the wording is the reviewer's to "
-            "decide, propose it with comment(action=\"suggest\") on their own thread instead of "
+            "decide, propose it with write_comments(action=\"suggest\") on their own thread instead of "
             "opening another comment, and never delete a thread they have written in. "
             "Respect read-only or discussion-only requests. "
             "The reviewer resolves threads; do not repeat thread replies in chat. For notifications, "
@@ -442,7 +444,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
     async def compile() -> str:
         """Recompile and return structured errors, warnings, and
         ``pages_changed``. Call once after a batch of source edits when
-        ``paper().auto_compile`` is false. When it is true, the watcher owns
+        ``state().auto_compile`` is false. When it is true, the watcher owns
         compilation. ``pages_changed`` compares extracted PDF text and excludes
         visual-only changes.
         """
@@ -715,7 +717,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             "how": (
                 _wait_method(ctx)
                 + " Start another copy only after the previous process has ended. "
-                "On [review], call list_comments(unanswered=True) and handle the review. "
+                "On [review], call read_comments(unanswered=True) and handle the review. "
                 "[gone] means the review server is unreachable; the script keeps retrying. "
                 "[back] means it is reachable again."
             ),
