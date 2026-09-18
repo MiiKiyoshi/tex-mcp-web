@@ -1037,7 +1037,7 @@ async def test_mcp_tool_call_serves_the_viewer(bound_project, project):
 async def test_mcp_comment_discovery_reads_only_selected_history(bound_project, project, monkeypatch):
     pytest.importorskip("mcp")
     from tex_mcp_web.comments import CommentStore, PaperAnchor, ResolvedSource, SectionAnchor
-    from tex_mcp_web.mcp_server import create_server
+    from tex_mcp_web.mcp_server import create_server, revision_of
 
     mcp = create_server(bound_project)
 
@@ -1095,7 +1095,7 @@ async def test_mcp_comment_discovery_reads_only_selected_history(bound_project, 
     assert (located["file"], located["line"]) == ("paper.tex", 6)
     assert history not in json.dumps(await call("state"))
     receipt = await call("write_comments", action="reply", id=first.id, text="Fixed the boundary", edits=["paper.tex:6-8"])
-    assert receipt == {"id": first.id, "status": "open", "updated": moment}
+    assert receipt == {"id": first.id, "status": "open", "rev": revision_of(moment)}
     saved = (await call("read_comments", ids=[first.id]))["comments"][0]
     assert saved["replies"][-1]["text"] == "Fixed the boundary"
     assert saved["replies"][-1]["edits"] == ["paper.tex:6-8"]
@@ -1130,7 +1130,7 @@ async def test_mcp_comment_and_section_runtime_contract(bound_project, project):
     stored = json.loads((project / ".tex-mcp-web" / "comments.json").read_text())
     assert stored["version"] == 6
     assert stored["comments"][0]["thread"][0]["author"] == "agent"
-    assert set(comment) == {"id", "status", "updated"}
+    assert set(comment) == {"id", "status", "rev"}
     assert stored["comments"][0]["thread"][0]["text"] == "review this"
 
     # A rewrite is proposed inside one comment's own range. The agent quotes the text it
@@ -1153,11 +1153,11 @@ async def test_mcp_comment_and_section_runtime_contract(bound_project, project):
     assert "suggestion" not in read_back
 
     proposed = await call_comment(
-        action="suggest", id=anchored["id"], updated=read_back["updated"],
+        action="suggest", id=anchored["id"], rev=read_back["rev"],
         text="인용 앞을 다듬었습니다",
         changes=[{"old": "Some prose", "new": "Some tighter prose"}],
     )
-    assert set(proposed) == {"id", "status", "updated"}
+    assert set(proposed) == {"id", "status", "rev"}
     detail = await reread(anchored["id"])
     # Only what is proposed; what it replaces is the quote the same read returned.
     assert detail["suggestion"] == "Some tighter prose with \\cite{ref1}."
@@ -1165,7 +1165,7 @@ async def test_mcp_comment_and_section_runtime_contract(bound_project, project):
 
     # A second reading replaces the suggestion in place and leaves the conversation whole.
     await call_comment(
-        action="suggest", id=anchored["id"], updated=detail["updated"], text="2판입니다",
+        action="suggest", id=anchored["id"], rev=detail["rev"], text="2판입니다",
         changes=[{"old": "Some prose", "new": "Different prose"}],
     )
     detail = await reread(anchored["id"])
@@ -1173,19 +1173,19 @@ async def test_mcp_comment_and_section_runtime_contract(bound_project, project):
     assert [entry["text"] for entry in detail["replies"]] == ["인용 앞을 다듬었습니다", "2판입니다"]
 
     missing = await call_comment(
-        action="suggest", id=anchored["id"], updated=detail["updated"], text="x",
+        action="suggest", id=anchored["id"], rev=detail["rev"], text="x",
         changes=[{"old": "prose that is not there", "new": "y"}],
     )
     assert "not in the comment's range" in missing["error"]
     stale = await call_comment(
-        action="suggest", id=anchored["id"], updated="2026-01-01T00:00:00+00:00", text="x",
+        action="suggest", id=anchored["id"], rev="deadbeef", text="x",
         changes=[{"old": "Some prose", "new": "y"}],
     )
     assert "stale" in stale["error"]
 
     # Withdrawing takes the proposal back without touching a single entry.
     await call_comment(
-        action="withdraw", id=anchored["id"], updated=detail["updated"],
+        action="withdraw", id=anchored["id"], rev=detail["rev"],
         text="이 제안은 접겠습니다",
     )
     detail = await reread(anchored["id"])
@@ -1755,10 +1755,10 @@ async def test_stdio_source_and_reply_use_explicit_detail_reads(project):
             receipt = await call("write_comments", {"action": "add", "text": "Clarify this word",
                 "anchor": {"kind": "source_range", "file": "paper.tex",
                            "start": 5, "end": 5}})
-            assert set(receipt) == {"id", "status", "updated"}
+            assert set(receipt) == {"id", "status", "rev"}
             reply = await call("write_comments", {"action": "reply", "id": receipt["id"],
                 "text": "A detailed explanation. " * 50, "edits": ["paper.tex:5"]})
-            assert set(reply) == {"id", "status", "updated"}
+            assert set(reply) == {"id", "status", "rev"}
             # state() locates a section; its text is read with the agent's own file tools.
             located = next(s for s in (await call("state", {}))["sections"]
                            if s["title"] == "Introduction")
@@ -1797,7 +1797,7 @@ async def test_an_archived_thread_is_listed_apart(client):
 async def test_mcp_edit_rewrites_the_agents_own_entry_and_refuses_the_rest(bound_project, project):
     pytest.importorskip("mcp")
     from tex_mcp_web.comments import CommentStore, PaperAnchor
-    from tex_mcp_web.mcp_server import create_server
+    from tex_mcp_web.mcp_server import create_server, revision_of
 
     mcp = create_server(bound_project)
 
@@ -1811,17 +1811,17 @@ async def test_mcp_edit_rewrites_the_agents_own_entry_and_refuses_the_rest(bound
     human, agent = thread
     read = (await call("read_comments", ids=[comment.id]))["comments"][0]
     assert read["replies"][0]["id"] == agent.id and "updated_at" not in read["replies"][0]
-    assert read["updated"] == replied["updated"]
+    assert read["rev"] == replied["rev"]
     other = store.add(PaperAnchor(), "Another")
 
-    assert "written by human" in (await call("write_comments", action="edit", id=comment.id, entry=human.id, text="x", updated=read["updated"]))["error"]
-    assert "stale" in (await call("write_comments", action="edit", id=comment.id, entry=agent.id, text="x", updated="old"))["error"]
-    assert "not found" in (await call("write_comments", action="edit", id=comment.id, entry="e-deadbeef", text="x", updated=read["updated"]))["error"]
-    assert "not found" in (await call("write_comments", action="edit", id=other.id, entry=agent.id, text="x", updated=store.get(other.id).updated))["error"]
-    assert "requires id" in (await call("write_comments", action="edit", entry=agent.id, text="x", updated=read["updated"]))["error"]
+    assert "written by human" in (await call("write_comments", action="edit", id=comment.id, entry=human.id, text="x", rev=read["rev"]))["error"]
+    assert "stale" in (await call("write_comments", action="edit", id=comment.id, entry=agent.id, text="x", rev="old"))["error"]
+    assert "not found" in (await call("write_comments", action="edit", id=comment.id, entry="e-deadbeef", text="x", rev=read["rev"]))["error"]
+    assert "not found" in (await call("write_comments", action="edit", id=other.id, entry=agent.id, text="x", rev=revision_of(store.get(other.id).updated)))["error"]
+    assert "requires id" in (await call("write_comments", action="edit", entry=agent.id, text="x", rev=read["rev"]))["error"]
 
-    changed = await call("write_comments", action="edit", id=comment.id, entry=agent.id, text="better answer", updated=read["updated"])
-    assert changed["id"] == comment.id and changed["updated"] != replied["updated"]
+    changed = await call("write_comments", action="edit", id=comment.id, entry=agent.id, text="better answer", rev=read["rev"])
+    assert changed["id"] == comment.id and changed["rev"] != replied["rev"]
     entry = store.get(comment.id).thread[1]
     assert entry.text == "better answer" and entry.at == agent.at and entry.updated_at is not None
     read = (await call("read_comments", ids=[comment.id]))["comments"][0]

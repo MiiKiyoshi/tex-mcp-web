@@ -113,6 +113,17 @@ def _load_project():
     return cfg, watch_dir, store
 
 
+def revision_of(updated: str) -> str:
+    """A short token standing for a thread's ``updated`` stamp.
+
+    An agent hands this back to say which version of a thread it read. Nothing reads
+    its parts, so it is eight characters rather than a timestamp's thirty-two.
+    """
+    import hashlib
+
+    return hashlib.sha256(updated.encode("utf-8")).hexdigest()[:8]
+
+
 def _err(message: str) -> str:
     # Non-ASCII stays as itself: an escaped message is longer and harder to read.
     return json.dumps({"error": message}, ensure_ascii=False)
@@ -120,6 +131,9 @@ def _err(message: str) -> str:
 
 # How much of a request a listing shows before it is cut.
 REQUEST_PREVIEW = 120
+
+# How many errors one compile reports; the log holds the rest.
+ERROR_LIMIT = 20
 
 
 def _ok(payload: Any) -> str:
@@ -180,8 +194,10 @@ def _agent_comment_to_dict(comment, watch_dir: Path) -> dict[str, Any]:
             "quote": anchor.quote,
             "page": anchor.selection.page,
         })
-    elif isinstance(anchor, SourceRangeAnchor):
-        # What the file holds here now: the text a suggestion quotes its fragments out of.
+    elif isinstance(anchor, SourceRangeAnchor) and comment.status == "open":
+        # What the file holds here now: the text a suggestion quotes its fragments out
+        # of. A resolved or archived thread is read for what was said, not rewritten,
+        # so it does not carry the paragraph with it.
         quote = read_anchored_source(watch_dir, comment)
         if quote is not None:
             payload["quote"] = quote
@@ -202,8 +218,9 @@ def _agent_comment_to_dict(comment, watch_dir: Path) -> dict[str, Any]:
             {key: value for key, value in entry.to_dict().items() if key != "id" or entry.author == "agent"}
             for entry in comment.thread[1:]
         ]
-    # The stamp a rewrite of an entry must quote; it moves with every change to the thread.
-    payload["updated"] = comment.updated
+    # What a write must quote back to prove it read the thread as it stands. It moves
+    # with every change, and it is nothing but a token to return.
+    payload["rev"] = revision_of(comment.updated)
     if comment.suggestion is not None:
         # Only what the thread proposes. What it replaces is the quote above, and the
         # stored pair the reviewer's Apply checks against the file is not the agent's
@@ -272,7 +289,7 @@ def _comment_add(
         resolved_source=resolved,
         source_selector=source_selector,
     )
-    return _ok({"id": comment.id, "status": comment.status, "updated": comment.updated})
+    return _ok({"id": comment.id, "status": comment.status, "rev": revision_of(comment.updated)})
 
 
 # ---------------------------------------------------------------------------
@@ -432,16 +449,20 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
 
     @mcp.tool()
     async def compile() -> str:
-        """Recompile and return structured errors, warnings, and
-        ``pages_changed``. Call once after a batch of source edits when
-        ``state().auto_compile`` is false. When it is true, the watcher owns
-        compilation. ``pages_changed`` compares extracted PDF text and excludes
-        visual-only changes.
+        """Recompile. Returns whether it succeeded, which pages changed, where the
+        log is, and, when it failed, where each error is.
+
+        Call once after a batch of source edits when ``state().auto_compile`` is
+        false; when it is true the watcher owns compilation. ``pages_changed``
+        compares extracted PDF text and excludes visual-only changes. Read the log
+        yourself for warnings and for an error's surroundings.
         """
         try:
             import httpx
         except ImportError:
             return _err("httpx not installed; install tex-mcp-web[mcp]")
+
+        from .config import get_main_file
 
         try:
             base = binding.base_url()
@@ -453,7 +474,27 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             return _err(
                 f"compile failed with HTTP {response.status_code}: {response.text}"
             )
-        return response.text
+        result = response.json()
+        cfg, _, _ = _load_project()
+        # The log is a file on disk and the source lines around an error are readable
+        # with any file tool, so neither is copied into the answer. Warnings are a
+        # count: a paper writes a paragraph per line, and five lines of context around
+        # each overfull box costs more than everything else this server sends.
+        report: dict[str, Any] = {
+            "success": result["success"],
+            "pages_changed": result["pages_changed"],
+            "warnings": len(result["warnings"]),
+            "log": str(get_main_file(cfg).with_suffix(".log")),
+        }
+        if not result["success"]:
+            report["errors"] = [
+                {"at": f"{error['file']}:{error['line']}" if error["line"] else error["file"],
+                 "message": error["message"]}
+                for error in result["errors"][:ERROR_LIMIT]
+            ]
+            if len(result["errors"]) > ERROR_LIMIT:
+                report["more_errors"] = len(result["errors"]) - ERROR_LIMIT
+        return _ok(report)
 
     @mcp.tool()
     async def write_comments(
@@ -465,60 +506,67 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         changes: list[FragmentInput] | None = None,
         draft: str | None = None,
         entry: str | None = None,
-        updated: str | None = None,
+        rev: str | None = None,
     ) -> str:
-        """Mutate a comment.
+        """Write to a comment thread.
 
-        ``add`` requires text and anchor; ``reply`` requires id/text or a saved draft, exclusively;
-        ``suggest`` proposes a rewrite inside one comment's own range: id, text, changes
-        (each ``old`` quoted from that range, as an editing tool takes it, never line or
-        column numbers) and updated. It replaces whatever the comment proposed before and
-        adds your text as a reply, so one thread keeps its whole conversation and one live
-        suggestion; ``withdraw`` takes that suggestion back with id, text and updated;
-        ``edit`` rewrites your own earlier entry: id (the comment), entry (the entry's id from
-        read_comments), text, and updated (the thread's stamp as read; refused if the thread
-        changed since);
-        ``delete`` requires id and is refused once the reviewer has written in the thread.
-        A reply says what changed, with ``edits``
-        naming the changed source ranges; the thread stays open, and the
-        reviewer resolves it from the page. An agent does not resolve.
-        Returns only id, status and updated; read_comments retrieves details.
+        add: text, anchor. reply: id, text, or a saved draft alone. suggest: id, text,
+        changes, rev; each change's old is quoted from that comment's own range, the way
+        an editing tool takes it, never a line or a column. It replaces the thread's live
+        proposal and adds text as a reply, so the conversation stays whole. withdraw: id,
+        text, rev. edit: id, entry, text, rev, rewriting an entry you wrote. delete: id,
+        refused once the reviewer has written in the thread.
+
+        rev is the thread's token from read_comments; a thread that moved on refuses the
+        write. edits names the source ranges a reply changed. The reviewer resolves
+        threads, not you. Returns id, status and rev.
         """
         cfg, watch_dir, store = _load_project()
+
+        def receipt(comment) -> str:
+            return _ok({"id": comment.id, "status": comment.status,
+                        "rev": revision_of(comment.updated)})
+
+        def stamp_for(comment_id: str) -> str:
+            """The stored stamp the given rev stands for, or a refusal if it moved on."""
+            target = store.get(comment_id)
+            if target is None:
+                raise KeyError(comment_id)
+            if revision_of(target.updated) != rev:
+                raise ValueError("stale thread: comment changed since it was read")
+            return target.updated
+
         try:
             if draft is not None:
                 if action != "reply" or any(value is not None for value in (id, text, anchor, changes)):
                     return _err("draft requires reply and excludes inline comment fields")
-                updated = store.reply_file(draft, edits=edits)
-                return _ok({"updated": [{"id": c.id, "status": c.status, "updated": c.updated} for c in updated]})
+                return _ok({"written": [{"id": c.id, "status": c.status,
+                                         "rev": revision_of(c.updated)}
+                                        for c in store.reply_file(draft, edits=edits)]})
             if action == "add":
                 return _comment_add(store, cfg, watch_dir, text, anchor)
             if action == "reply":
                 if not id or not text:
                     return _err("reply requires id and text")
-                updated = store.reply(id, text=text, author="agent", edits=edits or [])
-                return _ok({"id": updated.id, "status": updated.status, "updated": updated.updated})
+                return receipt(store.reply(id, text=text, author="agent", edits=edits or []))
             if action == "suggest":
-                if not id or not text or not changes or not updated:
-                    return _err("suggest requires id, text, changes and updated")
+                if not id or not text or not changes or not rev:
+                    return _err("suggest requires id, text, changes and rev")
                 from .server import derive_suggestion
 
                 pairs = [(change.old, change.new) for change in changes]
-                changed = store.suggest(
-                    id, updated, text,
+                return receipt(store.suggest(
+                    id, stamp_for(id), text,
                     lambda comment: derive_suggestion(watch_dir, comment, pairs),
-                )
-                return _ok({"id": changed.id, "status": changed.status, "updated": changed.updated})
+                ))
             if action == "withdraw":
-                if not id or not text or not updated:
-                    return _err("withdraw requires id, text and updated")
-                changed = store.withdraw_suggestion(id, updated, text)
-                return _ok({"id": changed.id, "status": changed.status, "updated": changed.updated})
+                if not id or not text or not rev:
+                    return _err("withdraw requires id, text and rev")
+                return receipt(store.withdraw_suggestion(id, stamp_for(id), text))
             if action == "edit":
-                if not id or not entry or not text or not updated:
-                    return _err("edit requires id, entry, text and updated")
-                changed = store.edit_agent_entries([(id, entry, text)], {id: updated})[0]
-                return _ok({"id": changed.id, "status": changed.status, "updated": changed.updated})
+                if not id or not entry or not text or not rev:
+                    return _err("edit requires id, entry, text and rev")
+                return receipt(store.edit_agent_entries([(id, entry, text)], {id: stamp_for(id)})[0])
             if action == "delete":
                 if not id:
                     return _err("delete requires id")
