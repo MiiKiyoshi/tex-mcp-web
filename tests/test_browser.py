@@ -924,6 +924,91 @@ def test_browser_source_selection_and_split_resize(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
+def test_shift_picks_the_run_between_two_boxes(tmp_path: Path) -> None:
+    """Picking six threads one box at a time is six clicks. Shift takes the run from the
+    box the pick started at to the one it ends at, the way a list of files does, and the
+    run takes the value the second box just took, so shift also lets a run go."""
+    import fitz
+
+    (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
+    with fitz.open() as pdf:
+        pdf.new_page().insert_text((72, 72), "Hello world.")
+        pdf.save(tmp_path / "paper.pdf")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nauto_compile: false\nport: {port}\n", encoding="utf-8")
+
+    shared = SharedProjectServer(load_config(config_path))
+    profile = tempfile.mkdtemp(prefix="tex_mcp_shift_")
+    marionette_port = available_port()
+    (Path(profile) / "user.js").write_text(
+        f'user_pref("marionette.port", {marionette_port});\n', encoding="utf-8")
+    browser_process = None
+    browser = None
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        ids = [post_json(f"{base}/comments",
+                         {"anchor": {"kind": "paper"}, "text": f"request {n}"})["id"]
+               for n in range(5)]
+
+        browser_process = subprocess.Popen(
+            ["firefox", "-marionette", "-headless", "-no-remote", "-profile", profile, "about:blank"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        browser = marionette.Marionette(host="127.0.0.1", port=marionette_port, startup_timeout=30)
+        browser.start_session()
+        browser.set_window_rect(x=0, y=0, width=1500, height=1000)
+        browser.navigate(base)
+        wait_until(lambda: browser.execute_script(
+            "return document.querySelectorAll('.comment-pick').length === 5 || false;"))
+
+        def click(comment_id, shift):
+            browser.execute_script(f"""
+              const box = document.querySelector("[data-comment-id='{comment_id}'] .comment-pick");
+              box.dispatchEvent(new MouseEvent("click",
+                {{bubbles: true, cancelable: true, shiftKey: {str(shift).lower()}}}));
+            """)
+
+        def picked():
+            return browser.execute_script(
+                "return Array.from(document.querySelectorAll('[data-comment-id]'))"
+                "  .filter((card) => card.querySelector('.comment-pick').checked)"
+                "  .map((card) => card.dataset.commentId);")
+
+        click(ids[1], shift=False)
+        assert picked() == [ids[1]]
+        # Two clicks take the four threads between them, ends included.
+        click(ids[4], shift=True)
+        assert picked() == ids[1:5]
+        assert browser.execute_script(
+            "return document.querySelector('#archive-picked-btn').getAttribute('aria-label');"
+        ) == "Archive 4"
+
+        # The run takes what the second box became, so the same gesture lets it go again.
+        click(ids[1], shift=False)
+        assert picked() == ids[2:5]
+        click(ids[4], shift=True)
+        assert picked() == []
+
+        # Without shift only the one box moves.
+        click(ids[0], shift=False)
+        click(ids[3], shift=False)
+        assert picked() == [ids[0], ids[3]]
+    finally:
+        if browser is not None:
+            browser.delete_session()
+        if browser_process is not None:
+            browser_process.terminate()
+            try:
+                browser_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                browser_process.kill()
+        shutil.rmtree(profile, ignore_errors=True)
+        shared.stop()
+
+
+@pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
 def test_archived_threads_have_their_own_view_and_picked_archive_action(tmp_path: Path) -> None:
     """Archive is the third visible status: its view lists kept threads apart, and the
     archive-box action moves only picked threads there."""
