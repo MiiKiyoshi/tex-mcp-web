@@ -329,19 +329,15 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
     mcp = FastMCP(
         "tex-mcp-web",
         instructions=(
-            "Call state() for paths, auto_compile and section locations; reuse them until configuration "
-            "or document structure changes. Read read_comments(unanswered=True), then "
-            "read_comments(ids=[...]) only for needed details; reuse unchanged threads. "
-            "Read source with your own file tools and check the rendering with image(). "
-            "Within the user's editing scope, "
-            "inspect reported problems, make scoped corrections, compile() once unless auto_compile is "
-            "true, verify, and reply with edited ranges. When the wording is the reviewer's to "
-            "decide, propose it with write_comments(action=\"suggest\") on their own thread instead of "
-            "opening another comment, and never delete a thread they have written in. "
-            "Respect read-only or discussion-only requests. "
-            "The reviewer resolves threads; do not repeat thread replies in chat. For notifications, "
-            "call listen() on each new MCP connection and follow how. Do not poll or duplicate "
-            "its process; unacknowledged presses stay queued."
+            "Call state() once; reuse it until the configuration or the document structure "
+            "changes. Work from read_comments(unanswered=True), then read_comments(ids=[...]) "
+            "for the threads you will act on, and read source with your own file tools. "
+            "Within the user's editing scope, correct what a thread reports, compile() once "
+            "after the batch, verify, and reply naming the ranges you changed. When the wording "
+            "is the reviewer's to decide, put a suggestion on their own thread rather than "
+            "opening another comment. Respect read-only or discussion-only requests, and do not "
+            "repeat a thread reply in chat. Call listen() on each new MCP connection and follow "
+            "how. Do not poll or duplicate it; unacknowledged presses stay queued."
         ),
     )
 
