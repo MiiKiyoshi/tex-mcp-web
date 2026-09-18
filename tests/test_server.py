@@ -144,13 +144,20 @@ async def test_manual_compile_still_runs_when_auto_compile_is_off(client):
 
 @pytest.mark.asyncio
 async def test_root_exposes_auto_compile_control(client):
-    tc, _ = client
+    tc, server = client
     html = await (await tc.get("/")).text()
     assert 'id="auto-compile-btn"' in html
     assert "Auto: Off" in html
     assert [f'data-view="{view}"' in html for view in ("pdf", "source", "split")] == [True] * 3
-    assert "/static/ace/ace.js?v=1.44.0" in html
-    assert "viewer.js?v=apply-suggestion" in html
+    # The page names its files under the tag of their newest change, so a browser that
+    # cached the old ones fetches the new ones, and the files under any tag are the same.
+    tag = server.static_tag()
+    assert f'"/static/{tag}/style.css"' in html and f'"/static/{tag}/viewer.js"' in html
+    assert f'"/static/{tag}/ace/ace.js?v=1.44.0"' in html
+    tagged = await tc.get(f"/static/{tag}/style.css")
+    assert tagged.status == 200 and tagged.headers["Cache-Control"] == "no-cache"
+    assert await tagged.text() == await (await tc.get("/static/style.css")).text()
+    assert (await tc.get(f"/static/{tag}/../server.py")).status == 404
 
 
 @pytest.mark.asyncio

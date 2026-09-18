@@ -19,6 +19,7 @@ import dataclasses
 import hashlib
 import json
 import logging
+import re
 import stat
 import tempfile
 from collections.abc import Callable
@@ -326,7 +327,7 @@ class TexMcpWebServer:
     def _build_app(self) -> web.Application:
         app = web.Application(client_max_size=8 * 1024 * 1024)
         app.router.add_get("/", self._handle_root)
-        app.router.add_static("/static/", STATIC_DIR, name="static")
+        app.router.add_get("/static/{name:.*}", self._handle_static)
         app.router.add_get("/ws", self._handle_ws)
         app.router.add_get("/pdf", self._handle_pdf)
         app.router.add_get("/paper", self._handle_paper)
@@ -573,9 +574,30 @@ class TexMcpWebServer:
 
     # ----- static / PDF -----
 
+    @staticmethod
+    def static_tag() -> str:
+        """The newest change among the files the page loads, as one path segment.
+
+        It rides in the path rather than in a query: a browser that had the stylesheet
+        kept serving it from its cache across restarts, and a query bumped by hand was
+        bumped for one file and forgotten for another.
+        """
+        newest = max((path.stat().st_mtime for path in STATIC_DIR.iterdir() if path.is_file()), default=0)
+        return f"v{int(newest)}"
+
     async def _handle_root(self, request: web.Request) -> web.Response:
-        index = STATIC_DIR / "index.html"
-        return web.FileResponse(index)
+        page = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+        return web.Response(text=page.replace('"/static/', f'"/static/{self.static_tag()}/'),
+                            content_type="text/html", charset="utf-8",
+                            headers={"Cache-Control": "no-store"})
+
+    async def _handle_static(self, request: web.Request) -> web.FileResponse:
+        # The tag names a moment rather than a directory: the file beneath it is the one
+        # in the static directory, whatever tag was asked for.
+        target = (STATIC_DIR / re.sub(r"^v\d+/", "", request.match_info["name"])).resolve()
+        if not target.is_relative_to(STATIC_DIR.resolve()) or not target.is_file():
+            raise web.HTTPNotFound()
+        return web.FileResponse(target, headers={"Cache-Control": "no-cache"})
 
     async def _handle_pdf(self, request: web.Request) -> web.StreamResponse:
         if self.last_result is None or self.last_result.output_file is None:

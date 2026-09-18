@@ -344,7 +344,7 @@ def test_browser_comment_actions(tmp_path: Path) -> None:
         ''')
         assert mobile["sidebarTop"] >= mobile["workspaceBottom"] - 2
         assert abs(mobile["sidebarWidth"] - mobile["workspaceWidth"]) <= 2
-        assert mobile["gripDisplay"] == "block"
+        assert mobile["gripDisplay"] == "flex"
         assert mobile["topbarOverflow"] <= 1
 
         grip_box = browser.execute_script('''
@@ -858,7 +858,7 @@ def test_browser_source_selection_and_split_resize(tmp_path: Path) -> None:
         # those panes share: the split's own bar was carried up the screen with it. It stays
         # where it was, and the ratio that keeps it there is what the split remembers.
         wait_until(lambda: browser.execute_script(
-            'return getComputedStyle(document.querySelector("#sidebar-grip")).display') == "block")
+            'return getComputedStyle(document.querySelector("#sidebar-grip")).display') == "flex")
         split_center = '''
           const r = document.querySelector("#split-grip").getBoundingClientRect();
           return r.top + r.height / 2;'''
@@ -883,16 +883,29 @@ def test_browser_source_selection_and_split_resize(tmp_path: Path) -> None:
         assert ratio_after != ratio_before
         stored = browser.execute_script('return Number(localStorage.getItem("texMcpSplitRatio"))')
         assert round(stored * 100) == int(ratio_after)
-        # The two bars are drawn alike, and the band around the comments' bar still answers
-        # a finger.
+        # The two bars are drawn alike, in bands of the same thickness.
         bars = browser.execute_script('''
           const split = getComputedStyle(document.querySelector("#split-grip"), "::after");
           const grip = document.querySelector("#sidebar-grip");
-          return {split: split.height, side: getComputedStyle(grip, "::before").height,
+          const side = getComputedStyle(grip, "::before");
+          return {split: [split.width, split.height], side: [side.width, side.height],
+                  splitBand: document.querySelector("#split-grip").getBoundingClientRect().height,
                   band: grip.getBoundingClientRect().height};
         ''')
-        assert bars["split"] == bars["side"] == "3px", bars
-        assert bars["band"] >= 36, bars
+        assert bars["split"] == bars["side"] == ["32px", "3px"], bars
+        assert abs(bars["band"] - bars["splitBand"]) <= 1, bars
+
+        # The keys move the bar as the split's do, and the height they reach is kept.
+        keyed = browser.execute_script('''
+          const grip = document.querySelector("#sidebar-grip");
+          const before = document.querySelector("#sidebar").getBoundingClientRect().height;
+          grip.focus();
+          grip.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowDown", bubbles: true}));
+          const after = document.querySelector("#sidebar").getBoundingClientRect().height;
+          return {before, after, stored: Number(localStorage.getItem("texMcpPanelHeight"))};
+        ''')
+        assert keyed["after"] < keyed["before"] - 20, keyed
+        assert abs(keyed["stored"] - keyed["after"]) <= 2, keyed
     finally:
         if browser is not None:
             try:

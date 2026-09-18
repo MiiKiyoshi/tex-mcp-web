@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>tex-web</title>
-<link rel="stylesheet" href="/static/style.css?v=precise-source">
+<link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 <div id="app">
@@ -52,8 +52,8 @@
     </div>
 
     <aside id="sidebar">
-      <div id="sidebar-grip" class="sidebar-grip" role="separator" aria-orientation="horizontal"
-           aria-label="Drag to resize the review panel" title="Drag to resize"></div>
+      <div id="sidebar-grip" class="sidebar-grip" role="separator" tabindex="0" aria-orientation="horizontal"
+           aria-controls="workspace sidebar" aria-label="Resize the review panel" title="Drag to resize"></div>
       <div class="sidebar-tabs">
         <button class="tab-btn" data-tab="sections">Sections</button>
         <button class="tab-btn active" data-tab="comments">Comments<span id="comments-tab-count" class="tab-count hidden"></span></button>
@@ -128,6 +128,6 @@
 </dialog>
 
     <script src="/static/ace/ace.js?v=1.44.0"></script>
-    <script type="module" src="/static/viewer.js?v=apply-suggestion"></script>
+    <script type="module" src="/static/viewer.js"></script>
 </body>
 </html>
