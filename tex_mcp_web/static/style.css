@@ -477,6 +477,10 @@ textarea {
   padding: 0.05rem 0.3rem;
   border-radius: 3px;
 }
+.cmt-head {
+  /* Shift-clicking a box would otherwise drag a text selection across the cards. */
+  user-select: none;
+}
 .cmt-preview {
   font-size: 0.9rem;
   white-space: pre-wrap;

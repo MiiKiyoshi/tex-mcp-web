@@ -25,6 +25,8 @@ const state = {
   warnings: [],
   expanded: new Set(),
   picked: new Set(),
+  // The box a pick last started from, so shift can run from it to the next one.
+  pickedFrom: null,
   activeForm: null,
   editingEntry: null,
   focusedCommentId: null,
@@ -940,10 +942,24 @@ function renderCommentItem(comment) {
   const box = h("input", { class: "comment-pick", type: "checkbox", title: "Pick this comment" });
   box.checked = state.picked.has(comment.id);
   // The box sits in the head, which opens the card: picking is not opening.
-  box.addEventListener("click", (event) => event.stopPropagation());
-  box.addEventListener("change", () => {
-    if (box.checked) state.picked.add(comment.id);
-    else state.picked.delete(comment.id);
+  // A checkbox has already taken its new value by the time the click arrives, so the
+  // whole decision is made here and nothing listens for the change.
+  box.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const shown = state.comments.map((item) => item.id);
+    const from = shown.indexOf(state.pickedFrom);
+    const to = shown.indexOf(comment.id);
+    // Shift runs from the box the last pick started at to this one, both ends included,
+    // and gives the whole run the value this box just took.
+    const run = event.shiftKey && from !== -1 && to !== -1
+      ? shown.slice(Math.min(from, to), Math.max(from, to) + 1)
+      : [comment.id];
+    for (const id of run) {
+      if (box.checked) state.picked.add(id);
+      else state.picked.delete(id);
+    }
+    state.pickedFrom = comment.id;
+    renderComments();
     renderPickedActions();
   });
   const toggle = (event) => {
