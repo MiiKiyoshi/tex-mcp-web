@@ -86,6 +86,13 @@ if HAS_MCP:
             return self
 
 
+    class FragmentInput(_InputModel):
+        """One piece of the comment's anchored text and what it becomes."""
+
+        old: Annotated[str, Field(min_length=1, description="Exact text to replace, quoted from the comment's range; it must occur there exactly once")]
+        new: Annotated[str, Field(description="What that text becomes")]
+
+
     CommentAnchorInput = Annotated[
         PaperAnchorInput | SectionAnchorInput | SourceRangeAnchorInput | AreaAnchorInput,
         Field(discriminator="kind"),
@@ -162,9 +169,10 @@ def _load_synctex_cached(main_file: Path):
     return data
 
 
-def _agent_comment_to_dict(comment) -> dict[str, Any]:
+def _agent_comment_to_dict(comment, watch_dir: Path) -> dict[str, Any]:
     """Return only the comment information an agent can act on."""
     from .comments import AreaAnchor, SectionAnchor, SourceRangeAnchor, TextSelectionAnchor
+    from .server import read_anchored_source
 
     anchor = comment.anchor
     payload: dict[str, Any] = {
@@ -178,8 +186,11 @@ def _agent_comment_to_dict(comment) -> dict[str, Any]:
             "quote": anchor.quote,
             "page": anchor.selection.page,
         })
-    elif isinstance(anchor, SourceRangeAnchor) and anchor.column_start is not None and comment.source_selector is not None:
-        payload["quote"] = comment.source_selector.exact
+    elif isinstance(anchor, SourceRangeAnchor):
+        # What the file holds here now: the text a suggestion quotes its fragments out of.
+        quote = read_anchored_source(watch_dir, comment)
+        if quote is not None:
+            payload["quote"] = quote
     elif isinstance(anchor, AreaAnchor):
         payload["page"] = anchor.page
     elif isinstance(anchor, SectionAnchor):
@@ -209,7 +220,6 @@ def _comment_add(
     watch_dir: Path,
     text: str | None,
     anchor: "CommentAnchorInput | None",
-    suggestion: dict[str, str] | None = None,
 ) -> str:
     """Implementation of ``comment(action="add", ...)``.
 
@@ -260,15 +270,12 @@ def _comment_add(
 
     a = anchor_from_dict(anchor_data)
 
-    from .server import _suggestion_from_dict
-
     comment = store.add(
         anchor=a,
         text=text,
         author="agent",
         resolved_source=resolved,
         source_selector=source_selector,
-        suggestion=_suggestion_from_dict(suggestion),
     )
     return _ok({"id": comment.id, "status": comment.status, "updated": comment.updated})
 
@@ -398,7 +405,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         """Read selected threads; save returns a Markdown draft path/hash/IDs. Edit only Reply blocks."""
         if len(set(comment_ids)) != len(comment_ids):
             return _err("comment_ids must be unique")
-        _, _, store = _load_project()
+        _, watch_dir, store = _load_project()
         if save:
             try:
                 return _ok(store.export_comments(comment_ids))
@@ -409,7 +416,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             comment = store.get(comment_id)
             if comment is None:
                 return _err(f"comment not found: {comment_id}")
-            comments.append(_agent_comment_to_dict(comment))
+            comments.append(_agent_comment_to_dict(comment, watch_dir))
         return _ok({"comments": comments})
 
     @mcp.tool()
@@ -439,13 +446,12 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
 
     @mcp.tool()
     async def comment(
-        action: Literal["add", "reply", "edit", "delete"],
+        action: Literal["add", "reply", "suggest", "withdraw", "edit", "delete"],
         id: str | None = None,
         text: str | None = None,
         anchor: CommentAnchorInput | None = None,
         edits: list[str] | None = None,
-        suggestion_old: str | None = None,
-        suggestion_new: str | None = None,
+        changes: list[FragmentInput] | None = None,
         replies_file: str | None = None,
         entry: str | None = None,
         updated: str | None = None,
@@ -453,35 +459,50 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         """Mutate a comment.
 
         ``add`` requires text and anchor; ``reply`` requires id/text or a saved draft's replies_file, exclusively;
+        ``suggest`` proposes a rewrite inside one comment's own range: id, text, changes
+        (each ``old`` quoted from that range, as an editing tool takes it, never line or
+        column numbers) and updated. It replaces whatever the comment proposed before and
+        adds your text as a reply, so one thread keeps its whole conversation and one live
+        suggestion; ``withdraw`` takes that suggestion back with id, text and updated;
         ``edit`` rewrites your own earlier entry: id (the comment), entry (the entry's id from
         read_comments), text, and updated (the thread's stamp as read; refused if the thread
         changed since);
-        ``delete`` requires id. A reply says what changed, with ``edits``
+        ``delete`` requires id and is refused once the reviewer has written in the thread.
+        A reply says what changed, with ``edits``
         naming the changed source ranges; the thread stays open, and the
         reviewer resolves it from the page. An agent does not resolve.
-        ``suggestion_old`` and ``suggestion_new`` together are an add-only
-        rewrite. Returns only id, status and updated; read_comments retrieves details.
+        Returns only id, status and updated; read_comments retrieves details.
         """
         cfg, watch_dir, store = _load_project()
         try:
             if replies_file is not None:
-                if action != "reply" or any(value is not None for value in (id, text, anchor, suggestion_old, suggestion_new)):
+                if action != "reply" or any(value is not None for value in (id, text, anchor, changes)):
                     return _err("replies_file requires reply and excludes inline comment fields")
                 updated = store.reply_file(replies_file, edits=edits)
                 return _ok({"updated": [{"id": c.id, "status": c.status, "updated": c.updated} for c in updated]})
             if action == "add":
-                if (suggestion_old is None) != (suggestion_new is None):
-                    return _err("suggestion_old and suggestion_new go together")
-                suggestion = (
-                    {"old": suggestion_old, "new": suggestion_new}
-                    if suggestion_old is not None else None
-                )
-                return _comment_add(store, cfg, watch_dir, text, anchor, suggestion)
+                return _comment_add(store, cfg, watch_dir, text, anchor)
             if action == "reply":
                 if not id or not text:
                     return _err("reply requires id and text")
                 updated = store.reply(id, text=text, author="agent", edits=edits or [])
                 return _ok({"id": updated.id, "status": updated.status, "updated": updated.updated})
+            if action == "suggest":
+                if not id or not text or not changes or not updated:
+                    return _err("suggest requires id, text, changes and updated")
+                from .server import derive_suggestion
+
+                pairs = [(change.old, change.new) for change in changes]
+                changed = store.suggest(
+                    id, updated, text,
+                    lambda comment: derive_suggestion(watch_dir, comment, pairs),
+                )
+                return _ok({"id": changed.id, "status": changed.status, "updated": changed.updated})
+            if action == "withdraw":
+                if not id or not text or not updated:
+                    return _err("withdraw requires id, text and updated")
+                changed = store.withdraw_suggestion(id, updated, text)
+                return _ok({"id": changed.id, "status": changed.status, "updated": changed.updated})
             if action == "edit":
                 if not id or not entry or not text or not updated:
                     return _err("edit requires id, entry, text and updated")
@@ -490,6 +511,14 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             if action == "delete":
                 if not id:
                     return _err("delete requires id")
+                target = store.get(id)
+                if target is None:
+                    return _err(f"comment not found: {id}")
+                if any(written.author == "human" for written in target.thread):
+                    return _err(
+                        "the reviewer has written in this thread; withdraw the suggestion "
+                        "or reply instead of deleting what they said"
+                    )
                 return _ok({"deleted": id, "ok": store.delete(id)})
             return _err(f"unknown action: {action}")
         except KeyError as exc:

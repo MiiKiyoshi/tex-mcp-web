@@ -381,6 +381,44 @@ class SuggestedEdit:
         return cls(old=str(d["old"]), new=str(d["new"]))
 
 
+def swap_fragments(text: str, edits: list[tuple[str, str]]) -> str:
+    """Rewrite *text* by replacing each ``(from, to)`` fragment, all or none.
+
+    The agent names what to change by quoting it, the way an editing tool does, so
+    it never has to count characters to reach a column.  Each ``from`` is searched
+    for in *text* alone, which is one comment's anchored range, so a short quote is
+    usually enough to be unique.  A fragment that is missing, that occurs more than
+    once, or that overlaps another one is refused with what the caller needs to fix
+    it in one retry.
+    """
+    if not edits:
+        raise ValueError("a suggestion needs at least one edit")
+    spans: list[tuple[int, int, str]] = []
+    for old, new in edits:
+        if not old:
+            raise ValueError("an edit must say which text to replace")
+        found = _all_occurrences(text, old)
+        if not found:
+            raise ValueError(f"not in the comment's range: {old!r}")
+        if len(found) > 1:
+            raise ValueError(
+                f"{old!r} occurs {len(found)} times in the comment's range; "
+                "quote more of the surrounding text"
+            )
+        spans.append((found[0], found[0] + len(old), new))
+    spans.sort()
+    for (_, end, _), (start, _, _) in zip(spans, spans[1:]):
+        if start < end:
+            raise ValueError("two edits cover the same text")
+    updated = text
+    # Back to front, so an earlier swap cannot move a later one's offsets.
+    for start, end, new in reversed(spans):
+        updated = updated[:start] + new + updated[end:]
+    if updated == text:
+        raise ValueError("the edits leave the text as it is")
+    return updated
+
+
 @dataclass
 class ThreadEntry:
     author: Author
@@ -1114,6 +1152,80 @@ class CommentStore:
         if not text.strip():
             raise ValueError("reply text must not be empty")
         return self._append_entry(comment_id, author, text, edits=edits)
+
+    def suggest(
+        self,
+        comment_id: str,
+        expected_updated: str,
+        text: str,
+        build: Callable[[Comment], SuggestedEdit],
+    ) -> Comment:
+        """Put a suggestion on an open thread and say why, in one entry.
+
+        *build* turns what the agent quoted into the stored ``{old, new}`` against the
+        file as it stands.  Calling this again replaces the suggestion and adds another
+        entry: a thread carries one live suggestion and its whole conversation, so a
+        second reading never costs the first one's replies.
+        """
+        if not text.strip():
+            raise ValueError("a suggestion must say why")
+        with self._locked():
+            comments = self._all()
+            for position, comment in enumerate(comments):
+                if comment.id != comment_id:
+                    continue
+                self._check_suggestable(comment, expected_updated)
+                suggestion = build(comment)
+                now = _now()
+                comment.thread.append(ThreadEntry(author="agent", at=now, text=text.strip()))
+                comment.suggestion = suggestion
+                comment.suggestion_applied = False
+                comment.updated = now
+                comments[position] = comment
+                self._save(comments)
+                return comment
+        raise KeyError(f"comment {comment_id!r} not found")
+
+    def withdraw_suggestion(
+        self, comment_id: str, expected_updated: str, text: str
+    ) -> Comment:
+        """Take the suggestion off a thread and say why, keeping every entry.
+
+        A proposal the agent no longer stands behind has to stop offering its Apply
+        button without the thread being deleted to silence it.
+        """
+        if not text.strip():
+            raise ValueError("a withdrawal must say why")
+        with self._locked():
+            comments = self._all()
+            for position, comment in enumerate(comments):
+                if comment.id != comment_id:
+                    continue
+                if comment.updated != expected_updated:
+                    raise ValueError("stale thread: comment changed since it was read")
+                if comment.suggestion is None:
+                    raise ValueError("the comment carries no suggestion")
+                now = _now()
+                comment.thread.append(ThreadEntry(author="agent", at=now, text=text.strip()))
+                comment.suggestion = None
+                comment.suggestion_applied = False
+                comment.updated = now
+                comments[position] = comment
+                self._save(comments)
+                return comment
+        raise KeyError(f"comment {comment_id!r} not found")
+
+    @staticmethod
+    def _check_suggestable(comment: Comment, expected_updated: str) -> None:
+        """Refuse a suggestion the anchored source cannot be read for."""
+        if comment.updated != expected_updated:
+            raise ValueError("stale thread: comment changed since it was read")
+        if comment.status != "open":
+            raise ValueError("a suggestion belongs to a comment that is open")
+        if not isinstance(comment.anchor, SourceRangeAnchor):
+            raise ValueError("a suggestion needs a comment anchored to source")
+        if comment.stale:
+            raise ValueError("stale source anchor: reload the comment before suggesting")
 
     def apply_suggestion(
         self,

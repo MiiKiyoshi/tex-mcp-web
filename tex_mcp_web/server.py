@@ -46,6 +46,7 @@ from .comments import (
     locate_pdf_quote,
     pdf_digest,
     source_offset,
+    swap_fragments,
 )
 from .compiler import CompileResult, compile_tex, source_dependencies
 from .config import Config, get_main_file, get_watch_dir, write_auto_compile
@@ -141,6 +142,41 @@ def _suggestion_from_dict(d: Any) -> SuggestedEdit | None:
     if not sugg.old and not sugg.new:
         return None
     return sugg
+
+
+def derive_suggestion(
+    watch_dir: Path, comment: Comment, edits: list[tuple[str, str]]
+) -> SuggestedEdit:
+    """Build a suggestion from fragments the agent quoted out of the anchored source.
+
+    The agent never sends the text it is replacing.  ``old`` is what the file holds at
+    the anchored range right now and ``new`` is that same text with each quoted
+    fragment swapped, so the pair the reviewer applies is always measured against the
+    file rather than against what the agent remembered of it.
+    """
+    old = read_anchored_source(watch_dir, comment)
+    if old is None:
+        raise ValueError("the comment's anchored source cannot be read")
+    if comment.source_selector is not None and comment.source_selector.exact != old:
+        raise ValueError("source changed: reload the comment before suggesting")
+    return SuggestedEdit(old=old, new=swap_fragments(old, edits))
+
+
+def read_anchored_source(watch_dir: Path, comment: Comment) -> str | None:
+    """Return what the file holds at a comment's anchored source range.
+
+    This is the text the agent quotes fragments out of, so it is read from the file
+    rather than from the selector captured when the comment was written.
+    """
+    source = comment.resolved_source
+    if source is None or not isinstance(comment.anchor, SourceRangeAnchor):
+        return None
+    try:
+        text = (watch_dir / source.file).read_text(encoding="utf-8")
+        start, end = _resolved_source_span(text, source)
+    except (OSError, UnicodeError, ValueError):
+        return None
+    return text[start:end]
 
 
 def _source_coordinate(text: str, offset: int) -> tuple[int, int]:
