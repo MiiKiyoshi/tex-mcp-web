@@ -22,6 +22,7 @@ from tex_mcp_web.comments import (
     find_source_selector,
     locate_pdf_quote,
     pdf_digest,
+    swap_fragments,
 )
 
 
@@ -54,7 +55,7 @@ def test_agent_comment_view_hides_storage_only_anchor_data(store: CommentStore):
     from tex_mcp_web.mcp_server import _agent_comment_to_dict
 
     comment = store.add(text_anchor("digest", quote="selected text"), "tighten this")
-    view = _agent_comment_to_dict(comment)
+    view = _agent_comment_to_dict(comment, store.path.parent)
     assert view == {
         "id": comment.id,
         "status": "open",
@@ -78,7 +79,7 @@ def test_agent_comment_view_exposes_source_without_pdf_coordinates(store: Commen
         resolved_source=ResolvedSource("tex/intro.tex", 8, 10),
     )
 
-    view = _agent_comment_to_dict(comment)
+    view = _agent_comment_to_dict(comment, store.path.parent)
     assert view["source"] == {
         "file": "tex/intro.tex",
         "line_start": 8,
@@ -471,6 +472,47 @@ def test_character_selector_rejects_half_surrogate(tmp_path):
     path = tmp_path / "paper.tex"
     path.write_text("a😀b")
     assert capture_source_selector(path, 1, 1, column_start=2, column_end=3) is None
+
+
+SENTENCE = (
+    "We present \\emph{AlignSearch}, a framework that searches pre-route optimization "
+    "algorithms and evaluates the resulting design states in terms of Routed Quality: "
+    "timing and power after detailed routing."
+)
+
+
+def test_swap_fragments_rewrites_only_the_quoted_parts():
+    """The agent quotes what changes; everything it did not quote is carried over, so a
+    three-word change costs three words and not the whole sentence twice."""
+    rewritten = swap_fragments(SENTENCE, [
+        ("searches pre-route optimization algorithms",
+         "searches the procedures of pre-route optimization algorithms rather than their parameters"),
+        ("after detailed routing.",
+         "after detailed routing; the name reflects that the search is aligned with routed results."),
+    ])
+    assert "rather than their parameters and evaluates" in rewritten
+    assert rewritten.endswith("aligned with routed results.")
+    assert "in terms of Routed Quality" in rewritten      # untouched text is kept verbatim
+
+
+def test_swap_fragments_applies_back_to_front_so_earlier_edits_do_not_move_later_ones():
+    assert swap_fragments("one two three", [("one", "a much longer first word"), ("three", "3")]) == (
+        "a much longer first word two 3")
+
+
+def test_swap_fragments_refuses_what_it_cannot_place_exactly():
+    with pytest.raises(ValueError, match="at least one edit"):
+        swap_fragments(SENTENCE, [])
+    with pytest.raises(ValueError, match="which text to replace"):
+        swap_fragments(SENTENCE, [("", "x")])
+    with pytest.raises(ValueError, match="not in the comment's range"):
+        swap_fragments(SENTENCE, [("post-route optimization", "x")])
+    with pytest.raises(ValueError, match="occurs 2 times"):
+        swap_fragments(SENTENCE, [("and", "x")])
+    with pytest.raises(ValueError, match="same text"):
+        swap_fragments(SENTENCE, [("searches pre-route", "x"), ("pre-route optimization", "y")])
+    with pytest.raises(ValueError, match="leave the text as it is"):
+        swap_fragments(SENTENCE, [("Routed Quality", "Routed Quality")])
 
 
 def test_a_version_5_store_is_raised_and_its_reference_threads_become_archived(tmp_path: Path):

@@ -53,12 +53,20 @@ def export(root: Path, comments: list[dict]) -> dict:
                 "A Reply block left empty adds nothing; an Edit block left as it is changes nothing.\n"]
     slots: list[list] = []  # ["reply", comment_id] or ["edit", comment_id, entry_id, original]
     for comment in comments:
-        segments[-1] += (
-            f"\n## {comment['id']}\nUpdated: {comment['updated']}\n\n"
-            + json.dumps(comment, ensure_ascii=False, indent=2) + "\n"
-        )
+        # The heading carries what the reader needs to answer: which thread, where it
+        # sits, and its state. Anchors, selectors and stamps are the store's business
+        # and the snapshot beside this file already holds what the reply is checked
+        # against, so none of them is written out for someone to read past.
+        source = comment["resolved_source"] if "resolved_source" in comment else None
+        where = (f"  {source['file']}:{source['line_start']}-{source['line_end']}"
+                 if source is not None else "")
+        segments[-1] += f"\n## {comment['id']}{where}  [{comment['status']}]\n"
         for entry in comment["thread"]:
+            # A human entry is there to be read; an agent's own entry is there to be
+            # rewritten, and its Edit block already holds the text, so neither is
+            # written twice.
             if entry["author"] != "agent":
+                segments[-1] += f"\n{entry['author']}  {entry['text']}\n"
                 continue
             segments[-1] += f"\n### Edit {entry['id']}\n<!-- edit:{key}:{entry['id']} -->\n"
             segments.append(f"\n<!-- /edit:{key}:{entry['id']} -->\n")

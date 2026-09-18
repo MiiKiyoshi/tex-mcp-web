@@ -976,8 +976,12 @@ async def test_mcp_contract_is_typed_and_nonduplicative(tmp_path: Path):
 
     comment_schema = tools["comment"].inputSchema
     assert comment_schema["properties"]["action"]["enum"] == [
-        "add", "reply", "edit", "delete"
+        "add", "reply", "suggest", "withdraw", "edit", "delete"
     ]
+    # A suggestion names the text it replaces by quoting it, so nothing in its schema
+    # asks the agent for a line or a column.
+    fragment = comment_schema["$defs"]["FragmentInput"]["properties"]
+    assert set(fragment) == {"old", "new"} and fragment["old"]["minLength"] == 1
     anchor_schema = comment_schema["properties"]["anchor"]["anyOf"][0]
     assert set(anchor_schema["discriminator"]["mapping"]) == {
         "paper", "section", "source_range", "area"
@@ -1129,28 +1133,67 @@ async def test_mcp_comment_and_section_runtime_contract(bound_project, project):
     assert set(comment) == {"id", "status", "updated"}
     assert stored["comments"][0]["thread"][0]["text"] == "review this"
 
-    # A suggested rewrite is two top-level strings, so the LaTeX in them is written as it
-    # is rather than serialized by hand inside an object; one without the other is refused.
-    suggested = await mcp.call_tool(
-        "comment",
-        {
-            "action": "add",
-            "text": "이 문장을 바꾸세요",
-            "anchor": {"kind": "paper"},
-            "suggestion_old": "the original phrasing",
-            "suggestion_new": "the new phrasing: 새 문장",
-        },
+    # A rewrite is proposed inside one comment's own range. The agent quotes the text it
+    # replaces the way an editing tool takes it, so it never counts columns, and it never
+    # sends back the text it is not changing.
+    async def call_comment(**payload):
+        return json.loads((await mcp.call_tool("comment", payload))[0][0].text)
+
+    async def reread(comment_id):
+        result = await mcp.call_tool("read_comments", {"comment_ids": [comment_id]})
+        return json.loads(result[0][0].text)["comments"][0]
+
+    anchored = await call_comment(
+        action="add", text="이 문장을 바꾸세요",
+        anchor={"kind": "source_range", "file": "paper.tex", "line_start": 5, "line_end": 5},
     )
-    with_suggestion = json.loads(suggested[0][0].text)
-    assert set(with_suggestion) == {"id", "status", "updated"}
-    details = await mcp.call_tool("read_comments", {"comment_ids": [with_suggestion["id"]]})
-    assert json.loads(details[0][0].text)["comments"][0]["suggestion"] == {"old": "the original phrasing", "new": "the new phrasing: 새 문장"}
-    half = await mcp.call_tool(
-        "comment",
-        {"action": "add", "text": "x", "anchor": {"kind": "paper"}, "suggestion_new": "only new"},
+    read_back = await reread(anchored["id"])
+    # The anchored text comes back, so fragments are quoted from what the file holds now.
+    assert read_back["quote"] == "Some prose with \\cite{ref1}."
+    assert "suggestion" not in read_back
+
+    proposed = await call_comment(
+        action="suggest", id=anchored["id"], updated=read_back["updated"],
+        text="인용 앞을 다듬었습니다",
+        changes=[{"old": "Some prose", "new": "Some tighter prose"}],
     )
-    assert "go together" in half[0][0].text
-    await mcp.call_tool("comment", {"action": "delete", "id": with_suggestion["id"]})
+    assert set(proposed) == {"id", "status", "updated"}
+    detail = await reread(anchored["id"])
+    assert detail["suggestion"] == {
+        "old": "Some prose with \\cite{ref1}.",
+        "new": "Some tighter prose with \\cite{ref1}.",
+    }
+    assert [entry["text"] for entry in detail["replies"]] == ["인용 앞을 다듬었습니다"]
+
+    # A second reading replaces the suggestion in place and leaves the conversation whole.
+    await call_comment(
+        action="suggest", id=anchored["id"], updated=detail["updated"], text="2판입니다",
+        changes=[{"old": "Some prose", "new": "Different prose"}],
+    )
+    detail = await reread(anchored["id"])
+    assert detail["suggestion"]["new"] == "Different prose with \\cite{ref1}."
+    assert [entry["text"] for entry in detail["replies"]] == ["인용 앞을 다듬었습니다", "2판입니다"]
+
+    missing = await call_comment(
+        action="suggest", id=anchored["id"], updated=detail["updated"], text="x",
+        changes=[{"old": "prose that is not there", "new": "y"}],
+    )
+    assert "not in the comment's range" in missing["error"]
+    stale = await call_comment(
+        action="suggest", id=anchored["id"], updated="2026-01-01T00:00:00+00:00", text="x",
+        changes=[{"old": "Some prose", "new": "y"}],
+    )
+    assert "stale" in stale["error"]
+
+    # Withdrawing takes the proposal back without touching a single entry.
+    await call_comment(
+        action="withdraw", id=anchored["id"], updated=detail["updated"],
+        text="이 제안은 접겠습니다",
+    )
+    detail = await reread(anchored["id"])
+    assert "suggestion" not in detail
+    assert len(detail["replies"]) == 3
+    await mcp.call_tool("comment", {"action": "delete", "id": anchored["id"]})
 
     second_added = await mcp.call_tool(
         "comment",
@@ -1782,3 +1825,63 @@ async def test_mcp_edit_rewrites_the_agents_own_entry_and_refuses_the_rest(bound
     assert entry.text == "better answer" and entry.at == agent.at and entry.updated_at is not None
     read = (await call("read_comments", comment_ids=[comment.id]))["comments"][0]
     assert read["replies"][0]["updated_at"] == entry.updated_at
+
+
+@pytest.mark.asyncio
+async def test_mcp_delete_refuses_a_thread_the_reviewer_has_written_in(bound_project, project):
+    """Deleting used to be the only way to take a wrong proposal down, and it carried the
+    reviewer's replies away with it. Withdrawing covers that case now, so delete stops at
+    their words and an agent can still clean up a thread it alone wrote."""
+    pytest.importorskip("mcp")
+    from tex_mcp_web.comments import CommentStore
+    from tex_mcp_web.mcp_server import create_server
+
+    mcp = create_server(bound_project)
+    store = CommentStore(project / ".tex-mcp-web" / "comments.json")
+
+    async def call_comment(**payload):
+        return json.loads((await mcp.call_tool("comment", payload))[0][0].text)
+
+    own = await call_comment(action="add", text="my own note", anchor={"kind": "paper"})
+    assert await call_comment(action="delete", id=own["id"]) == {"deleted": own["id"], "ok": True}
+
+    shared = await call_comment(action="add", text="a proposal", anchor={"kind": "paper"})
+    store.reply(shared["id"], "is one of them enough?", author="human")
+    refused = await call_comment(action="delete", id=shared["id"])
+    assert "reviewer has written" in refused["error"]
+    kept = store.get(shared["id"])
+    assert kept is not None and [e.text for e in kept.thread] == ["a proposal", "is one of them enough?"]
+
+
+@pytest.mark.asyncio
+async def test_a_replaced_suggestion_can_be_applied_again(client, project):
+    """A thread carries one live proposal. Reading it again arms Apply once more and
+    leaves every entry under it standing, which is what deleting the thread used to cost."""
+    tc, server = client
+    from tex_mcp_web.server import derive_suggestion
+
+    path = project / "paper.tex"
+    comment = await _source_suggestion(tc)
+    applied = await (await tc.post(
+        f"/comments/{comment['id']}/apply-suggestion", json={"updated": comment["updated"]}
+    )).json()
+    assert applied["suggestion_applied"] is True
+    spent = await tc.post(
+        f"/comments/{comment['id']}/apply-suggestion", json={"updated": applied["updated"]}
+    )
+    assert spent.status == 409
+
+    second = server.comments.suggest(
+        comment["id"], applied["updated"], "tighter still",
+        lambda current: derive_suggestion(project, current, [("Clear prose", "Plain prose")]),
+    )
+    assert second.suggestion_applied is False
+    assert second.suggestion.old == "Clear prose with \\cite{ref1}."
+    response = await tc.post(
+        f"/comments/{comment['id']}/apply-suggestion", json={"updated": second.updated}
+    )
+    assert response.status == 200
+    assert "Plain prose with \\cite{ref1}." in path.read_text(encoding="utf-8")
+    assert [entry.text for entry in server.comments.get(comment["id"]).thread] == [
+        "Use the suggested wording.", "Applied suggestion.", "tighter still", "Applied suggestion.",
+    ]

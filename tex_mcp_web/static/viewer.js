@@ -968,12 +968,25 @@ function renderCommentItem(comment) {
   h("span", { class: "cmt-anchor", text: anchorLabel(comment.anchor) }));
 
   const children = [head];
-  if (!expanded) children.push(h("div", { class: "cmt-preview", text: comment.thread[0]?.text ?? "" }));
+  if (!expanded) {
+    children.push(h("div", { class: "cmt-preview", text: comment.thread[0]?.text ?? "" }));
+    // The request, then whatever was last said about it: a thread someone has answered
+    // must not read like one nobody has touched, and who answered has to be visible.
+    const latest = comment.thread[comment.thread.length - 1];
+    if (comment.thread.length > 1) {
+      children.push(h("div", { class: `cmt-latest author-${latest.author}`,
+                               text: `${latest.author}  ${latest.text}` }));
+    }
+  }
   if (comment.suggestion) children.push(renderSuggestion(comment));
   if (expanded) {
     children.push(
+      // Newest first: the entry that moved the thread is the one being looked for. Each
+      // entry keeps its place in the thread, which is the index an edit names.
       h("div", { class: "cmt-thread" },
-        ...comment.thread.map((entry, index) => renderThreadEntry(entry, comment.id, index))),
+        ...comment.thread
+          .map((entry, index) => renderThreadEntry(entry, comment.id, index))
+          .reverse()),
       h("div", { class: "cmt-actions" }, ...actionButtons(comment)),
     );
     const form = renderActiveForm(comment);

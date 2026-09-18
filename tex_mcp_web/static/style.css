@@ -481,6 +481,19 @@ textarea {
   font-size: 0.9rem;
   white-space: pre-wrap;
 }
+.cmt-latest {
+  font-size: 0.85rem;
+  white-space: pre-wrap;
+  margin-top: 0.35rem;
+  padding-left: 0.5rem;
+  border-left: 2px solid var(--border);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.cmt-latest.author-agent { border-left-color: var(--accent); }
+.cmt-latest.author-human { border-left-color: var(--ok); }
 .cmt-thread {
   margin-top: 0.5rem;
   display: flex;
