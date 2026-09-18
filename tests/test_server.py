@@ -1087,7 +1087,7 @@ async def test_mcp_contract_is_typed_and_nonduplicative(tmp_path: Path):
     assert set(tools) == {
         "state", "read_comments", "write_comments", "compile", "image", "listen",
     }
-    assert "read_comments(unanswered=True)" in mcp.instructions
+    assert "read_comments(new=True)" in mcp.instructions
     assert "read_comments(ids=[...])" in mcp.instructions
     assert "compile() once" in mcp.instructions
     assert "Within the user's editing scope" in mcp.instructions
@@ -1109,7 +1109,7 @@ async def test_mcp_contract_is_typed_and_nonduplicative(tmp_path: Path):
     assert all(mcp.instructions not in (tool.description or "") for tool in tools.values())
     read_schema = tools["read_comments"].inputSchema["properties"]
     assert read_schema["status"]["enum"] == ["open", "resolved", "archived", "all"]
-    assert set(read_schema) == {"ids", "status", "unanswered", "since", "limit", "save"}
+    assert set(read_schema) == {"ids", "new", "status", "unanswered", "since", "limit", "save"}
 
     comment_schema = tools["write_comments"].inputSchema
     assert comment_schema["properties"]["action"]["enum"] == [
@@ -1175,7 +1175,7 @@ async def test_mcp_tool_call_serves_the_viewer(bound_project, project):
 async def test_mcp_comment_discovery_reads_only_selected_history(bound_project, project, monkeypatch):
     pytest.importorskip("mcp")
     from tex_mcp_web.comments import CommentStore, PaperAnchor, ResolvedSource, SectionAnchor
-    from tex_mcp_web.mcp_server import create_server, revision_of
+    from tex_mcp_web.mcp_server import create_server, revision_of, short_time
 
     mcp = create_server(bound_project)
 
@@ -1198,12 +1198,14 @@ async def test_mcp_comment_discovery_reads_only_selected_history(bound_project, 
     assert requests == [
         {"id": first.id, "rev": revision_of(first.updated), "status": "open",
          "kind": "section", "request": "Check this method",
-         "thread_entries": 1, "last_human_at": moment},
+         "thread_entries": 1, "last_human_at": short_time(moment)},
         {"id": second.id, "rev": revision_of(second.updated), "status": "open",
          "kind": "paper", "request": "Check this paper",
-         "thread_entries": 1, "last_human_at": moment},
+         "thread_entries": 1, "last_human_at": short_time(moment)},
     ]
-    assert (await call("read_comments", since=moment))["comments"] == []
+    # since reads back the form the server printed, and nothing is newer than now.
+    assert (await call("read_comments", since=short_time(moment)))["comments"] == []
+    assert "reads as" in (await call("read_comments", since=moment))["error"]
 
     moment = "2026-01-01T00:00:01+00:00"
     history = "Detailed explanation. " * 1000
@@ -1214,13 +1216,16 @@ async def test_mcp_comment_discovery_reads_only_selected_history(bound_project, 
 
     moment = "2026-01-01T00:00:02+00:00"
     store.reply(first.id, "Please check the boundary too", author="human")
-    requests = (await call("read_comments", unanswered=True, since="2026-01-01T09:00:01+09:00"))["comments"]
+    requests = (await call("read_comments", unanswered=True,
+                            since=short_time("2026-01-01T00:00:01+00:00")))["comments"]
     assert len(requests) == 1
     assert requests[0]["id"] == first.id
     assert requests[0]["request"] == "Please check the boundary too"
-    assert requests[0]["last_human_at"] == moment
+    assert requests[0]["last_human_at"] == short_time(moment)
     assert requests[0]["thread_entries"] == 3
-    assert (await call("read_comments", since="2026-01-01T00:00:02"))["comments"] == []
+    # A time names a minute, so asking again from the minute after it is empty. Within the
+    # same minute a thread comes back rather than being missed.
+    assert (await call("read_comments", since="01-01 09:01"))["comments"] == []
 
     details = (await call("read_comments", ids=[first.id]))["comments"]
     assert len(details) == 1
@@ -1949,7 +1954,7 @@ async def test_an_archived_thread_is_listed_apart(client):
 async def test_mcp_edit_rewrites_the_agents_own_entry_and_refuses_the_rest(bound_project, project):
     pytest.importorskip("mcp")
     from tex_mcp_web.comments import CommentStore, PaperAnchor
-    from tex_mcp_web.mcp_server import create_server, revision_of
+    from tex_mcp_web.mcp_server import create_server, revision_of, short_time
 
     mcp = create_server(bound_project)
 
@@ -1977,7 +1982,61 @@ async def test_mcp_edit_rewrites_the_agents_own_entry_and_refuses_the_rest(bound
     entry = store.get(comment.id).thread[1]
     assert entry.text == "better answer" and entry.at == agent.at and entry.updated_at is not None
     read = (await call("read_comments", ids=[comment.id]))["comments"][0]
-    assert read["replies"][0]["updated_at"] == entry.updated_at
+    assert read["replies"][0]["updated_at"] == short_time(entry.updated_at)
+
+
+@pytest.mark.asyncio
+async def test_new_gives_what_the_reviewer_wrote_since_it_last_answered(
+    bound_project, project, monkeypatch
+):
+    """Answering a call took a listing, then a full read of each thread for its rev, then
+    the write. new does it in one: the reviewer's words since last time, thread by thread,
+    each with the rev a write quotes back, and the moment it read from so a lost turn can
+    be taken again."""
+    pytest.importorskip("mcp")
+    from tex_mcp_web.comments import CommentStore, PaperAnchor
+    from tex_mcp_web.mcp_server import create_server, revision_of
+
+    mcp = create_server(bound_project)
+    store = CommentStore(project / ".tex-mcp-web" / "comments.json")
+
+    async def call(**arguments):
+        return json.loads((await mcp.call_tool("read_comments", arguments))[0][0].text)
+
+    def at(stamp):
+        monkeypatch.setattr("tex_mcp_web.comments._now", lambda: stamp)
+
+    at("2026-01-01T00:00:00+00:00")
+    asked = store.add(PaperAnchor(), "first request")
+    store.add(PaperAnchor(), "a note of my own", author="agent")
+
+    first = await call(new=True)
+    assert [c["id"] for c in first["comments"]] == [asked.id]
+    told = first["comments"][0]
+    assert told["rev"] == revision_of(store.get(asked.id).updated)
+    assert [e["text"] for e in told["entries"]] == ["first request"]
+    assert "from" not in first and first["cursor"] == "01-01 09:00"
+
+    # Nothing new, and the agent's own reply is not news to it.
+    store.reply(asked.id, "on it", author="agent")
+    assert (await call(new=True))["comments"] == []
+
+    at("2026-01-01T00:05:00+00:00")
+    store.reply(asked.id, "and one more thing", author="human")
+    second = await call(new=True)
+    assert second["from"] == "01-01 09:00" and second["cursor"] == "01-01 09:05"
+    # Only what was said since; the request and the agent's reply are already in mind.
+    assert [e["text"] for e in second["comments"][0]["entries"]] == ["and one more thing"]
+
+    # A turn that went wrong is taken again from the moment it was told about.
+    again = await call(since=second["from"])
+    assert [c["id"] for c in again["comments"]] == [asked.id]
+
+    # The whole conversation is still one call away, for when it is no longer in mind.
+    whole = await call(ids=[asked.id])
+    assert [e["text"] for e in whole["comments"][0]["replies"]] == ["on it", "and one more thing"]
+
+    assert "new answers on its own" in (await call(new=True, ids=[asked.id]))["error"]
 
 
 @pytest.mark.asyncio
