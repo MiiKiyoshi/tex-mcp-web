@@ -491,6 +491,7 @@ textarea {
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  cursor: pointer;
 }
 .cmt-latest.author-agent { border-left-color: var(--accent); }
 .cmt-latest.author-human { border-left-color: var(--ok); }

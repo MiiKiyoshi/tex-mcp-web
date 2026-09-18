@@ -378,14 +378,14 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         status: Literal["open", "resolved", "archived", "all"] = "open",
         unanswered: Annotated[bool, Field(description="Only threads whose latest entry is human, including a new request after an agent reply.")] = False,
         since: Annotated[datetime | None, Field(description="Only requests with last_human_at strictly after this ISO 8601 time; pass the largest last_human_at already handled. Times without an offset use UTC.")] = None,
-        limit: Annotated[int, Field(ge=1, le=200, description="How many threads to return; the rest are counted in more.")] = 50,
+        limit: Annotated[int, Field(ge=1, le=200, description="How many of the newest threads to return; the older ones are counted in older.")] = 50,
     ) -> str:
         """List latest requests and thread sizes without source anchors or reply history.
 
         Each request is cut to its opening; read_comments gives the whole thread.
         last_human_at is null for threads created by an agent with no human entry.
-        ``more`` counts the threads past ``limit``: narrow with status, unanswered
-        or since rather than raising it.
+        ``older`` counts the threads dropped off the front: narrow with status,
+        unanswered or since rather than raising the limit.
         """
         _, _, store = _load_project()
         if since is not None and since.tzinfo is None:
@@ -414,9 +414,11 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                 "thread_entries": len(comment.thread),
                 "last_human_at": human.at if human is not None else None,
             })
-        listed = {"comments": summaries[:limit]}
+        # The newest threads, still in the order the paper reads in: a cap that dropped
+        # them would hide exactly the requests the reviewer has just written.
+        listed = {"comments": summaries[-limit:]}
         if len(summaries) > limit:
-            listed["more"] = len(summaries) - limit
+            listed["older"] = len(summaries) - limit
         return _ok(listed)
 
     @mcp.tool()
