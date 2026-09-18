@@ -2040,6 +2040,40 @@ async def test_new_gives_what_the_reviewer_wrote_since_it_last_answered(
 
 
 @pytest.mark.asyncio
+async def test_a_first_new_carries_what_stands_unanswered_not_the_history(
+    bound_project, project, monkeypatch
+):
+    """Asked with no cursor, new took every human word ever written: on this paper that
+    was 209 threads where one request was waiting. It reports what is unanswered, and a
+    closed thread is not where a request arrives."""
+    pytest.importorskip("mcp")
+    from tex_mcp_web.comments import CommentStore, PaperAnchor
+    from tex_mcp_web.mcp_server import create_server
+
+    mcp = create_server(bound_project)
+    store = CommentStore(project / ".tex-mcp-web" / "comments.json")
+
+    async def call(**arguments):
+        return json.loads((await mcp.call_tool("read_comments", arguments))[0][0].text)
+
+    monkeypatch.setattr("tex_mcp_web.comments._now", lambda: "2026-01-01T00:00:00+00:00")
+    settled = store.add(PaperAnchor(), "long ago")
+    store.reply(settled.id, "answered long ago", author="agent")
+    closed = store.add(PaperAnchor(), "closed but spoken in")
+    store.resolve(closed.id, "", author="human")
+    waiting = store.add(PaperAnchor(), "still waiting")
+
+    first = await call(new=True)
+    assert [c["id"] for c in first["comments"]] == [waiting.id]
+
+    # Reopening is how a closed thread becomes one again.
+    store.reopen(closed.id)
+    monkeypatch.setattr("tex_mcp_web.comments._now", lambda: "2026-01-01T00:10:00+00:00")
+    store.reply(closed.id, "one more thing after all", author="human")
+    assert [c["id"] for c in (await call(new=True))["comments"]] == [closed.id]
+
+
+@pytest.mark.asyncio
 async def test_mcp_delete_refuses_a_thread_the_reviewer_has_written_in(bound_project, project):
     """Deleting used to be the only way to take a wrong proposal down, and it carried the
     reviewer's replies away with it. Withdrawing covers that case now, so delete stops at

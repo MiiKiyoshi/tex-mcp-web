@@ -452,10 +452,11 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
     ) -> str:
         """Read review threads: what is new, selected threads in full, or a listing.
 
-        ``new`` answers a Call agent in one step: the reviewer's words written since this
-        answered last, thread by thread, each with the rev a write quotes back. It reports
-        the moment it read ``from`` and the one it moved to, so a turn that went wrong is
-        taken again with since=<from>.
+        ``new`` answers a Call agent in one step: on open threads, what the reviewer has
+        written that this has neither carried before nor already taken up, thread by
+        thread, each with the rev a write quotes back. It reports the moment it read
+        ``from`` and the one it moved to, so a turn that went wrong is taken again with
+        since=<from>; to see again what was already answered, ask for the thread by id.
 
         ``ids`` gives those threads whole, which is what to ask for when the conversation
         is no longer in mind; with ``since`` it gives only the entries after that time.
@@ -483,8 +484,16 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                 if edge.tzinfo is None:
                     edge = edge.replace(tzinfo=timezone.utc)
             fresh, latest = [], previous
-            for comment in store.list():
-                said = [entry for entry in comment.thread
+            # Open threads only. A resolved or archived one is not where a new request
+            # arrives; the reviewer reopens it first, and it comes back open.
+            for comment in store.list(status="open"):
+                # Unread and unanswered, both. The cursor says what has been carried
+                # before; the last thing this agent said in the thread says what it has
+                # already taken up. Asked for the first time there is no cursor, and the
+                # second half alone is what keeps that call off the whole history.
+                answered = max((position for position, entry in enumerate(comment.thread)
+                                if entry.author == "agent"), default=-1)
+                said = [entry for entry in comment.thread[answered + 1:]
                         if entry.author == "human" and _after(entry, edge)]
                 if not said:
                     continue
@@ -494,16 +503,18 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                 if comment.resolved_source is not None:
                     source = comment.resolved_source
                     told["source"] = f"{source.file}:{source.line_start}-{source.line_end}"
-                if comment.status == "open":
-                    from .server import read_anchored_source
+                from .server import read_anchored_source
 
-                    quote = read_anchored_source(watch_dir, comment)
-                    if quote is not None:
-                        told["quote"] = quote
+                quote = read_anchored_source(watch_dir, comment)
+                if quote is not None:
+                    told["quote"] = quote
                 fresh.append(told)
                 newest = max(entry.at for entry in said)
                 latest = newest if latest is None or newest > latest else latest
-            if latest is not None and latest != previous:
+            if latest is None:
+                # A quiet first call still fixes where the next one starts.
+                latest = datetime.now().astimezone().isoformat()
+            if latest != previous:
                 write_cursor(watch_dir, latest)
             answer: dict[str, Any] = {"comments": fresh}
             if previous is not None:
