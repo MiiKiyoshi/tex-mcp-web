@@ -3,7 +3,7 @@
 Exposes tools to agents via stdio:
 
     state()                 paths, automatic compilation, sections, comment counts
-    read_comments(...)      a listing, or selected threads in full
+    read_comments(...)      what is new, selected threads in full, or a listing
     write_comments(...)     add/reply/suggest/withdraw/edit/delete
     compile()               recompile, return structured errors
     image(...)              render a PDF page or exact region
@@ -124,6 +124,59 @@ def revision_of(updated: str) -> str:
     return hashlib.sha256(updated.encode("utf-8")).hexdigest()[:8]
 
 
+def short_time(stamp: str) -> str:
+    """A stored ISO stamp as the server's own clock reads it: ``MM-DD HH:MM``.
+
+    Nothing an agent does with a time needs the second, the microsecond or the offset;
+    it reads when something was said and hands the same string back to ask for what came
+    after. Eleven characters instead of thirty-two, and no arithmetic between zones.
+    """
+    return datetime.fromisoformat(stamp).astimezone().strftime("%m-%d %H:%M")
+
+
+def parse_short_time(value: str) -> datetime:
+    """Read back a ``MM-DD HH:MM`` the server itself printed.
+
+    The year is this one, or the last one when that would put the date in the future, so
+    a stamp copied out of a reply keeps meaning the moment it named.
+    """
+    try:
+        month_day, clock = value.strip().split(" ", 1)
+        month, day = (int(part) for part in month_day.split("-"))
+        hour, minute = (int(part) for part in clock.split(":"))
+    except ValueError:
+        raise ValueError(f"a time reads as 'MM-DD HH:MM', like '09-19 00:52': {value!r}") from None
+    here = datetime.now().astimezone().tzinfo
+    now = datetime.now(tz=here)
+    moment = datetime(now.year, month, day, hour, minute, tzinfo=here)
+    return moment.replace(year=now.year - 1) if moment > now else moment
+
+
+def _cursor_path(watch_dir: Path) -> Path:
+    return watch_dir / ".tex-mcp-web" / "agent-cursor.json"
+
+
+def read_cursor(watch_dir: Path) -> str | None:
+    """The moment this project's agent was last told about, or None."""
+    try:
+        return str(json.loads(_cursor_path(watch_dir).read_text(encoding="utf-8"))["at"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def write_cursor(watch_dir: Path, at: str) -> None:
+    path = _cursor_path(watch_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"at": at}), encoding="utf-8")
+
+
+def _after(entry, moment: datetime | None) -> bool:
+    if moment is None:
+        return True
+    at = datetime.fromisoformat(entry.at)
+    return (at if at.tzinfo else at.replace(tzinfo=timezone.utc)) > moment
+
+
 def _err(message: str) -> str:
     # Non-ASCII stays as itself: an escaped message is longer and harder to read.
     return json.dumps({"error": message}, ensure_ascii=False)
@@ -177,6 +230,18 @@ def _load_synctex_cached(main_file: Path):
     return data
 
 
+def _agent_entry(entry) -> dict[str, Any]:
+    """One thread entry as an agent reads it, with a time it can hand back."""
+    written = {key: value for key, value in entry.to_dict().items()
+               # Only the agent's own entries can be rewritten, so only those carry the
+               # id to name them by.
+               if key != "id" or entry.author == "agent"}
+    written["at"] = short_time(entry.at)
+    if "updated_at" in written:
+        written["updated_at"] = short_time(written["updated_at"])
+    return written
+
+
 def _agent_comment_to_dict(comment, watch_dir: Path) -> dict[str, Any]:
     """Return only the comment information an agent can act on."""
     from .comments import AreaAnchor, SectionAnchor, SourceRangeAnchor, TextSelectionAnchor
@@ -214,10 +279,7 @@ def _agent_comment_to_dict(comment, watch_dir: Path) -> dict[str, Any]:
         payload["source"] = f"{source.file}:{source.line_start}-{source.line_end}"
     if len(comment.thread) > 1:
         # Only the agent's own entries can be rewritten, so only those carry the id to name them by.
-        payload["replies"] = [
-            {key: value for key, value in entry.to_dict().items() if key != "id" or entry.author == "agent"}
-            for entry in comment.thread[1:]
-        ]
+        payload["replies"] = [_agent_entry(entry) for entry in comment.thread[1:]]
     # What a write must quote back to prove it read the thread as it stands. It moves
     # with every change, and it is nothing but a token to return.
     payload["rev"] = revision_of(comment.updated)
@@ -331,8 +393,10 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         "tex-mcp-web",
         instructions=(
             "Call state() once; reuse it until the configuration or the document structure "
-            "changes. Work from read_comments(unanswered=True), then read_comments(ids=[...]) "
-            "for the threads you will act on, and read source with your own file tools. "
+            "changes. Work from read_comments(new=True), which gives what the reviewer has "
+            "written since you last asked, each thread with the rev a write quotes back; "
+            "read_comments(ids=[...]) gives a thread whole when its conversation is no "
+            "longer in mind. Read source with your own file tools. "
             "Within the user's editing scope, correct what a thread reports, compile() once "
             "after the batch, verify, and reply naming the ranges you changed. When the wording "
             "is the reviewer's to decide, put a suggestion on their own thread rather than "
@@ -379,22 +443,75 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
     @mcp.tool()
     async def read_comments(
         ids: list[str] | None = None,
+        new: Annotated[bool, Field(description="Only what the reviewer has written since this call last answered; excludes ids.")] = False,
         status: Literal["open", "resolved", "archived", "all"] = "open",
         unanswered: Annotated[bool, Field(description="Only threads whose latest entry is the human's.")] = False,
-        since: Annotated[datetime | None, Field(description="ISO 8601; only threads whose last human entry is later. No offset means UTC.")] = None,
+        since: Annotated[str | None, Field(description="A time this server printed, like '09-19 00:52'; only what came after it.")] = None,
         limit: Annotated[int, Field(ge=1, le=200)] = 50,
         save: bool = False,
     ) -> str:
-        """Read review threads: with ids their whole conversation, without ids a listing.
+        """Read review threads: what is new, selected threads in full, or a listing.
 
-        The listing cuts each request to its opening and keeps the newest ``limit``
-        threads, counting the rest in ``older``; narrow with status, unanswered or
-        since rather than raising the limit. It carries each thread's rev, so a reply
-        needs no read first. last_human_at is null for a thread an agent opened.
-        status, unanswered, since and limit shape the listing only. ``save`` needs
-        ids; edit only the draft's Reply and Edit blocks.
+        ``new`` answers a Call agent in one step: the reviewer's words written since this
+        answered last, thread by thread, each with the rev a write quotes back. It reports
+        the moment it read ``from`` and the one it moved to, so a turn that went wrong is
+        taken again with since=<from>.
+
+        ``ids`` gives those threads whole, which is what to ask for when the conversation
+        is no longer in mind; with ``since`` it gives only the entries after that time.
+
+        Without either, a listing: each request cut to its opening, the newest ``limit``
+        threads with the rest counted in ``older``, narrowed by status, unanswered or
+        since. Times read and are written back as ``MM-DD HH:MM`` on this server's clock.
+        ``save`` needs ids; edit only the draft's Reply and Edit blocks.
         """
         _, watch_dir, store = _load_project()
+        try:
+            moment = parse_short_time(since) if since is not None else None
+        except ValueError as error:
+            return _err(str(error))
+
+        if new:
+            if ids is not None or save:
+                return _err("new answers on its own; it takes no ids and writes no draft")
+            previous = read_cursor(watch_dir)
+            # The cursor is the server's own note to itself, kept exact; only what it
+            # shows an agent is cut to the minute.
+            edge = moment
+            if edge is None and previous is not None:
+                edge = datetime.fromisoformat(previous)
+                if edge.tzinfo is None:
+                    edge = edge.replace(tzinfo=timezone.utc)
+            fresh, latest = [], previous
+            for comment in store.list():
+                said = [entry for entry in comment.thread
+                        if entry.author == "human" and _after(entry, edge)]
+                if not said:
+                    continue
+                told = {"id": comment.id, "rev": revision_of(comment.updated),
+                        "status": comment.status,
+                        "entries": [_agent_entry(entry) for entry in said]}
+                if comment.resolved_source is not None:
+                    source = comment.resolved_source
+                    told["source"] = f"{source.file}:{source.line_start}-{source.line_end}"
+                if comment.status == "open":
+                    from .server import read_anchored_source
+
+                    quote = read_anchored_source(watch_dir, comment)
+                    if quote is not None:
+                        told["quote"] = quote
+                fresh.append(told)
+                newest = max(entry.at for entry in said)
+                latest = newest if latest is None or newest > latest else latest
+            if latest is not None and latest != previous:
+                write_cursor(watch_dir, latest)
+            answer: dict[str, Any] = {"comments": fresh}
+            if previous is not None:
+                answer["from"] = short_time(previous)
+            if latest is not None:
+                answer["cursor"] = short_time(latest)
+            return _ok(answer)
+
         if ids is not None:
             if len(set(ids)) != len(ids):
                 return _err("ids must be unique")
@@ -408,25 +525,23 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                 comment = store.get(comment_id)
                 if comment is None:
                     return _err(f"comment not found: {comment_id}")
-                comments.append(_agent_comment_to_dict(comment, watch_dir))
+                told = _agent_comment_to_dict(comment, watch_dir)
+                if moment is not None:
+                    # Only what was said after that moment; the rest is already in mind.
+                    told.pop("comment", None)
+                    told["replies"] = [_agent_entry(entry) for entry in comment.thread
+                                       if _after(entry, moment)]
+                comments.append(told)
             return _ok({"comments": comments})
         if save:
             return _err("save needs the ids of the threads to write out")
-        if since is not None and since.tzinfo is None:
-            since = since.replace(tzinfo=timezone.utc)
         summaries = []
         for comment in store.list(status=None if status == "all" else status):
             if unanswered and comment.thread[-1].author != "human":
                 continue
             human = next((entry for entry in reversed(comment.thread) if entry.author == "human"), None)
-            if since is not None:
-                if human is None:
-                    continue
-                at = datetime.fromisoformat(human.at)
-                if at.tzinfo is None:
-                    at = at.replace(tzinfo=timezone.utc)
-                if at <= since:
-                    continue
+            if moment is not None and (human is None or not _after(human, moment)):
+                continue
             request = (human if human is not None else comment.thread[0]).text
             summaries.append({
                 "id": comment.id,
@@ -439,7 +554,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                 # to as much as it takes to recognise it.
                 "request": request[:REQUEST_PREVIEW] + "…" if len(request) > REQUEST_PREVIEW else request,
                 "thread_entries": len(comment.thread),
-                "last_human_at": human.at if human is not None else None,
+                "last_human_at": short_time(human.at) if human is not None else None,
             })
         # The newest threads, still in the order the paper reads in: a cap that dropped
         # them would hide exactly the requests the reviewer has just written.
@@ -758,7 +873,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             "how": (
                 _wait_method(ctx)
                 + " Start another copy only after the previous process has ended. "
-                "On [review], call read_comments(unanswered=True) and handle the review. "
+                "On [review], call read_comments(new=True) and handle the review. "
                 "[gone] means the review server is unreachable; the script keeps retrying. "
                 "[back] means it is reachable again."
             ),
