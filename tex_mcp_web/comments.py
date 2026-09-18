@@ -1233,8 +1233,9 @@ class CommentStore:
                 "a suggestion belongs to a thread the reviewer has written in; "
                 "open a comment and let them answer before proposing on it"
             )
-        if comment.stale:
-            raise ValueError("stale source anchor: reload the comment before suggesting")
+        # A detached anchor is not in the way: the pieces are found in the file, not in
+        # the range the comment was written against. A thread whose text moved is the one
+        # most likely to need a proposal, so it is where one has to be possible.
 
     def apply_suggestion(
         self,
