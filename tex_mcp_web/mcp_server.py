@@ -74,7 +74,7 @@ if HAS_MCP:
     class FragmentInput(_InputModel):
         """One piece of the comment's anchored text and what it becomes."""
 
-        old: Annotated[str, Field(min_length=1, description="Exact text from the comment's range; it must occur there once")]
+        old: Annotated[str, Field(min_length=1, description="Exact text from the file the comment sits in; it must occur there once")]
         new: str
 
 

@@ -550,6 +550,37 @@ async def test_two_pieces_touching_one_anchor_carry_it_across_together(client, p
 
 
 @pytest.mark.asyncio
+async def test_a_thread_whose_anchor_came_loose_can_still_be_proposed_on(client, project):
+    """Applying one proposal moves the text every other comment on that line was written
+    against, and those comments go stale. That is the moment a proposal is most needed,
+    so a loose anchor cannot bar one: the pieces are found in the file, not in the range
+    the comment was written against."""
+    tc, server = client
+    from tex_mcp_web.server import derive_suggestion
+
+    pointed = await (await tc.post("/comments", json={
+        "anchor": {"kind": "source_range", "file": "paper.tex", "line_start": 5,
+                   "line_end": 5, "column_start": 0, "column_end": 10},
+        "text": "이 표현 손봐줘"})).json()
+    (project / "paper.tex").write_text(
+        (project / "paper.tex").read_text(encoding="utf-8").replace("Some prose", "Rewritten"),
+        encoding="utf-8")
+    server.comments.refresh_source_anchors(project)
+    loose = server.comments.get(pointed["id"])
+    assert loose.stale
+
+    proposed = server.comments.suggest(
+        loose.id, loose.updated, "현재 문구 기준으로 다시 제안합니다",
+        lambda current: derive_suggestion(project, current, [("Rewritten", "Clearer")]))
+    assert proposed.suggestion.changes == [("Rewritten", "Clearer")]
+
+    response = await tc.post(f"/comments/{loose.id}/apply-suggestion",
+                             json={"updated": proposed.updated})
+    assert response.status == 200
+    assert "Clearer with \\cite{ref1}." in (project / "paper.tex").read_text(encoding="utf-8")
+
+
+@pytest.mark.asyncio
 async def test_a_suggestion_needs_a_thread_the_reviewer_wrote_in(client, project):
     """The agent opening its own card and proposing on it is what put proposals beside
     the reviewer's threads instead of in them."""
