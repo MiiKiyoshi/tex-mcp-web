@@ -389,9 +389,10 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
 
         The listing cuts each request to its opening and keeps the newest ``limit``
         threads, counting the rest in ``older``; narrow with status, unanswered or
-        since rather than raising the limit. last_human_at is null for a thread an
-        agent opened. status, unanswered, since and limit shape the listing only.
-        ``save`` needs ids; edit only the draft's Reply and Edit blocks.
+        since rather than raising the limit. It carries each thread's rev, so a reply
+        needs no read first. last_human_at is null for a thread an agent opened.
+        status, unanswered, since and limit shape the listing only. ``save`` needs
+        ids; edit only the draft's Reply and Edit blocks.
         """
         _, watch_dir, store = _load_project()
         if ids is not None:
@@ -429,6 +430,9 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             request = (human if human is not None else comment.thread[0]).text
             summaries.append({
                 "id": comment.id,
+                # The token a write quotes back. Without it here, answering a thread costs
+                # a full read of it first, and a thread grows.
+                "rev": revision_of(comment.updated),
                 "status": comment.status,
                 "kind": comment.anchor.kind,
                 # A listing is for picking which threads to open, so each request is cut
