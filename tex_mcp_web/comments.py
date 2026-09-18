@@ -357,39 +357,37 @@ Status = Literal["open", "resolved", "archived"]
 
 @dataclass
 class SuggestedEdit:
-    """A concrete rewrite proposed alongside a comment.
+    """The rewrite a thread currently proposes: the pieces of one file it changes.
 
-    When a reviewer says "rephrase this to be tighter," it's much faster
-    for the agent to read a structured ``{old, new}`` than to parse the
-    intent out of prose.  ``old`` should be a verbatim slice of the
-    rendered text or source the comment anchors to; ``new`` is the
-    proposed replacement.
+    Each ``old`` is a verbatim piece of *file* that occurs there exactly once, and
+    ``new`` is what it becomes.  Nothing that stays the same is carried, so a proposal
+    that touches three words costs three words rather than the paragraph twice.
 
-    The agent can either apply the suggestion verbatim, modify it, or
-    discuss it via ``reply``.  Reviewer application succeeds only when
-    ``old`` still exactly occupies the anchored source range.
+    A thread holds at most one of these. Proposing again replaces it, so reading a
+    thread never costs the proposals it used to carry, and applying it clears it.
     """
 
-    old: str
-    new: str
+    file: str
+    changes: list[tuple[str, str]]
 
-    def to_dict(self) -> dict[str, str]:
-        return {"old": self.old, "new": self.new}
+    def to_dict(self) -> dict[str, Any]:
+        return {"file": self.file,
+                "changes": [{"old": old, "new": new} for old, new in self.changes]}
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "SuggestedEdit":
-        return cls(old=str(d["old"]), new=str(d["new"]))
+        return cls(file=str(d["file"]),
+                   changes=[(str(c["old"]), str(c["new"])) for c in d["changes"]])
 
 
-def swap_fragments(text: str, edits: list[tuple[str, str]]) -> str:
-    """Rewrite *text* by replacing each ``(from, to)`` fragment, all or none.
+def locate_fragments(text: str, edits: list[tuple[str, str]]) -> list[tuple[int, int, str]]:
+    """Find each ``(old, new)`` fragment in *text*, all or none, ordered by position.
 
-    The agent names what to change by quoting it, the way an editing tool does, so
-    it never has to count characters to reach a column.  Each ``from`` is searched
-    for in *text* alone, which is one comment's anchored range, so a short quote is
-    usually enough to be unique.  A fragment that is missing, that occurs more than
-    once, or that overlaps another one is refused with what the caller needs to fix
-    it in one retry.
+    The agent names what to change by quoting it, the way an editing tool does, so it
+    never has to count characters to reach a column. A fragment that is missing, that
+    occurs more than once, or that overlaps another one is refused with what the caller
+    needs to fix it in one retry: for an ambiguous one that is the lines it was found
+    on, so the quote can be extended on purpose rather than by guessing.
     """
     if not edits:
         raise ValueError("a suggestion needs at least one edit")
@@ -399,10 +397,11 @@ def swap_fragments(text: str, edits: list[tuple[str, str]]) -> str:
             raise ValueError("an edit must say which text to replace")
         found = _all_occurrences(text, old)
         if not found:
-            raise ValueError(f"not in the comment's range: {old!r}")
+            raise ValueError(f"not found in the source: {old!r}")
         if len(found) > 1:
+            lines = ", ".join(str(text.count("\n", 0, at) + 1) for at in found)
             raise ValueError(
-                f"{old!r} occurs {len(found)} times in the comment's range; "
+                f"{old!r} occurs {len(found)} times, on lines {lines}; "
                 "quote more of the surrounding text"
             )
         spans.append((found[0], found[0] + len(old), new))
@@ -410,6 +409,12 @@ def swap_fragments(text: str, edits: list[tuple[str, str]]) -> str:
     for (_, end, _), (start, _, _) in zip(spans, spans[1:]):
         if start < end:
             raise ValueError("two edits cover the same text")
+    return spans
+
+
+def swap_fragments(text: str, edits: list[tuple[str, str]]) -> str:
+    """Rewrite *text* by replacing each quoted fragment, all or none."""
+    spans = locate_fragments(text, edits)
     updated = text
     # Back to front, so an earlier swap cannot move a later one's offsets.
     for start, end, new in reversed(spans):
@@ -464,7 +469,6 @@ class Comment:
     # When the comment was last closed; None while it is open.
     resolved: str | None = None
     stale: bool = False
-    suggestion_applied: bool = False
 
     @property
     def text(self) -> str:
@@ -488,8 +492,6 @@ class Comment:
             d["source_selector"] = self.source_selector.to_dict()
         if self.suggestion is not None:
             d["suggestion"] = self.suggestion.to_dict()
-        if self.suggestion_applied:
-            d["suggestion_applied"] = True
         if self.stale:
             d["stale"] = True
         return d
@@ -520,7 +522,6 @@ class Comment:
             updated=str(d["updated"]),
             resolved=str(d["resolved"]) if "resolved" in d else None,
             stale=bool(d["stale"]) if "stale" in d else False,
-            suggestion_applied=bool(d.get("suggestion_applied", False)),
         )
 
 
@@ -879,7 +880,7 @@ def canonicalize_pdf_selection(
 # ---------------------------------------------------------------------------
 
 
-STORE_VERSION = 6
+STORE_VERSION = 7
 
 
 class CommentStore:
@@ -908,16 +909,21 @@ class CommentStore:
             self._assign_entry_ids()
 
     def _upgrade(self) -> None:
-        """Raise a store written by the previous version to STORE_VERSION, once, under
-        the lock. Version 5 called the archived status "reference"."""
+        """Raise a store written by an earlier version to STORE_VERSION, once, under the
+        lock. Version 5 called the archived status "reference"; version 6 held a
+        suggestion as one before/after pair, which version 7 replaced with the pieces it
+        changes. A pair cannot be read as pieces without the file it belongs to, and no
+        such proposal was ever applied, so version 6's are dropped rather than carried."""
         with self._locked():
             try:
                 data = json.loads(self.path.read_text(encoding="utf-8"))
-                if data["version"] != 5:
+                if data["version"] not in (5, 6):
                     return
                 for comment in data["comments"]:
-                    if comment["status"] == "reference":
+                    if data["version"] == 5 and comment["status"] == "reference":
                         comment["status"] = "archived"
+                    comment.pop("suggestion", None)
+                    comment.pop("suggestion_applied", None)
             except (OSError, ValueError, KeyError, TypeError):
                 return  # an unreadable store fails on its first operation, as before
             data["version"] = STORE_VERSION
@@ -1179,7 +1185,6 @@ class CommentStore:
                 now = _now()
                 comment.thread.append(ThreadEntry(author="agent", at=now, text=text.strip()))
                 comment.suggestion = suggestion
-                comment.suggestion_applied = False
                 comment.updated = now
                 comments[position] = comment
                 self._save(comments)
@@ -1208,7 +1213,6 @@ class CommentStore:
                 now = _now()
                 comment.thread.append(ThreadEntry(author="agent", at=now, text=text.strip()))
                 comment.suggestion = None
-                comment.suggestion_applied = False
                 comment.updated = now
                 comments[position] = comment
                 self._save(comments)
@@ -1224,6 +1228,11 @@ class CommentStore:
             raise ValueError("a suggestion belongs to a comment that is open")
         if not isinstance(comment.anchor, SourceRangeAnchor):
             raise ValueError("a suggestion needs a comment anchored to source")
+        if not any(entry.author == "human" for entry in comment.thread):
+            raise ValueError(
+                "a suggestion belongs to a thread the reviewer has written in; "
+                "open a comment and let them answer before proposing on it"
+            )
         if comment.stale:
             raise ValueError("stale source anchor: reload the comment before suggesting")
 
@@ -1231,47 +1240,32 @@ class CommentStore:
         self,
         comment_id: str,
         expected_updated: str,
-        replace_source: Callable[
-            [Comment], tuple[str, ResolvedSource, SourceSelector]
-        ],
+        write_to_source: Callable[[Comment], list[str]],
     ) -> Comment:
-        """Apply one current source suggestion and record it in its open thread."""
+        """Write a thread's proposal into the source and take it off the thread.
+
+        *write_to_source* performs the edit and names the ranges it changed. The
+        proposal is cleared because it is no longer a proposal: what it asked for is
+        in the file, and the entry it leaves says where.
+        """
         with self._locked():
             comments = self._all()
             for position, comment in enumerate(comments):
                 if comment.id != comment_id:
                     continue
-                if comment.suggestion_applied:
-                    raise ValueError("suggestion already applied")
                 if comment.updated != expected_updated:
                     raise ValueError("stale thread: comment changed since it was read")
                 if comment.status != "open":
                     raise ValueError("suggestion belongs to a comment that is not open")
-                if not isinstance(comment.anchor, SourceRangeAnchor):
-                    raise ValueError("suggestion is not anchored to a source range")
-                if (
-                    comment.suggestion is None
-                    or not comment.suggestion.old
-                    or not comment.suggestion.new
-                ):
-                    raise ValueError("suggestion must include complete old and new text")
-                if comment.stale:
-                    raise ValueError("stale source anchor: reload the comment before applying")
+                if comment.suggestion is None:
+                    raise ValueError("the comment carries no suggestion")
 
-                edit, resolved, selector = replace_source(comment)
+                edits = write_to_source(comment)
                 now = _now()
                 comment.thread.append(
-                    ThreadEntry(
-                        author="human",
-                        at=now,
-                        text="Applied suggestion.",
-                        edits=[edit],
-                    )
+                    ThreadEntry(author="human", at=now, text="Applied suggestion.", edits=edits)
                 )
-                comment.resolved_source = resolved
-                comment.source_selector = selector
-                comment.suggestion_applied = True
-                comment.stale = False
+                comment.suggestion = None
                 comment.updated = now
                 comments[position] = comment
                 self._save(comments)

@@ -45,8 +45,8 @@ from .comments import (
     canonicalize_pdf_selection,
     locate_pdf_quote,
     pdf_digest,
+    locate_fragments,
     source_offset,
-    swap_fragments,
 )
 from .compiler import CompileResult, compile_tex, source_dependencies
 from .config import Config, get_main_file, get_watch_dir, write_auto_compile
@@ -125,8 +125,12 @@ def _clamp_dpi(value: str | int) -> int:
     return max(36, min(n, 600))
 
 
-def _suggestion_from_dict(d: Any) -> SuggestedEdit | None:
-    """Build a complete suggestion, omitting an explicitly empty pair."""
+def _suggestion_from_dict(d: Any, file: str | None) -> SuggestedEdit | None:
+    """Build the browser's one-piece proposal, omitting an explicitly empty pair.
+
+    The page offers a replacement for the text the reviewer selected, which is one
+    piece of the file their comment is anchored to.
+    """
     if d is None:
         return None
     if not isinstance(d, dict):
@@ -138,10 +142,11 @@ def _suggestion_from_dict(d: Any) -> SuggestedEdit | None:
         or not isinstance(d["new"], str)
     ):
         raise TypeError("suggestion old and new must be strings")
-    sugg = SuggestedEdit.from_dict(d)
-    if not sugg.old and not sugg.new:
+    if not d["old"] and not d["new"]:
         return None
-    return sugg
+    if file is None:
+        raise TypeError("a suggestion needs a comment anchored to source")
+    return SuggestedEdit(file=file, changes=[(d["old"], d["new"])])
 
 
 def derive_suggestion(
@@ -149,17 +154,34 @@ def derive_suggestion(
 ) -> SuggestedEdit:
     """Build a suggestion from fragments the agent quoted out of the anchored source.
 
-    The agent never sends the text it is replacing.  ``old`` is what the file holds at
-    the anchored range right now and ``new`` is that same text with each quoted
-    fragment swapped, so the pair the reviewer applies is always measured against the
-    file rather than against what the agent remembered of it.
+    The agent sends only what changes. Each piece is checked against the file now, so
+    what the reviewer is offered is measured against the source rather than against
+    what the agent remembered of it.
     """
-    old = read_anchored_source(watch_dir, comment)
-    if old is None:
-        raise ValueError("the comment's anchored source cannot be read")
-    if comment.source_selector is not None and comment.source_selector.exact != old:
-        raise ValueError("source changed: reload the comment before suggesting")
-    return SuggestedEdit(old=old, new=swap_fragments(old, edits))
+    source = comment.resolved_source
+    if source is None:
+        raise ValueError("the comment has no resolved source range")
+    try:
+        text = (watch_dir / source.file).read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as error:
+        raise ValueError(f"source cannot be read: {source.file}") from error
+    # Each piece has to be findable in the file the comment sits in. The comment's own
+    # range says which thread this belongs to, not how far the rewrite may reach: a
+    # reviewer underlines a phrase to point at something, and what it asks for is
+    # regularly wider than what they underlined.
+    locate_fragments(text, edits)
+    if all(old == new for old, new in edits):
+        raise ValueError("the edits leave the source as it is")
+    return SuggestedEdit(file=source.file, changes=list(edits))
+
+
+def _carry_across(position: int, spans: list[tuple[int, int, str]]) -> int:
+    """Where *position* lands once every span before it has been replaced."""
+    delta = 0
+    for start, end, replacement in spans:
+        if end <= position:
+            delta += len(replacement) - (end - start)
+    return position + delta
 
 
 def read_anchored_source(watch_dir: Path, comment: Comment) -> str | None:
@@ -207,19 +229,6 @@ def _resolved_source_span(text: str, source: ResolvedSource) -> tuple[int, int]:
     if end <= start:
         raise ValueError("Source range is empty or out of bounds")
     return start, end
-
-
-def _exact_matches(text: str, needle: str) -> list[int]:
-    """Return every overlapping exact occurrence of a nonempty string."""
-    positions: list[int] = []
-    offset = 0
-    while needle:
-        found = text.find(needle, offset)
-        if found < 0:
-            break
-        positions.append(found)
-        offset = found + 1
-    return positions
 
 
 def _parse_bbox(spec: str) -> tuple[float, float, float, float]:
@@ -856,7 +865,8 @@ class TexMcpWebServer:
         try:
             anchor = anchor_from_dict(anchor_d)
             suggestion = _suggestion_from_dict(
-                data["suggestion"] if "suggestion" in data else None
+                data["suggestion"] if "suggestion" in data else None,
+                anchor.file if isinstance(anchor, SourceRangeAnchor) else None,
             )
         except (ValueError, KeyError, TypeError) as exc:
             return web.json_response(
@@ -996,59 +1006,62 @@ class TexMcpWebServer:
         except (IndexError, ValueError) as error:
             return web.json_response({"error": str(error)}, status=400)
 
-    def _replace_comment_suggestion(
-        self, comment: Comment
-    ) -> tuple[str, ResolvedSource, SourceSelector]:
-        anchor = comment.anchor
-        source = comment.resolved_source
+    def _write_comment_suggestion(self, comment: Comment) -> list[str]:
+        """Write a thread's proposal into its file and name the lines it changed.
+
+        Each piece is looked for again here, so a source that moved under the proposal
+        refuses it instead of writing something the reviewer did not see.
+        """
         suggestion = comment.suggestion
-        if not isinstance(anchor, SourceRangeAnchor) or source is None or suggestion is None:
-            raise ValueError("suggestion has no current source range")
-        if source.file != anchor.file:
-            raise ValueError("source anchor file is inconsistent")
+        if suggestion is None:
+            raise ValueError("the comment carries no suggestion")
 
-        path = self._resolve_source_path(source.file)
+        path = self._resolve_source_path(suggestion.file)
         text, _ = self._read_source(path)
-        try:
-            start, end = _resolved_source_span(text, source)
-        except (UnicodeError, ValueError) as error:
-            raise ValueError("source changed: anchored range is out of bounds") from error
+        spans = locate_fragments(text, suggestion.changes)
+        updated_text = text
+        # Back to front, so an earlier swap cannot move a later one's offsets.
+        for start, end, replacement in reversed(spans):
+            updated_text = updated_text[:start] + replacement + updated_text[end:]
+        if updated_text == text:
+            raise ValueError("the suggestion leaves the source as it is")
 
-        matches = _exact_matches(text, suggestion.old)
-        if len(matches) > 1:
-            raise ValueError("ambiguous source: suggestion.old occurs more than once")
-        if not matches:
-            raise ValueError("source changed: suggestion.old no longer matches")
-        match = matches[0]
-        match_end = match + len(suggestion.old)
-        if (match, match_end) != (start, end):
-            if match_end <= start or match >= end:
-                raise ValueError("suggestion.old matches outside the anchored range")
-            raise ValueError(
-                "source changed: suggestion.old does not exactly match the anchored range"
-            )
-        if text[start:end] != suggestion.old:
-            raise ValueError("source changed: anchored text no longer matches suggestion.old")
+        # The comment is anchored to text this edit may have just rewritten. Carrying its
+        # range across the edit keeps it attached; leaving it would mark the reviewer's
+        # own comment stale the moment they accepted what it asked for.
+        source = comment.resolved_source
+        if source is not None and source.file == suggestion.file:
+            try:
+                start, end = _resolved_source_span(text, source)
+            except (UnicodeError, ValueError):
+                start = end = None
+            if start is not None:
+                # A piece that swallowed the anchored text leaves no offset to shift to,
+                # so the anchor takes in what replaced it.
+                swallowed = [s for s in spans if s[0] < end and s[1] > start]
+                low = min([start] + [s[0] for s in swallowed])
+                high = max([end] + [s[1] for s in swallowed])
+                moved_start, moved_end = _carry_across(low, spans), _carry_across(high, spans)
+                line_start, column_start = _source_coordinate(updated_text, moved_start)
+                line_end, column_end = _source_coordinate(updated_text, moved_end)
+                comment.resolved_source = ResolvedSource(
+                    file=source.file,
+                    line_start=line_start, line_end=line_end,
+                    column_start=column_start, column_end=column_end,
+                )
+                comment.source_selector = SourceSelector(
+                    exact=updated_text[moved_start:moved_end],
+                    prefix=updated_text[max(0, moved_start - 80):moved_start],
+                    suffix=updated_text[moved_end:moved_end + 80],
+                )
+                comment.stale = False
 
-        updated_text = text[:start] + suggestion.new + text[end:]
-        new_end = start + len(suggestion.new)
-        line_start, column_start = _source_coordinate(updated_text, start)
-        line_end, column_end = _source_coordinate(updated_text, new_end)
-        updated_source = ResolvedSource(
-            file=source.file,
-            line_start=line_start,
-            line_end=line_end,
-            column_start=column_start,
-            column_end=column_end,
-        )
-        selector = SourceSelector(
-            exact=suggestion.new,
-            prefix=updated_text[max(0, start - 80):start],
-            suffix=updated_text[new_end:new_end + 80],
-        )
         self._replace_source(path, updated_text.encode("utf-8"))
-        edit = f"{source.file}:{line_start}-{line_end}"
-        return edit, updated_source, selector
+        return [
+            f"{suggestion.file}:{text.count(chr(10), 0, start) + 1}"
+            f"-{text.count(chr(10), 0, end) + 1}"
+            for start, end, _ in spans
+        ]
 
     async def _handle_apply_suggestion(self, request: web.Request) -> web.Response:
         cid = request.match_info["id"]
@@ -1065,7 +1078,7 @@ class TexMcpWebServer:
             updated = self.comments.apply_suggestion(
                 cid,
                 data["updated"],
-                self._replace_comment_suggestion,
+                self._write_comment_suggestion,
             )
         except KeyError:
             return web.json_response({"error": f"no comment {cid}"}, status=404)
@@ -1076,6 +1089,10 @@ class TexMcpWebServer:
                 {"error": "source changed while the suggestion was being applied"},
                 status=409,
             )
+        # The file just changed under every anchor in it. Reattaching here rather than
+        # waiting for the watcher keeps the next read from quoting a moved range.
+        self.comments.refresh_source_anchors(self.watch_dir)
+        updated = self.comments.get(cid) or updated
         await self.broadcast({"type": "comment_updated", "comment": _comment_to_dict(updated)})
         return web.json_response(_comment_to_dict(updated))
 
