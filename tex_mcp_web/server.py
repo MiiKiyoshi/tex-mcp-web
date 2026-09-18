@@ -346,7 +346,7 @@ class TexMcpWebServer:
         app.router.add_post(r"/comments/{id}/reply", self._handle_reply_comment)
         app.router.add_post(r"/comments/{id}/resolve", self._handle_resolve_comment)
         app.router.add_post(r"/comments/{id}/reopen", self._handle_reopen_comment)
-        app.router.add_post(r"/comments/{id}/reference", self._handle_reference_comment)
+        app.router.add_post(r"/comments/{id}/archive", self._handle_archive_comment)
         app.router.add_post(r"/comments/{id}/edit", self._handle_edit_comment_entry)
         app.router.add_delete(r"/comments/{id}", self._handle_delete_comment)
         app.router.add_get("/synctex/source-to-pdf", self._handle_synctex_forward)
@@ -752,7 +752,7 @@ class TexMcpWebServer:
         return {
             "open": len(open_comments),
             "resolved": len(self.comments.list(status="resolved")),
-            "reference": len(self.comments.list(status="reference")),
+            "archived": len(self.comments.list(status="archived")),
             "stale": sum(1 for c in open_comments if c.stale),
         }
 
@@ -788,7 +788,7 @@ class TexMcpWebServer:
 
     async def _handle_list_comments(self, request: web.Request) -> web.Response:
         status = request.query.get("status")
-        if status not in ("open", "resolved", "reference"):
+        if status not in ("open", "resolved", "archived"):
             status = None  # type: ignore[assignment]
         comments = self.comments.list(status=status)  # type: ignore[arg-type]
         return web.json_response(
@@ -1086,11 +1086,11 @@ class TexMcpWebServer:
             acknowledge_only=True,
         )
 
-    async def _handle_reference_comment(self, request: web.Request) -> web.Response:
+    async def _handle_archive_comment(self, request: web.Request) -> web.Response:
         cid = request.match_info["id"]
         return await self._mutate_comment(
             cid,
-            lambda: self.comments.keep_as_reference(cid, author="human"),
+            lambda: self.comments.archive(cid, author="human"),
             acknowledge_only=True,
         )
 

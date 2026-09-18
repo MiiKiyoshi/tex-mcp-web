@@ -473,20 +473,43 @@ def test_character_selector_rejects_half_surrogate(tmp_path):
     assert capture_source_selector(path, 1, 1, column_start=2, column_end=3) is None
 
 
-def test_a_thread_kept_as_reference_stays_readable_and_comes_back(store: CommentStore):
-    """Reference is a third status beside open and resolved, for a thread worth reading
+def test_a_version_5_store_is_raised_and_its_reference_threads_become_archived(tmp_path: Path):
+    """The status was called "reference" through version 5. Opening such a store rewrites
+    it once, so threads set aside before the rename stay listed under the new name."""
+    path = tmp_path / "comments.json"
+    path.write_text(json.dumps({"version": 5, "comments": [
+        {"id": "c-1", "anchor": {"kind": "paper"}, "status": "reference",
+         "thread": [{"id": "e-1", "author": "human", "at": "2026-01-01T00:00:00+00:00", "text": "set aside"}],
+         "created": "2026-01-01T00:00:00+00:00", "updated": "2026-01-01T00:00:00+00:00"},
+        {"id": "c-2", "anchor": {"kind": "paper"}, "status": "open",
+         "thread": [{"id": "e-2", "author": "human", "at": "2026-01-01T00:00:00+00:00", "text": "still open"}],
+         "created": "2026-01-01T00:00:00+00:00", "updated": "2026-01-01T00:00:00+00:00"},
+    ]}), encoding="utf-8")
+
+    store = CommentStore(path)
+    assert json.loads(path.read_text(encoding="utf-8"))["version"] == 6
+    assert [c.id for c in store.list(status="archived")] == ["c-1"]
+    assert [c.id for c in store.list(status="open")] == ["c-2"]
+    assert store.get("c-1").thread[0].text == "set aside"   # the rewrite left the thread alone
+
+    CommentStore(path)                                      # opening again changes nothing
+    assert json.loads(path.read_text(encoding="utf-8"))["version"] == 6
+
+
+def test_an_archived_thread_stays_readable_and_comes_back(store: CommentStore):
+    """Archived is a third status beside open and resolved, for a thread worth reading
     again: it takes replies without changing, and goes back to either with one flip."""
     comment = store.add(PaperAnchor(), "keep this reasoning")
-    kept = store.keep_as_reference(comment.id)
-    assert kept.status == "reference" and kept.resolved is None
+    kept = store.archive(comment.id)
+    assert kept.status == "archived" and kept.resolved is None
     assert len(kept.thread) == 1                      # a status flip adds no entry
-    assert [c.id for c in store.list(status="reference")] == [comment.id]
+    assert [c.id for c in store.list(status="archived")] == [comment.id]
     assert store.list(status="open") == [] and store.list(status="resolved") == []
 
     replied = store.reply(comment.id, "one more thought", author="agent")
-    assert replied.status == "reference" and len(replied.thread) == 2
+    assert replied.status == "archived" and len(replied.thread) == 2
     assert store.resolve(comment.id, summary="").status == "resolved"
-    assert store.keep_as_reference(comment.id).resolved is None      # resolved -> reference
+    assert store.archive(comment.id).resolved is None      # resolved -> archived
     assert store.reopen(comment.id).status == "open"
     assert len(store.get(comment.id).thread) == 2      # the flips left the thread alone
-    assert "reference" not in json.dumps(CommentStore(store.path).get(comment.id).to_dict()["status"])
+    assert "archived" not in json.dumps(CommentStore(store.path).get(comment.id).to_dict()["status"])

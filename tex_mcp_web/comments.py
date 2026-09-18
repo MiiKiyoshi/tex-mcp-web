@@ -348,11 +348,11 @@ class SourceSelector:
 
 
 Author = Literal["human", "agent"]
-# A thread is open, resolved, or kept as reference: a thread worth reading again after
+# A thread is open, resolved, or archived: a thread worth reading again after
 # the work it asked for is done, or instead of it, listed on its own. A dismissed state
 # once closed a thread without acting on it; a comment not worth acting on is resolved
 # or deleted like any other.
-Status = Literal["open", "resolved", "reference"]
+Status = Literal["open", "resolved", "archived"]
 
 
 @dataclass
@@ -841,7 +841,7 @@ def canonicalize_pdf_selection(
 # ---------------------------------------------------------------------------
 
 
-STORE_VERSION = 5
+STORE_VERSION = 6
 
 
 class CommentStore:
@@ -866,7 +866,24 @@ class CommentStore:
         if not self.path.exists():
             self._write({"version": STORE_VERSION, "comments": []})
         else:
+            self._upgrade()
             self._assign_entry_ids()
+
+    def _upgrade(self) -> None:
+        """Raise a store written by the previous version to STORE_VERSION, once, under
+        the lock. Version 5 called the archived status "reference"."""
+        with self._locked():
+            try:
+                data = json.loads(self.path.read_text(encoding="utf-8"))
+                if data["version"] != 5:
+                    return
+                for comment in data["comments"]:
+                    if comment["status"] == "reference":
+                        comment["status"] = "archived"
+            except (OSError, ValueError, KeyError, TypeError):
+                return  # an unreadable store fails on its first operation, as before
+            data["version"] = STORE_VERSION
+            self._write(data)
 
     def _assign_entry_ids(self) -> None:
         """Give entries written before they carried ids their ids, once, under the lock:
@@ -1164,9 +1181,9 @@ class CommentStore:
         """Reopen a closed comment: the status flips, the thread stays as it is."""
         return self._append_entry(comment_id, author, "", new_status="open")
 
-    def keep_as_reference(self, comment_id: str, author: Author = "human") -> Comment:
+    def archive(self, comment_id: str, author: Author = "human") -> Comment:
         """Set the thread aside to be read again; its entries stay as they are."""
-        return self._append_entry(comment_id, author, "", new_status="reference")
+        return self._append_entry(comment_id, author, "", new_status="archived")
 
     def edit_entry(
         self,
