@@ -58,16 +58,16 @@ if HAS_MCP:
     class SourceRangeAnchorInput(_InputModel):
         kind: Literal["source_range"]
         file: Annotated[str, Field(min_length=1)]
-        line_start: Annotated[int, Field(ge=1)]
-        line_end: Annotated[int, Field(ge=1)]
+        start: Annotated[int, Field(ge=1, description="First line, counting from 1")]
+        end: Annotated[int, Field(ge=1, description="Last line, included")]
 
         # Whole lines only. Counting characters to a column is what a model cannot do
         # reliably, and nothing needs it any more: a rewrite inside these lines is
         # proposed by quoting the text it replaces.
         @model_validator(mode="after")
         def validate_range(self):
-            if self.line_end < self.line_start:
-                raise ValueError("line_end must be at least line_start")
+            if self.end < self.start:
+                raise ValueError("end must be at least start")
             return self
 
 
@@ -247,13 +247,14 @@ def _comment_add(
 
     if kind == "source_range":
         file = anchor_data["file"]
-        ls = int(anchor_data["line_start"])
-        le = int(anchor_data["line_end"])
-        columns = {key: anchor_data[key] for key in ("column_start", "column_end") if key in anchor_data}
-        source_selector = capture_source_selector(watch_dir / file, ls, le, **columns)
+        ls = int(anchor_data.pop("start"))
+        le = int(anchor_data.pop("end"))
+        # The store spells a range line_start/line_end; the tool asks for it once.
+        anchor_data["line_start"], anchor_data["line_end"] = ls, le
+        source_selector = capture_source_selector(watch_dir / file, ls, le)
         if source_selector is None:
             return _err("source_range does not identify readable source lines")
-        resolved = ResolvedSource(file=file, line_start=ls, line_end=le, **columns)
+        resolved = ResolvedSource(file=file, line_start=ls, line_end=le)
     elif kind == "section":
         resolved = resolve_section_to_source(
             parse_structure(watch_dir, get_main_file(cfg)),
@@ -462,13 +463,13 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         anchor: CommentAnchorInput | None = None,
         edits: list[str] | None = None,
         changes: list[FragmentInput] | None = None,
-        replies_file: str | None = None,
+        draft: str | None = None,
         entry: str | None = None,
         updated: str | None = None,
     ) -> str:
         """Mutate a comment.
 
-        ``add`` requires text and anchor; ``reply`` requires id/text or a saved draft's replies_file, exclusively;
+        ``add`` requires text and anchor; ``reply`` requires id/text or a saved draft, exclusively;
         ``suggest`` proposes a rewrite inside one comment's own range: id, text, changes
         (each ``old`` quoted from that range, as an editing tool takes it, never line or
         column numbers) and updated. It replaces whatever the comment proposed before and
@@ -485,10 +486,10 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         """
         cfg, watch_dir, store = _load_project()
         try:
-            if replies_file is not None:
+            if draft is not None:
                 if action != "reply" or any(value is not None for value in (id, text, anchor, changes)):
-                    return _err("replies_file requires reply and excludes inline comment fields")
-                updated = store.reply_file(replies_file, edits=edits)
+                    return _err("draft requires reply and excludes inline comment fields")
+                updated = store.reply_file(draft, edits=edits)
                 return _ok({"updated": [{"id": c.id, "status": c.status, "updated": c.updated} for c in updated]})
             if action == "add":
                 return _comment_add(store, cfg, watch_dir, text, anchor)
@@ -543,14 +544,14 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         source: Annotated[
             str, Field(pattern=r"^.+:\d+(?:-\d+)?$")
         ] | None = None,
-        comment_id: str | None = None,
+        comment: str | None = None,
         dpi: int = 150,
         margin: Annotated[float, Field(ge=0)] = 12.0,
     ) -> list[ImageContent | TextContent]:
         """Render one PDF target as PNG.
 
         Choose exactly one of page (with optional bbox),
-        source="file.tex:lstart-lend", or comment_id. Margin expands an exact
+        source="file.tex:lstart-lend", or comment. Margin expands an exact
         bbox only while rendering. A multi-page source range renders the page
         with the most SyncTeX matches. The metadata reports any grayscale or
         DPI reduction applied to fit the response size limit.
@@ -586,7 +587,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                 page=page,
                 bbox=parsed_bbox,
                 source=parsed_source,
-                comment_id=comment_id,
+                comment_id=comment,
                 watch_dir=watch_dir,
             )
             def render(dpi_val: int, gray_val: bool) -> bytes:
