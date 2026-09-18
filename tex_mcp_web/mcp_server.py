@@ -802,8 +802,13 @@ def main(start_dir: Path | None = None) -> None:
     """Run the MCP server with stdio transport, serving the viewer alongside."""
     _check_deps()
     binding = ProjectBinding(Path.cwd() if start_dir is None else start_dir)
+    # Only read the configuration here. Starting the review server walks the paper's
+    # sources and stats hundreds of paths, which is quick against a warm filesystem and
+    # slow against a cold one; doing it now would put that wait in front of the client's
+    # handshake and lose the connection to a timeout. The first tool call that needs the
+    # server starts it.
     try:
-        binding.connect()
+        binding.describe()
     except ProjectSetupError as error:
         print(f"tex-mcp-web project is not ready: {error}", file=sys.stderr)
     mcp = create_server(binding)

@@ -24,7 +24,9 @@ class ProjectSetupError(RuntimeError):
 class SharedProjectServer:
     """One MCP process serves; peers using the same project share its listener."""
 
-    START_TIMEOUT = 10
+    # The start reads the paper's sources; against a cold filesystem that is seconds,
+    # and nothing waits on it any more except the tool call that asked for it.
+    START_TIMEOUT = 30
 
     def __init__(self, config: Config):
         if config.config_path is None:
@@ -162,6 +164,21 @@ class ProjectBinding:
         self.start_dir = start_dir.resolve()
         self._lock = threading.Lock()
         self._shared: SharedProjectServer | None = None
+
+    def describe(self) -> Path | None:
+        """Read the project's configuration without starting anything.
+
+        Enough to say at startup that a paper is misconfigured, and no more: the server
+        it would serve is started by the first tool call that needs one.
+        """
+        config_path = find_config(self.start_dir)
+        if config_path is None:
+            return None
+        try:
+            load_config(config_path)
+        except (OSError, TypeError, ValueError, yaml.YAMLError) as error:
+            raise ProjectSetupError(config_path, error) from error
+        return config_path
 
     def connect(self) -> SharedProjectServer | None:
         with self._lock:
