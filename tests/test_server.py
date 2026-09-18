@@ -1145,7 +1145,7 @@ async def test_mcp_comment_and_section_runtime_contract(bound_project, project):
 
     anchored = await call_comment(
         action="add", text="이 문장을 바꾸세요",
-        anchor={"kind": "source_range", "file": "paper.tex", "line_start": 5, "line_end": 5},
+        anchor={"kind": "source_range", "file": "paper.tex", "start": 5, "end": 5},
     )
     read_back = await reread(anchored["id"])
     # The anchored text comes back, so fragments are quoted from what the file holds now.
@@ -1754,7 +1754,7 @@ async def test_stdio_source_and_reply_use_explicit_detail_reads(project):
                 return json.loads(result.content[0].text)
             receipt = await call("write_comments", {"action": "add", "text": "Clarify this word",
                 "anchor": {"kind": "source_range", "file": "paper.tex",
-                           "line_start": 5, "line_end": 5}})
+                           "start": 5, "end": 5}})
             assert set(receipt) == {"id", "status", "updated"}
             reply = await call("write_comments", {"action": "reply", "id": receipt["id"],
                 "text": "A detailed explanation. " * 50, "edits": ["paper.tex:5"]})
