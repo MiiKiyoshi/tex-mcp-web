@@ -497,6 +497,59 @@ async def test_a_proposal_may_reach_past_what_the_reviewer_underlined(client, pr
 
 
 @pytest.mark.asyncio
+async def test_the_page_refuses_an_empty_replacement_but_an_agent_may_remove_text(client, project):
+    """Clearing the replacement box is a slip; deleting a sentence on purpose is what a
+    reviewer sometimes asks for, and the agent says so in the reply beside it."""
+    tc, server = client
+    refused = await tc.post("/comments", json={
+        "anchor": {"kind": "source_range", "file": "paper.tex", "line_start": 5, "line_end": 5},
+        "text": "drop it", "suggestion": {"old": "Some prose", "new": ""}})
+    assert refused.status == 400
+    assert "replacement must not be empty" in (await refused.json())["error"]
+
+    from tex_mcp_web.server import derive_suggestion
+    asked = await (await tc.post("/comments", json={
+        "anchor": {"kind": "source_range", "file": "paper.tex", "line_start": 5, "line_end": 5},
+        "text": "이 인용은 빼주세요"})).json()
+    proposed = server.comments.suggest(
+        asked["id"], asked["updated"], "인용을 지웠습니다",
+        lambda current: derive_suggestion(project, current, [(" with \\cite{ref1}", "")]))
+    response = await tc.post(f"/comments/{asked['id']}/apply-suggestion",
+                             json={"updated": proposed.updated})
+    assert response.status == 200
+    assert "Some prose." in (project / "paper.tex").read_text(encoding="utf-8")
+
+
+@pytest.mark.asyncio
+async def test_two_pieces_touching_one_anchor_carry_it_across_together(client, project):
+    """One piece swallows what the reviewer underlined and another sits inside it. The
+    anchor has to come out pointing at the text that replaced both."""
+    tc, server = client
+    from tex_mcp_web.server import derive_suggestion
+
+    pointed = await (await tc.post("/comments", json={
+        "anchor": {"kind": "source_range", "file": "paper.tex", "line_start": 5,
+                   "line_end": 5, "column_start": 5, "column_end": 10},
+        "text": "이 부분"})).json()
+    assert pointed["source_selector"]["exact"] == "prose"
+
+    proposed = server.comments.suggest(
+        pointed["id"], pointed["updated"], "두 군데를 한 번에",
+        lambda current: derive_suggestion(project, current, [
+            ("Some prose with", "Clearer prose citing"),   # swallows the underline
+            ("\\section{Methods}", "\\section{Approach}"),  # further down the file
+        ]))
+    assert len(proposed.suggestion.changes) == 2
+
+    response = await tc.post(f"/comments/{pointed['id']}/apply-suggestion",
+                             json={"updated": proposed.updated})
+    assert response.status == 200
+    kept = server.comments.get(pointed["id"])
+    assert not kept.stale
+    assert kept.source_selector.exact == "Clearer prose citing"
+
+
+@pytest.mark.asyncio
 async def test_a_suggestion_needs_a_thread_the_reviewer_wrote_in(client, project):
     """The agent opening its own card and proposing on it is what put proposals beside
     the reviewer's threads instead of in them."""

@@ -144,6 +144,10 @@ def _suggestion_from_dict(d: Any, file: str | None) -> SuggestedEdit | None:
         raise TypeError("suggestion old and new must be strings")
     if not d["old"] and not d["new"]:
         return None
+    if not d["new"]:
+        # The page offers a replacement, and an empty box is a box nobody filled in.
+        # An agent that means to remove text says so through its own call.
+        raise TypeError("a replacement must not be empty")
     if file is None:
         raise TypeError("a suggestion needs a comment anchored to source")
     return SuggestedEdit(file=file, changes=[(d["old"], d["new"])])
