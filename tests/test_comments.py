@@ -80,11 +80,8 @@ def test_agent_comment_view_exposes_source_without_pdf_coordinates(store: Commen
     )
 
     view = _agent_comment_to_dict(comment, store.path.parent)
-    assert view["source"] == {
-        "file": "tex/intro.tex",
-        "line_start": 8,
-        "line_end": 10,
-    }
+    # The same spelling an edits entry uses, not an object saying the same thing.
+    assert view["source"] == "tex/intro.tex:8-10"
     assert "bbox" not in view
 
 

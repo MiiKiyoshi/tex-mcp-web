@@ -71,28 +71,17 @@ if HAS_MCP:
             return self
 
 
-    class AreaAnchorInput(_InputModel):
-        kind: Literal["area"]
-        page: Annotated[int, Field(ge=1)]
-        bbox: tuple[float, float, float, float]
-
-        @model_validator(mode="after")
-        def validate_bbox(self):
-            x1, y1, x2, y2 = self.bbox
-            if x2 <= x1 or y2 <= y1:
-                raise ValueError("bbox must have positive width and height")
-            return self
-
-
     class FragmentInput(_InputModel):
         """One piece of the comment's anchored text and what it becomes."""
 
-        old: Annotated[str, Field(min_length=1, description="Exact text to replace, quoted from the comment's range; it must occur there exactly once")]
-        new: Annotated[str, Field(description="What that text becomes")]
+        old: Annotated[str, Field(min_length=1, description="Exact text from the comment's range; it must occur there once")]
+        new: str
 
 
+    # No area anchor: a rectangle on a page is something the reviewer drags, and an
+    # agent has no way to arrive at PDF coordinates that mean anything.
     CommentAnchorInput = Annotated[
-        PaperAnchorInput | SectionAnchorInput | SourceRangeAnchorInput | AreaAnchorInput,
+        PaperAnchorInput | SectionAnchorInput | SourceRangeAnchorInput,
         Field(discriminator="kind"),
     ]
 
@@ -203,7 +192,10 @@ def _agent_comment_to_dict(comment, watch_dir: Path) -> dict[str, Any]:
         if anchor.label is not None:
             payload["label"] = anchor.label
     if comment.resolved_source is not None:
-        payload["source"] = comment.resolved_source.to_dict()
+        # The same "file:first-last" an edits entry names a changed range by, so one
+        # spelling covers both directions instead of an object here and a string there.
+        source = comment.resolved_source
+        payload["source"] = f"{source.file}:{source.line_start}-{source.line_end}"
     if len(comment.thread) > 1:
         # Only the agent's own entries can be rewritten, so only those carry the id to name them by.
         payload["replies"] = [
@@ -213,7 +205,10 @@ def _agent_comment_to_dict(comment, watch_dir: Path) -> dict[str, Any]:
     # The stamp a rewrite of an entry must quote; it moves with every change to the thread.
     payload["updated"] = comment.updated
     if comment.suggestion is not None:
-        payload["suggestion"] = comment.suggestion.to_dict()
+        # Only what the thread proposes. What it replaces is the quote above, and the
+        # stored pair the reviewer's Apply checks against the file is not the agent's
+        # to read back.
+        payload["suggestion"] = comment.suggestion.new
     if comment.stale:
         payload["stale"] = True
     return payload
@@ -229,13 +224,12 @@ def _comment_add(
     """Implementation of ``write_comments(action="add", ...)``.
 
     Source ranges and sections receive the same source selectors as browser
-    comments. Area anchors are tied to the current compiled PDF.
+    comments.
     """
     from .comments import (
         ResolvedSource,
         anchor_from_dict,
         capture_source_selector,
-        pdf_digest,
     )
     from .config import get_main_file
     from .server import (
@@ -267,11 +261,6 @@ def _comment_add(
             anchor_data["title"],
             anchor_data["label"] if "label" in anchor_data else None,
         )
-    elif kind == "area":
-        pdf_path = get_main_file(cfg).with_suffix(".pdf")
-        if not pdf_path.is_file():
-            return _err("area requires a compiled PDF")
-        anchor_data["pdf_digest"] = pdf_digest(pdf_path)
 
     a = anchor_from_dict(anchor_data)
 
@@ -374,12 +363,12 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
 
     @mcp.tool()
     async def read_comments(
-        ids: Annotated[list[str] | None, Field(description="Threads to read in full; without it a listing comes back instead.")] = None,
+        ids: list[str] | None = None,
         status: Literal["open", "resolved", "archived", "all"] = "open",
-        unanswered: Annotated[bool, Field(description="Only threads whose latest entry is human, including a new request after an agent reply.")] = False,
-        since: Annotated[datetime | None, Field(description="Only requests with last_human_at strictly after this ISO 8601 time; pass the largest last_human_at already handled. Times without an offset use UTC.")] = None,
-        limit: Annotated[int, Field(ge=1, le=200, description="How many of the newest threads to list; the older ones are counted in older.")] = 50,
-        save: Annotated[bool, Field(description="With ids, write the threads to a Markdown draft and return its path, hash and ids instead.")] = False,
+        unanswered: Annotated[bool, Field(description="Only threads whose latest entry is the human's.")] = False,
+        since: Annotated[datetime | None, Field(description="ISO 8601; only threads whose last human entry is later. No offset means UTC.")] = None,
+        limit: Annotated[int, Field(ge=1, le=200)] = 50,
+        save: bool = False,
     ) -> str:
         """Read review threads: with ids their whole conversation, without ids a listing.
 

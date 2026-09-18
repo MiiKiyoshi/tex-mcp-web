@@ -982,8 +982,9 @@ async def test_mcp_contract_is_typed_and_nonduplicative(tmp_path: Path):
     fragment = comment_schema["$defs"]["FragmentInput"]["properties"]
     assert set(fragment) == {"old", "new"} and fragment["old"]["minLength"] == 1
     anchor_schema = comment_schema["properties"]["anchor"]["anyOf"][0]
+    # No area: an agent has no way to arrive at PDF coordinates that mean anything.
     assert set(anchor_schema["discriminator"]["mapping"]) == {
-        "paper", "section", "source_range", "area"
+        "paper", "section", "source_range"
     }
     assert "author" not in comment_schema["properties"]
 
@@ -1083,7 +1084,7 @@ async def test_mcp_comment_discovery_reads_only_selected_history(bound_project, 
 
     details = (await call("read_comments", ids=[first.id]))["comments"]
     assert len(details) == 1
-    assert details[0]["source"] == {"file": "paper.tex", "line_start": 6, "line_end": 8}
+    assert details[0]["source"] == "paper.tex:6-8"
     assert [entry["text"] for entry in details[0]["replies"]] == [history, "Please check the boundary too"]
     assert "replies" not in (await call("read_comments", ids=[second.id]))["comments"][0]
     assert [c["id"] for c in (await call("read_comments", ids=[second.id, first.id]))["comments"]] == [second.id, first.id]
@@ -1158,10 +1159,8 @@ async def test_mcp_comment_and_section_runtime_contract(bound_project, project):
     )
     assert set(proposed) == {"id", "status", "updated"}
     detail = await reread(anchored["id"])
-    assert detail["suggestion"] == {
-        "old": "Some prose with \\cite{ref1}.",
-        "new": "Some tighter prose with \\cite{ref1}.",
-    }
+    # Only what is proposed; what it replaces is the quote the same read returned.
+    assert detail["suggestion"] == "Some tighter prose with \\cite{ref1}."
     assert [entry["text"] for entry in detail["replies"]] == ["인용 앞을 다듬었습니다"]
 
     # A second reading replaces the suggestion in place and leaves the conversation whole.
@@ -1170,7 +1169,7 @@ async def test_mcp_comment_and_section_runtime_contract(bound_project, project):
         changes=[{"old": "Some prose", "new": "Different prose"}],
     )
     detail = await reread(anchored["id"])
-    assert detail["suggestion"]["new"] == "Different prose with \\cite{ref1}."
+    assert detail["suggestion"] == "Different prose with \\cite{ref1}."
     assert [entry["text"] for entry in detail["replies"]] == ["인용 앞을 다듬었습니다", "2판입니다"]
 
     missing = await call_comment(
@@ -1766,7 +1765,7 @@ async def test_stdio_source_and_reply_use_explicit_detail_reads(project):
             assert located["file"] == "paper.tex"
             detail = (await call("read_comments", {"ids": [receipt["id"]]}))["comments"][0]
             assert detail["quote"] == "Some prose with \\cite{ref1}."
-            assert detail["source"] == {"file": "paper.tex", "line_start": 5, "line_end": 5}
+            assert detail["source"] == "paper.tex:5-5"
             assert detail["replies"][-1]["text"] == "A detailed explanation. " * 50
             # A listing and a full read now come from the one reading tool.
             listing = await call("read_comments", {})
