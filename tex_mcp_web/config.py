@@ -9,6 +9,20 @@ import yaml
 
 DEFAULT_PORT = 8765
 
+# The sources a paper is written in. A paper written in Markdown or plain text adds its
+# own kind; a LaTeX paper does not, because the notes and summaries that live beside it
+# are not its source and listing them as editable only gets in the reviewer's way.
+DEFAULT_WATCH = ("*.tex", "*.bib")
+
+
+def default_watch(main: str) -> list[str]:
+    """The watch patterns for a paper whose top-level source is *main*."""
+    patterns = list(DEFAULT_WATCH)
+    own = Path(main).suffix
+    if own and f"*{own}" not in patterns:
+        patterns.append(f"*{own}")
+    return patterns
+
 
 @dataclass
 class Config:
@@ -31,7 +45,7 @@ class Config:
 
     main: str
     dir: str | None = None
-    watch: list[str] = field(default_factory=lambda: ["*.tex", "*.bib", "*.md", "*.txt"])
+    watch: list[str] = field(default_factory=lambda: list(DEFAULT_WATCH))
     ignore: list[str] = field(default_factory=list)
     compiler: str = "auto"
     auto_compile: bool = False
@@ -48,7 +62,7 @@ class Config:
         return cls(
             main=data.get("main", "main.tex"),
             dir=data.get("dir"),
-            watch=data.get("watch", ["*.tex", "*.bib", "*.md", "*.txt"]),
+            watch=data.get("watch", default_watch(data["main"])),
             ignore=data.get("ignore", []),
             compiler=data.get("compiler", "auto"),
             auto_compile=data["auto_compile"],
@@ -147,7 +161,7 @@ def create_config(
 
     config_data = {
         "main": main,
-        "watch": watch or ["*.tex", "*.bib", "*.md", "*.txt"],
+        "watch": watch or default_watch(main),
         "ignore": ignore or ["*_backup.tex"],
         "compiler": compiler,
         "auto_compile": auto_compile,
