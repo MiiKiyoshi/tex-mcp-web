@@ -946,16 +946,17 @@ function renderCommentItem(comment) {
     else state.picked.delete(comment.id);
     renderPickedActions();
   });
+  const toggle = (event) => {
+    event.stopPropagation();
+    if (expanded) state.expanded.delete(comment.id);
+    else state.expanded.add(comment.id);
+    renderComments();
+    jumpToComment(comment.id);
+  };
   const head = h("div", {
     class: "cmt-head",
     title: expanded ? "collapse" : "expand thread",
-    onclick: (event) => {
-      event.stopPropagation();
-      if (expanded) state.expanded.delete(comment.id);
-      else state.expanded.add(comment.id);
-      renderComments();
-      jumpToComment(comment.id);
-    },
+    onclick: toggle,
   },
   box,
   h("span", {
@@ -972,9 +973,13 @@ function renderCommentItem(comment) {
     children.push(h("div", { class: "cmt-preview", text: comment.thread[0]?.text ?? "" }));
     // The request, then whatever was last said about it: a thread someone has answered
     // must not read like one nobody has touched, and who answered has to be visible.
+    // A long answer is cut to three lines here and opens in full on a click, so nothing
+    // it says is only half shown with no way to reach the rest.
     const latest = comment.thread[comment.thread.length - 1];
     if (comment.thread.length > 1) {
       children.push(h("div", { class: `cmt-latest author-${latest.author}`,
+                               title: "expand thread",
+                               onclick: toggle,
                                text: `${latest.author}  ${latest.text}` }));
     }
   }

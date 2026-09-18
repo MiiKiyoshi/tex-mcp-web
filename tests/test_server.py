@@ -1907,9 +1907,11 @@ async def test_list_comments_shows_an_opening_and_counts_the_rest(bound_project,
         return json.loads((await mcp.call_tool("list_comments", payload))[0][0].text)
 
     everything = await listed()
-    assert len(everything["comments"]) == 5 and "more" not in everything
+    assert len(everything["comments"]) == 5 and "older" not in everything
     assert everything["comments"][0]["request"] == "x" * REQUEST_PREVIEW + "…"
 
+    # The cap keeps the newest threads, which are the ones just written, and still reads
+    # in the order the paper does.
     capped = await listed(limit=2)
-    assert [c["request"] for c in capped["comments"]] == ["x" * REQUEST_PREVIEW + "…", "short 0"]
-    assert capped["more"] == 3
+    assert [c["request"] for c in capped["comments"]] == ["short 2", "short 3"]
+    assert capped["older"] == 3
