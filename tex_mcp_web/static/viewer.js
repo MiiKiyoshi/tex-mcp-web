@@ -1852,6 +1852,22 @@ function attachSidebarResize() {
     grip.addEventListener("pointerup", done);
     grip.addEventListener("pointercancel", done);
   });
+  // The keys move the bar as the split's do: up and down by a step, Home and End to the
+  // ends. A split stacked above keeps its bar where it is, as it does through a drag.
+  grip.addEventListener("keydown", (event) => {
+    if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const splitY = state.split.holdable() ? state.split.centerY() : null;
+    const current = $("#sidebar").getBoundingClientRect().height;
+    const height = setPanelHeight(event.key === "Home" ? Infinity : event.key === "End" ? 0
+      : current + (event.key === "ArrowUp" ? 40 : -40));
+    localStorage.setItem("texMcpPanelHeight", String(height));
+    if (splitY !== null) {
+      state.split.holdAt(splitY);
+      state.split.keep();
+    }
+    state.editor?.resize();
+  });
 }
 
 function attachSplitResize() {
