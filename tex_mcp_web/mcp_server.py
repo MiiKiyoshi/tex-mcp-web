@@ -6,7 +6,7 @@ Exposes tools to agents via stdio:
     list_comments(...)      latest requests without thread history
     read_comments(ids)      selected comment details
     compile()               recompile, return structured errors
-    comment(action, ...)    add/reply/delete
+    comment(action, ...)    add/reply/suggest/withdraw/edit/delete
     image(...)              render a PDF page or exact region
     section(name)           section source and file range
     listen()                instructions for receiving review events
@@ -127,11 +127,18 @@ def _load_project():
 
 
 def _err(message: str) -> str:
-    return json.dumps({"error": message})
+    # Non-ASCII stays as itself: an escaped message is longer and harder to read.
+    return json.dumps({"error": message}, ensure_ascii=False)
+
+
+# How much of a request a listing shows before it is cut.
+REQUEST_PREVIEW = 120
 
 
 def _ok(payload: Any) -> str:
-    return json.dumps(payload, indent=2, ensure_ascii=False)
+    # One line rather than indented: every byte here is read by a model, and indentation
+    # carries nothing a parser or a reader needs.
+    return json.dumps(payload, ensure_ascii=False)
 
 
 # In-process SyncTeX cache for the MCP server.  Each call to image
@@ -368,11 +375,14 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         status: Literal["open", "resolved", "archived", "all"] = "open",
         unanswered: Annotated[bool, Field(description="Only threads whose latest entry is human, including a new request after an agent reply.")] = False,
         since: Annotated[datetime | None, Field(description="Only requests with last_human_at strictly after this ISO 8601 time; pass the largest last_human_at already handled. Times without an offset use UTC.")] = None,
+        limit: Annotated[int, Field(ge=1, le=200, description="How many threads to return; the rest are counted in more.")] = 50,
     ) -> str:
         """List latest requests and thread sizes without source anchors or reply history.
 
-        Use read_comments for selected details. last_human_at is null for
-        threads created by an agent with no human entry.
+        Each request is cut to its opening; read_comments gives the whole thread.
+        last_human_at is null for threads created by an agent with no human entry.
+        ``more`` counts the threads past ``limit``: narrow with status, unanswered
+        or since rather than raising it.
         """
         _, _, store = _load_project()
         if since is not None and since.tzinfo is None:
@@ -390,15 +400,21 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                     at = at.replace(tzinfo=timezone.utc)
                 if at <= since:
                     continue
+            request = (human if human is not None else comment.thread[0]).text
             summaries.append({
                 "id": comment.id,
                 "status": comment.status,
                 "kind": comment.anchor.kind,
-                "request": (human if human is not None else comment.thread[0]).text,
+                # A listing is for picking which threads to open, so each request is cut
+                # to as much as it takes to recognise it.
+                "request": request[:REQUEST_PREVIEW] + "…" if len(request) > REQUEST_PREVIEW else request,
                 "thread_entries": len(comment.thread),
                 "last_human_at": human.at if human is not None else None,
             })
-        return _ok({"comments": summaries})
+        listed = {"comments": summaries[:limit]}
+        if len(summaries) > limit:
+            listed["more"] = len(summaries) - limit
+        return _ok(listed)
 
     @mcp.tool()
     async def read_comments(comment_ids: Annotated[list[str], Field(min_length=1)], save: bool = False) -> str:

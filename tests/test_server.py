@@ -1885,3 +1885,31 @@ async def test_a_replaced_suggestion_can_be_applied_again(client, project):
     assert [entry.text for entry in server.comments.get(comment["id"]).thread] == [
         "Use the suggested wording.", "Applied suggestion.", "tighter still", "Applied suggestion.",
     ]
+
+
+@pytest.mark.asyncio
+async def test_list_comments_shows_an_opening_and_counts_the_rest(bound_project, project):
+    """A listing is for picking which threads to open. A paper accumulates hundreds of
+    them, so it shows an opening of each request and says how many it left out rather
+    than returning every word of every thread."""
+    pytest.importorskip("mcp")
+    from tex_mcp_web.comments import CommentStore, PaperAnchor
+    from tex_mcp_web.mcp_server import REQUEST_PREVIEW, create_server
+
+    mcp = create_server(bound_project)
+    store = CommentStore(project / ".tex-mcp-web" / "comments.json")
+    long_request = "x" * (REQUEST_PREVIEW + 50)
+    store.add(PaperAnchor(), long_request)
+    for index in range(4):
+        store.add(PaperAnchor(), f"short {index}")
+
+    async def listed(**payload):
+        return json.loads((await mcp.call_tool("list_comments", payload))[0][0].text)
+
+    everything = await listed()
+    assert len(everything["comments"]) == 5 and "more" not in everything
+    assert everything["comments"][0]["request"] == "x" * REQUEST_PREVIEW + "…"
+
+    capped = await listed(limit=2)
+    assert [c["request"] for c in capped["comments"]] == ["x" * REQUEST_PREVIEW + "…", "short 0"]
+    assert capped["more"] == 3
