@@ -59,17 +59,14 @@ if HAS_MCP:
         file: Annotated[str, Field(min_length=1)]
         line_start: Annotated[int, Field(ge=1)]
         line_end: Annotated[int, Field(ge=1)]
-        column_start: Annotated[int | None, Field(ge=0, description="Zero-based UTF-16 column; provide both columns for an exact selection")] = None
-        column_end: Annotated[int | None, Field(ge=0, description="Exclusive end column")] = None
 
+        # Whole lines only. Counting characters to a column is what a model cannot do
+        # reliably, and nothing needs it any more: a rewrite inside these lines is
+        # proposed by quoting the text it replaces.
         @model_validator(mode="after")
         def validate_range(self):
             if self.line_end < self.line_start:
                 raise ValueError("line_end must be at least line_start")
-            if (self.column_start is None) != (self.column_end is None):
-                raise ValueError("Both source columns are required")
-            if self.column_start is not None and self.line_start == self.line_end and self.column_end <= self.column_start:
-                raise ValueError("Source selection must be nonempty and ordered")
             return self
 
 
@@ -340,7 +337,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
     )
 
     @mcp.tool()
-    async def paper() -> str:
+    async def state() -> str:
         """Return the main file, automatic compilation mode, PDF path, section
         source ranges, and comment counts without comment text or threads.
         """
@@ -374,20 +371,40 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         return _ok(result)
 
     @mcp.tool()
-    async def list_comments(
+    async def read_comments(
+        ids: Annotated[list[str] | None, Field(description="Threads to read in full; without it a listing comes back instead.")] = None,
         status: Literal["open", "resolved", "archived", "all"] = "open",
         unanswered: Annotated[bool, Field(description="Only threads whose latest entry is human, including a new request after an agent reply.")] = False,
         since: Annotated[datetime | None, Field(description="Only requests with last_human_at strictly after this ISO 8601 time; pass the largest last_human_at already handled. Times without an offset use UTC.")] = None,
-        limit: Annotated[int, Field(ge=1, le=200, description="How many of the newest threads to return; the older ones are counted in older.")] = 50,
+        limit: Annotated[int, Field(ge=1, le=200, description="How many of the newest threads to list; the older ones are counted in older.")] = 50,
+        save: Annotated[bool, Field(description="With ids, write the threads to a Markdown draft and return its path, hash and ids instead.")] = False,
     ) -> str:
-        """List latest requests and thread sizes without source anchors or reply history.
+        """Read review threads: with ids their whole conversation, without ids a listing.
 
-        Each request is cut to its opening; read_comments gives the whole thread.
-        last_human_at is null for threads created by an agent with no human entry.
-        ``older`` counts the threads dropped off the front: narrow with status,
-        unanswered or since rather than raising the limit.
+        The listing cuts each request to its opening and keeps the newest ``limit``
+        threads, counting the rest in ``older``; narrow with status, unanswered or
+        since rather than raising the limit. last_human_at is null for a thread an
+        agent opened. status, unanswered, since and limit shape the listing only.
+        ``save`` needs ids; edit only the draft's Reply and Edit blocks.
         """
-        _, _, store = _load_project()
+        _, watch_dir, store = _load_project()
+        if ids is not None:
+            if len(set(ids)) != len(ids):
+                return _err("ids must be unique")
+            if save:
+                try:
+                    return _ok(store.export_comments(ids))
+                except (OSError, KeyError, TypeError, ValueError) as error:
+                    return _err(str(error))
+            comments = []
+            for comment_id in ids:
+                comment = store.get(comment_id)
+                if comment is None:
+                    return _err(f"comment not found: {comment_id}")
+                comments.append(_agent_comment_to_dict(comment, watch_dir))
+            return _ok({"comments": comments})
+        if save:
+            return _err("save needs the ids of the threads to write out")
         if since is not None and since.tzinfo is None:
             since = since.replace(tzinfo=timezone.utc)
         summaries = []
@@ -422,25 +439,6 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         return _ok(listed)
 
     @mcp.tool()
-    async def read_comments(comment_ids: Annotated[list[str], Field(min_length=1)], save: bool = False) -> str:
-        """Read selected threads; save returns a Markdown draft path/hash/IDs. Edit only Reply blocks."""
-        if len(set(comment_ids)) != len(comment_ids):
-            return _err("comment_ids must be unique")
-        _, watch_dir, store = _load_project()
-        if save:
-            try:
-                return _ok(store.export_comments(comment_ids))
-            except (OSError, KeyError, TypeError, ValueError) as error:
-                return _err(str(error))
-        comments = []
-        for comment_id in comment_ids:
-            comment = store.get(comment_id)
-            if comment is None:
-                return _err(f"comment not found: {comment_id}")
-            comments.append(_agent_comment_to_dict(comment, watch_dir))
-        return _ok({"comments": comments})
-
-    @mcp.tool()
     async def compile() -> str:
         """Recompile and return structured errors, warnings, and
         ``pages_changed``. Call once after a batch of source edits when
@@ -466,7 +464,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         return response.text
 
     @mcp.tool()
-    async def comment(
+    async def write_comments(
         action: Literal["add", "reply", "suggest", "withdraw", "edit", "delete"],
         id: str | None = None,
         text: str | None = None,
@@ -646,32 +644,6 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             ImageContent(type="image", data=b64, mimeType="image/png"),
             TextContent(type="text", text=json.dumps(meta)),
         ]
-
-    @mcp.tool()
-    async def section(name: str) -> str:
-        """Read one section's unexpanded source and file range by title or label.
-
-        Request comments with read_comments and rendered regions with image(source=...).
-        """
-        from .config import get_main_file
-        from .server import resolve_section_to_source
-        from .structure import parse_structure
-
-        cfg, watch_dir, _ = _load_project()
-        structure = parse_structure(watch_dir, get_main_file(cfg))
-        resolved = resolve_section_to_source(structure, watch_dir, name, name)
-        if resolved is None:
-            return _err(f"no section matches {name!r}")
-        source_path = watch_dir / resolved.file
-        try:
-            lines = source_path.read_text(encoding="utf-8", errors="replace").splitlines()
-        except OSError as exc:
-            return _err(f"could not read section source {resolved.file}: {exc}")
-        return _ok({
-            "section": {"name": name, "file": resolved.file,
-                        "line_start": resolved.line_start, "line_end": resolved.line_end},
-            "source": "\n".join(lines[resolved.line_start - 1:resolved.line_end]),
-        })
 
     @mcp.tool()
     async def listen(ctx: Context) -> str:
