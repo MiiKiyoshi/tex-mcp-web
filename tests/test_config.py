@@ -23,7 +23,7 @@ class TestConfig:
         """Test Config.from_dict with minimal data."""
         config = Config.from_dict({"main": "test.tex"})
         assert config.main == "test.tex"
-        assert config.watch == ["*.tex", "*.bib", "*.md", "*.txt"]
+        assert config.watch == ["*.tex", "*.bib"]
         assert config.ignore == []
         assert config.compiler == "auto"
         assert config.auto_compile is False
@@ -70,12 +70,13 @@ class TestConfig:
         with pytest.raises(ValueError, match="auto_compile must be true or false"):
             Config.from_dict({"main": "test.tex", "auto_compile": "false"})
 
-    def test_default_watch_includes_md(self):
-        """Test that default watch patterns include markdown."""
-        config = Config(main="test.tex")
-        assert "*.md" in config.watch
-        assert "*.txt" in config.watch
-        assert "*.tex" in config.watch
+    def test_default_watch_follows_the_paper_s_own_source(self):
+        """A LaTeX paper watches LaTeX. The notes and summaries that live beside one are
+        not its source, and listing them as editable only gets in the reviewer's way. A
+        paper written in another format still watches what it is written in."""
+        assert Config.from_dict({"main": "test.tex"}).watch == ["*.tex", "*.bib"]
+        assert Config.from_dict({"main": "paper.md"}).watch == ["*.tex", "*.bib", "*.md"]
+        assert Config.from_dict({"main": "notes.txt"}).watch == ["*.tex", "*.bib", "*.txt"]
 
     def test_default_watch_includes_bib(self):
         """Test that default watch patterns include .bib files."""
@@ -163,10 +164,8 @@ class TestCreateConfig:
             data = yaml.safe_load(f)
 
         assert data["main"] == "main.tex"
-        assert "*.tex" in data["watch"]
+        assert data["watch"] == ["*.tex", "*.bib"]
         assert "*.bib" in data["watch"]
-        assert "*.md" in data["watch"]
-        assert "*.txt" in data["watch"]
         assert "**/*.tex" not in data["watch"]
         assert data["compiler"] == "auto"
         assert data["auto_compile"] is False
