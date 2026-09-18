@@ -950,7 +950,7 @@ def test_archived_threads_have_their_own_view_and_picked_archive_action(tmp_path
         kept = post_json(f"{base}/comments", {"anchor": {"kind": "paper"}, "text": "keep me"})["id"]
         working = post_json(f"{base}/comments", {"anchor": {"kind": "paper"}, "text": "work on me"})["id"]
         untouched = post_json(f"{base}/comments", {"anchor": {"kind": "paper"}, "text": "leave me"})["id"]
-        post_json(f"{base}/comments/{kept}/reference", {})
+        post_json(f"{base}/comments/{kept}/archive", {})
 
         browser_process = subprocess.Popen(
             ["firefox", "-marionette", "-headless", "-no-remote", "-profile", profile, "about:blank"],
@@ -975,12 +975,12 @@ def test_archived_threads_have_their_own_view_and_picked_archive_action(tmp_path
 
         assert browser.execute_script(
             'return Array.from(document.querySelectorAll("#comment-filter option")).map((o) => o.value);'
-        ) == ["open", "resolved", "reference", "all"]
+        ) == ["open", "resolved", "archived", "all"]
         assert browser.execute_script(
             'return Array.from(document.querySelectorAll("#comment-filter option")).map((o) => o.textContent);'
         ) == ["open", "resolved", "archived", "all"]
         assert shown("open", [working, untouched]) == [working, untouched]
-        assert shown("reference", [kept]) == [kept]
+        assert shown("archived", [kept]) == [kept]
 
         def expanded_actions(comment_id):
             browser.execute_script(f'document.querySelector("[data-comment-id=\'{comment_id}\'] .cmt-head").click();')
@@ -1004,12 +1004,12 @@ def test_archived_threads_have_their_own_view_and_picked_archive_action(tmp_path
           return [button.disabled, button.getAttribute("aria-label"), button.title];
         ''') == [False, "Archive 1", "Archive the picked comments"]
         browser.find_element("css selector", "#archive-picked-btn").click()
-        wait_until(lambda: get_json(f"{base}/comments/{working}")["status"] == "reference")
+        wait_until(lambda: get_json(f"{base}/comments/{working}")["status"] == "archived")
         wait_until(lambda: browser.execute_script(
             f'return document.querySelectorAll("[data-comment-id]").length === 1'
             f' && document.querySelector("[data-comment-id=\'{untouched}\']") !== null;'))
         assert get_json(f"{base}/comments/{untouched}")["status"] == "open"
-        assert set(shown("reference", [working, kept])) == {working, kept}
+        assert set(shown("archived", [working, kept])) == {working, kept}
     finally:
         if browser is not None:
             try:

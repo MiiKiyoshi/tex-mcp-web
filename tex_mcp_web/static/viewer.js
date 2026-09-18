@@ -804,7 +804,7 @@ async function refreshComments() {
   // again is read again when something is added to it.
   const moment = status === "resolved"
     ? (comment) => comment.resolved ?? comment.created
-    : status === "reference" ? (comment) => comment.updated
+    : status === "archived" ? (comment) => comment.updated
     : (comment) => comment.created;
   state.comments = status === "open" ? data.comments
     : [...data.comments].sort((first, second) => (moment(first) < moment(second) ? 1
@@ -857,7 +857,7 @@ function renderComments() {
 function renderPickedActions() {
   const picked = state.comments.filter((comment) => state.picked.has(comment.id));
   const open = picked.filter((comment) => comment.status === "open").map((comment) => comment.id);
-  const archivable = picked.filter((comment) => comment.status !== "reference").map((comment) => comment.id);
+  const archivable = picked.filter((comment) => comment.status !== "archived").map((comment) => comment.id);
   const closed = picked.filter((comment) => comment.status !== "open").map((comment) => comment.id);
   const shown = state.comments.length;
   const all = $("#pick-all-btn");
@@ -921,7 +921,7 @@ function pickAll() {
 
 // A picked status change is one call per comment; the thread already holds what was said.
 async function setPickedStatus(ids, status) {
-  const action = status === "open" ? "reopen" : status === "reference" ? "reference" : "resolve";
+  const action = status === "open" ? "reopen" : status === "archived" ? "archive" : "resolve";
   for (const id of ids) {
     const response = await fetch(`/comments/${id}/${action}`, {
       method: "POST",
@@ -963,8 +963,7 @@ function renderCommentItem(comment) {
     text: expanded ? "▾" : replies > 0 ? `▸ ${replies} repl${replies > 1 ? "ies" : "y"}` : "▸",
   }),
   h("span", { class: "cmt-id", text: comment.id }),
-  h("span", { class: "cmt-status",
-              text: `[${comment.status === "reference" ? "archived" : comment.status}]` }),
+  h("span", { class: "cmt-status", text: `[${comment.status}]` }),
   comment.stale ? h("span", { class: "stale", text: "STALE" }) : null,
   h("span", { class: "cmt-anchor", text: anchorLabel(comment.anchor) }));
 
@@ -1109,8 +1108,8 @@ function actionButtons(comment) {
   if (comment.status !== "resolved") {
     buttons.push(actionButton("cmt-resolve", "Resolve", () => closeComment(comment.id, "resolve", "summary")));
   }
-  if (comment.status !== "reference") {
-    buttons.push(actionButton("cmt-reference", "Archive", () => mutateAndRefresh(comment.id, "reference", {})));
+  if (comment.status !== "archived") {
+    buttons.push(actionButton("cmt-archive", "Archive", () => mutateAndRefresh(comment.id, "archive", {})));
   }
   buttons.push(deleteButton);
   return buttons;
@@ -1983,7 +1982,7 @@ async function init() {
   $("#fold-all-btn").addEventListener("click", foldAll);
   $("#pick-all-btn").addEventListener("click", pickAll);
   // The buttons carry the ids they were drawn with, so a press acts on what its label counted.
-  for (const [id, status] of [["#resolve-picked-btn", "resolved"], ["#archive-picked-btn", "reference"], ["#reopen-picked-btn", "open"]]) {
+  for (const [id, status] of [["#resolve-picked-btn", "resolved"], ["#archive-picked-btn", "archived"], ["#reopen-picked-btn", "open"]]) {
     $(id).addEventListener("click", async () => {
       const button = $(id);
       const ids = button.dataset.ids ? button.dataset.ids.split(" ") : [];
