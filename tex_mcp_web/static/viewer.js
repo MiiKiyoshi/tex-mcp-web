@@ -983,17 +983,17 @@ function renderCommentItem(comment) {
                                text: `${latest.author}  ${latest.text}` }));
     }
   }
+  if (expanded) {
+    // The thread reads downward, oldest first, the way it was written.
+    children.push(
+      h("div", { class: "cmt-thread" },
+        ...comment.thread.map((entry, index) => renderThreadEntry(entry, comment.id, index))));
+  }
+  // The proposal sits under the conversation, where the card ends. A thread carries one,
+  // so this is never a list.
   if (comment.suggestion) children.push(renderSuggestion(comment));
   if (expanded) {
-    children.push(
-      // Newest first: the entry that moved the thread is the one being looked for. Each
-      // entry keeps its place in the thread, which is the index an edit names.
-      h("div", { class: "cmt-thread" },
-        ...comment.thread
-          .map((entry, index) => renderThreadEntry(entry, comment.id, index))
-          .reverse()),
-      h("div", { class: "cmt-actions" }, ...actionButtons(comment)),
-    );
+    children.push(h("div", { class: "cmt-actions" }, ...actionButtons(comment)));
     const form = renderActiveForm(comment);
     if (form) children.push(form);
   }
@@ -1005,15 +1005,10 @@ function renderCommentItem(comment) {
 }
 
 function renderSuggestion(comment) {
-  const suggestion = comment.suggestion;
-  const completeSourceSuggestion = comment.anchor.kind === "source_range"
-    && typeof suggestion.old === "string" && suggestion.old.length > 0
-    && typeof suggestion.new === "string" && suggestion.new.length > 0;
+  const changes = comment.suggestion?.changes ?? [];
+  const completeSourceSuggestion = comment.anchor.kind === "source_range" && changes.length > 0;
   let applyButton = null;
-  if (completeSourceSuggestion && comment.suggestion_applied) {
-    applyButton = actionButton("sugg-apply is-applied", "Applied", () => {});
-    applyButton.disabled = true;
-  } else if (completeSourceSuggestion && comment.status === "open") {
+  if (completeSourceSuggestion && comment.status === "open") {
     applyButton = actionButton("sugg-apply", "Apply suggestion", async () => {
       applyButton.disabled = true;
       applyButton.textContent = "Applying…";
@@ -1029,13 +1024,17 @@ function renderSuggestion(comment) {
       applyButton.textContent = "Apply suggestion";
     });
   }
+  // One pair per piece the proposal changes; the text it leaves alone is not shown,
+  // because it is not part of the proposal.
   return h("div", { class: "cmt-suggestion" },
-    h("div", { class: "sugg-old", title: "current text" },
-      h("span", { class: "sugg-marker", text: "−" }),
-      h("span", { class: "sugg-text", text: suggestion.old })),
-    h("div", { class: "sugg-new", title: "proposed replacement" },
-      h("span", { class: "sugg-marker", text: "+" }),
-      h("span", { class: "sugg-text", text: suggestion.new })),
+    ...changes.flatMap((change) => [
+      h("div", { class: "sugg-old", title: "current text" },
+        h("span", { class: "sugg-marker", text: "−" }),
+        h("span", { class: "sugg-text", text: change.old })),
+      h("div", { class: "sugg-new", title: "proposed replacement" },
+        h("span", { class: "sugg-marker", text: "+" }),
+        h("span", { class: "sugg-text", text: change.new })),
+    ]),
     applyButton ? h("div", { class: "sugg-actions" }, applyButton) : null,
   );
 }

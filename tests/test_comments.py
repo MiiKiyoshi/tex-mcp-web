@@ -502,14 +502,37 @@ def test_swap_fragments_refuses_what_it_cannot_place_exactly():
         swap_fragments(SENTENCE, [])
     with pytest.raises(ValueError, match="which text to replace"):
         swap_fragments(SENTENCE, [("", "x")])
-    with pytest.raises(ValueError, match="not in the comment's range"):
+    with pytest.raises(ValueError, match="not found in the source"):
         swap_fragments(SENTENCE, [("post-route optimization", "x")])
-    with pytest.raises(ValueError, match="occurs 2 times"):
+    # An ambiguous quote comes back with the lines it was found on, so it can be
+    # extended on purpose rather than by guessing.
+    with pytest.raises(ValueError, match="occurs 2 times, on lines 1, 1"):
         swap_fragments(SENTENCE, [("and", "x")])
     with pytest.raises(ValueError, match="same text"):
         swap_fragments(SENTENCE, [("searches pre-route", "x"), ("pre-route optimization", "y")])
     with pytest.raises(ValueError, match="leave the text as it is"):
         swap_fragments(SENTENCE, [("Routed Quality", "Routed Quality")])
+
+
+def test_a_version_6_store_loses_its_before_and_after_proposals(tmp_path: Path):
+    """Through version 6 a proposal was one before/after pair with no file beside it, so
+    it cannot be read as the pieces it changes. The threads stay; the proposals do not."""
+    path = tmp_path / "comments.json"
+    path.write_text(json.dumps({"version": 6, "comments": [
+        {"id": "c-1", "anchor": {"kind": "source_range", "file": "a.tex",
+                                 "line_start": 1, "line_end": 1},
+         "status": "open", "suggestion": {"old": "was", "new": "becomes"},
+         "suggestion_applied": False,
+         "thread": [{"id": "e-1", "author": "human", "at": "2026-01-01T00:00:00+00:00",
+                     "text": "tighten this"}],
+         "created": "2026-01-01T00:00:00+00:00", "updated": "2026-01-01T00:00:00+00:00"},
+    ]}), encoding="utf-8")
+
+    store = CommentStore(path)
+    assert json.loads(path.read_text(encoding="utf-8"))["version"] == 7
+    kept = store.get("c-1")
+    assert kept.suggestion is None
+    assert [entry.text for entry in kept.thread] == ["tighten this"]
 
 
 def test_a_version_5_store_is_raised_and_its_reference_threads_become_archived(tmp_path: Path):
@@ -526,13 +549,13 @@ def test_a_version_5_store_is_raised_and_its_reference_threads_become_archived(t
     ]}), encoding="utf-8")
 
     store = CommentStore(path)
-    assert json.loads(path.read_text(encoding="utf-8"))["version"] == 6
+    assert json.loads(path.read_text(encoding="utf-8"))["version"] == 7
     assert [c.id for c in store.list(status="archived")] == ["c-1"]
     assert [c.id for c in store.list(status="open")] == ["c-2"]
     assert store.get("c-1").thread[0].text == "set aside"   # the rewrite left the thread alone
 
     CommentStore(path)                                      # opening again changes nothing
-    assert json.loads(path.read_text(encoding="utf-8"))["version"] == 6
+    assert json.loads(path.read_text(encoding="utf-8"))["version"] == 7
 
 
 def test_an_archived_thread_stays_readable_and_comes_back(store: CommentStore):

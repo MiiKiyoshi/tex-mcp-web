@@ -98,7 +98,6 @@ def test_browser_comment_actions(tmp_path: Path) -> None:
         comment = post_json(f"{base}/comments", {
             "anchor": {"kind": "paper"},
             "text": "typo herre",
-            "suggestion": {"old": "typo herre", "new": "typo here"},
         })
         cid = comment["id"]
 
@@ -170,7 +169,8 @@ def test_browser_comment_actions(tmp_path: Path) -> None:
         }
         assert source_comment["source_selector"]["exact"] == "Hello world."
         assert source_comment["suggestion"] == {
-            "old": "Hello world.", "new": "Hello applied.",
+            "file": "paper.tex",
+            "changes": [{"old": "Hello world.", "new": "Hello applied."}],
         }
         wait_until(lambda: browser.execute_script(f'''
           const cards = Array.from(document.querySelectorAll("[data-comment-id]"));
@@ -185,16 +185,17 @@ def test_browser_comment_actions(tmp_path: Path) -> None:
         ''')
         applied = wait_until(lambda: (
             current
-            if (current := get_json(f"{base}/comments/{source_cid}")).get("suggestion_applied")
+            if len((current := get_json(f"{base}/comments/{source_cid}"))["thread"]) > 1
             else None
         ))
         assert applied["status"] == "open"
         assert applied["thread"][-1]["edits"] == ["paper.tex:4-4"]
+        # The proposal is in the file now, so the card no longer offers it.
+        assert "suggestion" not in applied
         wait_until(lambda: browser.execute_script(f'''
           const source = Array.from(document.querySelectorAll("[data-comment-id]"))
             .find((node) => node.dataset.commentId === "{source_cid}");
-          const button = source?.querySelector(".sugg-apply");
-          return button?.textContent === "Applied" && button.disabled;
+          return source !== undefined && source.querySelector(".sugg-apply") === null;
         '''))
         wait_until(lambda: browser.execute_script('''
           const page = window.wrappedJSObject || window;

@@ -222,10 +222,11 @@ def _agent_comment_to_dict(comment, watch_dir: Path) -> dict[str, Any]:
     # with every change, and it is nothing but a token to return.
     payload["rev"] = revision_of(comment.updated)
     if comment.suggestion is not None:
-        # Only what the thread proposes. What it replaces is the quote above, and the
-        # stored pair the reviewer's Apply checks against the file is not the agent's
-        # to read back.
-        payload["suggestion"] = comment.suggestion.new
+        # The pieces the thread proposes changing. A thread holds one proposal, so
+        # reading it never costs the ones it used to carry.
+        payload["suggestion"] = [
+            {"old": old, "new": new} for old, new in comment.suggestion.changes
+        ]
     if comment.stale:
         payload["stale"] = True
     return payload
@@ -507,10 +508,12 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         """Write to a comment thread.
 
         add: text, anchor. reply: id, text, or a saved draft alone. suggest: id, text,
-        changes, rev; each change's old is quoted from that comment's own range, the way
-        an editing tool takes it, never a line or a column. It replaces the thread's live
-        proposal and adds text as a reply, so the conversation stays whole. withdraw: id,
-        text, rev. edit: id, entry, text, rev, rewriting an entry you wrote. delete: id,
+        changes, rev; each change's old is quoted from the file that comment sits in and
+        must occur there once, the way an editing tool takes it, never a line or a
+        column. It replaces the thread's one live proposal and adds text as a reply, so
+        the conversation stays whole, and it is refused on a thread the reviewer has not
+        written in: propose on theirs rather than opening your own. withdraw: id, text,
+        rev. edit: id, entry, text, rev, rewriting an entry you wrote. delete: id,
         refused once the reviewer has written in the thread.
 
         rev is the thread's token from read_comments; a thread that moved on refuses the
