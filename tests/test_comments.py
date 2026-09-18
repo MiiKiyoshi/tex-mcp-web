@@ -52,7 +52,7 @@ def test_text_selection_anchor_roundtrip():
 
 
 def test_agent_comment_view_hides_storage_only_anchor_data(store: CommentStore):
-    from tex_mcp_web.mcp_server import _agent_comment_to_dict
+    from tex_mcp_web.mcp_server import _agent_comment_to_dict, revision_of
 
     comment = store.add(text_anchor("digest", quote="selected text"), "tighten this")
     view = _agent_comment_to_dict(comment, store.path.parent)
@@ -63,7 +63,7 @@ def test_agent_comment_view_hides_storage_only_anchor_data(store: CommentStore):
         "comment": "tighten this",
         "quote": "selected text",
         "page": 2,
-        "updated": comment.updated,
+        "rev": revision_of(comment.updated),
     }
     assert "selection" not in view
     assert "pdf_digest" not in view
