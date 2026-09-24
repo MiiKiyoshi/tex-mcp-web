@@ -78,7 +78,7 @@ def cmd_init(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 
-_CONFIG_KEYS = ("main", "dir", "port", "compiler", "auto_compile", "watch", "ignore")
+_CONFIG_KEYS = ("main", "dir", "port", "compiler", "watch", "ignore")
 
 
 def cmd_config(args: argparse.Namespace) -> int:
@@ -113,11 +113,6 @@ def cmd_config(args: argparse.Namespace) -> int:
     value: object = args.value
     if args.key == "port":
         value = int(args.value)
-    elif args.key == "auto_compile":
-        if args.value not in ("true", "false"):
-            print("auto_compile must be true or false", file=sys.stderr)
-            return 1
-        value = args.value == "true"
     elif args.key in ("watch", "ignore"):
         value = [p.strip() for p in args.value.split(",") if p.strip()]
     elif args.key == "compiler":

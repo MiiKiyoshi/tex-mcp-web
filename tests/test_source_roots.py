@@ -91,7 +91,7 @@ def _project(tmp_path: Path, main: str = "main.tex") -> Path:
         listener.bind(("127.0.0.1", 0))
         port = int(listener.getsockname()[1])
     path = tmp_path / ".tex-mcp-web.yaml"
-    path.write_text(yaml.safe_dump({"main": main, "port": port, "auto_compile": False}), encoding="utf-8")
+    path.write_text(yaml.safe_dump({"main": main, "port": port}), encoding="utf-8")
     return path
 
 

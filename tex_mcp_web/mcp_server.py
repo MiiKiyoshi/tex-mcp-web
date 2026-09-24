@@ -2,15 +2,14 @@
 
 Exposes tools to agents via stdio:
 
-    state()                 paths, automatic compilation, sections, comment counts
     read_comments(...)      what is new, selected threads in full, or a listing
     write_comments(...)     add/reply/suggest/withdraw/edit/delete
     compile()               recompile, return structured errors
     image(...)              render a PDF page or exact region
     listen()                instructions for receiving review events
 
-Source is read with the agent's own file tools: ``state`` reports every
-section's file and line range, which is what naming one needs.
+Source is read with the agent's own file tools; each comment names its file and
+line range.
 
 The MCP process owns the review server: the first tool call starts it in a
 background thread, and a peer process bound to the same project shares that
@@ -392,8 +391,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
     mcp = FastMCP(
         "tex-mcp-web",
         instructions=(
-            "Call state() once; reuse it until the configuration or the document structure "
-            "changes. Work from read_comments(new=True), which gives what the reviewer has "
+            "Work from read_comments(new=True), which gives what the reviewer has "
             "written since you last asked, each thread with the rev a write quotes back; "
             "read_comments(ids=[...]) gives a thread whole when its conversation is no "
             "longer in mind. Read source with your own file tools. "
@@ -406,40 +404,6 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             f"Setup: read {INIT_GUIDE}."
         ),
     )
-
-    @mcp.tool()
-    async def state() -> str:
-        """Return the main file, automatic compilation mode, PDF path, section
-        source ranges, and comment counts without comment text or threads.
-        """
-        from .config import get_main_file
-        from .server import structure_to_dict
-        from .structure import parse_structure
-
-        cfg, watch_dir, store = _load_project()
-        main = get_main_file(cfg)
-        structure = parse_structure(watch_dir, main)
-        pdf_path = main.with_suffix(".pdf")
-
-        result: dict[str, Any] = {
-            "main_file": cfg.main,
-            "watch_dir": str(watch_dir),
-            "review_url": binding.base_url(),
-            "auto_compile": cfg.auto_compile,
-            **structure_to_dict(structure, watch_dir),
-            "pdf": {
-                "exists": pdf_path.exists(),
-                "path": str(pdf_path),
-            },
-        }
-        comments = store.list()
-        result["comment_counts"] = {
-            "open": sum(c.status == "open" for c in comments),
-            "resolved": sum(c.status == "resolved" for c in comments),
-            "archived": sum(c.status == "archived" for c in comments),
-            "unanswered": sum(c.status == "open" and c.thread[-1].author == "human" for c in comments),
-        }
-        return _ok(result)
 
     @mcp.tool()
     async def read_comments(
@@ -580,8 +544,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         """Recompile. Returns whether it succeeded, which pages changed, where the
         log is, and, when it failed, where each error is.
 
-        Call once after a batch of source edits when ``state().auto_compile`` is
-        false; when it is true the watcher owns compilation. ``pages_changed``
+        Call once after a batch of source edits. ``pages_changed``
         compares extracted PDF text and excludes visual-only changes. Read the log
         yourself for warnings and for an error's surroundings.
         """
@@ -887,11 +850,9 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         staging.chmod(0o755)
         staging.replace(target)
         return _ok({
-            "review_url": f"http://127.0.0.1:{port}",
             "script": str(target),
             "how": (
-                "Tell the user the review_url. "
-                + _wait_method(ctx)
+                _wait_method(ctx)
                 + " Start another copy only after the previous process has ended. "
                 "On [review], call read_comments(new=True) and handle the review. "
                 "[gone] means the review server is unreachable; the script keeps retrying. "

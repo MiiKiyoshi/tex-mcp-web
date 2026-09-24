@@ -107,12 +107,6 @@ textarea {
   border-radius: 3px;
 }
 .topbar button:hover { background: var(--accent-soft); }
-#auto-compile-btn.active {
-  color: var(--ok);
-  border-color: var(--ok);
-  background: var(--accent-soft);
-}
-#auto-compile-btn:disabled { cursor: wait; }
 #recompile-btn:disabled { cursor: wait; }
 /* Green reaches a parked waiter now; red queues the call for the next waiter. */
 .agent-dot { width: 8px; height: 8px; border-radius: 50%; }

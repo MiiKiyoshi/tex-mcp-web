@@ -80,7 +80,7 @@ def test_browser_comment_actions(tmp_path: Path) -> None:
     port = available_port()
     config_path = tmp_path / ".tex-mcp-web.yaml"
     config_path.write_text(
-        f"main: paper.tex\nauto_compile: false\nport: {port}\n", encoding="utf-8"
+        f"main: paper.tex\nport: {port}\n", encoding="utf-8"
     )
 
     shared = SharedProjectServer(load_config(config_path))
@@ -401,7 +401,7 @@ def test_highlight_badges_leave_pdf_text_selectable(tmp_path: Path) -> None:
     port = available_port()
     config_path = tmp_path / ".tex-mcp-web.yaml"
     config_path.write_text(
-        f"main: paper.tex\nauto_compile: false\nport: {port}\n", encoding="utf-8"
+        f"main: paper.tex\nport: {port}\n", encoding="utf-8"
     )
     shared = SharedProjectServer(load_config(config_path))
     profile = tempfile.mkdtemp(prefix="tex_mcp_highlight_")
@@ -595,7 +595,7 @@ def test_a_finger_held_on_a_word_selects_it(tmp_path: Path) -> None:
     port = available_port()
     config_path = tmp_path / ".tex-mcp-web.yaml"
     config_path.write_text(
-        f"main: paper.tex\nauto_compile: false\nport: {port}\n", encoding="utf-8"
+        f"main: paper.tex\nport: {port}\n", encoding="utf-8"
     )
     shared = SharedProjectServer(load_config(config_path))
     profile = tempfile.mkdtemp(prefix="tex_mcp_hold_")
@@ -751,7 +751,7 @@ def test_browser_source_selection_and_split_resize(tmp_path: Path) -> None:
     port = available_port()
     config_path = tmp_path / ".tex-mcp-web.yaml"
     config_path.write_text(
-        f"main: paper.tex\nauto_compile: false\nport: {port}\n", encoding="utf-8"
+        f"main: paper.tex\nport: {port}\n", encoding="utf-8"
     )
 
     shared = SharedProjectServer(load_config(config_path))
@@ -936,7 +936,7 @@ def test_shift_picks_the_run_between_two_boxes(tmp_path: Path) -> None:
         pdf.save(tmp_path / "paper.pdf")
     port = available_port()
     config_path = tmp_path / ".tex-mcp-web.yaml"
-    config_path.write_text(f"main: paper.tex\nauto_compile: false\nport: {port}\n", encoding="utf-8")
+    config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
 
     shared = SharedProjectServer(load_config(config_path))
     profile = tempfile.mkdtemp(prefix="tex_mcp_shift_")
@@ -1020,7 +1020,7 @@ def test_archived_threads_have_their_own_view_and_picked_archive_action(tmp_path
         pdf.save(tmp_path / "paper.pdf")
     port = available_port()
     config_path = tmp_path / ".tex-mcp-web.yaml"
-    config_path.write_text(f"main: paper.tex\nauto_compile: false\nport: {port}\n", encoding="utf-8")
+    config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
 
     shared = SharedProjectServer(load_config(config_path))
     profile = tempfile.mkdtemp(prefix="tex_mcp_reference_")
