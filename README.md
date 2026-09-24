@@ -50,7 +50,7 @@ do tex listen
 ```
 
 Open `http://localhost:<port>` with the port you chose at init. Say it again after the
-agent restarts; presses of **Call agent** made meanwhile wait for it.
+agent restarts. Presses of **Call agent** made meanwhile wait for it.
 
 ## On a tablet or phone
 
@@ -65,16 +65,16 @@ forwarded port: an SSH tunnel, VS Code port forwarding, or `tailscale serve`.
 
 ## Reviewing
 
-- **PDF**, **Source**, and **Split** show the paper, its source, or both; drag the
+- **PDF**, **Source**, and **Split** show the paper, its source, or both. Drag the
   handle between them to resize.
 - Drag over PDF text, or select source text and press **+ Comment**, then write what should
   change. Add a suggested wording in the replacement box when you have one.
-- **+ Note** comments on the whole paper; the **Sections** tab comments on a section.
+- **+ Note** comments on the whole paper, and the **Sections** tab comments on a section.
 - Press **Call agent** when your comments are ready. **Recompile** rebuilds the PDF yourself.
-- The agent may answer with a proposed rewrite; **Apply suggestion** is what writes it into
+- The agent may answer with a proposed rewrite. **Apply suggestion** is what writes it into
   the source.
 - Resolving is yours: **Resolve** a thread whose edit satisfies you, or reply in it when it
-  does not. **Archive** sets a thread aside; it still takes replies.
+  does not. **Archive** sets a thread aside, and it still takes replies.
 - Saving in the Source view is explicit and refuses to overwrite a file changed by someone
   else after you opened it.
 
@@ -86,10 +86,10 @@ forwarded port: an SSH tunnel, VS Code port forwarding, or `tailscale serve`.
 |---|---|
 | `main` | Top-level source file compiled into the PDF. |
 | `dir` | Folder holding the paper, relative to this file or absolute. Unset means this file's folder. |
-| `watch` | Source files the page offers and follows; `*.tex` and `*.bib` by default. |
+| `watch` | Source files the page offers and follows, `*.tex` and `*.bib` by default. |
 | `ignore` | Patterns checked before `watch`. |
 | `compiler` | `auto` (latexmk for LaTeX, pandoc for Markdown or text) or a named compiler. |
-| `port` | This paper's review page port; one port per paper. |
+| `port` | This paper's review page port. Each paper needs its own. |
 
 ## Commands
 
@@ -101,4 +101,4 @@ tex-mcp-web goto Methods     # move a running viewer to a section, page (p2), or
 
 ## Acknowledgements
 
-tex-mcp-web is a hard fork of [queelius/scholia at commit `e6c7454`](https://github.com/queelius/scholia/commit/e6c745400d2ad70fb43eca053e31183d48765f89) (version 0.6.1), independently developed since under the MIT license; see [`LICENSE`](LICENSE). PDF viewing uses [EmbedPDF](https://github.com/embedpdf/embed-pdf-viewer) and its PDFium WebAssembly engine, whose notices are in [`tex_mcp_web/static/embedpdf/LICENSE`](tex_mcp_web/static/embedpdf/LICENSE) and [`tex_mcp_web/static/embedpdf/LICENSE.pdfium`](tex_mcp_web/static/embedpdf/LICENSE.pdfium). Source highlighting uses [Ace Editor builds 1.44.0](https://github.com/ajaxorg/ace-builds/tree/v1.44.0) under the BSD-3-Clause license; its notice is in [`tex_mcp_web/static/ace/LICENSE`](tex_mcp_web/static/ace/LICENSE).
+tex-mcp-web is a hard fork of [queelius/scholia at commit `e6c7454`](https://github.com/queelius/scholia/commit/e6c745400d2ad70fb43eca053e31183d48765f89) (version 0.6.1), independently developed since under the MIT license. See [`LICENSE`](LICENSE). PDF viewing uses [EmbedPDF](https://github.com/embedpdf/embed-pdf-viewer) and its PDFium WebAssembly engine, whose notices are in [`tex_mcp_web/static/embedpdf/LICENSE`](tex_mcp_web/static/embedpdf/LICENSE) and [`tex_mcp_web/static/embedpdf/LICENSE.pdfium`](tex_mcp_web/static/embedpdf/LICENSE.pdfium). Source highlighting uses [Ace Editor builds 1.44.0](https://github.com/ajaxorg/ace-builds/tree/v1.44.0) under the BSD-3-Clause license, and its notice is in [`tex_mcp_web/static/ace/LICENSE`](tex_mcp_web/static/ace/LICENSE).
