@@ -10,7 +10,7 @@ summary, write only after the user agrees.
   its values and stop. A change is an edit to that file, after the user agrees.
 - Main file: `grep -l '\\documentclass' *.tex`. One hit is the proposal; several are asked.
   No hit here: ask where the paper is; that folder becomes `dir`.
-- Port: the first free one from 8765 (`ss -ltn`), also skipping the port in a
+- Port: the first free one from 8765 (`ss -ltn`, or `lsof -iTCP -sTCP:LISTEN -P -n` on macOS), also skipping the port in a
   `.html-mcp-web.yaml` in this folder; both tools default to 8765.
 - Compiler: `command -v latexmk`. Missing: tell the user; do not install a TeX distribution.
 
