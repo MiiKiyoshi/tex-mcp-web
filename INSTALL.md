@@ -29,7 +29,8 @@ scope. Ask once.
     DIR="$HOME/.local/share/tex-mcp-web"
     git clone https://github.com/MiiKiyoshi/tex-mcp-web.git "$DIR"   # update: git -C "$DIR" pull --ff-only
     python3 -m venv "$DIR/.venv"
-    "$DIR/.venv/bin/pip" install -e "$DIR[mcp]"
+    "$DIR/.venv/bin/pip" install -q -U pip                              # editable installs need a recent pip
+    "$DIR/.venv/bin/pip" install -e "${DIR}[mcp]"
     "$DIR/.venv/bin/tex-mcp-web" mcp --check                          # lists the tools
 
 ## 4. Register
