@@ -20,6 +20,7 @@ import asyncio
 import json
 import logging
 import sys
+from pathlib import Path
 
 from .config import DEFAULT_PORT, create_config, find_config, load_config
 from . import __version__
@@ -216,6 +217,12 @@ def cmd_goto(args: argparse.Namespace) -> int:
 
 
 def cmd_mcp(args: argparse.Namespace) -> int:
+    if args.check:
+        from .mcp_server import check
+
+        tools = check(Path.cwd())
+        print(f"tex-mcp: {len(tools)} tools ({', '.join(tools)})")
+        return 0
     from .mcp_server import main as mcp_main
 
     mcp_main()
@@ -265,6 +272,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_goto)
 
     p = sub.add_parser("mcp", help="run the MCP server (stdio); serves the viewer too")
+    p.add_argument("--check", action="store_true",
+                   help="build the server and list its tools instead of serving")
     p.set_defaults(func=cmd_mcp)
 
     return parser

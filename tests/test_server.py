@@ -1092,7 +1092,7 @@ async def test_mcp_contract_is_typed_and_nonduplicative(tmp_path: Path):
     assert "compile() once" in mcp.instructions
     assert "Within the user's editing scope" in mcp.instructions
     assert "Respect read-only or discussion-only requests" in mcp.instructions
-    for needed in ("new MCP connection", "follow how", "Do not poll", "stay queued"):
+    for needed in ("asks to listen", "follow how", "Do not poll", "stay queued", "init.md"):
         assert needed in mcp.instructions, needed
     compile_description = " ".join((tools["compile"].description or "").split())
     assert "state().auto_compile" in compile_description

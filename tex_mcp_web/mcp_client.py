@@ -3,6 +3,7 @@
 import asyncio
 import fcntl
 import json
+import sys
 import threading
 import time
 import urllib.error
@@ -13,6 +14,10 @@ from typing import Any
 import yaml
 
 from .config import DEFAULT_CONFIG_NAME, Config, find_config, get_watch_dir, load_config
+
+# How a folder is set up for review, read only when it is: an agent follows it with its shell.
+INIT_GUIDE = Path(__file__).resolve().parent / "agent" / "init.md"
+CLI = Path(sys.executable).parent / "tex-mcp-web"
 
 
 class ProjectSetupError(RuntimeError):
@@ -200,13 +205,9 @@ class ProjectBinding:
         shared = self.connect()
         if shared is None:
             raise RuntimeError(
-                f"{DEFAULT_CONFIG_NAME} was not found from {self.start_dir}. Write it in "
-                f"{self.start_dir} with main: <top-level .tex file> and, when the paper "
-                "lives in another folder, dir: <that folder, relative to the file or "
-                "absolute>; port: <number> picks the review page's port (default 8765, "
-                "one port per paper). This session then serves that paper without moving. "
-                "The other way is tex-mcp-web init in the paper folder and a session "
-                "started there."
+                f"this folder is not set up for review: {DEFAULT_CONFIG_NAME} was not found "
+                f"from {self.start_dir}. Ask the user whether to set it up now; if they agree, "
+                f"follow {INIT_GUIDE} with {CLI}."
             )
         return shared
 
