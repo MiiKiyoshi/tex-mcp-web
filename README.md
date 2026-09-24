@@ -1,3 +1,5 @@
+<img src="docs/images/logo.png" alt="" width="96">
+
 # tex-mcp-web
 
 Review a LaTeX paper from its rendered PDF, on a desktop, tablet, or phone, while Claude Code or Codex edits the source.
