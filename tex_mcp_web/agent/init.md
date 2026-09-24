@@ -18,22 +18,21 @@ summary, write only after the user agrees.
 
 Show one summary, in the user's language, like:
 
-    main         : main.tex  (the only file with \documentclass)
-    port         : 8765
-    watch        : *.tex *.bib -> 9 files (main.tex, sections/*.tex, refs.bib)
-    ignore       : *_backup.tex
-    compiler     : auto (latexmk)
-    auto_compile : off (compile from the page's button or by the agent)
+    main     : main.tex  (the only file with \documentclass)
+    port     : 8765
+    watch    : *.tex *.bib -> 9 files (main.tex, sections/*.tex, refs.bib)
+    ignore   : *_backup.tex
+    compiler : auto (latexmk)
 
 Add `dir` when the paper lives in another folder. Ask once; change only what the user
 corrects.
 
 ## 3. Write
 
-In the session's folder, with the command that `state()`'s missing-config error names:
+In the session's folder, with the command that `listen()`'s missing-config error names:
 
     tex-mcp-web --port <port> init --main <file>
-    tex-mcp-web config <dir|compiler|auto_compile|watch|ignore> <value>   # only for changed fields
+    tex-mcp-web config <dir|compiler|watch|ignore> <value>   # only for changed fields
 
 ## 4. Tell the user
 

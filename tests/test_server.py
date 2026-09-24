@@ -43,7 +43,7 @@ def project(tmp_path: Path) -> Path:
         "\\end{document}\n"
     )
     (tmp_path / ".tex-mcp-web.yaml").write_text(
-        "main: paper.tex\nauto_compile: false\n"
+        "main: paper.tex\n"
     )
     return tmp_path
 
@@ -80,38 +80,10 @@ async def test_paper_endpoint_returns_structure(client):
     # Sections carry the label they're attached to.
     methods = next(s for s in data["sections"] if s["title"] == "Methods")
     assert methods["label"] == "sec:methods"
-    assert data["auto_compile"] is False
 
 
 @pytest.mark.asyncio
-async def test_auto_compile_mode_persists_and_broadcasts(client):
-    tc, server = client
-    ws = await tc.ws_connect("/ws")
-    initial = await ws.receive_json()
-    assert initial["auto_compile"] is False
-
-    resp = await tc.put("/auto-compile", json={"enabled": True})
-
-    assert resp.status == 200
-    assert await resp.json() == {"auto_compile": True}
-    assert server.config.auto_compile is True
-    data = yaml.safe_load(server.config.config_path.read_text())
-    assert data["auto_compile"] is True
-    assert await ws.receive_json() == {"type": "auto_compile", "enabled": True}
-    assert (await (await tc.get("/paper")).json())["auto_compile"] is True
-    await ws.close()
-
-
-@pytest.mark.asyncio
-async def test_auto_compile_mode_rejects_non_boolean(client):
-    tc, _ = client
-    resp = await tc.put("/auto-compile", json={"enabled": "true"})
-    assert resp.status == 400
-    assert await resp.json() == {"error": "enabled must be true or false"}
-
-
-@pytest.mark.asyncio
-async def test_file_change_respects_auto_compile_mode(project):
+async def test_file_change_broadcasts_without_compiling(project):
     server = TexMcpWebServer(
         Config(main="paper.tex", config_path=project / ".tex-mcp-web.yaml")
     )
@@ -125,13 +97,9 @@ async def test_file_change_respects_auto_compile_mode(project):
     assert change["path"] == "paper.tex"
     assert len(change["revision"]) == 64
 
-    server.config.auto_compile = True
-    await server.on_file_change(str(project / "paper.tex"))
-    server.do_compile.assert_awaited_once()
-
 
 @pytest.mark.asyncio
-async def test_manual_compile_still_runs_when_auto_compile_is_off(client):
+async def test_manual_compile_runs(client):
     tc, server = client
     result = CompileResult(success=False)
     server.do_compile = AsyncMock(return_value=result)
@@ -143,11 +111,9 @@ async def test_manual_compile_still_runs_when_auto_compile_is_off(client):
 
 
 @pytest.mark.asyncio
-async def test_root_exposes_auto_compile_control(client):
+async def test_root_serves_the_viewer(client):
     tc, server = client
     html = await (await tc.get("/")).text()
-    assert 'id="auto-compile-btn"' in html
-    assert "Auto: Off" in html
     assert [f'data-view="{view}"' in html for view in ("pdf", "source", "split")] == [True] * 3
     # The page names its files under the tag of their newest change, so a browser that
     # cached the old ones fetches the new ones, and the files under any tag are the same.
@@ -347,7 +313,6 @@ async def test_apply_source_suggestion_replaces_only_anchor_and_keeps_comment_op
     path.chmod(0o640)
     before = path.read_text(encoding="utf-8")
     comment = await _source_suggestion(tc)
-    server.config.auto_compile = True
     server.do_compile = AsyncMock()
 
     response = await tc.post(
@@ -1085,7 +1050,7 @@ async def test_mcp_contract_is_typed_and_nonduplicative(tmp_path: Path):
     tools = {tool.name: tool for tool in await mcp.list_tools()}
 
     assert set(tools) == {
-        "state", "read_comments", "write_comments", "compile", "image", "listen",
+        "read_comments", "write_comments", "compile", "image", "listen",
     }
     assert "read_comments(new=True)" in mcp.instructions
     assert "read_comments(ids=[...])" in mcp.instructions
@@ -1094,16 +1059,13 @@ async def test_mcp_contract_is_typed_and_nonduplicative(tmp_path: Path):
     assert "Respect read-only or discussion-only requests" in mcp.instructions
     for needed in ("asks to listen", "follow how", "Do not poll", "stay queued", "init.md"):
         assert needed in mcp.instructions, needed
-    compile_description = " ".join((tools["compile"].description or "").split())
-    assert "state().auto_compile" in compile_description
-    assert "watcher owns compilation" in compile_description
+    assert "state()" not in mcp.instructions
 
     descriptions = "\n".join(tool.description or "" for tool in tools.values())
     assert "source-search key" not in descriptions
     assert "only for rendered evidence" not in descriptions
     assert "100-200" not in descriptions
 
-    assert tools["state"].inputSchema["properties"] == {}
     # Source is read with the agent's own file tools, so no tool ships the paper's text.
     assert "section" not in tools
     assert all(mcp.instructions not in (tool.description or "") for tool in tools.values())
@@ -1146,7 +1108,7 @@ def bound_project(project: Path, monkeypatch):
     from tex_mcp_web.mcp_client import ProjectBinding
 
     (project / ".tex-mcp-web.yaml").write_text(
-        f"main: paper.tex\nauto_compile: false\nport: {_free_port()}\n"
+        f"main: paper.tex\nport: {_free_port()}\n"
     )
     monkeypatch.chdir(project)
     binding = ProjectBinding(project)
@@ -1155,17 +1117,11 @@ def bound_project(project: Path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_mcp_tool_call_serves_the_viewer(bound_project, project):
-    pytest.importorskip("mcp")
+async def test_binding_serves_the_viewer(bound_project, project):
     import aiohttp
 
-    from tex_mcp_web.mcp_server import create_server
-
-    mcp = create_server(bound_project)
-    paper = json.loads((await mcp.call_tool("state", {}))[0][0].text)
-
     async with aiohttp.ClientSession() as session:
-        async with session.get(f"{paper['review_url']}/paper") as response:
+        async with session.get(f"{bound_project.base_url()}/paper") as response:
             assert response.status == 200
             served = await response.json()
     assert Path(served["watch_dir"]).resolve() == project.resolve()
@@ -1190,10 +1146,6 @@ async def test_mcp_comment_discovery_reads_only_selected_history(bound_project, 
     second = store.add(PaperAnchor(), "Check this paper")
     agent_only = store.add(PaperAnchor(), "An agent note", author="agent")
 
-    paper = await call("state")
-    assert "comments" not in paper
-    assert paper["comment_counts"] == {"open": 3, "resolved": 0, "archived": 0, "unanswered": 2}
-    assert paper["sections"]
     requests = (await call("read_comments", unanswered=True))["comments"]
     assert requests == [
         {"id": first.id, "rev": revision_of(first.updated), "status": "open",
@@ -1211,7 +1163,6 @@ async def test_mcp_comment_discovery_reads_only_selected_history(bound_project, 
     history = "Detailed explanation. " * 1000
     store.reply(first.id, history, author="agent")
     assert [c["id"] for c in (await call("read_comments", unanswered=True))["comments"]] == [second.id]
-    assert await call("state") == {**paper, "comment_counts": {"open": 3, "resolved": 0, "archived": 0, "unanswered": 1}}
     assert history not in json.dumps(await call("read_comments"))
 
     moment = "2026-01-01T00:00:02+00:00"
@@ -1236,9 +1187,6 @@ async def test_mcp_comment_discovery_reads_only_selected_history(bound_project, 
     assert "unique" in (await call("read_comments", ids=[first.id, first.id]))["error"]
     assert "not found" in (await call("read_comments", ids=[first.id, "missing"]))["error"]
 
-    located = next(s for s in (await call("state"))["sections"] if s["title"] == "Methods")
-    assert (located["file"], located["line"]) == ("paper.tex", 6)
-    assert history not in json.dumps(await call("state"))
     receipt = await call("write_comments", action="reply", id=first.id, text="Fixed the boundary", edits=["paper.tex:6-8"])
     assert receipt == {"id": first.id, "status": "open", "rev": revision_of(moment)}
     saved = (await call("read_comments", ids=[first.id]))["comments"][0]
@@ -1250,7 +1198,6 @@ async def test_mcp_comment_discovery_reads_only_selected_history(bound_project, 
     all_comments = (await call("read_comments", status="all"))["comments"]
     assert len(all_comments) == 3
     assert next(c for c in all_comments if c["id"] == agent_only.id)["last_human_at"] is None
-    assert (await call("state"))["comment_counts"] == {"open": 2, "resolved": 1, "archived": 0, "unanswered": 0}
 
 
 @pytest.mark.asyncio
@@ -1259,9 +1206,6 @@ async def test_mcp_comment_and_section_runtime_contract(bound_project, project):
     from tex_mcp_web.mcp_server import create_server
 
     mcp = create_server(bound_project)
-
-    paper = await mcp.call_tool("state", {})
-    assert json.loads(paper[0][0].text)["auto_compile"] is False
 
     added = await mcp.call_tool(
         "write_comments",
@@ -1358,10 +1302,7 @@ async def test_mcp_comment_and_section_runtime_contract(bound_project, project):
             "anchor": {"kind": "paper"},
         },
     )
-    second = json.loads(second_added[0][0].text)
-    reported = json.loads((await mcp.call_tool("state", {}))[0][0].text)
-    located = next(s for s in reported["sections"] if s["title"] == "Methods")
-    assert located["file"] == "paper.tex" and located["line"] >= 1
+    assert json.loads(second_added[0][0].text)["status"] == "open"
 
 
 
@@ -1893,7 +1834,7 @@ async def test_stdio_source_and_reply_use_explicit_detail_reads(project):
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
         port = listener.getsockname()[1]
-    (project / ".tex-mcp-web.yaml").write_text(f"main: paper.tex\nauto_compile: false\nport: {port}\n")
+    (project / ".tex-mcp-web.yaml").write_text(f"main: paper.tex\nport: {port}\n")
     params = StdioServerParameters(command=sys.executable,
         args=["-c", "from tex_mcp_web.cli import main_mcp; raise SystemExit(main_mcp())"],
         cwd=project, env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1])})
@@ -1916,10 +1857,6 @@ async def test_stdio_source_and_reply_use_explicit_detail_reads(project):
             reply = await call("write_comments", {"action": "reply", "id": receipt["id"],
                 "text": "A detailed explanation. " * 50, "edits": ["paper.tex:5"]})
             assert set(reply) == {"id", "status", "rev"}
-            # state() locates a section; its text is read with the agent's own file tools.
-            located = next(s for s in (await call("state", {}))["sections"]
-                           if s["title"] == "Introduction")
-            assert located["file"] == "paper.tex"
             detail = (await call("read_comments", {"ids": [receipt["id"]]}))["comments"][0]
             assert detail["quote"] == "Some prose with \\cite{ref1}."
             assert detail["source"] == "paper.tex:5-5"

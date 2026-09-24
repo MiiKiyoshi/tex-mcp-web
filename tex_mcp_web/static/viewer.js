@@ -14,7 +14,6 @@ const state = {
   zoom: null,
   annotationsReady: false,
   layoutReady: false,
-  autoCompile: false,
   pdfDigest: null,
   comments: [],
   paper: null,
@@ -1469,35 +1468,7 @@ async function refreshPaper() {
   state.paper = await response.json();
   state.pdfDigest = state.paper.pdf_digest;
   $("#main-file").textContent = state.paper.main_file;
-  applyAutoCompile(state.paper.auto_compile);
   renderSections();
-}
-
-function applyAutoCompile(enabled) {
-  state.autoCompile = enabled;
-  const button = $("#auto-compile-btn");
-  button.textContent = enabled ? "Auto: On" : "Auto: Off";
-  button.classList.toggle("active", enabled);
-  button.setAttribute("aria-pressed", String(enabled));
-}
-
-async function toggleAutoCompile() {
-  const button = $("#auto-compile-btn");
-  button.disabled = true;
-  try {
-    const response = await fetch("/auto-compile", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ enabled: !state.autoCompile }),
-    });
-    if (!response.ok) throw new Error(await responseError(response));
-    const result = await response.json();
-    applyAutoCompile(result.auto_compile);
-  } catch (error) {
-    alert(`Could not change automatic compilation: ${error.message}`);
-  } finally {
-    button.disabled = false;
-  }
 }
 
 function renderSections() {
@@ -1608,16 +1579,12 @@ async function handleWebSocketMessage(message) {
       await handleSourceChanged(message);
       break;
     case "state":
-      applyAutoCompile(message.auto_compile);
       if (message.result) applyCompileResult(message.result);
       if (message.compiling) applyCompiling(true);
       if (message.review_waiters !== undefined) showAgentWaiting(message.review_waiters);
       break;
     case "review_waiters":
       showAgentWaiting(message.waiters);
-      break;
-    case "auto_compile":
-      applyAutoCompile(message.enabled);
       break;
     case "goto":
       showGotoTarget(message);
@@ -1994,7 +1961,6 @@ async function init() {
     selection.removeAllRanges();
     selection.addRange(range);
   });
-  $("#auto-compile-btn").addEventListener("click", () => toggleAutoCompile());
   $("#recompile-btn").addEventListener("click", () => recompile());
   $("#source-save-btn").addEventListener("click", () => {
     saveSource().catch((error) => alert(`Could not save: ${error.message}`));
