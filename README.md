@@ -6,9 +6,8 @@ If it helps your writing, a star is very welcome.
 
 ![A highlighted PDF caption, its LaTeX source, and the review thread in Split view](docs/images/discussion.png)
 
-You read the PDF in a browser and comment on selected PDF text, selected source text, a section, or the whole paper. The agent reads those comments over MCP, edits the LaTeX, compiles once after the batch, and replies in the same thread.
-
-Use the topbar's **PDF**, **Source**, and **Split** tabs to review the rendered paper, make a small source edit, or see both together. Drag the handle between the panes to adjust their sizes. Select source text and press **+ Comment** to highlight exactly those characters, including text that wraps onto another display line. Source files follow the configured `watch` and `ignore` rules. Saving is explicit, and the editor refuses to overwrite a file changed by an agent or another editor after it was opened.
+You comment on the PDF in your browser. The agent reads the comments, edits the LaTeX,
+compiles, and replies in the same thread.
 
 ```
 you:    select text -> write a comment -> press Call agent
@@ -20,121 +19,66 @@ you:    read the rebuilt PDF -> comment again
 
 ## Install
 
-Python 3.10 or newer and a compiler on `PATH` (`latexmk` for LaTeX by default; `pdflatex`, `xelatex`, `lualatex`, and `pandoc` are also supported).
+Paste this into Claude Code or Codex:
 
-```bash
-pip install "tex-mcp-web[mcp] @ git+https://github.com/MiiKiyoshi/tex-mcp-web"
+```
+Install tex-mcp-web by following https://raw.githubusercontent.com/MiiKiyoshi/tex-mcp-web/main/INSTALL.md
 ```
 
-## Connect Claude Code or Codex
+The agent checks for Python and LaTeX, shows you what it will install, and registers
+tex-mcp-web for every folder once you agree. Start the agent again afterwards.
 
-Register the MCP server once for the agent you use.
+## Init
 
-Claude Code:
+Once per paper, start the agent in the paper's folder and say:
 
-```bash
-claude mcp add --scope user tex-mcp -- tex-mcp
+```
+do tex init
 ```
 
-Codex:
+The agent finds the main `.tex` file and a free port, shows you the settings, and writes
+`.tex-mcp-web.yaml` once you agree.
 
-```bash
-codex mcp add tex-mcp -- tex-mcp
+## Listen
+
+To review, say:
+
+```
+do tex listen
 ```
 
-The agent starts `tex-mcp` itself; you do not run it separately. It also serves the review page for the project it starts in, so a paper needs no second process.
+Open `http://localhost:<port>` with the port you chose at init. Say it again after the
+agent restarts; presses of **Call agent** made meanwhile wait for it.
 
-## Set up a paper
+## Reviewing
 
-Each paper needs a `.tex-mcp-web.yaml` at its root. Create it once in the paper directory:
+- **PDF**, **Source**, and **Split** show the paper, its source, or both; drag the
+  handle between them to resize.
+- Drag over PDF text, or select source text and press **+ Comment**, then write what should
+  change. Add a suggested wording in the replacement box when you have one.
+- **+ Note** comments on the whole paper; the **Sections** tab comments on a section.
+- Press **Call agent** when your comments are ready. **Recompile** rebuilds the PDF yourself.
+- The agent may answer with a proposed rewrite; **Apply suggestion** is what writes it into
+  the source.
+- Resolving is yours: **Resolve** a thread whose edit satisfies you, or reply in it when it
+  does not. **Archive** sets a thread aside; it still takes replies.
+- Saving in the Source view is explicit and refuses to overwrite a file changed by someone
+  else after you opened it.
 
-```bash
-cd my-paper
-tex-mcp-web init --main main.tex
-```
+## Configuration
 
-`--main` is the top-level source file that produces the PDF. `init` will not overwrite an existing file. It writes:
-
-```yaml
-main: main.tex
-watch:
-- '*.tex'
-- '*.bib'
-ignore:
-- '*_backup.tex'
-compiler: auto
-auto_compile: false
-port: 8765
-```
+`.tex-mcp-web.yaml` sits at the paper's root. Ask the agent to change a field, or edit it.
 
 | Field | Effect |
 |---|---|
 | `main` | Top-level source file compiled into the PDF. |
-| `dir` | Folder holding the paper, relative to this file or absolute. Unset means the folder holding this file. |
-| `watch` | File patterns that trigger recompilation on save, and the files the editor offers. Defaults to the kind of source the paper is written in: `*.tex` and `*.bib`, plus `main`'s own extension when it is not LaTeX. Notes and summaries kept beside a paper are not its source, so widen this only when you want them editable here. Only the directories the paper's sources live in are watched: those of `main` and the files it `\input`s, plus the directories of every project-local source the last latexmk run recorded (figures, `.bib`); the paper folder itself is watched flat. |
-| `ignore` | Patterns checked before `watch`; a match does not recompile. |
+| `dir` | Folder holding the paper, relative to this file or absolute. Unset means this file's folder. |
+| `watch` | Source files the page offers and follows; `*.tex` and `*.bib` by default. |
+| `ignore` | Patterns checked before `watch`. |
 | `compiler` | `auto` (latexmk for LaTeX, pandoc for Markdown or text) or a named compiler. |
-| `auto_compile` | `true` recompiles on watched saves; `false` leaves it to the topbar button or the agent. |
-| `port` | The local port for this paper's review page and MCP server. |
+| `port` | This paper's review page port; one port per paper. |
 
-To keep the paper out of the folder you start the agent in, put the config there and point `dir` at the paper:
-
-```bash
-cd my-project
-tex-mcp-web init --main main.tex
-tex-mcp-web config dir ../my-paper
-```
-
-The source, the PDF, and the comment store then stay under `../my-paper`; the project folder holds only the config file.
-
-Start Claude Code or Codex from the paper directory (or a subdirectory), then tell the agent:
-
-> Open the review page and listen for **Call agent**.
-
-The agent opens the review page at the configured port and starts listening.
-
-## Use it
-
-Drag over PDF text and write a comment; add a suggested wording in the replacement box when you have one. Use **+ Note** for a whole-paper comment and the **Sections** tab for a section comment. Press **Call agent** when the comments are ready.
-
-The agent reads them, edits the source, compiles, and replies in each thread. Resolving is yours: pick the threads whose edit satisfies you and resolve them from the page, or reopen one the agent got wrong. If an edit misses, reply in the same thread. **Archive** sets a thread aside to read again: it stays out of the open and resolved lists, still takes replies, and goes back to either with **Reopen** or **Resolve**.
-
-Instead of editing the source, the agent can propose a rewrite for you to decide on. It calls `write_comments(action="suggest", id=..., changes=[{"old": ..., "new": ...}], text=..., rev=...)`, quoting the pieces it wants to change the way an editing tool takes them: each `old` has to occur exactly once in the file your comment sits in, and an ambiguous one comes back with the lines it was found on. A proposal may reach past what you underlined, because you underline a phrase to point at something and what you ask for is often wider than the phrase.
-
-The proposal belongs to your thread and shows up under the conversation as −/+ pairs with **Apply suggestion**, which is the only thing that writes it into the source. A thread carries one proposal at a time: proposing again replaces it and adds what the agent said as a reply, applying it clears it and leaves an entry naming the lines that changed, and `write_comments(action="withdraw", ...)` takes it back. The agent cannot propose on a thread you have not written in, and cannot delete one either, so a proposal never arrives as a card of its own beside yours.
-
-When you press **Call agent** it asks `read_comments(new=true)`, which returns only what you have written since it last looked, so answering you does not cost it a re-read of everything already said. Times in its replies read as `09-19 00:52` on this machine's clock, and it hands the same form back to ask for what came after.
-
-For a long answer, the agent can ask `read_comments(ids=[...], save=true)` for a Markdown draft of those threads under `.tex-mcp-web/drafts/`, write its replies into the draft's Reply blocks, and send the file back with `write_comments(action="reply", replies_file=...)`; the whole batch is applied together, and a draft made before a thread changed is refused. The draft also holds an Edit block for each of the agent's earlier entries; a changed block rewrites that entry in place (author and time kept, `updated_at` recorded). Inline, `write_comments(action="edit", id=..., entry=..., text=..., rev=...)` does the same by comment id, entry id and the thread's `rev` token, which `read_comments` reports.
-
-If the agent restarts or stops receiving calls, ask it to listen for **Call agent** again. Calls made while it is disconnected stay queued.
-
-## Several papers at once
-
-Give each paper its own port, then start an agent session in each directory:
-
-```bash
-cd paper-a && tex-mcp-web config port 8765
-cd paper-b && tex-mcp-web config port 8766
-```
-
-They open at `http://localhost:8765` and `http://localhost:8766`. A port already serving another paper is an error, not shared; after changing a port, restart that paper's agent session.
-
-## Configuration
-
-`tex-mcp-web config` finds the nearest `.tex-mcp-web.yaml` from the current directory upward.
-
-```bash
-tex-mcp-web config                 # print the whole config
-tex-mcp-web config port            # print one field
-tex-mcp-web config port 8766       # change one field
-tex-mcp-web config compiler xelatex
-tex-mcp-web config watch 'main.tex,sections/**,*.bib'
-```
-
-Comma-separated patterns set `watch` and `ignore`.
-
-## More commands
+## Commands
 
 ```bash
 tex-mcp-web compile          # compile once, without the review page
