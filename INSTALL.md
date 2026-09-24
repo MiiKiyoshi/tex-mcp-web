@@ -6,7 +6,9 @@ install after the user agrees. On a machine that already has it, the same steps 
 
 ## 1. Inspect (change nothing)
 
-- Python: `python3 --version`, 3.10 or newer.
+- Python 3.10 or newer (the `mcp` package has no release for older ones): `python3 --version`;
+  when older, `command -v python3.13 python3.12 python3.11 python3.10`. None: stop and tell
+  the user. Use the one found as `python3` below.
 - LaTeX: `command -v latexmk`; record its directory. Missing: tell the user a TeX
   distribution is needed and stop; do not install one.
 - Install directory: `$HOME/.local/share/tex-mcp-web`, unless the user named another.
