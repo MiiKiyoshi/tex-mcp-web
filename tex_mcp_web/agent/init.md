@@ -8,11 +8,11 @@ summary, write only after the user agrees.
 
 - A config here or in a parent folder (`.tex-mcp-web.yaml`): if one exists, show the user
   its values and stop. A change is an edit to that file, after the user agrees.
-- Main file: `grep -l '\\documentclass' *.tex`. One hit is the proposal; several are asked.
-  No hit here: ask where the paper is; that folder becomes `dir`.
+- Main file: `grep -l '\\documentclass' *.tex`. One hit is the proposal. Several are asked.
+  No hit here: ask where the paper is, and that folder becomes `dir`.
 - Port: the first free one from 8765 (`ss -ltn`, or `lsof -iTCP -sTCP:LISTEN -P -n` on macOS), also skipping the port in a
-  `.html-mcp-web.yaml` in this folder; both tools default to 8765.
-- Compiler: `command -v latexmk`. Missing: tell the user; do not install a TeX distribution.
+  `.html-mcp-web.yaml` in this folder, since both tools default to 8765.
+- Compiler: `command -v latexmk`. Missing: tell the user, and do not install a TeX distribution.
 
 ## 2. Confirm
 
@@ -24,7 +24,7 @@ Show one summary, in the user's language, like:
     ignore   : *_backup.tex
     compiler : auto (latexmk)
 
-Add `dir` when the paper lives in another folder. Ask once; change only what the user
+Add `dir` when the paper lives in another folder. Ask once, and change only what the user
 corrects.
 
 ## 3. Write
@@ -36,4 +36,4 @@ In the session's folder, with the command that `listen()`'s missing-config error
 
 ## 4. Tell the user
 
-The folder is set up; saying "do tex listen" starts the review page.
+The folder is set up. Saying "do tex listen" starts the review page.
