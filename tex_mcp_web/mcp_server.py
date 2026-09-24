@@ -33,7 +33,7 @@ try:
     from mcp.types import ImageContent, TextContent
     from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-    from .mcp_client import ProjectBinding, ProjectSetupError
+    from .mcp_client import INIT_GUIDE, ProjectBinding, ProjectSetupError
 
     HAS_MCP = True
 except ImportError:
@@ -401,8 +401,9 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             "after the batch, verify, and reply naming the ranges you changed. When the wording "
             "is the reviewer's to decide, put a suggestion on their own thread rather than "
             "opening another comment. Respect read-only or discussion-only requests, and do not "
-            "repeat a thread reply in chat. Call listen() on each new MCP connection and follow "
-            "how. Do not poll or duplicate it; unacknowledged presses stay queued."
+            "repeat a thread reply in chat. Call listen() when the user asks to listen and follow "
+            "how. Do not poll or duplicate it; unacknowledged presses stay queued. "
+            f"Setup: read {INIT_GUIDE}."
         ),
     )
 
@@ -822,7 +823,13 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         client. Reuse the process after handling each review event.
         """
         _, watch_dir, _ = _load_project()
-        port = binding.require_shared().port
+        try:
+            port = binding.require_shared().port
+        except ProjectSetupError as error:
+            raise RuntimeError(
+                f"{error}. If another project holds the port, propose a free port to the user, "
+                "edit port in that config after they agree, and call listen() again."
+            ) from error
         # The server keeps the press count and the consumption watermark, so the script
         # carries no state of its own: a press made before this call answers it at once,
         # and after a line is delivered the loop parks again rather than replaying the
@@ -880,9 +887,11 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         staging.chmod(0o755)
         staging.replace(target)
         return _ok({
+            "review_url": f"http://127.0.0.1:{port}",
             "script": str(target),
             "how": (
-                _wait_method(ctx)
+                "Tell the user the review_url. "
+                + _wait_method(ctx)
                 + " Start another copy only after the previous process has ended. "
                 "On [review], call read_comments(new=True) and handle the review. "
                 "[gone] means the review server is unreachable; the script keeps retrying. "
@@ -926,6 +935,17 @@ def parse_goto_target(target: str, default_file: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Entry points
 # ---------------------------------------------------------------------------
+
+
+def check(start_dir: Path) -> list[str]:
+    """Build the server the way stdio would and return the names of its tools.
+
+    An install is judged before it is registered: this fails where serving would, with
+    the same message, and needs no paper in start_dir.
+    """
+    _check_deps()
+    server = create_server(ProjectBinding(start_dir))
+    return sorted(tool.name for tool in asyncio.run(server.list_tools()))
 
 
 def main(start_dir: Path | None = None) -> None:

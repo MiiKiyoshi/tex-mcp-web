@@ -96,7 +96,7 @@ def load(root: Path, path: str) -> tuple[dict[str, str], list[tuple[str, str, st
     entry id, text), expected updated stamps by comment id). Only changed blocks count."""
     candidate = Path(path)
     if ".." in candidate.parts or candidate.parent != root.absolute() or not re.fullmatch(r"[0-9a-f]{32}\.md", candidate.name):
-        raise ValueError("replies_file must be a server-created draft path")
+        raise ValueError("draft must be a server-created draft path")
     try:
         with _directory(root) as fd:
             snapshot = json.loads(_read(fd, candidate.stem + ".snapshot"))
@@ -120,4 +120,4 @@ def load(root: Path, path: str) -> tuple[dict[str, str], list[tuple[str, str, st
         expected = dict(zip(snapshot["ids"], snapshot["updated"]))
         return replies, entry_edits, expected
     except (OSError, UnicodeError, KeyError, TypeError, IndexError, json.JSONDecodeError) as error:
-        raise ValueError("invalid or unregistered replies_file") from error
+        raise ValueError("invalid or unregistered draft") from error

@@ -198,3 +198,13 @@ def test_get_compiler_command_rejects_dotdot():
 
     with pytest.raises(ValueError, match="'..'"):
         _get_compiler_command("latexmk", Path("../escape.tex"), Path("/tmp/sub"))
+
+
+def test_mcp_check_names_the_tools_without_a_paper(tmp_path: Path, monkeypatch, capsys):
+    """An install is checked before it is registered, from a folder with no paper."""
+    monkeypatch.chdir(tmp_path)
+    assert main(["mcp", "--check"]) == 0
+    said = capsys.readouterr().out
+    assert said.startswith("tex-mcp: 6 tools ("), said
+    for tool in ("state", "read_comments", "write_comments", "listen"):
+        assert tool in said
