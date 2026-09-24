@@ -55,10 +55,11 @@ agent restarts. Presses of **Call agent** made meanwhile wait for it.
 ## On a tablet or phone
 
 The review page adapts to the screen: on a tablet or phone the comments dock below the PDF,
-and the border between them drags with a finger. Review on a tablet while the agent works
+and the border between them drags with a finger. Opening a comment zooms the PDF to the
+text it marks, so it reads at a comfortable size. Review on a tablet while the agent works
 on the desktop.
 
-![The review page on a tablet and a phone: the PDF above, the open comment thread below.](docs/images/mobile.png)
+![The review page on a tablet and a phone, zoomed to a commented caption: the PDF above, its thread below.](docs/images/mobile.png)
 
 The server listens on `127.0.0.1` only, so reach it from another device through a
 forwarded port: an SSH tunnel, VS Code port forwarding, or `tailscale serve`.
