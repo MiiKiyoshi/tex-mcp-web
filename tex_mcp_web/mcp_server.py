@@ -35,8 +35,12 @@ try:
     from .mcp_client import INIT_GUIDE, ProjectBinding, ProjectSetupError
 
     HAS_MCP = True
-except ImportError:
+    MISSING_MCP: ImportError | None = None
+except ImportError as error:
+    # Kept, not just noted: mcp 2.x fails this import with a message naming the rename
+    # and the pin that fixes it, which "not installed" would hide.
     HAS_MCP = False
+    MISSING_MCP = error
 
 
 if HAS_MCP:
@@ -93,9 +97,8 @@ if HAS_MCP:
 def _check_deps() -> None:
     if not HAS_MCP:
         print(
-            "Error: MCP server requires the 'mcp' package.\n"
-            "Install with:\n"
-            "  pip install tex-mcp-web[mcp]",
+            f"tex-mcp cannot import its MCP dependencies: {MISSING_MCP}\n"
+            "Install tex-mcp-web[mcp] into this interpreter.",
             file=sys.stderr,
         )
         sys.exit(1)
