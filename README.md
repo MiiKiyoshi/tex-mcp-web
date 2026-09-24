@@ -1,6 +1,6 @@
 # tex-mcp-web
 
-Review a LaTeX paper from its rendered PDF while Claude Code or Codex edits the source.
+Review a LaTeX paper from its rendered PDF, on a desktop, tablet, or phone, while Claude Code or Codex edits the source.
 
 If it helps your writing, a star is very welcome.
 
@@ -49,6 +49,17 @@ do tex listen
 
 Open `http://localhost:<port>` with the port you chose at init. Say it again after the
 agent restarts; presses of **Call agent** made meanwhile wait for it.
+
+## On a tablet or phone
+
+The review page adapts to the screen: on a tablet or phone the comments dock below the PDF,
+and the border between them drags with a finger. Review on a tablet while the agent works
+on the desktop.
+
+![The review page on a tablet and a phone: the PDF above, the open comment thread below.](docs/images/mobile.png)
+
+The server listens on `127.0.0.1` only, so reach it from another device through a
+forwarded port: an SSH tunnel, VS Code port forwarding, or `tailscale serve`.
 
 ## Reviewing
 
