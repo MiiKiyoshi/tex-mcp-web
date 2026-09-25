@@ -519,6 +519,7 @@ function clearSourceCommentMarkers() {
   for (const marker of state.sourceCommentMarkers) state.editor.session.removeMarker(marker);
   for (const row of state.sourceCommentRows) {
     state.editor.session.removeGutterDecoration(row, "source-comment-line");
+    state.editor.session.removeGutterDecoration(row, "source-suggestion-line");
   }
   state.sourceCommentMarkers = [];
   state.sourceCommentRows.clear();
@@ -550,6 +551,34 @@ function syncSourceCommentMarkers() {
     const rowComments = state.sourceCommentsByRow.get(firstRow) ?? [];
     rowComments.push(comment);
     state.sourceCommentsByRow.set(firstRow, rowComments);
+  }
+  // The text an open proposal would replace, whatever its comment points at: a comment on
+  // the PDF proposes in the source too, and the editor marks the same text the card's −
+  // line shows. The server found each piece once in the file, so an edit made since then
+  // that moves or duplicates it leaves that piece unmarked rather than marked wrongly.
+  if (state.sourceDirty) return;
+  const text = state.editor.session.getValue();
+  for (const comment of state.comments) {
+    const suggestion = comment.suggestion;
+    if (comment.status !== "open" || !suggestion || suggestion.file !== state.sourcePath) continue;
+    for (const change of suggestion.changes) {
+      const at = text.indexOf(change.old);
+      if (at < 0 || text.indexOf(change.old, at + 1) >= 0) continue;
+      const start = state.editor.session.doc.indexToPosition(at);
+      const end = state.editor.session.doc.indexToPosition(at + change.old.length);
+      state.sourceCommentMarkers.push(state.editor.session.addMarker(
+        new Range(start.row, start.column, end.row, end.column),
+        "source-suggestion-highlight",
+        "text",
+        false,
+      ));
+      state.editor.session.addGutterDecoration(start.row, "source-comment-line");
+      state.editor.session.addGutterDecoration(start.row, "source-suggestion-line");
+      state.sourceCommentRows.add(start.row);
+      const rowComments = state.sourceCommentsByRow.get(start.row) ?? [];
+      if (!rowComments.includes(comment)) rowComments.push(comment);
+      state.sourceCommentsByRow.set(start.row, rowComments);
+    }
   }
 }
 

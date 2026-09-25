@@ -6,7 +6,7 @@ Review a LaTeX paper from its rendered PDF, on a desktop, tablet, or phone, whil
 
 If it helps your writing, a star is very welcome.
 
-![A caption highlighted in the PDF, the LaTeX source beside it, and the agent's proposed \vspace with Apply suggestion.](docs/images/discussion.png)
+![A caption flagged in the PDF, the source line the agent proposes to change marked in red, and its proposed \vspace with Apply suggestion.](docs/images/discussion.png)
 
 You point at the PDF in your browser, at what you see: a word, a caption that sits too
 close to its table. The agent edits the LaTeX and replies in the same thread, or proposes
@@ -56,8 +56,8 @@ agent restarts. Presses of **Call agent** made meanwhile wait for it.
 ## Suggested edits
 
 When the fix is yours to decide, the agent proposes it instead of making it. The thread
-shows the source lines it would change as a −/+ pair, and **Apply suggestion** writes
-them into the file. Proposing again replaces the proposal, and nothing reaches the source
+shows the source lines it would change as a −/+ pair, the Source view marks the same text
+in red, and **Apply suggestion** writes the change into the file. Proposing again replaces the proposal, and nothing reaches the source
 until you apply it. A comment on PDF text or on a section can carry one, since the agent
 quotes the source that text comes from.
 

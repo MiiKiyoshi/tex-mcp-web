@@ -218,6 +218,16 @@ textarea {
   transform: translateY(-50%);
 }
 #source-editor .ace_gutter-cell.source-comment-line { cursor: pointer; }
+/* What an open suggestion would replace, in the red of the card's − line. */
+#source-editor .ace_marker-layer .source-suggestion-highlight {
+  position: absolute;
+  background: rgba(183, 56, 56, 0.14);
+  box-shadow: inset 0 -2px 0 rgba(183, 56, 56, 0.55);
+}
+#source-editor .ace_gutter-cell.source-suggestion-line::before {
+  border-color: #9c3a33;
+  background: #e0857c;
+}
 #sidebar {
   border-left: 1px solid var(--border);
   background: var(--bg-elev);
