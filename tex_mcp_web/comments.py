@@ -1226,8 +1226,6 @@ class CommentStore:
             raise ValueError("stale thread: comment changed since it was read")
         if comment.status != "open":
             raise ValueError("a suggestion belongs to a comment that is open")
-        if not isinstance(comment.anchor, SourceRangeAnchor):
-            raise ValueError("a suggestion needs a comment anchored to source")
         if not any(entry.author == "human" for entry in comment.thread):
             raise ValueError(
                 "a suggestion belongs to a thread the reviewer has written in; "

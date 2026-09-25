@@ -1021,9 +1021,10 @@ function renderCommentItem(comment) {
 
 function renderSuggestion(comment) {
   const changes = comment.suggestion?.changes ?? [];
-  const completeSourceSuggestion = comment.anchor.kind === "source_range" && changes.length > 0;
+  // The proposal names its own file, so it applies whatever the comment points at: a
+  // source range, PDF text, or a section.
   let applyButton = null;
-  if (completeSourceSuggestion && comment.status === "open") {
+  if (changes.length > 0 && comment.status === "open") {
     applyButton = actionButton("sugg-apply", "Apply suggestion", async () => {
       applyButton.disabled = true;
       applyButton.textContent = "Applying…";

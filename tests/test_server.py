@@ -240,7 +240,7 @@ async def test_create_comment_with_suggestion(client):
 
 
 @pytest.mark.asyncio
-async def test_a_suggestion_needs_a_comment_anchored_to_source(client):
+async def test_a_suggestion_needs_a_comment_whose_place_in_the_source_is_known(client):
     """A proposal is applied to a file, so a whole-paper note cannot carry one."""
     tc, _ = client
     resp = await tc.post(
@@ -249,7 +249,31 @@ async def test_a_suggestion_needs_a_comment_anchored_to_source(client):
               "suggestion": {"old": "a", "new": "b"}},
     )
     assert resp.status == 400
-    assert "anchored to source" in (await resp.json())["error"]
+    assert "place in the source is known" in (await resp.json())["error"]
+
+
+@pytest.mark.asyncio
+async def test_a_reviewer_replacement_on_a_section_goes_to_its_source(client):
+    """A section, like PDF text, points into the source through what it resolves to, so
+    the replacement a reviewer types beside it lands in that file, once it is found there."""
+    tc, _ = client
+    resp = await tc.post(
+        "/comments",
+        json={"anchor": {"kind": "section", "title": "Methods"}, "text": "clearer",
+              "suggestion": {"old": "Some methods.", "new": "Two careful methods."}},
+    )
+    assert resp.status == 201
+    assert (await resp.json())["suggestion"] == {
+        "file": "paper.tex",
+        "changes": [{"old": "Some methods.", "new": "Two careful methods."}],
+    }
+    resp = await tc.post(
+        "/comments",
+        json={"anchor": {"kind": "section", "title": "Methods"}, "text": "clearer",
+              "suggestion": {"old": "Words the PDF shows but the source spells otherwise", "new": "x"}},
+    )
+    assert resp.status == 400
+    assert "not found in the source" in (await resp.json())["error"]
 
 
 @pytest.mark.asyncio
@@ -1201,6 +1225,48 @@ async def test_mcp_comment_discovery_reads_only_selected_history(bound_project, 
 
 
 @pytest.mark.asyncio
+async def test_a_suggestion_answers_a_comment_made_off_the_source(bound_project, project):
+    """A reviewer points at the PDF or a section, not at source lines. The proposal is
+    quoted from the file that place resolves to, so it can answer them there; only a
+    whole-paper note, which names no file, cannot carry one."""
+    pytest.importorskip("mcp")
+    import aiohttp
+
+    from tex_mcp_web.comments import CommentStore
+    from tex_mcp_web.mcp_server import create_server, revision_of
+
+    mcp = create_server(bound_project)
+    store = CommentStore(project / ".tex-mcp-web" / "comments.json")
+
+    async def opened(anchor):
+        # Placed the way the page places it, so a section resolves to its source lines.
+        added = await mcp.call_tool("write_comments", {"action": "add", "text": "Look here.", "anchor": anchor})
+        comment_id = json.loads(added[0][0].text)["id"]
+        return store.reply(comment_id, "Please fix this.", author="human")
+
+    section = await opened({"kind": "section", "title": "Methods"})
+    note = await opened({"kind": "paper"})
+
+    async def suggest(comment, old, new):
+        result = await mcp.call_tool("write_comments", {
+            "action": "suggest", "id": comment.id, "rev": revision_of(comment.updated),
+            "text": "A proposal.", "changes": [{"old": old, "new": new}]})
+        return json.loads(result[0][0].text)
+
+    assert "place in the source is known" in (await suggest(note, "Some", "Any"))["error"]
+    assert "error" not in await suggest(section, "Some methods.", "Two careful methods.")
+
+    proposed = store.get(section.id)
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            f"{bound_project.base_url()}/comments/{section.id}/apply-suggestion",
+            json={"updated": proposed.updated},
+        ) as response:
+            assert response.status == 200
+    assert "Two careful methods." in (project / "paper.tex").read_text(encoding="utf-8")
+
+
+@pytest.mark.asyncio
 async def test_mcp_comment_and_section_runtime_contract(bound_project, project):
     pytest.importorskip("mcp")
     from tex_mcp_web.mcp_server import create_server
@@ -1222,9 +1288,9 @@ async def test_mcp_comment_and_section_runtime_contract(bound_project, project):
     assert set(comment) == {"id", "status", "rev"}
     assert stored["comments"][0]["thread"][0]["text"] == "review this"
 
-    # A rewrite is proposed inside one comment's own range. The agent quotes the text it
-    # replaces the way an editing tool takes it, so it never counts columns, and it never
-    # sends back the text it is not changing.
+    # A rewrite is proposed on one comment's thread, quoted from the file the comment sits
+    # in. The agent quotes the text it replaces the way an editing tool takes it, so it
+    # never counts columns, and it never sends back the text it is not changing.
     async def call_comment(**payload):
         return json.loads((await mcp.call_tool("write_comments", payload))[0][0].text)
 
