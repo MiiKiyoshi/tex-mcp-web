@@ -6,15 +6,16 @@ Review a LaTeX paper from its rendered PDF, on a desktop, tablet, or phone, whil
 
 If it helps your writing, a star is very welcome.
 
-![A highlighted PDF caption, its LaTeX source, and the review thread in Split view](docs/images/discussion.png)
+![A caption highlighted in the PDF, the LaTeX source beside it, and the agent's proposed \vspace with Apply suggestion.](docs/images/discussion.png)
 
-You comment on the PDF in your browser. The agent reads the comments, edits the LaTeX,
-compiles, and replies in the same thread.
+You point at the PDF in your browser, at what you see: a word, a caption that sits too
+close to its table. The agent edits the LaTeX and replies in the same thread, or proposes
+the exact source change and leaves it to you to apply with one click.
 
 ```
 you:    select text -> write a comment -> press Call agent
                   |
-agent:  read comments -> edit LaTeX -> compile -> reply
+agent:  read comments -> edit LaTeX, or propose a change -> compile -> reply
                   |
 you:    read the rebuilt PDF -> comment again
 ```
@@ -52,6 +53,14 @@ do tex listen
 Open `http://localhost:<port>` with the port you chose at init. Say it again after the
 agent restarts. Presses of **Call agent** made meanwhile wait for it.
 
+## Suggested edits
+
+When the fix is yours to decide, the agent proposes it instead of making it. The thread
+shows the source lines it would change as a −/+ pair, and **Apply suggestion** writes
+them into the file. Proposing again replaces the proposal, and nothing reaches the source
+until you apply it. A comment on PDF text or on a section can carry one, since the agent
+quotes the source that text comes from.
+
 ## On a tablet or phone
 
 The review page adapts to the screen: on a tablet or phone the comments dock below the PDF,
@@ -72,8 +81,6 @@ forwarded port: an SSH tunnel, VS Code port forwarding, or `tailscale serve`.
   change. Add a suggested wording in the replacement box when you have one.
 - **+ Note** comments on the whole paper, and the **Sections** tab comments on a section.
 - Press **Call agent** when your comments are ready. **Recompile** rebuilds the PDF yourself.
-- The agent may answer with a proposed rewrite. **Apply suggestion** is what writes it into
-  the source.
 - Resolving is yours: **Resolve** a thread whose edit satisfies you, or reply in it when it
   does not. **Archive** sets a thread aside, and it still takes replies.
 - Saving in the Source view is explicit and refuses to overwrite a file changed by someone

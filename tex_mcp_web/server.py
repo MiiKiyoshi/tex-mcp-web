@@ -149,7 +149,7 @@ def _suggestion_from_dict(d: Any, file: str | None) -> SuggestedEdit | None:
         # An agent that means to remove text says so through its own call.
         raise TypeError("a replacement must not be empty")
     if file is None:
-        raise TypeError("a suggestion needs a comment anchored to source")
+        raise TypeError("a suggestion needs a comment whose place in the source is known")
     return SuggestedEdit(file=file, changes=[(d["old"], d["new"])])
 
 
@@ -162,9 +162,12 @@ def derive_suggestion(
     what the reviewer is offered is measured against the source rather than against
     what the agent remembered of it.
     """
+    # Any comment whose place in the source is known can carry one: a source range, or
+    # PDF text and sections through the source they resolve to. A whole-paper note
+    # names no file.
     source = comment.resolved_source
     if source is None:
-        raise ValueError("the comment has no resolved source range")
+        raise ValueError("a suggestion needs a comment whose place in the source is known")
     try:
         text = (watch_dir / source.file).read_text(encoding="utf-8")
     except (OSError, UnicodeError) as error:
@@ -836,10 +839,6 @@ class TexMcpWebServer:
             )
         try:
             anchor = anchor_from_dict(anchor_d)
-            suggestion = _suggestion_from_dict(
-                data["suggestion"] if "suggestion" in data else None,
-                anchor.file if isinstance(anchor, SourceRangeAnchor) else None,
-            )
         except (ValueError, KeyError, TypeError) as exc:
             return web.json_response(
                 {"error": f"invalid comment input: {exc}"}, status=400
@@ -878,6 +877,23 @@ class TexMcpWebServer:
         resolved, source_selector = self._resolve_anchor(anchor)
         if isinstance(anchor, SourceRangeAnchor) and source_selector is None:
             return web.json_response({"error": "Source selection is out of bounds"}, status=400)
+        # A replacement is written into the file the comment points at: its own for a
+        # source range, the one PDF text or a section resolves to otherwise. Text copied
+        # from the PDF has to be found in that file as written, since the rendered words
+        # can differ from their source.
+        try:
+            if isinstance(anchor, SourceRangeAnchor):
+                suggestion = _suggestion_from_dict(data.get("suggestion"), anchor.file)
+            else:
+                suggestion = _suggestion_from_dict(
+                    data.get("suggestion"), resolved.file if resolved is not None else None)
+                if suggestion is not None:
+                    source_text = self._resolve_source_path(suggestion.file).read_text(encoding="utf-8")
+                    locate_fragments(source_text, suggestion.changes)
+        except (ValueError, KeyError, TypeError, OSError, UnicodeError) as exc:
+            return web.json_response(
+                {"error": f"invalid comment input: {exc}"}, status=400
+            )
         comment = self.comments.add(
             anchor=anchor,
             text=text,
