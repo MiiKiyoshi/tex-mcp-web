@@ -286,6 +286,16 @@ textarea {
   .source-status { order: 2; flex: 1 0 100%; text-align: left; }
 }
 
+/* A phone zooms the whole page into a field smaller than 16px the moment it takes the
+   cursor: writing a comment or a suggested wording left the page zoomed, the source
+   editor's hidden input among them. At 16px nothing zooms, and the text is easier to
+   read as it is typed. */
+@media (pointer: coarse) {
+  textarea, select, input {
+    font-size: 16px !important;
+  }
+}
+
 @media (max-width: 950px) {
   .layout.view-split #workspace {
     grid-template-columns: minmax(0, 1fr);
