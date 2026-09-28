@@ -1849,7 +1849,9 @@ async def test_listen(bound_project, project, monkeypatch, codex):
     script = Path(result["script"])
     assert script == project / ".tex-mcp-web" / "wait-review.sh"
     assert script.stat().st_mode & 0o111
-    assert "Monitor" in result["how"]
+    # Claude Code's Monitor takes command, description and timeout_ms (at most 30 minutes).
+    assert "Monitor" in result["how"] and "persistent" not in result["how"]
+    assert 'description="' in result["how"] and "timeout_ms=1800000" in result["how"]
     assert "write_stdin" not in result["how"]
     for name in ("codex-mcp-client", "other-client"):
         context.session.client_params.clientInfo.name = name

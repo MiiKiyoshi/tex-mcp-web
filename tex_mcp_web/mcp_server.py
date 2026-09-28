@@ -366,8 +366,9 @@ def _wait_method(ctx: "Context") -> str:
     name = ctx.session.client_params.clientInfo.name.casefold()
     if "claude" in name:
         return (
-            "Run the script with Monitor(command=<script>, persistent=true, "
-            "timeout_ms=3600000), then end the turn. Keep the monitor for subsequent events."
+            'Run the script with Monitor(command=<script>, description="tex-mcp review", '
+            "timeout_ms=1800000), then end the turn. Keep the monitor for subsequent events. "
+            "Monitor stops after 30 minutes: when it reports that, start it again with the same script."
         )
     if "codex" in name:
         return (
