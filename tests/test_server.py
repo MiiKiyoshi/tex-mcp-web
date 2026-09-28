@@ -99,6 +99,57 @@ async def test_file_change_broadcasts_without_compiling(project):
 
 
 @pytest.mark.asyncio
+async def test_config_edit_applies_without_restart(project):
+    from tex_mcp_web.watcher import Watcher
+
+    config_path = project / ".tex-mcp-web.yaml"
+    server = TexMcpWebServer(Config(main="paper.tex", config_path=config_path))
+    server.watcher = Watcher(project, ["*.tex"], [], AsyncMock(), roots=[])
+    server.do_compile = AsyncMock()
+    server.broadcast = AsyncMock()
+
+    config_path.write_text("main: paper.tex\nwatch:\n- '*.tex'\n- 'notes/*.md'\n")
+    await server.on_file_change(str(config_path))
+
+    assert server.config.watch == ["*.tex", "notes/*.md"]
+    assert server.watcher.watch_patterns == ["*.tex", "notes/*.md"]
+    assert server.broadcast.await_args.args[0] == {"type": "config_reloaded"}
+    server.do_compile.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_config_edit_to_main_compiles_the_new_paper(project):
+    config_path = project / ".tex-mcp-web.yaml"
+    server = TexMcpWebServer(Config(main="paper.tex", config_path=config_path))
+    server.do_compile = AsyncMock()
+    server.broadcast = AsyncMock()
+
+    (project / "other.tex").write_text("\\documentclass{article}\n\\begin{document}x\\end{document}\n")
+    config_path.write_text("main: other.tex\n")
+    await server.on_file_change(str(config_path))
+
+    assert server.main_file == project / "other.tex"
+    server.do_compile.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("text", ["main: paper.tex\nport: 9000\n", "main: paper.tex\ndir: sub\n", "main: [\n"])
+async def test_config_edit_the_server_cannot_take_is_reported(project, text):
+    (project / "sub").mkdir()
+    config_path = project / ".tex-mcp-web.yaml"
+    server = TexMcpWebServer(Config(main="paper.tex", config_path=config_path))
+    server.do_compile = AsyncMock()
+    server.broadcast = AsyncMock()
+
+    config_path.write_text(text)
+    await server.on_file_change(str(config_path))
+
+    assert server.broadcast.await_args.args[0]["type"] == "config_error"
+    assert (server.config.port, server.config.dir) == (8765, None)
+    server.do_compile.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_manual_compile_runs(client):
     tc, server = client
     result = CompileResult(success=False)

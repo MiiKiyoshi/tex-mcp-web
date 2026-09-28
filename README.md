@@ -74,7 +74,8 @@ ssh -L 8765:localhost:8765 <server>
 
 ## Configuration
 
-Edit `.tex-mcp-web.yaml` at the paper's root, then restart Claude Code or Codex.
+Edit `.tex-mcp-web.yaml` at the paper's root. A saved change applies at once, except `port`
+and `dir`, which apply when Claude Code or Codex restarts.
 
 ```yaml
 main: main.tex

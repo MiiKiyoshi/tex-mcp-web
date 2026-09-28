@@ -1608,6 +1608,13 @@ async function handleWebSocketMessage(message) {
     case "source_changed":
       await handleSourceChanged(message);
       break;
+    case "config_reloaded":
+      await refreshPaper();
+      if (state.editor) await refreshSourceFiles();
+      break;
+    case "config_error":
+      $("#compile-status").textContent = `config error: ${message.error}`;
+      break;
     case "state":
       if (message.result) applyCompileResult(message.result);
       if (message.compiling) applyCompiling(true);

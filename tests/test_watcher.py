@@ -227,6 +227,20 @@ class TestTexFileHandler:
 
         loop.close()
 
+    def test_should_process_passes_the_config_only_when_named(self, tmp_path):
+        """The config reaches the server when the handler is given its path."""
+        loop = asyncio.new_event_loop()
+        config = tmp_path / ".tex-mcp-web.yaml"
+        told = TexFileHandler(watch_dir=tmp_path, watch_patterns=["*.tex"], ignore_patterns=[],
+                              callback=AsyncMock(), loop=loop, config_path=config)
+        blind = TexFileHandler(watch_dir=tmp_path, watch_patterns=["*.tex"], ignore_patterns=[],
+                               callback=AsyncMock(), loop=loop)
+
+        assert told._should_process(str(config))
+        assert not blind._should_process(str(config))
+
+        loop.close()
+
     def test_should_process_no_watch_match(self):
         """Test that non-matching file returns False."""
         loop = asyncio.new_event_loop()

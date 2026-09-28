@@ -74,6 +74,7 @@ class TexFileHandler(FileSystemEventHandler):
         callback: Callable[[str], Coroutine],
         loop: asyncio.AbstractEventLoop,
         debounce_seconds: float = 0.5,
+        config_path: Path | None = None,
     ):
         """Initialize handler.
 
@@ -84,11 +85,13 @@ class TexFileHandler(FileSystemEventHandler):
             callback: Async callback to invoke on changes.
             loop: Event loop to schedule callbacks on.
             debounce_seconds: Minimum time between callbacks.
+            config_path: The project's .tex-mcp-web.yaml, whose saves are passed on too.
         """
         super().__init__()
         self.watch_dir = watch_dir.resolve()
         self.watch_patterns = watch_patterns
         self.ignore_patterns = ignore_patterns
+        self.config_path = config_path.resolve() if config_path is not None else None
         self.callback = callback
         self.loop = loop
         self.debounce_seconds = debounce_seconds
@@ -101,7 +104,11 @@ class TexFileHandler(FileSystemEventHandler):
         return matches_patterns(path, self.watch_dir, patterns)
 
     def _should_process(self, path: str) -> bool:
-        """Check if a file change should trigger recompilation."""
+        """Check if a file change should reach the server."""
+        # The config is never a source the page offers, so it is let through here
+        # rather than in is_watched_source.
+        if self.config_path is not None and Path(path).resolve() == self.config_path:
+            return True
         return is_watched_source(
             path,
             self.watch_dir,
@@ -196,6 +203,7 @@ class Watcher:
         on_change: Callable[[str], Coroutine],
         roots: list[Path],
         debounce_seconds: float = 0.5,
+        config_path: Path | None = None,
     ):
         """Initialize watcher.
 
@@ -208,10 +216,13 @@ class Watcher:
                 Nothing else under the project is enumerated: a watch goes on every
                 directory under a recursive root, and the inotify limit is the login's.
             debounce_seconds: Minimum time between callbacks.
+            config_path: The project's .tex-mcp-web.yaml. Its folder is watched flat
+                too when ``dir`` puts the paper somewhere else.
         """
         self.watch_dir = watch_dir
         self.watch_patterns = watch_patterns
         self.ignore_patterns = ignore_patterns
+        self.config_path = config_path
         self.on_change = on_change
         self.roots: list[Path] = []
         self.debounce_seconds = debounce_seconds
@@ -252,6 +263,14 @@ class Watcher:
                 self._schedule(root)
         return added, dropped
 
+    def update_patterns(self, watch_patterns: list[str], ignore_patterns: list[str]) -> None:
+        """Take up an edited config's watch and ignore lists."""
+        self.watch_patterns = watch_patterns
+        self.ignore_patterns = ignore_patterns
+        if self._handler is not None:
+            self._handler.watch_patterns = watch_patterns
+            self._handler.ignore_patterns = ignore_patterns
+
     def _schedule(self, root: Path) -> None:
         if not root.is_dir():
             return
@@ -273,12 +292,15 @@ class Watcher:
             callback=self.on_change,
             loop=loop,
             debounce_seconds=self.debounce_seconds,
+            config_path=self.config_path,
         )
 
         self._observer = Observer()
         self._watches = {}
         try:
             self._observer.schedule(self._handler, str(self.watch_dir), recursive=False)
+            if self.config_path is not None and self.config_path.parent.resolve() != self.watch_dir.resolve():
+                self._observer.schedule(self._handler, str(self.config_path.parent), recursive=False)
             for root in self.roots:
                 if root.is_dir():
                     self._watches[root] = self._observer.schedule(self._handler, str(root), recursive=True)

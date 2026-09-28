@@ -26,6 +26,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import yaml
 from aiohttp import web
 
 from .comments import (
@@ -49,7 +50,7 @@ from .comments import (
     source_offset,
 )
 from .compiler import CompileResult, compile_tex, source_dependencies
-from .config import Config, get_main_file, get_watch_dir
+from .config import Config, get_main_file, get_watch_dir, load_config
 from .structure import (
     DocumentStructure,
     _files_reachable_from,
@@ -489,7 +490,38 @@ class TexMcpWebServer:
             await self.broadcast(msg)
         return self.last_result
 
+    async def apply_config(self) -> None:
+        """Take up an edited .tex-mcp-web.yaml. The port and the paper's folder stay
+        what the server started with: the page, the listen script and the comment store
+        are bound to them."""
+        config = load_config(self.config.config_path)
+        if config.port != self.config.port:
+            raise ValueError(
+                f"port changed from {self.config.port} to {config.port}. "
+                "The new port applies when the agent restarts"
+            )
+        if get_watch_dir(config).resolve() != self.watch_dir.resolve():
+            raise ValueError("dir changed. The new folder applies when the agent restarts")
+        rebuild = (config.main, config.compiler) != (self.config.main, self.config.compiler)
+        self.config = config
+        self.main_file = get_main_file(config)
+        if self.watcher is not None:
+            self.watcher.update_patterns(config.watch, config.ignore)
+            self.watcher.set_roots(self.source_roots())
+        await self.broadcast({"type": "config_reloaded"})
+        # A new main file or compiler makes a different PDF, which the page would
+        # otherwise go on showing the old one of.
+        if rebuild:
+            await self.do_compile()
+
     async def on_file_change(self, changed_path: str) -> None:
+        if (self.config.config_path is not None
+                and Path(changed_path).resolve() == self.config.config_path.resolve()):
+            try:
+                await self.apply_config()
+            except (OSError, TypeError, ValueError, yaml.YAMLError) as error:
+                await self.broadcast({"type": "config_error", "error": str(error)})
+            return
         try:
             path = Path(changed_path).resolve()
             relative = path.relative_to(self.watch_dir.resolve()).as_posix()
@@ -1429,6 +1461,7 @@ class TexMcpWebServer:
             ignore_patterns=self.config.ignore,
             on_change=self.on_file_change,
             roots=self.source_roots(),
+            config_path=self.config.config_path,
         )
         self.watcher.start(loop)
         self._store_watch = asyncio.create_task(self._watch_comment_store())
