@@ -4,7 +4,7 @@
 
 Review a LaTeX paper from its rendered PDF, on a desktop, tablet, or phone, while Claude Code or Codex edits the source.
 
-If it helps your writing, a star is very welcome.
+> ⭐ **If this helps your writing, please give it a star.** It helps others find the project.
 
 ![A caption flagged in the PDF, the source line the agent proposes to change marked in red, and its proposed \vspace with Apply suggestion.](docs/images/discussion.png)
 
