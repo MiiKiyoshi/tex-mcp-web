@@ -65,11 +65,11 @@ again replaces the proposal.
 
 ![The review page on a tablet and a phone, zoomed to a commented caption: the PDF above, its thread below.](docs/images/mobile.png)
 
-Forward the paper's port over SSH, from Termux on Android or iSH on iOS. Use the paper's
-port in place of 8765.
+Forward the port you chose at init over SSH, from Termux on Android or iSH on iOS, then open
+`http://localhost:<port>` in the phone's browser.
 
 ```
-ssh -L 8765:localhost:8765 <server>
+ssh -L <port>:localhost:<port> <server>
 ```
 
 ## Configuration
@@ -95,7 +95,7 @@ port: 8765
 | `watch` | Source files the Source tab offers. |
 | `ignore` | Patterns excluded even when they match `watch`. |
 | `compiler` | `auto` (latexmk for LaTeX, pandoc for Markdown or text), `latexmk`, `pdflatex`, `xelatex`, `lualatex`, or `pandoc`. |
-| `port` | This paper's review page port. |
+| `port` | This paper's review page port. Any free port works. Init picks the first free one from 8765, so each paper can have its own. |
 
 ## Acknowledgements
 
