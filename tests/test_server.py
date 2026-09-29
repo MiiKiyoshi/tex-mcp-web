@@ -2229,3 +2229,22 @@ async def test_list_comments_shows_an_opening_and_counts_the_rest(bound_project,
         "action": "edit", "id": row["id"], "entry": "e-nope", "text": "x",
         "rev": row["rev"]}))[0][0].text)
     assert "stale" in stale["error"]
+
+
+def test_unknown_arguments_are_refused_and_schemas_are_compact(tmp_path: Path) -> None:
+    from mcp.server.fastmcp.exceptions import ToolError
+
+    from tex_mcp_web.mcp_client import ProjectBinding
+    from tex_mcp_web.mcp_server import create_server
+
+    mcp = create_server(ProjectBinding(tmp_path))
+    with pytest.raises(ToolError) as error:
+        asyncio.run(mcp.call_tool("read_comments", {"no_such": 1}))
+    assert str(error.value).startswith("read_comments does not take no_such. It takes: ")
+    tools = asyncio.run(mcp.list_tools())
+    # FastMCP adds a title to every schema and a null default to every optional field.
+    schemas = json.dumps([tool.inputSchema for tool in tools])
+    assert '"title": "' not in schemas and '"default": null' not in schemas
+    # A field that is itself named title stays.
+    write = next(tool for tool in tools if tool.name == "write_comments").inputSchema
+    assert any("title" in model["properties"] for model in write["$defs"].values())
