@@ -905,6 +905,19 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             ),
         })
 
+    @mcp.tool()
+    async def setup_info() -> str:
+        """Report setup paths and the existing binding without connecting or changing files."""
+        from .config import find_config
+
+        discovered = find_config(binding.start_dir)
+        bound = binding.bound_config_path()
+        return _ok({
+            "startup_dir": str(binding.start_dir),
+            "discovered_config_path": None if discovered is None else str(discovered.resolve()),
+            "bound_config_path": None if bound is None else str(bound),
+        })
+
     return mcp
 
 

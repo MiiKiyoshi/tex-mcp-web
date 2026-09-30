@@ -1125,7 +1125,7 @@ async def test_mcp_contract_is_typed_and_nonduplicative(tmp_path: Path):
     tools = {tool.name: tool for tool in await mcp.list_tools()}
 
     assert set(tools) == {
-        "read_comments", "write_comments", "compile", "image", "listen",
+        "read_comments", "write_comments", "compile", "image", "listen", "setup_info",
     }
     assert "read_comments(new=True)" in mcp.instructions
     assert "read_comments(ids=[...])" in mcp.instructions
@@ -1214,6 +1214,43 @@ def test_tools_keep_the_bound_project_when_a_closer_config_appears(tmp_path, mon
         assert cfg.config_path.resolve() == bound.config_path
         assert watch_dir == bound.watch_dir == parent.resolve()
         assert store.path == parent.resolve() / ".tex-mcp-web" / "comments.json"
+    finally:
+        binding.stop()
+
+
+@pytest.mark.asyncio
+async def test_setup_info_reports_paths_without_connecting(tmp_path):
+    pytest.importorskip("mcp")
+    import threading
+
+    from tex_mcp_web.mcp_client import ProjectBinding
+    from tex_mcp_web.mcp_server import create_server
+
+    parent = tmp_path / "parent"
+    child = parent / "child"
+    child.mkdir(parents=True)
+    (parent / "paper.tex").write_text(_TINY_PAPER)
+    config = parent / ".tex-mcp-web.yaml"
+    config.write_text(f"main: paper.tex\nport: {_free_port()}\n")
+    binding = ProjectBinding(child)
+    mcp = create_server(binding)
+
+    async def setup_info():
+        return json.loads((await mcp.call_tool("setup_info", {}))[0][0].text)
+
+    files = sorted(tmp_path.rglob("*"))
+    try:
+        assert await setup_info() == {
+            "startup_dir": str(child.resolve()),
+            "discovered_config_path": str(config.resolve()),
+            "bound_config_path": None,
+        }
+        # A report only: no server, no binding, no file.
+        assert binding.bound_config_path() is None
+        assert not any(thread.name == "tex-mcp-web" for thread in threading.enumerate())
+        assert sorted(tmp_path.rglob("*")) == files
+        binding.require_shared()
+        assert (await setup_info())["bound_config_path"] == str(config.resolve())
     finally:
         binding.stop()
 

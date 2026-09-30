@@ -206,6 +206,6 @@ def test_mcp_check_names_the_tools_without_a_paper(tmp_path: Path, monkeypatch, 
     monkeypatch.chdir(tmp_path)
     assert main(["mcp", "--check"]) == 0
     said = capsys.readouterr().out
-    assert said.startswith("tex-mcp: 5 tools ("), said
-    for tool in ("read_comments", "write_comments", "compile", "listen"):
+    assert said.startswith("tex-mcp: 6 tools ("), said
+    for tool in ("read_comments", "write_comments", "compile", "listen", "setup_info"):
         assert tool in said
