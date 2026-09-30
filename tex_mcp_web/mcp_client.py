@@ -49,12 +49,20 @@ class SharedProjectServer:
         self.server: Any = None
 
     def _remote_identity(self) -> str | None:
+        """The config file the server on this port runs from, or None when nothing answers.
+
+        A server is shared only by the same config file: two configs can serve one folder
+        with different settings, and a tool must see the project the page serves."""
         try:
             with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/paper", timeout=0.5) as response:
                 data = json.loads(response.read().decode("utf-8"))
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
             return None
-        return str(data["watch_dir"])
+        if data.get("config_path") is None:
+            raise RuntimeError(
+                f"port {self.port} is served without a config file, by another project or an "
+                "older tex-mcp-web. Restart the MCP server that holds it, or change this port")
+        return str(data["config_path"])
 
     def _serve(self) -> None:
         from .server import TexMcpWebServer
@@ -106,9 +114,9 @@ class SharedProjectServer:
             self.thread = None
         identity = self._remote_identity()
         if identity is not None:
-            if Path(identity).resolve() != self.watch_dir:
+            if Path(identity).resolve() != self.config_path:
                 raise RuntimeError(
-                    f"port {self.port} serves {identity}, not {self.watch_dir}; change one project's port")
+                    f"port {self.port} serves {identity}, not {self.config_path}. Change one project's port")
             return
         lock_path = self.watch_dir / ".tex-mcp-web" / "server.lock"
         lock_path.parent.mkdir(parents=True, exist_ok=True)
@@ -121,8 +129,8 @@ class SharedProjectServer:
                 time.sleep(0.1)
                 identity = self._remote_identity()
                 if identity is not None:
-                    if Path(identity).resolve() != self.watch_dir:
-                        raise RuntimeError(f"port {self.port} is used by another project: {identity}")
+                    if Path(identity).resolve() != self.config_path:
+                        raise RuntimeError(f"port {self.port} serves another config: {identity}")
                     return
             raise RuntimeError(f"review server lock is held but port {self.port} is not reachable")
         self.lock_handle = handle

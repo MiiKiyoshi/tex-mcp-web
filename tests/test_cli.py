@@ -44,6 +44,24 @@ def test_init_refuses_to_overwrite_existing(project_dir, capsys):
     capsys.readouterr()
     rc = main(["init", "--main", "main.tex"])
     assert rc == 1
+    err = capsys.readouterr().err
+    assert "already exists here" in err and "--force overwrites it" in err
+
+
+def test_init_under_a_parent_config_says_force_leaves_the_parent(project_dir, monkeypatch, capsys):
+    main(["init", "--main", "main.tex"])
+    parent_config = (project_dir / ".tex-mcp-web.yaml").read_text()
+    child = project_dir / "child"
+    child.mkdir()
+    monkeypatch.chdir(child)
+    capsys.readouterr()
+    assert main(["init", "--main", "child.tex"]) == 1
+    err = capsys.readouterr().err
+    # --force does not overwrite a parent's config, so the refusal must not say it does.
+    assert "parent folder" in err and "overwrite" not in err
+    assert main(["init", "--main", "child.tex", "--force"]) == 0
+    assert (child / ".tex-mcp-web.yaml").exists()
+    assert (project_dir / ".tex-mcp-web.yaml").read_text() == parent_config
 
 
 def test_init_force_overwrites(project_dir):

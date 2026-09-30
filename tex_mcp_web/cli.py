@@ -65,8 +65,14 @@ def cmd_serve(args: argparse.Namespace) -> int:
 def cmd_init(args: argparse.Namespace) -> int:
     existing = find_config()
     if existing and not args.force:
-        print(f"Config already exists: {existing}", file=sys.stderr)
-        print("Use --force to overwrite.", file=sys.stderr)
+        # init writes here. A config found higher up is left alone by --force.
+        if existing.parent.resolve() == Path.cwd().resolve():
+            print(f"Config already exists here: {existing}", file=sys.stderr)
+            print("--force overwrites it.", file=sys.stderr)
+        else:
+            print(f"Config found in a parent folder: {existing}", file=sys.stderr)
+            print("--force writes a new config here, which takes precedence for this folder. "
+                  "The parent is not changed.", file=sys.stderr)
         return 1
     path = create_config(main=args.main, port=args.port or DEFAULT_PORT)
     print(f"Wrote {path}", file=sys.stderr)

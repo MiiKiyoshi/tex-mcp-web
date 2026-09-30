@@ -1191,6 +1191,54 @@ def bound_project(project: Path, monkeypatch):
     binding.stop()
 
 
+_TINY_PAPER = "\\documentclass{article}\n\\begin{document}x\\end{document}\n"
+
+
+def test_tools_keep_the_bound_project_when_a_closer_config_appears(tmp_path, monkeypatch):
+    from tex_mcp_web.mcp_client import ProjectBinding
+    from tex_mcp_web.mcp_server import _load_project
+
+    parent = tmp_path / "parent"
+    child = parent / "child"
+    child.mkdir(parents=True)
+    (parent / "paper.tex").write_text(_TINY_PAPER)
+    (parent / ".tex-mcp-web.yaml").write_text(f"main: paper.tex\nport: {_free_port()}\n")
+    monkeypatch.chdir(child)
+    binding = ProjectBinding(child)
+    try:
+        bound = binding.require_shared()
+        (child / ".tex-mcp-web.yaml").write_text(f"main: other.tex\nport: {_free_port()}\n")
+        # Comments, image and the compile log come from here, so they must stay with the
+        # project the review page serves, not the config that appeared later.
+        cfg, watch_dir, store = _load_project(binding)
+        assert cfg.config_path.resolve() == bound.config_path
+        assert watch_dir == bound.watch_dir == parent.resolve()
+        assert store.path == parent.resolve() / ".tex-mcp-web" / "comments.json"
+    finally:
+        binding.stop()
+
+
+def test_a_server_started_for_another_config_file_is_not_shared(tmp_path):
+    from tex_mcp_web.mcp_client import ProjectBinding, ProjectSetupError
+
+    root = tmp_path / "root"
+    paper = root / "paper"
+    paper.mkdir(parents=True)
+    (paper / "paper.tex").write_text(_TINY_PAPER)
+    port = _free_port()
+    # Two config files that serve the same folder on the same port.
+    (root / ".tex-mcp-web.yaml").write_text(f"main: paper.tex\ndir: paper\nport: {port}\n")
+    (paper / ".tex-mcp-web.yaml").write_text(f"main: paper.tex\nport: {port}\n")
+    first, second = ProjectBinding(root), ProjectBinding(paper)
+    try:
+        first.require_shared()
+        with pytest.raises(ProjectSetupError, match="serves"):
+            second.require_shared()
+    finally:
+        first.stop()
+        second.stop()
+
+
 @pytest.mark.asyncio
 async def test_binding_serves_the_viewer(bound_project, project):
     import aiohttp

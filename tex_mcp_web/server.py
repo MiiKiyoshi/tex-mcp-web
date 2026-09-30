@@ -694,6 +694,9 @@ class TexMcpWebServer:
 
         return web.json_response(
             {
+                # Which config file this server runs from: peers sharing the port compare it.
+                "config_path": (str(self.config.config_path.resolve())
+                                if self.config.config_path is not None else None),
                 "main_file": self.config.main,
                 "watch_dir": str(self.watch_dir),
                 "compiling": self.compiling,

@@ -141,15 +141,19 @@ def _check_deps() -> None:
         sys.exit(1)
 
 
-def _load_project():
-    """Resolve config + watch_dir + comment store from cwd."""
-    from .comments import CommentStore
-    from .config import get_watch_dir, load_config
+def _load_project(binding: "ProjectBinding"):
+    """The bound project's config, folder and comment store.
 
-    cfg = load_config()
-    watch_dir = get_watch_dir(cfg)
-    store = CommentStore(watch_dir / ".tex-mcp-web" / "comments.json")
-    return cfg, watch_dir, store
+    Every tool uses the project the review page serves, even when a closer config
+    appears later. The config file is read again, as the server reads it on a save.
+    """
+    from .comments import CommentStore
+    from .config import load_config
+
+    shared = binding.require_shared()
+    cfg = load_config(shared.config_path)
+    store = CommentStore(shared.watch_dir / ".tex-mcp-web" / "comments.json")
+    return cfg, shared.watch_dir, store
 
 
 def revision_of(updated: str) -> str:
@@ -472,7 +476,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         since. Times read and are written back as ``MM-DD HH:MM`` on this server's clock.
         ``save`` needs ids; edit only the draft's Reply and Edit blocks.
         """
-        _, watch_dir, store = _load_project()
+        _, watch_dir, store = _load_project(binding)
         try:
             moment = parse_short_time(since) if since is not None else None
         except ValueError as error:
@@ -607,7 +611,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                 f"compile failed with HTTP {response.status_code}: {response.text}"
             )
         result = response.json()
-        cfg, _, _ = _load_project()
+        cfg, _, _ = _load_project(binding)
         # The log is a file on disk and the source lines around an error are readable
         # with any file tool, so neither is copied into the answer. Warnings are a
         # count: a paper writes a paragraph per line, and five lines of context around
@@ -655,7 +659,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         write. edits names the source ranges a reply changed. The reviewer resolves
         threads, not you. Returns id, status and rev.
         """
-        cfg, watch_dir, store = _load_project()
+        cfg, watch_dir, store = _load_project(binding)
 
         def receipt(comment) -> str:
             return _ok({"id": comment.id, "status": comment.status,
@@ -744,7 +748,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         from .config import get_main_file
         from .server import _clamp_dpi, _parse_source_range
 
-        cfg, watch_dir, store = _load_project()
+        cfg, watch_dir, store = _load_project(binding)
         pdf_path = get_main_file(cfg).with_suffix(".pdf")
         if not pdf_path.exists():
             return [TextContent(type="text",
@@ -826,7 +830,6 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         Run the returned script using the how field, selected for the connected
         client. Reuse the process after handling each review event.
         """
-        _, watch_dir, _ = _load_project()
         try:
             port = binding.require_shared().port
         except ProjectSetupError as error:
@@ -834,6 +837,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                 f"{error}. If another project holds the port, propose a free port to the user, "
                 "edit port in that config after they agree, and call listen() again."
             ) from error
+        _, watch_dir, _ = _load_project(binding)
         # The server keeps the press count and the consumption watermark, so the script
         # carries no state of its own: a press made before this call answers it at once,
         # and after a line is delivered the loop parks again rather than replaying the

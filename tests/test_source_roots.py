@@ -161,7 +161,7 @@ def test_a_slow_start_is_cancelled_after_setup_returns_and_cleans_up(tmp_path: P
         monkeypatch.setattr(TexMcpWebServer, "setup", original)
         monkeypatch.setattr(SharedProjectServer, "START_TIMEOUT", 10)
         shared.ensure()
-        assert shared._remote_identity() == str(tmp_path.resolve())
+        assert shared._remote_identity() == str(shared.config_path)
     finally:
         shared.stop()
     assert _server_threads() == before and _lock_is_free(tmp_path)
