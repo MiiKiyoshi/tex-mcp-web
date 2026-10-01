@@ -409,7 +409,8 @@ def _wait_method(ctx: "Context") -> str:
         return (
             'Run the script with Monitor(command=<script>, description="tex-mcp review", '
             "timeout_ms=1800000), then end the turn. Keep the monitor for subsequent events. "
-            "Monitor stops after 30 minutes: when it reports that, start it again with the same script."
+            "Monitor stops after 30 minutes: when it reports that, start it again with the same script "
+            "and end the turn without a reply."
         )
     if "codex" in name:
         return (
