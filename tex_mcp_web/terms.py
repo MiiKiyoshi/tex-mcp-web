@@ -3,9 +3,8 @@
 An agent writing in a field tends to describe a concept in a phrase of its own, or coin a
 name for it, where the papers of that field use one established term. The reference papers,
 converted to Markdown, show which terms those are: a phrase several of them use for the same
-thing. The list goes to ``.tex-mcp-web/terms.md`` beside the configuration, and is rebuilt
-only when the Markdown files change, since a reader is asked to read it again after each
-rebuild.
+thing. guide() brings the list at ``.tex-mcp-web/terms.md`` beside the configuration up to
+date and names it among the files to read. It is rebuilt only when the Markdown files change.
 
 What counts as a term:
 
@@ -29,14 +28,10 @@ import json
 import math
 import os
 import re
-import sys
-import threading
 from collections import Counter, defaultdict
 from pathlib import Path
 
-import yaml
-
-from .config import Config, find_config, get_references_dir, load_config
+from .config import Config, get_references_dir
 
 TERMS_FILE = "terms.md"
 STAMP_FILE = "terms.json"
@@ -454,26 +449,3 @@ def refresh(config: Config) -> Path | None:
                       f"The list could not be built from `references` in {config.config_path}: {error}. "
                       "Tell the user, who sets `references` to a folder of the papers converted to Markdown.\n")
     return terms
-
-
-_refreshing = threading.Lock()
-
-
-def refresh_soon(start_dir: Path) -> None:
-    """Refresh the list of the project found from *start_dir* in the background, unless a
-    refresh is already running. Building takes seconds and no tool call waits for it: a
-    list that appears or changes is required reading from the next call on."""
-    if not _refreshing.acquire(blocking=False):
-        return
-
-    def run() -> None:
-        try:
-            config_path = find_config(start_dir)
-            if config_path is not None:
-                refresh(load_config(config_path))
-        except (OSError, TypeError, ValueError, yaml.YAMLError) as error:
-            print(f"tex-mcp-web: reference terms not refreshed: {error}", file=sys.stderr)
-        finally:
-            _refreshing.release()
-
-    threading.Thread(target=run, name="reference-terms", daemon=True).start()

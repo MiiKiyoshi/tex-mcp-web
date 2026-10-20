@@ -3,23 +3,29 @@
     "SessionStart": [
       {
         "hooks": [
-          {"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/terms_gate.py\" session-start"}
+          {"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/guide_gate.py\" session-start"}
         ]
       }
     ],
     "PostToolUse": [
       {
+        "matcher": "mcp__tex-mcp__guide",
+        "hooks": [
+          {"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/guide_gate.py\" guide-read"}
+        ]
+      },
+      {
         "matcher": "Read",
         "hooks": [
-          {"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/terms_gate.py\" file-read"}
+          {"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/guide_gate.py\" file-read"}
         ]
       }
     ],
     "PreToolUse": [
       {
-        "matcher": "mcp__tex-mcp__.*|Edit|Write|MultiEdit",
+        "matcher": "mcp__tex-mcp__.*",
         "hooks": [
-          {"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/terms_gate.py\" before-tool"}
+          {"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/guide_gate.py\" before-tool"}
         ]
       }
     ]

@@ -1125,8 +1125,9 @@ async def test_mcp_contract_is_typed_and_nonduplicative(tmp_path: Path):
     tools = {tool.name: tool for tool in await mcp.list_tools()}
 
     assert set(tools) == {
-        "read_comments", "write_comments", "compile", "image", "listen", "setup_info",
+        "guide", "read_comments", "write_comments", "compile", "image", "listen", "setup_info",
     }
+    assert "call guide() and read every file in its read list in full" in mcp.instructions
     assert "read_comments(new=True)" in mcp.instructions
     assert "read_comments(ids=[...])" in mcp.instructions
     assert "compile() once" in mcp.instructions

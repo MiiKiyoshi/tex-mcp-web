@@ -2,6 +2,7 @@
 
 Exposes tools to agents via stdio:
 
+    guide()                 files to read in full before editing the paper
     read_comments(...)      what is new, selected threads in full, or a listing
     write_comments(...)     add/reply/suggest/withdraw/edit/delete
     compile()               recompile, return structured errors
@@ -61,13 +62,7 @@ try:
                 _compact_schema(tool.inputSchema)
             return tools
 
-        # Run before each tool call, so a change to the reference papers reaches the
-        # list of their terms without a restart.
-        before_call = None
-
         async def call_tool(self, name, arguments):
-            if self.before_call is not None:
-                self.before_call()
             tool = next((t for t in await self.list_tools() if t.name == name), None)
             if tool is not None:
                 accepted = list(tool.inputSchema["properties"])
@@ -449,6 +444,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
     mcp = _Server(
         "tex-mcp-web",
         instructions=(
+            "Before editing the paper, call guide() and read every file in its read list in full. "
             "Work from read_comments(new=True), which gives what the reviewer has "
             "written since you last asked, each thread with the rev a write quotes back. "
             "read_comments(ids=[...]) gives a thread whole when its conversation is no "
@@ -462,9 +458,16 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             f"Setup: read {INIT_GUIDE}."
         ),
     )
-    from .terms import refresh_soon
+    # A path, not the list: the agent reads it with its own file tool, and the plugin's
+    # hook checks that the Read returned it whole.
+    @mcp.tool()
+    async def guide() -> str:
+        """Paths to files to read in full before editing the paper: the terms its reference papers use, when references is set."""
+        from .terms import refresh
 
-    mcp.before_call = lambda: refresh_soon(binding.start_dir)
+        cfg, _, _ = _load_project(binding)
+        terms = refresh(cfg)
+        return _ok({"read": [] if terms is None else [str(terms)]})
 
     @mcp.tool()
     async def read_comments(
@@ -998,7 +1001,6 @@ def main(start_dir: Path | None = None) -> None:
     except ProjectSetupError as error:
         print(f"tex-mcp-web project is not ready: {error}", file=sys.stderr)
     mcp = create_server(binding)
-    mcp.before_call()
     try:
         asyncio.run(mcp.run_stdio_async())
     finally:

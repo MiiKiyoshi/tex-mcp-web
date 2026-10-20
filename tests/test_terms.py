@@ -93,18 +93,34 @@ def test_a_folder_that_cannot_be_read_gives_a_list_saying_so(tmp_path: Path) -> 
     assert "no Markdown files" in text
 
 
-def test_a_tool_call_builds_the_list_in_the_background(tmp_path: Path) -> None:
-    import asyncio
-    import threading
+async def test_guide_brings_the_list_up_to_date_and_names_it_to_read(tmp_path: Path) -> None:
+    import json
+    import socket
 
     from tex_mcp_web.mcp_client import ProjectBinding
     from tex_mcp_web.mcp_server import create_server
 
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = listener.getsockname()[1]
     references(tmp_path / "refs")
-    project(tmp_path / "paper", "../refs")
-    server = create_server(ProjectBinding(tmp_path / "paper"))
-    asyncio.run(server.call_tool("setup_info", {}))
-    for thread in threading.enumerate():
-        if thread.name == "reference-terms":
-            thread.join(timeout=30)
-    assert "- light curve (4)" in (tmp_path / "paper" / ".tex-mcp-web" / "terms.md").read_text(encoding="utf-8")
+    paper = tmp_path / "paper"
+    paper.mkdir()
+    (paper / "main.tex").write_text("\\documentclass{article}\n\\begin{document}x\\end{document}\n")
+    config = paper / ".tex-mcp-web.yaml"
+    config.write_text(f"main: main.tex\nport: {port}\nreferences: ../refs\n")
+    binding = ProjectBinding(paper)
+    mcp = create_server(binding)
+
+    async def guide():
+        return json.loads((await mcp.call_tool("guide", {}))[0][0].text)
+
+    try:
+        terms = (paper / ".tex-mcp-web" / "terms.md").resolve()
+        assert await guide() == {"read": [str(terms)]}
+        assert "- light curve (4)" in terms.read_text(encoding="utf-8")
+        # Without references there is nothing to read first.
+        config.write_text(f"main: main.tex\nport: {port}\n")
+        assert await guide() == {"read": []}
+    finally:
+        binding.stop()

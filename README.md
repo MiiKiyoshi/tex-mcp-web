@@ -8,6 +8,16 @@ Review a LaTeX paper from its rendered PDF, on a desktop, tablet, or phone, whil
 
 ![A caption flagged in the PDF, the source line the agent proposes to change marked in red, and its proposed \vspace with Apply suggestion.](docs/images/discussion.png)
 
+## Writes in your field's terms
+
+Left alone, an agent describes a concept in words of its own where the papers of your field
+use one term. Give tex-mcp those papers and, in Claude Code, its tools stay locked until the
+agent has read the terms they share, and they lock again after every compaction.
+
+To set it up, convert the papers yours builds on to Markdown with
+[marker](https://github.com/datalab-to/marker), keep them in one folder, and set `references`
+to it.
+
 ## Install
 
 Paste this into Claude Code or Codex:
@@ -60,14 +70,6 @@ so there is nothing else to start. Say it again after the agent restarts.
 The thread shows the source lines the agent would change as a −/+ pair, and the Source tab
 marks the same text in red. **Apply suggestion** writes the change into the file. Proposing
 again replaces the proposal.
-
-## Terms of the field
-
-An agent tends to describe a concept in words of its own where the papers of the field use one
-term. Convert the papers yours builds on to Markdown with
-[marker](https://github.com/datalab-to/marker), keep them in one folder, and set `references`
-to it. The agent's server lists the terms those papers share in `.tex-mcp-web/terms.md`, and in
-Claude Code the agent reads that list before it edits the paper, again after each compaction.
 
 ## On a tablet or phone
 
