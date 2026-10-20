@@ -16,8 +16,8 @@ What counts as a term:
   phrase every paper writes whatever its field ("proposed method", "number of stars"),
   and not a name from a paper's front matter, funding line or setup ("Intel Xeon").
 
-Forms that differ in plural, hyphen, case or the order of "A of B" are one term, shown in
-the form most papers use. An acronym the papers define as "long form (ACR)" is attached
+Forms that differ in plural, hyphen, case, spacing ("light curve", "lightcurve") or the order
+of "A of B" are one term, shown in the form most papers use. An acronym the papers define as "long form (ACR)" is attached
 when two of them define it and two thirds of those that do mean the same long form.
 """
 
@@ -38,7 +38,7 @@ STAMP_FILE = "terms.json"
 LIMIT = 200
 # Part of the stamp: a list built by an earlier rule is rebuilt. Raise it with each change
 # to what counts.
-VERSION = 2
+VERSION = 3
 
 STOP = set("""
 a about above after again against all also am an and any are as at be because been before
@@ -330,8 +330,9 @@ class _Counts:
                 self.words_per_use[key][len(words) >= 2] += 1
 
     def shown(self, forms: dict) -> str:
-        """The form most papers write, lower case wherever running text uses lower case."""
-        best = max(forms, key=lambda form: (len(forms[form]), -len(form)))
+        """The form most papers write, lower case wherever running text uses lower case.
+        Between forms as many papers write, the one with its words apart, then the shorter."""
+        best = max(forms, key=lambda form: (len(forms[form]), form.count(" "), -len(form)))
         words = []
         for word in best.split():
             seen = self.case[word.lower()]
@@ -373,29 +374,53 @@ def build(folder: Path, limit: int = LIMIT) -> str:
              and not any(freq[other] >= 0.7 * freq[key] for other in longer[key])
              and continued(key) < 0.7 * freq[key] and not proper(key)]
 
+    # Spellings that differ only in where the words are joined ("light curve", "lightcurve")
+    # are one term, named as more papers write it. A single word joins a term this way,
+    # though it is no term alone.
+    spellings = defaultdict(list)
+    for key in kept:
+        spellings["".join(key)].append(key)
+    listed = set(terms)
+    joined = {key: max((other for other in spellings["".join(key)] if other in listed),
+                       key=lambda other: (len(owners[other]), freq[other], other))
+              for key in terms}
+    forms, papers_of, spelled = {}, {}, {}
+    for lead in set(joined.values()):
+        group = spellings["".join(lead)]
+        merged = defaultdict(set)
+        for key in group:
+            for surface, users_of in counts.forms[key].items():
+                merged[surface] |= users_of
+        forms[lead] = merged
+        papers_of[lead] = set().union(*(owners[key] for key in group))
+        shown = counts.shown(merged)
+        spelled[lead] = sorted({counts.shown(counts.forms[key]) for key in group} - {shown})
+
     # "A of B" and "B A" are one term, named in the form more papers use.
-    canonical = {key: key for key in terms}
-    for key in terms:
-        if "of" in key:
-            at = key.index("of")
-            other = _key(list(key[at + 1:]) + list(key[:at]))
-            if other in canonical and other != key:
-                kept_key, merged = (key, other) if len(owners[key]) >= len(owners[other]) else (other, key)
-                canonical[merged] = kept_key
+    canonical = {lead: lead for lead in papers_of}
+    for lead in papers_of:
+        if "of" in lead:
+            at = lead.index("of")
+            other = _key(list(lead[at + 1:]) + list(lead[:at]))
+            other = joined.get(other, other)
+            if other in canonical and other != lead:
+                kept_key, merged_key = (lead, other) if len(papers_of[lead]) >= len(papers_of[other]) else (other, lead)
+                canonical[merged_key] = kept_key
     users = defaultdict(set)
     also = defaultdict(list)
-    for key in terms:
-        users[canonical[key]] |= owners[key]
-        if canonical[key] != key:
-            also[canonical[key]].append(counts.shown(counts.forms[key]))
+    for lead in papers_of:
+        users[canonical[lead]] |= papers_of[lead]
+        also[canonical[lead]].extend(spelled[lead])
+        if canonical[lead] != lead:
+            also[canonical[lead]].append(counts.shown(forms[lead]))
 
-    acronym_of, forms = {}, dict(counts.forms)
+    acronym_of = {}
     for short, meanings in counts.defined.items():
         long = max(meanings, key=lambda meaning: len(meanings[meaning]))
         defining = set().union(*meanings.values())
         using = counts.acronym_papers[short] | defining
         if len(defining) >= 2 and len(using) >= floor and len(meanings[long]) >= 2 / 3 * len(defining):
-            key = canonical.get(long, long)
+            key = canonical[joined[long]] if long in joined else long
             acronym_of[key] = short
             users[key] |= using
             if key not in forms:
