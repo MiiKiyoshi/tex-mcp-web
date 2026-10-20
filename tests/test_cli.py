@@ -96,6 +96,12 @@ def test_config_list_value_roundtrip(project_dir, capsys):
     assert capsys.readouterr().out.strip() == "*.tex,*.bib"
 
 
+def test_config_sets_the_reference_papers(project_dir, capsys):
+    main(["init", "--main", "main.tex"])
+    assert main(["config", "references", "../related"]) == 0
+    assert yaml.safe_load((project_dir / ".tex-mcp-web.yaml").read_text())["references"] == "../related"
+
+
 def test_config_rejects_unknown_key_and_compiler(project_dir, capsys):
     main(["init", "--main", "main.tex"])
     assert main(["config", "bogus", "1"]) == 1

@@ -113,7 +113,9 @@ async def test_guide_brings_the_list_up_to_date_and_names_it_to_read(tmp_path: P
     mcp = create_server(binding)
 
     async def guide():
-        return json.loads((await mcp.call_tool("guide", {}))[0][0].text)
+        """guide()'s one text block, the answer the plugin's hook parses. A structured answer
+        would come back as a pair with the text wrapped in {"result": ...}."""
+        return json.loads((await mcp.call_tool("guide", {}))[0].text)
 
     try:
         terms = (paper / ".tex-mcp-web" / "terms.md").resolve()

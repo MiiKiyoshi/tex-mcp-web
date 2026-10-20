@@ -28,6 +28,8 @@ connection has been verified.
 - Port: the first free one from 8765 (`ss -ltn`, or `lsof -iTCP -sTCP:LISTEN -P -n` on macOS), also skipping the port in a
   `.html-mcp-web.yaml` in this folder, since both tools default to 8765.
 - Compiler: `command -v latexmk`. Missing: tell the user, and do not install a TeX distribution.
+- References: a folder the user names that holds the papers theirs builds on, converted to
+  Markdown. Unnamed: leave it unset.
 
 ## 2. Confirm
 
@@ -40,9 +42,10 @@ Show one summary, in the user's language, like:
     watch    : *.tex *.bib -> 9 files (main.tex, sections/*.tex, refs.bib)
     ignore   : *_backup.tex
     compiler : auto (latexmk)
+    references : ../related  (the reference papers in Markdown, relative to the config)
 
-Leave out `dir` when the paper is in the startup directory. Ask once. A choice the user has
-already approved is not asked again.
+Leave out `dir` when the paper is in the startup directory, and `references` when the user
+named no folder. Ask once. A choice the user has already approved is not asked again.
 
 ## 3. Write
 
@@ -51,7 +54,7 @@ directory, with the command that `listen()`'s missing-config error names. Changi
 working directory does not retarget this MCP process.
 
     tex-mcp-web --port <port> init --main <file>
-    tex-mcp-web config <dir|compiler|watch|ignore> <value>   # only for changed fields
+    tex-mcp-web config <dir|compiler|watch|ignore|references> <value>   # only for changed fields
 
 Continue only if init succeeds and the expected local config exists. Before changing any
 setting, run `tex-mcp-web config` without arguments and confirm that it selects the intended
@@ -66,9 +69,9 @@ without changing the parent. Do not use it to replace an existing local config.
 Before reporting completion, confirm that configuration discovery selects the intended file,
 `dir` resolves to the intended paper directory, and `main` resolves to an existing paper file.
 
-Then check the current connection without a build. Call `read_comments()`, which connects this
-session to its project, and then `setup_info()`. Its `bound_config_path` must be the intended
-config. A review server is shared only by the same config file, so this is the config the
+Then check the current connection without a build. Call `guide()`, which connects this session
+to its project, read every file in its read list in full, and then call `setup_info()`. Its
+`bound_config_path` must be the intended config. A review server is shared only by the same config file, so this is the config the
 review page serves. If it is bound to another config, restart the MCP server process through
 the client and check again. A successful init or CLI config check alone does not establish
 this.

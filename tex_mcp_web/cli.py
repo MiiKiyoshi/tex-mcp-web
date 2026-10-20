@@ -84,7 +84,7 @@ def cmd_init(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 
-_CONFIG_KEYS = ("main", "dir", "port", "compiler", "watch", "ignore")
+_CONFIG_KEYS = ("main", "dir", "port", "compiler", "watch", "ignore", "references")
 
 
 def cmd_config(args: argparse.Namespace) -> int:

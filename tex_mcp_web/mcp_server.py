@@ -459,8 +459,9 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         ),
     )
     # A path, not the list: the agent reads it with its own file tool, and the plugin's
-    # hook checks that the Read returned it whole.
-    @mcp.tool()
+    # hook checks that the Read returned it whole. Plain text, since structured output
+    # would wrap the answer in {"result": ...} and the hook reads the answer as written.
+    @mcp.tool(structured_output=False)
     async def guide() -> str:
         """Paths to files to read in full before editing the paper: the terms its reference papers use, when references is set."""
         from .terms import refresh
