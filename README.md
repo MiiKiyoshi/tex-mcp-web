@@ -61,6 +61,14 @@ The thread shows the source lines the agent would change as a −/+ pair, and th
 marks the same text in red. **Apply suggestion** writes the change into the file. Proposing
 again replaces the proposal.
 
+## Terms of the field
+
+An agent tends to describe a concept in words of its own where the papers of the field use one
+term. Convert the papers yours builds on to Markdown with
+[marker](https://github.com/datalab-to/marker), keep them in one folder, and set `references`
+to it. The agent's server lists the terms those papers share in `.tex-mcp-web/terms.md`, and in
+Claude Code the agent reads that list before it edits the paper, again after each compaction.
+
 ## On a tablet or phone
 
 ![The review page on a tablet and a phone, zoomed to a commented caption: the PDF above, its thread below.](docs/images/mobile.png)
@@ -96,6 +104,7 @@ port: 8765
 | `ignore` | Patterns excluded even when they match `watch`. |
 | `compiler` | `auto` (latexmk for LaTeX, pandoc for Markdown or text), `latexmk`, `pdflatex`, `xelatex`, `lualatex`, or `pandoc`. |
 | `port` | This paper's review page port. Any free port works. Init picks the first free one from 8765, so each paper can have its own. |
+| `references` | Folder holding only the papers yours builds on, converted to Markdown, relative to this file or absolute. Unset means no list of their terms. |
 
 ## Acknowledgements
 

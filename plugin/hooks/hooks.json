@@ -1,0 +1,27 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/terms_gate.py\" session-start"}
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/terms_gate.py\" file-read"}
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "mcp__tex-mcp__.*|Edit|Write|MultiEdit",
+        "hooks": [
+          {"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/terms_gate.py\" before-tool"}
+        ]
+      }
+    ]
+  }
+}

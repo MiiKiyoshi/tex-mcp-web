@@ -38,6 +38,8 @@ class Config:
         ignore: Glob patterns for files to exclude from watching.
         compiler: Compiler command ("auto", "latexmk", "pdflatex", etc.).
         port: HTTP server port.
+        references: Folder of reference papers converted to Markdown, relative to the
+            config file's folder or absolute. Unset means no list of their terms.
         config_path: Path to .tex-mcp-web.yaml file (used to resolve watch_dir).
     """
 
@@ -47,6 +49,7 @@ class Config:
     ignore: list[str] = field(default_factory=list)
     compiler: str = "auto"
     port: int = DEFAULT_PORT
+    references: str | None = None
     config_path: Path | None = None
 
     @classmethod
@@ -59,6 +62,7 @@ class Config:
             ignore=data.get("ignore", []),
             compiler=data.get("compiler", "auto"),
             port=data.get("port", DEFAULT_PORT),
+            references=data.get("references"),
             config_path=config_path,
         )
 
@@ -73,6 +77,8 @@ class Config:
         }
         if self.dir is not None:
             d["dir"] = self.dir
+        if self.references is not None:
+            d["references"] = self.references
         return d
 
 
@@ -169,6 +175,14 @@ def get_watch_dir(config: Config) -> Path:
         base = config.config_path.parent
         return (base / config.dir).resolve() if config.dir else base
     return Path.cwd()
+
+
+def get_references_dir(config: Config) -> Path | None:
+    """The folder of reference papers in Markdown, or None when none is configured."""
+    if config.references is None:
+        return None
+    base = config.config_path.parent if config.config_path else Path.cwd()
+    return (base / config.references).resolve()
 
 
 def get_main_file(config: Config) -> Path:

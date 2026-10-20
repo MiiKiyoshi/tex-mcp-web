@@ -15,7 +15,8 @@ install after the user agrees. On a machine that already has it, the same steps 
   Note whether it already holds a checkout.
 - Agents: `command -v claude` and `command -v codex`. Register with each one found.
 - Existing registration: `claude mcp get tex-mcp`, `codex mcp get tex-mcp`. Note a
-  command path that differs from the one below.
+  command path that differs from the one below. `claude plugin list` shows whether the
+  `tex-mcp` plugin is already installed, in which case its install below is skipped.
 
 ## 2. Confirm
 
@@ -42,6 +43,14 @@ Remove a registration the user agreed to replace (`claude mcp remove --scope use
     P="$BIN:<latexmk directory>:/usr/bin:/bin"
     claude mcp add --scope user tex-mcp -e PATH="$P" -- "$BIN/tex-mcp"
     codex mcp add tex-mcp --env PATH="$P" -- "$BIN/tex-mcp"
+
+For Claude Code, also install the plugin from the checkout. In a paper that sets `references`,
+it refuses edits to the paper and tex-mcp's tools other than `setup_info()` until that context
+has read the paper's list of terms, again after each compaction. It loads from the checkout in
+place, so an update of the checkout updates it.
+
+    claude plugin marketplace add "$DIR"
+    claude plugin install tex-mcp@tex-mcp-web
 
 ## 5. Tell the user
 

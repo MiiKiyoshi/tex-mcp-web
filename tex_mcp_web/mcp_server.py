@@ -61,7 +61,13 @@ try:
                 _compact_schema(tool.inputSchema)
             return tools
 
+        # Run before each tool call, so a change to the reference papers reaches the
+        # list of their terms without a restart.
+        before_call = None
+
         async def call_tool(self, name, arguments):
+            if self.before_call is not None:
+                self.before_call()
             tool = next((t for t in await self.list_tools() if t.name == name), None)
             if tool is not None:
                 accepted = list(tool.inputSchema["properties"])
@@ -456,6 +462,9 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             f"Setup: read {INIT_GUIDE}."
         ),
     )
+    from .terms import refresh_soon
+
+    mcp.before_call = lambda: refresh_soon(binding.start_dir)
 
     @mcp.tool()
     async def read_comments(
@@ -989,6 +998,7 @@ def main(start_dir: Path | None = None) -> None:
     except ProjectSetupError as error:
         print(f"tex-mcp-web project is not ready: {error}", file=sys.stderr)
     mcp = create_server(binding)
+    mcp.before_call()
     try:
         asyncio.run(mcp.run_stdio_async())
     finally:

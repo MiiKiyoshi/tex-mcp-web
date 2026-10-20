@@ -1,0 +1,11 @@
+{
+  "name": "tex-mcp-web",
+  "owner": {"name": "MiiKiyoshi"},
+  "plugins": [
+    {
+      "name": "tex-mcp",
+      "source": "./plugin",
+      "description": "Keeps an agent from editing a paper or using tex-mcp's tools until this context has read the terms its reference papers use"
+    }
+  ]
+}
