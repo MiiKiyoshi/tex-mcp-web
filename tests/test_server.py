@@ -1127,6 +1127,9 @@ async def test_mcp_contract_is_typed_and_nonduplicative(tmp_path: Path):
     assert set(tools) == {
         "guide", "read_comments", "write_comments", "compile", "image", "listen", "setup_info",
     }
+    # A structured answer repeats the content as JSON beside it, an image as base64 text,
+    # and wraps a text answer in {"result": ...}, which the plugin's hook cannot read.
+    assert all(tool.outputSchema is None for tool in tools.values())
     assert "call guide() and read every file in its read list in full" in mcp.instructions
     assert "read_comments(new=True)" in mcp.instructions
     assert "read_comments(ids=[...])" in mcp.instructions
@@ -1237,7 +1240,7 @@ async def test_setup_info_reports_paths_without_connecting(tmp_path):
     mcp = create_server(binding)
 
     async def setup_info():
-        return json.loads((await mcp.call_tool("setup_info", {}))[0][0].text)
+        return json.loads((await mcp.call_tool("setup_info", {}))[0].text)
 
     files = sorted(tmp_path.rglob("*"))
     try:
@@ -1297,7 +1300,7 @@ async def test_mcp_comment_discovery_reads_only_selected_history(bound_project, 
     mcp = create_server(bound_project)
 
     async def call(tool_name, **arguments):
-        return json.loads((await mcp.call_tool(tool_name, arguments))[0][0].text)
+        return json.loads((await mcp.call_tool(tool_name, arguments))[0].text)
 
     moment = "2026-01-01T00:00:00+00:00"
     monkeypatch.setattr("tex_mcp_web.comments._now", lambda: moment)
@@ -1378,7 +1381,7 @@ async def test_a_suggestion_answers_a_comment_made_off_the_source(bound_project,
     async def opened(anchor):
         # Placed the way the page places it, so a section resolves to its source lines.
         added = await mcp.call_tool("write_comments", {"action": "add", "text": "Look here.", "anchor": anchor})
-        comment_id = json.loads(added[0][0].text)["id"]
+        comment_id = json.loads(added[0].text)["id"]
         return store.reply(comment_id, "Please fix this.", author="human")
 
     section = await opened({"kind": "section", "title": "Methods"})
@@ -1388,7 +1391,7 @@ async def test_a_suggestion_answers_a_comment_made_off_the_source(bound_project,
         result = await mcp.call_tool("write_comments", {
             "action": "suggest", "id": comment.id, "rev": revision_of(comment.updated),
             "text": "A proposal.", "changes": [{"old": old, "new": new}]})
-        return json.loads(result[0][0].text)
+        return json.loads(result[0].text)
 
     assert "place in the source is known" in (await suggest(note, "Some", "Any"))["error"]
     assert "error" not in await suggest(section, "Some methods.", "Two careful methods.")
@@ -1418,7 +1421,7 @@ async def test_mcp_comment_and_section_runtime_contract(bound_project, project):
             "anchor": {"kind": "paper"},
         },
     )
-    comment = json.loads(added[0][0].text)
+    comment = json.loads(added[0].text)
     stored = json.loads((project / ".tex-mcp-web" / "comments.json").read_text())
     assert stored["version"] == 7
     assert stored["comments"][0]["thread"][0]["author"] == "agent"
@@ -1429,11 +1432,11 @@ async def test_mcp_comment_and_section_runtime_contract(bound_project, project):
     # in. The agent quotes the text it replaces the way an editing tool takes it, so it
     # never counts columns, and it never sends back the text it is not changing.
     async def call_comment(**payload):
-        return json.loads((await mcp.call_tool("write_comments", payload))[0][0].text)
+        return json.loads((await mcp.call_tool("write_comments", payload))[0].text)
 
     async def reread(comment_id):
         result = await mcp.call_tool("read_comments", {"ids": [comment_id]})
-        return json.loads(result[0][0].text)["comments"][0]
+        return json.loads(result[0].text)["comments"][0]
 
     anchored = await call_comment(
         action="add", text="이 문장을 바꾸세요",
@@ -1505,7 +1508,7 @@ async def test_mcp_comment_and_section_runtime_contract(bound_project, project):
             "anchor": {"kind": "paper"},
         },
     )
-    assert json.loads(second_added[0][0].text)["status"] == "open"
+    assert json.loads(second_added[0].text)["status"] == "open"
 
 
 
@@ -1931,7 +1934,7 @@ async def test_listen(bound_project, project, monkeypatch, codex):
     context = SimpleNamespace(session=SimpleNamespace(client_params=SimpleNamespace(
         clientInfo=SimpleNamespace(name="claude-code"))))
     monkeypatch.setattr(mcp, "get_context", lambda: context)
-    result = json.loads((await mcp.call_tool("listen", {}))[0][0].text)
+    result = json.loads((await mcp.call_tool("listen", {}))[0].text)
     script = Path(result["script"])
     assert script == project / ".tex-mcp-web" / "wait-review.sh"
     assert script.stat().st_mode & 0o111
@@ -1943,7 +1946,7 @@ async def test_listen(bound_project, project, monkeypatch, codex):
     assert "restart the same Monitor only if that work still needs events" in result["how"]
     for name in ("codex-mcp-client", "other-client"):
         context.session.client_params.clientInfo.name = name
-        selected = json.loads((await mcp.call_tool("listen", {}))[0][0].text)
+        selected = json.loads((await mcp.call_tool("listen", {}))[0].text)
         assert "Monitor" not in selected["how"]
         assert "still needs events" in selected["how"]
         assert ("codex queue" in selected["how"]) == (name == "codex-mcp-client")
@@ -2104,7 +2107,7 @@ async def test_mcp_edit_rewrites_the_agents_own_entry_and_refuses_the_rest(bound
     mcp = create_server(bound_project)
 
     async def call(tool_name, **arguments):
-        return json.loads((await mcp.call_tool(tool_name, arguments))[0][0].text)
+        return json.loads((await mcp.call_tool(tool_name, arguments))[0].text)
 
     store = CommentStore(project / ".tex-mcp-web" / "comments.json")
     comment = store.add(PaperAnchor(), "Check this")
@@ -2146,7 +2149,7 @@ async def test_new_gives_what_the_reviewer_wrote_since_it_last_answered(
     store = CommentStore(project / ".tex-mcp-web" / "comments.json")
 
     async def call(**arguments):
-        return json.loads((await mcp.call_tool("read_comments", arguments))[0][0].text)
+        return json.loads((await mcp.call_tool("read_comments", arguments))[0].text)
 
     def at(stamp):
         monkeypatch.setattr("tex_mcp_web.comments._now", lambda: stamp)
@@ -2199,7 +2202,7 @@ async def test_a_first_new_carries_what_stands_unanswered_not_the_history(
     store = CommentStore(project / ".tex-mcp-web" / "comments.json")
 
     async def call(**arguments):
-        return json.loads((await mcp.call_tool("read_comments", arguments))[0][0].text)
+        return json.loads((await mcp.call_tool("read_comments", arguments))[0].text)
 
     monkeypatch.setattr("tex_mcp_web.comments._now", lambda: "2026-01-01T00:00:00+00:00")
     settled = store.add(PaperAnchor(), "long ago")
@@ -2231,7 +2234,7 @@ async def test_mcp_delete_refuses_a_thread_the_reviewer_has_written_in(bound_pro
     store = CommentStore(project / ".tex-mcp-web" / "comments.json")
 
     async def call_comment(**payload):
-        return json.loads((await mcp.call_tool("write_comments", payload))[0][0].text)
+        return json.loads((await mcp.call_tool("write_comments", payload))[0].text)
 
     own = await call_comment(action="add", text="my own note", anchor={"kind": "paper"})
     assert await call_comment(action="delete", id=own["id"]) == {"deleted": own["id"], "ok": True}
@@ -2294,7 +2297,7 @@ async def test_list_comments_shows_an_opening_and_counts_the_rest(bound_project,
         store.add(PaperAnchor(), f"short {index}")
 
     async def listed(**payload):
-        return json.loads((await mcp.call_tool("read_comments", payload))[0][0].text)
+        return json.loads((await mcp.call_tool("read_comments", payload))[0].text)
 
     everything = await listed()
     assert len(everything["comments"]) == 5 and "older" not in everything
@@ -2311,12 +2314,12 @@ async def test_list_comments_shows_an_opening_and_counts_the_rest(bound_project,
     assert set(row) == {"id", "rev", "status", "kind", "request", "thread_entries",
                         "last_human_at"}
     replied = json.loads((await mcp.call_tool("write_comments", {
-        "action": "reply", "id": row["id"], "text": "answered from the listing alone"}))[0][0].text)
+        "action": "reply", "id": row["id"], "text": "answered from the listing alone"}))[0].text)
     assert replied["id"] == row["id"]
     store.reply(row["id"], "and the reviewer moved it on", author="human")
     stale = json.loads((await mcp.call_tool("write_comments", {
         "action": "edit", "id": row["id"], "entry": "e-nope", "text": "x",
-        "rev": row["rev"]}))[0][0].text)
+        "rev": row["rev"]}))[0].text)
     assert "stale" in stale["error"]
 
 

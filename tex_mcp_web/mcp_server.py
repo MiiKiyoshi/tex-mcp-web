@@ -470,7 +470,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         terms = refresh(cfg)
         return _ok({"read": [] if terms is None else [str(terms)]})
 
-    @mcp.tool()
+    @mcp.tool(structured_output=False)
     async def read_comments(
         ids: list[str] | None = None,
         new: Annotated[bool, Field(description="Only what the reviewer has written since this call last answered; excludes ids.")] = False,
@@ -604,7 +604,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             listed["older"] = len(summaries) - limit
         return _ok(listed)
 
-    @mcp.tool()
+    @mcp.tool(structured_output=False)
     async def compile() -> str:
         """Recompile. Returns whether it succeeded, which pages changed, where the
         log is, and, when it failed, where each error is.
@@ -652,7 +652,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                 report["more_errors"] = len(result["errors"]) - ERROR_LIMIT
         return _ok(report)
 
-    @mcp.tool()
+    @mcp.tool(structured_output=False)
     async def write_comments(
         action: Literal["add", "reply", "suggest", "withdraw", "edit", "delete"],
         id: str | None = None,
@@ -743,7 +743,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         except (ValueError, TypeError) as exc:
             return _err(str(exc))
 
-    @mcp.tool()
+    @mcp.tool(structured_output=False)
     async def image(
         page: Annotated[int, Field(ge=1)] | None = None,
         bbox: tuple[float, float, float, float] | None = None,
@@ -843,7 +843,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             TextContent(type="text", text=json.dumps(meta)),
         ]
 
-    @mcp.tool()
+    @mcp.tool(structured_output=False)
     async def listen(ctx: Context) -> str:
         """Return a script and client-specific instructions for listening for Call agent.
 
@@ -926,7 +926,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             ),
         })
 
-    @mcp.tool()
+    @mcp.tool(structured_output=False)
     async def setup_info() -> str:
         """Report setup paths and the existing binding without connecting or changing files."""
         from .config import find_config
