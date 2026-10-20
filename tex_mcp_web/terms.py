@@ -150,10 +150,18 @@ def _papers(folder: Path) -> list[list[str]]:
     """One body per paper. A file with the same text as one already kept, or sharing half
     its lines and ten at the least with it, is another copy of that paper, under another
     name or in another version. The ten keep a short file whose few lines include a venue's
-    standard line from passing for a copy."""
+    standard line from passing for a copy.
+
+    A file written mostly in another script, such as a translation or notes kept beside a
+    paper, is not one: it shares no lines with the paper and would count its terms again.
+    """
     papers, seen = [], []
     for path in markdown_files(folder):
-        body = _body(path.read_text(encoding="utf-8", errors="replace"))
+        text = path.read_text(encoding="utf-8", errors="replace")
+        letters = [letter for letter in text if letter.isalpha()]
+        if sum(letter.isascii() for letter in letters) < 0.8 * len(letters):
+            continue
+        body = _body(text)
         own = {_key_line(line) for line in body if len(line.split()) >= 3}
         if not own or body in papers or any(
                 len(own & other) >= max(10, 0.5 * min(len(own), len(other))) for other in seen):

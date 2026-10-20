@@ -32,6 +32,10 @@ def references(root: Path) -> Path:
         path.write_text(text, encoding="utf-8")
     # The same paper again under another name counts once.
     (root / "c" / "c copy.md").write_text(PAPERS["c/c.md"], encoding="utf-8")
+    # A translation beside it is not another paper, though it keeps the terms in English.
+    (root / "c" / "c el.md").write_text(
+        "## Περίληψη\n\nΗ light curve και η radial velocity του αστέρα μετρώνται ξανά με νέα "
+        "όργανα και μεγαλύτερη ακρίβεια.\n", encoding="utf-8")
     return root
 
 
