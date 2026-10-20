@@ -751,16 +751,16 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             str, Field(pattern=r"^.+:\d+(?:-\d+)?$")
         ] | None = None,
         comment: str | None = None,
-        dpi: int = 150,
+        dpi: Annotated[int, Field(description="96 reads text. 150 or more shows fine detail at more tokens.")] = 96,
         margin: Annotated[float, Field(ge=0)] = 12.0,
+        grayscale: Annotated[bool, Field(description="Set false when colour itself is being checked.")] = True,
     ) -> list[ImageContent | TextContent]:
         """Render one PDF target as PNG.
 
         Choose exactly one of page (with optional bbox),
         source="file.tex:lstart-lend", or comment. Margin expands an exact
         bbox only while rendering. A multi-page source range renders the page
-        with the most SyncTeX matches. The metadata reports any grayscale or
-        DPI reduction applied to fit the response size limit.
+        with the most SyncTeX matches.
         """
         import base64
 
@@ -796,38 +796,16 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                 comment_id=comment,
                 watch_dir=watch_dir,
             )
-            def render(dpi_val: int, gray_val: bool) -> bytes:
+            def render() -> bytes:
                 if resolved_bbox is None:
-                    return imaging.render_page(pdf_path, resolved_page, dpi_val, gray=gray_val)
+                    return imaging.render_page(pdf_path, resolved_page, clamped_dpi, gray=grayscale)
                 return imaging.render_region(
-                    pdf_path,
-                    resolved_page,
-                    resolved_bbox,
-                    dpi_val,
-                    margin=margin,
-                    gray=gray_val,
-                )
+                    pdf_path, resolved_page, resolved_bbox, clamped_dpi, margin=margin, gray=grayscale)
 
-            # Claude Code truncates MCP tool output around 25k tokens,
-            # and base64 tokenizes at ~1.8 chars/token (measured: a 46k-
-            # char payload tripped the cap) — so budget ~36k chars.
-            # Grayscale first: it halves a text page's PNG at full
-            # resolution; only then trade DPI (PNG size ~ dpi^2).
-            MAX_B64_CHARS = 36_000
-            gray = False
-            png = await asyncio.to_thread(render, clamped_dpi, gray)
-            b64 = base64.b64encode(png).decode("ascii")
-            for _ in range(5):
-                if len(b64) <= MAX_B64_CHARS:
-                    break
-                if not gray:
-                    gray = True
-                elif clamped_dpi > 30:
-                    clamped_dpi = max(30, int(clamped_dpi * (MAX_B64_CHARS / len(b64)) ** 0.5 * 0.9))
-                else:
-                    break
-                png = await asyncio.to_thread(render, clamped_dpi, gray)
-                b64 = base64.b64encode(png).decode("ascii")
+            # The picture goes as an image block alone, which the client counts by its pixels
+            # rather than by its base64 text, so it is sent as asked. The resolution sets its
+            # tokens, and grayscale halves the PNG of a text page.
+            b64 = base64.b64encode(await asyncio.to_thread(render)).decode("ascii")
         except (ValueError, imaging.ImagingError) as exc:
             return [TextContent(type="text", text=_err(str(exc)))]
 
@@ -836,7 +814,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             "bbox": list(resolved_bbox) if resolved_bbox else None,
             "dpi": clamped_dpi,
             "margin": margin if resolved_bbox else None,
-            "grayscale": gray,
+            "grayscale": grayscale,
         }
         return [
             ImageContent(type="image", data=b64, mimeType="image/png"),
