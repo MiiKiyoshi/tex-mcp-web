@@ -36,8 +36,9 @@ from .config import Config, get_references_dir
 TERMS_FILE = "terms.md"
 STAMP_FILE = "terms.json"
 LIMIT = 200
-# Part of the stamp: a list built by an earlier rule is rebuilt.
-VERSION = 1
+# Part of the stamp: a list built by an earlier rule is rebuilt. Raise it with each change
+# to what counts.
+VERSION = 2
 
 STOP = set("""
 a about above after again against all also am an and any are as at be because been before
