@@ -65,6 +65,14 @@ def read(session: str, path: Path, agent: str | None = None, start: int = 1, lin
                     "tool_response": {"type": "text", "file": returned}}, session, agent)
 
 
+def unchanged(session: str, path: Path, offset: int | None = None, limit: int | None = None) -> dict:
+    """What the PostToolUse hook receives when Claude Code answers a Read of a file it already
+    returned in this context: the file's path and no contents."""
+    tool_input = {"file_path": str(path)} if offset is None else {"file_path": str(path), "offset": offset, "limit": limit}
+    return context({"cwd": str(path.parent), "tool_name": "Read", "tool_input": tool_input,
+                    "tool_response": {"type": "file_unchanged", "file": {"filePath": str(path)}}}, session, None)
+
+
 def reason(answer: dict | None) -> str | None:
     if answer is None:
         return None
@@ -92,6 +100,14 @@ def test_tex_mcp_tools_wait_for_the_listed_files_and_wait_again_after_a_compacti
     run("file-read", read("s1", terms))
     for tool in TOOLS:
         assert run("before-tool", call("s1", root, tool)) is None
+    # guide() called again in the same context lists the file again. Reading it again finds it
+    # unchanged, which counts for a whole Read and not for a part.
+    run("guide-read", guided("s1", root, [terms]))
+    assert str(terms) in reason(run("before-tool", call("s1", root)))
+    run("file-read", unchanged("s1", terms, offset=2, limit=2))
+    assert str(terms) in reason(run("before-tool", call("s1", root)))
+    run("file-read", unchanged("s1", terms))
+    assert run("before-tool", call("s1", root)) is None
     # A subagent starts without what its parent read.
     assert "guide() has not succeeded" in reason(run("before-tool", call("s1", root, agent="a1")))
     # A compaction starts the context again.
