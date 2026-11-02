@@ -455,6 +455,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             "opening another comment. Respect read-only or discussion-only requests, and do not "
             "repeat a thread reply in chat. Call listen() when the user asks to listen and follow "
             "how. Do not poll or duplicate it. Unacknowledged presses stay queued. "
+            "The config sits in the startup directory, and its dir can name the paper's folder anywhere. "
             f"Setup: read {INIT_GUIDE}."
         ),
     )

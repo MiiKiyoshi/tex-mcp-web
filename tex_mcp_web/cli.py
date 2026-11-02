@@ -94,7 +94,8 @@ def cmd_config(args: argparse.Namespace) -> int:
 
     path = find_config()
     if path is None:
-        print(f"No {DEFAULT_CONFIG_NAME} found; run `tex-mcp-web init` first.", file=sys.stderr)
+        print(f"No {DEFAULT_CONFIG_NAME} found. `tex-mcp-web init` writes one here, "
+              "and `tex-mcp-web config dir <folder>` then names the paper's folder anywhere.", file=sys.stderr)
         return 1
     with open(path) as f:
         data = yaml.safe_load(f) or {}

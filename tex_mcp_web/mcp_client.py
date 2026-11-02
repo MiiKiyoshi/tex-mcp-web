@@ -219,7 +219,8 @@ class ProjectBinding:
         if shared is None:
             raise RuntimeError(
                 f"this folder is not set up for review: {DEFAULT_CONFIG_NAME} was not found "
-                f"from {self.start_dir}. Ask the user whether to set it up now; if they agree, "
+                f"from {self.start_dir}. A config written here can name the paper's folder anywhere with dir. "
+                f"Ask the user whether to set it up now; if they agree, "
                 f"follow {INIT_GUIDE} with {CLI}."
             )
         return shared
