@@ -523,7 +523,15 @@ function installAreaTool(registry, selectionCapability, commands, ui) {
     ...item,
     items: [...item.items, { type: "command-button", id: "area-button", commandId: "tex-web:area", variant: "icon" }],
   });
-  ui.mergeSchema({ toolbars: { "main-toolbar": { items } } });
+  // One rule at every width. The viewer's own rules took the pan, pointer and zoom buttons
+  // into a menu below 500px, as on a phone, where this bar has room for all of them.
+  const everyWidth = {
+    minWidth: 0,
+    show: ["pan-button", "pointer-button", "divider-3", "page-settings-button", "zoom-menu-button", "divider-2"],
+    hide: ["mode-select-button", "overflow-left-action-menu-button", "overflow-tabs-button", "view-mode",
+      "annotate-mode", "shapes-mode", "insert-mode", "form-mode", "redact-mode", "zoom-toolbar"],
+  };
+  ui.mergeSchema({ toolbars: { "main-toolbar": { items, responsive: { breakpoints: { everyWidth } } } } });
 }
 
 // Source opens the editor beside the Preview, in Split, where SyncTeX says the selected

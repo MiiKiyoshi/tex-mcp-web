@@ -37,8 +37,10 @@ html, body {
   background: var(--bg);
 }
 
+/* Safari on a phone draws a button's words in its own blue unless told the colour. */
 button {
   font: inherit;
+  color: inherit;
   cursor: pointer;
 }
 
@@ -325,8 +327,9 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
   .topbar .compile-status { order: 2; }
   .topbar .actions { order: 3; margin-left: auto; flex-wrap: wrap; }
   .source-toolbar { flex-wrap: wrap; }
-  .source-toolbar select { flex: 1 1 10rem; min-width: 0; max-width: none; }
-  .source-status { order: 2; flex: 1 0 100%; text-align: left; }
+  .source-toolbar select { flex: 0 1 9rem; min-width: 0; max-width: 9rem; height: 26px; padding: 0 0.3rem; }
+  /* After the buttons, at the right of their last row, in small type. */
+  .source-status { order: 2; flex: 0 0 auto; margin-left: auto; font-size: 0.7rem; }
 }
 
 /* A phone zooms the whole page into a field smaller than 16px the moment it takes the
