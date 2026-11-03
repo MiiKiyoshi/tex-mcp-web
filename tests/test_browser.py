@@ -5,6 +5,7 @@ one-click close and the in-place edit are exercised through actual clicks here.
 """
 
 import json
+import math
 import shutil
 import socket
 import subprocess
@@ -480,8 +481,9 @@ def test_highlight_badges_leave_pdf_text_selectable(tmp_path: Path) -> None:
         ]
         assert marks["pointers"] == ["none", "none"]
         # Ctrl with the wheel zooms about the point under the pointer, a quarter a notch: a
-        # highlight under it stays under it once the page is wider than the pane, which
-        # centres a narrower page.
+        # highlight under it stays under it, across too once the page is wider than the
+        # pane, which centres a narrower page. The viewer's own gesture eased from the pane's
+        # middle to the pointer over a third of the pane's width, so the words slid aside.
         def wheel_on_segment(delta_y):
             return browser.execute_script('''
               const root = document.querySelector("embedpdf-container").shadowRoot;
@@ -494,22 +496,55 @@ def test_highlight_badges_leave_pdf_text_selectable(tmp_path: Path) -> None:
             ''', script_args=[delta_y])
 
         def settled(x, y, width, exact):
+            # While the gesture runs the pages are a scaled picture; it ends with the zoom.
             box = browser.execute_script('''
-              const box = document.querySelector("embedpdf-container").shadowRoot
-                .querySelector(".tex-comment-segment").getBoundingClientRect();
+              const root = document.querySelector("embedpdf-container").shadowRoot;
+              if (Array.from(root.querySelectorAll("div")).some((node) => /scale/.test(node.style.transform))) {
+                return [NaN, NaN, NaN];
+              }
+              const box = root.querySelector(".tex-comment-segment").getBoundingClientRect();
               return [box.left + box.width / 2, box.top + box.height / 2, box.width];
             ''')
-            return box if abs(box[2] - width) < 1 and abs(box[1] - y) <= 2 \
+            # The viewer keeps a zoom to two decimals, so the size lands within a step of it.
+            return box if abs(box[2] - width) < width * 0.02 and abs(box[1] - y) <= 2 \
                 and (not exact or abs(box[0] - x) <= 2) else None
 
         for delta_y, exact in ((-3, False), (-3, False), (-3, False), (-3, False), (-3, True), (3, True)):
             x, y, width = wheel_on_segment(delta_y)
             wait_until(lambda: settled(x, y, width * (1.25 if delta_y < 0 else 1 / 1.25), exact))
-        browser.execute_script('''
+        # Near the pane's width the gesture held the page about the pane's middle: from a page
+        # a little narrower than the pane to one a little wider, the words under the pointer
+        # slid aside by a share of the way. A trackpad's small steps take it there.
+        widths = '''
           const root = document.querySelector("embedpdf-container").shadowRoot;
-          root.querySelector('button[aria-label="Zoom In"]').click();
-          root.querySelector('button[aria-label="Zoom In"]').click();
-        ''')
+          const viewport = Array.from(root.querySelectorAll("div")).find((node) =>
+            /(auto|scroll)/.test(getComputedStyle(node).overflowY) && node.scrollHeight > node.clientHeight);
+          const pages = viewport.firstElementChild;
+          return /scale/.test(pages.style.transform) ? null
+            : [viewport.clientWidth, pages.getBoundingClientRect().width];
+        '''
+
+        def pinch_to(share):
+            pane, pages = wait_until(lambda: browser.execute_script(widths))
+            delta = -100 * math.log(share * pane / pages)
+            x, y, _ = browser.execute_script('''
+              const root = document.querySelector("embedpdf-container").shadowRoot;
+              const box = root.querySelector(".tex-comment-segment").getBoundingClientRect();
+              const x = box.left + box.width / 2, y = box.top + box.height / 2;
+              root.elementFromPoint(x, y).dispatchEvent(new WheelEvent("wheel", {
+                deltaY: arguments[0], deltaMode: WheelEvent.DOM_DELTA_PIXEL, ctrlKey: true,
+                clientX: x, clientY: y, bubbles: true, cancelable: true, composed: true}));
+              return [x, y, box.width];
+            ''', script_args=[delta])
+            wait_until(lambda: (now := browser.execute_script(widths))
+                       and abs(now[1] - share * pane) < 0.02 * pane)
+            return x, y
+
+        pinch_to(0.95)
+        x, y = pinch_to(1.12)
+        wait_until(lambda: settled(x, y, browser.execute_script(widths)[1] * 0 + browser.execute_script('''
+          return document.querySelector("embedpdf-container").shadowRoot
+            .querySelector(".tex-comment-segment").getBoundingClientRect().width;'''), True))
         zoomed = wait_until(lambda: browser.execute_script(f'''
           const root = document.querySelector("embedpdf-container").shadowRoot;
           const badge = root.querySelector(".tex-comment-badge");
@@ -1111,6 +1146,7 @@ def test_browser_source_selection_and_split_resize(tmp_path: Path) -> None:
             .key_up("m").key_up("\ue00a").key_up("\ue009").perform()
         wait_until(lambda: browser.execute_script('return document.querySelector("#compose-dialog").open'))
         browser.execute_script('document.querySelector("#compose-cancel").click()')
+        wait_until(lambda: browser.execute_script('return !document.querySelector("#compose-dialog").open'))
         coords = browser.execute_script('''
           const editor = (window.wrappedJSObject || window).ace.edit("source-editor");
           return [90, 175].map(column => {
