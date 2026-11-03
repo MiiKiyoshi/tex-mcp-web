@@ -1545,9 +1545,9 @@ function applyCompileResult(result) {
 }
 
 function applyCompiling(compiling) {
-  const button = $("#recompile-btn");
+  const button = $("#compile-btn");
   button.disabled = compiling;
-  button.textContent = compiling ? "Compiling…" : "Recompile";
+  button.textContent = compiling ? "Compiling…" : "Compile";
   if (compiling) $("#compile-status").textContent = "compiling…";
 }
 
@@ -1579,7 +1579,7 @@ async function applyCompletedCompile(result, pdfDigest) {
   }
 }
 
-async function recompile() {
+async function compile() {
   applyCompiling(true);
   try {
     const response = await fetch("/compile", { method: "POST" });
@@ -1998,7 +1998,7 @@ async function init() {
     selection.removeAllRanges();
     selection.addRange(range);
   });
-  $("#recompile-btn").addEventListener("click", () => recompile());
+  $("#compile-btn").addEventListener("click", () => compile());
   $("#source-save-btn").addEventListener("click", () => {
     saveSource().catch((error) => alert(`Could not save: ${error.message}`));
   });

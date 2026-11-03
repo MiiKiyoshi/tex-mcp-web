@@ -5,7 +5,7 @@ Exposes tools to agents via stdio:
     guide()                 files to read in full before editing the paper
     read_comments(...)      what is new, selected threads in full, or a listing
     write_comments(...)     add/reply/suggest/withdraw/edit/delete
-    compile()               recompile, return structured errors
+    compile()               compile, return structured errors
     image(...)              render a PDF page or exact region
     listen()                instructions for receiving review events
 
@@ -607,7 +607,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
 
     @mcp.tool(structured_output=False)
     async def compile() -> str:
-        """Recompile. Returns whether it succeeded, which pages changed, where the
+        """Compile the paper. Returns whether it succeeded, which pages changed, where the
         log is, and, when it failed, where each error is.
 
         Call once after a batch of source edits. ``pages_changed``

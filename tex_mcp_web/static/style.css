@@ -107,7 +107,7 @@ textarea {
   border-radius: 3px;
 }
 .topbar button:hover { background: var(--accent-soft); }
-#recompile-btn:disabled { cursor: wait; }
+#compile-btn:disabled { cursor: wait; }
 /* Green reaches a parked waiter now; red queues the call for the next waiter. */
 .agent-dot { width: 8px; height: 8px; border-radius: 50%; }
 
