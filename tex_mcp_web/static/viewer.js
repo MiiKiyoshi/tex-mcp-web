@@ -282,13 +282,26 @@ async function initializePdfViewer(pdfView) {
     clearTimeout(touchHold.timer);
     touchHold = null;
   };
+  // On the pages a finger's press reaches the viewer only once the finger has been held
+  // still: seen at once, it began a selection under a finger that was scrolling. Held, the
+  // press is handed on where the finger is; a tap is handed on as it lifts, so a highlight
+  // still opens its comment.
+  const onPages = (event) => event.composedPath().some((node) =>
+    node instanceof Element && /(auto|scroll)/.test(getComputedStyle(node).overflowY));
+  const press = (type, x, y) => root.elementFromPoint(x, y)?.dispatchEvent(new PointerEvent(type, {
+    bubbles: true, composed: true, cancelable: true, clientX: x, clientY: y, pointerId: 1,
+    pointerType: "touch", isPrimary: true, button: 0, buttons: type === "pointerdown" ? 1 : 0,
+  }));
   root.addEventListener("pointerdown", (event) => {
+    if (!event.isTrusted) return;
     endTouchHold();
-    if (state.areaMode || event.pointerType !== "touch" || !event.isPrimary) return;
+    if (state.areaMode || event.pointerType !== "touch" || !event.isPrimary || !onPages(event)) return;
+    event.stopImmediatePropagation();
     const { clientX, clientY } = event;
     touchHold = { x: clientX, y: clientY, held: false, timer: setTimeout(() => {
       highlightPress = null;
       touchHold.held = true;
+      press("pointerdown", clientX, clientY);
       root.elementFromPoint(clientX, clientY)?.dispatchEvent(
         new MouseEvent("dblclick", { bubbles: true, clientX, clientY }));
     }, 500) };
@@ -303,7 +316,17 @@ async function initializePdfViewer(pdfView) {
   root.addEventListener("touchmove", (event) => {
     if (touchHold?.held) event.preventDefault();
   }, { capture: true, passive: false });
-  root.addEventListener("pointerup", endTouchHold, { capture: true });
+  root.addEventListener("pointerup", (event) => {
+    if (event.isTrusted && touchHold !== null && !touchHold.held) {
+      const { x, y } = touchHold;
+      endTouchHold();
+      event.stopImmediatePropagation();
+      press("pointerdown", x, y);
+      press("pointerup", x, y);
+      return;
+    }
+    if (event.isTrusted) endTouchHold();
+  }, { capture: true });
   root.addEventListener("pointercancel", endTouchHold, { capture: true });
   root.addEventListener("contextmenu", (event) => {
     if (touchHold !== null) event.preventDefault();

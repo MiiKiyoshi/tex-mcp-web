@@ -1018,11 +1018,12 @@ def test_a_finger_held_on_a_word_selects_it(tmp_path: Path) -> None:
             .pointer_move(int(highlight["right"] + 60), y).pointer_up().perform()
         assert "brown fox jumps" in quoted()
 
-        # Dragged at once, it selects the range as before.
+        # Dragged at once, it scrolls and selects nothing: the viewer never sees the press.
         finger().pointer_move(int(highlight["left"] + 5), y).pointer_down() \
             .pointer_move(int(highlight["left"] + 40), y) \
             .pointer_move(int(highlight["right"] + 60), y).pointer_up().perform()
-        assert "brown fox jumps" in quoted()
+        time.sleep(0.8)
+        assert not browser.execute_script(menu_shown)
 
         # A tap selects nothing.
         finger().pointer_move(bare_x, y).pointer_down().pause(80).pointer_up().perform()
