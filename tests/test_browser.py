@@ -479,6 +479,32 @@ def test_highlight_badges_leave_pdf_text_selectable(tmp_path: Path) -> None:
             {"text": "1", "stale": False}, {"text": "2", "stale": True},
         ]
         assert marks["pointers"] == ["none", "none"]
+        # Ctrl with the wheel zooms about the point under the pointer, a quarter a notch: a
+        # highlight under it stays under it once the page is wider than the pane, which
+        # centres a narrower page.
+        def wheel_on_segment(delta_y):
+            return browser.execute_script('''
+              const root = document.querySelector("embedpdf-container").shadowRoot;
+              const box = root.querySelector(".tex-comment-segment").getBoundingClientRect();
+              const x = box.left + box.width / 2, y = box.top + box.height / 2;
+              root.elementFromPoint(x, y).dispatchEvent(new WheelEvent("wheel", {
+                deltaY: arguments[0], deltaMode: WheelEvent.DOM_DELTA_LINE, ctrlKey: true,
+                clientX: x, clientY: y, bubbles: true, cancelable: true, composed: true}));
+              return [x, y, box.width];
+            ''', script_args=[delta_y])
+
+        def settled(x, y, width, exact):
+            box = browser.execute_script('''
+              const box = document.querySelector("embedpdf-container").shadowRoot
+                .querySelector(".tex-comment-segment").getBoundingClientRect();
+              return [box.left + box.width / 2, box.top + box.height / 2, box.width];
+            ''')
+            return box if abs(box[2] - width) < 1 and abs(box[1] - y) <= 2 \
+                and (not exact or abs(box[0] - x) <= 2) else None
+
+        for delta_y, exact in ((-3, False), (-3, False), (-3, False), (-3, False), (-3, True), (3, True)):
+            x, y, width = wheel_on_segment(delta_y)
+            wait_until(lambda: settled(x, y, width * (1.25 if delta_y < 0 else 1 / 1.25), exact))
         browser.execute_script('''
           const root = document.querySelector("embedpdf-container").shadowRoot;
           root.querySelector('button[aria-label="Zoom In"]').click();

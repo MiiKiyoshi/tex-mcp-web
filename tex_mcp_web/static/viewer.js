@@ -336,6 +336,37 @@ async function initializePdfViewer(pdfView) {
   state.scroll = scrollCapability.forDocument(DOCUMENT_ID);
   state.scroll.onPageChange(() => scheduleTranslation(600));
   state.zoom = zoomCapability.forDocument(DOCUMENT_ID);
+  // Ctrl or Cmd with the wheel, and a trackpad pinch, zoom about the point under the
+  // pointer, as the HTML review page does. The viewer's own gesture held the middle of the
+  // pane until the page outgrew it, so the words under the pointer slid aside. A mouse
+  // notch is one step of its own, and a pinch's small steps follow the distance it travels.
+  // The steps of a frame are applied together.
+  let wheelZoom = null;
+  root.addEventListener("wheel", (event) => {
+    if (!(event.ctrlKey || event.metaKey) || !state.zoom) return;
+    const viewport = event.composedPath().find((node) => node instanceof Element
+      && /(auto|scroll)/.test(getComputedStyle(node).overflowY));
+    if (viewport === undefined) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const notch = event.deltaMode !== WheelEvent.DOM_DELTA_PIXEL || Math.abs(event.deltaY) >= 40;
+    const factor = notch ? (event.deltaY < 0 ? 1.25 : 1 / 1.25) : Math.exp(-event.deltaY / 100);
+    const box = viewport.getBoundingClientRect();
+    const center = {
+      vx: event.clientX - box.left - viewport.clientLeft,
+      vy: event.clientY - box.top - viewport.clientTop,
+    };
+    if (wheelZoom === null) {
+      wheelZoom = { factor: 1 };
+      requestAnimationFrame(() => {
+        const { factor: total, center: at } = wheelZoom;
+        wheelZoom = null;
+        state.zoom.requestZoom(state.zoom.getState().currentZoomLevel * total, at);
+      });
+    }
+    wheelZoom.factor *= factor;
+    wheelZoom.center = center;
+  }, { capture: true, passive: false });
 
   commands.registerCommand({
     id: "tex-web:comment-selection",
