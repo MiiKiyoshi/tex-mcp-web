@@ -265,7 +265,7 @@ def test_browser_comment_actions(tmp_path: Path) -> None:
           return [button.classList.contains("agent-offline"), button.disabled,
             button.getAttribute("aria-label"), button.title, getComputedStyle(button).color];
         ''') == [True, False, "Queue call for agent",
-                 "Agent is not waiting; queue this call until it reconnects", "rgb(180, 74, 67)"]
+                 "Agent is not waiting; queue this call until it reconnects (Ctrl+Alt+Enter)", "rgb(180, 74, 67)"]
         with ThreadPoolExecutor(max_workers=1) as pool:
             waiter = pool.submit(lambda: urllib.request.urlopen(
                 f"{base}/wait-review", timeout=10).read())
@@ -273,7 +273,7 @@ def test_browser_comment_actions(tmp_path: Path) -> None:
               const button = document.querySelector("#call-agent-btn");
               return button.classList.contains("agent-ready")
                 && button.getAttribute("aria-label") === "Call agent"
-                && button.title === "Call the waiting agent now"
+                && button.title === "Call the waiting agent now (Ctrl+Alt+Enter)"
                 && getComputedStyle(button).color === "rgb(79, 119, 88)";
             '''))
             browser.execute_script('document.querySelector("#call-agent-btn").click()')
@@ -284,7 +284,9 @@ def test_browser_comment_actions(tmp_path: Path) -> None:
           const button = document.querySelector("#call-agent-btn");
           return button.classList.contains("agent-offline") && !button.disabled;
         '''))
-        browser.execute_script('document.querySelector("#call-agent-btn").click()')
+        # Ctrl+Alt+Enter presses the bell.
+        browser.execute_script('document.body.dispatchEvent(new KeyboardEvent("keydown",'
+                               ' {key: "Enter", ctrlKey: true, altKey: true, bubbles: true}))')
         wait_until(lambda: browser.execute_script(
             'return document.querySelector("#call-agent-word").textContent === "Queued"'))
         browser.execute_script(f'''

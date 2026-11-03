@@ -2037,8 +2037,8 @@ function showAgentWaiting(waiters) {
   button.classList.toggle("agent-offline", !waiting);
   button.setAttribute("aria-label", waiting ? "Call agent" : "Queue call for agent");
   button.title = waiting
-    ? "Call the waiting agent now"
-    : "Agent is not waiting; queue this call until it reconnects";
+    ? "Call the waiting agent now (Ctrl+Alt+Enter)"
+    : "Agent is not waiting; queue this call until it reconnects (Ctrl+Alt+Enter)";
 }
 
 async function callAgent() {
@@ -2668,6 +2668,15 @@ async function init() {
       setWorkspaceView(button.dataset.view).catch((error) => alert(error.message));
     });
   }
+  // Ctrl+Alt+Enter (Cmd+Option+Enter) presses the bell from anywhere on the page, the
+  // editor included, but not over a dialog.
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" || !event.altKey || !(event.ctrlKey || event.metaKey)) return;
+    if (document.querySelector("dialog[open]")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (!$("#call-agent-btn").disabled) $("#call-agent-btn").click();
+  }, true);
   $("#call-agent-btn").addEventListener("click", () => callAgent());
   $("#fold-all-btn").addEventListener("click", foldAll);
   $("#pick-all-btn").addEventListener("click", pickAll);
