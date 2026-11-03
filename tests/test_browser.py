@@ -678,9 +678,9 @@ def test_the_area_button_draws_a_box_to_comment_on(tmp_path: Path) -> None:
 @pytest.mark.skipif(shutil.which("synctex") is None or shutil.which("latexmk") is None,
                     reason="latexmk and synctex are required")
 def test_source_beside_comment_opens_the_selected_words_in_the_editor(tmp_path: Path) -> None:
-    """In Split, Source on a PDF selection opens the editor at the lines SyncTeX names and
-    selects the words there, though the PDF joined the lines into one paragraph. Without the
-    editor beside the PDF, the selection offers Comment alone."""
+    """Source on a PDF selection opens the editor beside the Preview at the lines SyncTeX
+    names and selects the words there, though the PDF joined the lines into one paragraph.
+    → Preview goes the other way. Either turns the view to Split."""
     import fitz
 
     (tmp_path / "paper.tex").write_text(
@@ -740,18 +740,7 @@ def test_source_beside_comment_opens_the_selected_words_in_the_editor(tmp_path: 
                 .some((button) => button.textContent.trim() === "{label}" && button.getBoundingClientRect().width > 0);
             ''')
 
-        # Source is offered only where the editor is beside the PDF.
-        select_words()
-        wait_until(lambda: menu_button("Comment"))
-        assert not menu_button("Source")
-        browser.execute_script('document.querySelector(".view-tab[data-view=split]").click()')
-        wait_until(lambda: browser.execute_script(
-            'return document.querySelector(".layout").classList.contains("view-split")'))
-        time.sleep(1)  # the PDF fits itself to the narrower pane
-        page = browser.execute_script(f'''
-          const rect = document.querySelector("embedpdf-container").shadowRoot.querySelector("img").getBoundingClientRect();
-          return [rect.left, rect.top, rect.width / {page_width}];
-        ''')
+        # Pressed in the Preview alone, Source turns the view to Split and selects the words.
         select_words()
         wait_until(lambda: menu_button("Source"))
         browser.execute_script('''
@@ -767,9 +756,11 @@ def test_source_beside_comment_opens_the_selected_words_in_the_editor(tmp_path: 
         '''))
         assert opened == {"text": "quick~brown fox", "row": 3}
 
-        # And back: → PDF on the words selected in the editor marks where the PDF prints them.
-        assert browser.execute_script(
-            'return getComputedStyle(document.querySelector("#source-pdf-btn")).display') != "none"
+        # And back: → Preview on words selected in the editor alone turns the view to Split
+        # and marks where the Preview prints them.
+        browser.execute_script('document.querySelector(".view-tab[data-view=source]").click()')
+        wait_until(lambda: browser.execute_script(
+            'return document.querySelector(".layout").classList.contains("view-source")'))
         browser.execute_script('''
           const page = window.wrappedJSObject || window;
           const editor = page.ace.edit("source-editor");
@@ -792,6 +783,7 @@ def test_source_beside_comment_opens_the_selected_words_in_the_editor(tmp_path: 
         scale = marked[4] / page_width
         drawn = [value / scale for value in marked[:4]]
         assert all(abs(got - want) < 3 for got, want in zip(drawn, printed)), (drawn, printed)
+        assert browser.execute_script('return document.querySelector(".layout").classList.contains("view-split")')
     finally:
         if browser is not None:
             try:

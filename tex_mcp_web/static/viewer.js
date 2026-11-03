@@ -9,7 +9,6 @@ const $$ = (selector) => Array.from(document.querySelectorAll(selector));
 const state = {
   viewer: null,
   selection: null,
-  ui: null,
   areaMode: false,
   annotations: null,
   scroll: null,
@@ -123,7 +122,6 @@ async function initializePdfViewer(pdfView) {
   const host = $("#pdf-viewer");
   clear(host);
   state.selection = null;
-  state.ui = null;
   state.areaMode = false;
   state.annotations = null;
   state.scroll = null;
@@ -344,8 +342,17 @@ async function initializePdfViewer(pdfView) {
     icon: "tex-source",
     action: () => openSelectionInSource().catch((error) => alert(`Could not open the source: ${error.message}`)),
   });
-  state.ui = ui;
-  applySelectionMenu();
+  const item = (id, commandId) => ({ type: "command-button", id, commandId, variant: "icon-text" });
+  ui.mergeSchema({
+    selectionMenus: {
+      selection: {
+        id: "selection",
+        visibilityDependsOn: { itemIds: ["tex-web-comment-selection"] },
+        items: [item("tex-web-comment-selection", "tex-web:comment-selection"),
+          item("tex-web-selection-source", "tex-web:selection-source")],
+      },
+    },
+  });
 
   state.annotations.onStateChange((annotationState) => {
     if (annotationState.selectedUids.length !== 1) return;
@@ -511,21 +518,8 @@ function installAreaTool(registry, selectionCapability, commands, ui) {
   ui.mergeSchema({ toolbars: { "main-toolbar": { items } } });
 }
 
-// Comment on a PDF selection, and in Split, where the editor is beside the PDF, Source.
-function applySelectionMenu() {
-  if (state.ui === null) return;
-  const item = (id, commandId) => ({ type: "command-button", id, commandId, variant: "icon-text" });
-  const items = [item("tex-web-comment-selection", "tex-web:comment-selection")];
-  if (state.view === "split") items.push(item("tex-web-selection-source", "tex-web:selection-source"));
-  state.ui.mergeSchema({
-    selectionMenus: {
-      selection: { id: "selection", visibilityDependsOn: { itemIds: ["tex-web-comment-selection"] }, items },
-    },
-  });
-}
-
-// Source opens the editor where SyncTeX says the selected lines come from and selects the
-// words there.
+// Source opens the editor beside the Preview, in Split, where SyncTeX says the selected
+// lines come from, and selects the words there.
 async function openSelectionInSource() {
   if (!state.selection || !state.pdfDigest) return;
   const formatted = state.selection.getFormattedSelection();
@@ -545,7 +539,7 @@ async function openSelectionInSource() {
   });
   if (!response.ok) throw new Error(await responseError(response));
   const place = await response.json();
-  await initializeSourceEditor();
+  if (state.view !== "split") await setWorkspaceView("split");
   if (!(await openSource(place.file, place.line_start))) return;
   selectQuoteInLines(quote, place.line_start, place.line_end);
 }
@@ -643,9 +637,9 @@ function updateSourceCommentButton() {
   $("#source-pdf-btn").disabled = !selected;
 }
 
-// The words selected in the editor, shown where the PDF prints them, at the zoom the PDF
-// is read at: SyncTeX names the boxes of their lines, and the server finds the printed
-// words in them.
+// The words selected in the editor, shown where the Preview prints them, beside the editor
+// in Split, at the zoom the Preview is read at: SyncTeX names the boxes of their lines, and
+// the server finds the printed words in them.
 async function showSourceSelectionInPdf() {
   const text = state.editor.getSelectedText();
   if (!text.trim() || !state.sourcePath || !state.scroll || !state.annotations) return;
@@ -658,6 +652,11 @@ async function showSourceSelectionInPdf() {
   });
   if (!response.ok) throw new Error(await responseError(response));
   const place = await response.json();
+  if (state.view !== "split") {
+    await setWorkspaceView("split");
+    // The Preview takes its new width before it is scrolled.
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  }
   const [x1, y1, x2, y2] = place.bbox;
   state.scroll.scrollToPage({
     pageNumber: place.page,
@@ -925,7 +924,6 @@ async function setWorkspaceView(view) {
   for (const button of $$(".view-tab")) {
     button.classList.toggle("active", button.dataset.view === view);
   }
-  applySelectionMenu();
   localStorage.setItem("workspaceView", view);
   if (view !== "pdf") await initializeSourceEditor();
   requestAnimationFrame(() => {
@@ -2187,7 +2185,7 @@ async function init() {
   $("#source-font-larger-btn").addEventListener("click", () => stepSourceFontSize(1));
   $("#source-comment-btn").addEventListener("click", openSourceCommentCompose);
   $("#source-pdf-btn").addEventListener("click", () => {
-    showSourceSelectionInPdf().catch((error) => alert(`Could not show it in the PDF: ${error.message}`));
+    showSourceSelectionInPdf().catch((error) => alert(`Could not show it in the Preview: ${error.message}`));
   });
   $("#source-file").addEventListener("change", (event) => {
     openSource(event.target.value).catch((error) => alert(`Could not open source: ${error.message}`));
