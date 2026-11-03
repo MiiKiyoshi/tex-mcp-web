@@ -9,7 +9,6 @@ const $$ = (selector) => Array.from(document.querySelectorAll(selector));
 const state = {
   viewer: null,
   selection: null,
-  selectionCapability: null,
   areaMode: false,
   annotations: null,
   scroll: null,
@@ -123,7 +122,7 @@ async function initializePdfViewer(pdfView) {
   const host = $("#pdf-viewer");
   clear(host);
   state.selection = null;
-  state.selectionCapability = null;
+  state.areaMode = false;
   state.annotations = null;
   state.scroll = null;
   state.zoom = null;
@@ -247,19 +246,8 @@ async function initializePdfViewer(pdfView) {
   const commands = registry.getPlugin("commands").provides();
   const ui = registry.getPlugin("ui").provides();
 
-  state.selectionCapability = selectionCapability;
   state.selection = selectionCapability.forDocument(DOCUMENT_ID);
-  state.selection.onMarqueeEnd(({ pageIndex, rect }) => {
-    if (!state.areaMode || rect === null) return;
-    // A click, not a box.
-    if (rect.size.width < 4 || rect.size.height < 4) return;
-    setAreaMode(false);
-    openCompose(
-      { kind: "area", page: pageIndex + 1, bbox: rectToBBox(rect), pdf_digest: state.pdfDigest },
-      `PDF area on p${pageIndex + 1}`,
-    );
-  });
-  applyAreaMode();
+  installAreaTool(registry, selectionCapability, commands, ui);
   state.selection.onBeginSelection(() => state.viewer.setAttribute("data-tex-selecting", ""));
   state.selection.onEndSelection(() => state.viewer.removeAttribute("data-tex-selecting"));
   const root = state.viewer.shadowRoot;
@@ -474,26 +462,56 @@ async function openTextSelectionCompose() {
   );
 }
 
-// While the Area button is down, a drag on the PDF draws a box instead of selecting text,
-// and the comment written for it opens when the drag ends.
-function setAreaMode(on) {
-  state.areaMode = on;
-  const button = $("#area-btn");
-  button.classList.toggle("active", on);
-  button.setAttribute("aria-pressed", String(on));
-  applyAreaMode();
-}
+// The Area tool sits with the pan and pointer tools in the viewer's toolbar and is a mode
+// of the viewer as they are. In it a drag on a page draws a box instead of selecting text,
+// and the comment written for the box opens when the drag ends. The tool then gives the
+// pointer back.
+const AREA_MODE = "texArea";
 
-function applyAreaMode() {
-  if (state.selectionCapability === null) return;
-  if (state.areaMode) state.selection.clear();
-  state.selectionCapability.enableForMode("pointerMode", {
-    enableSelection: !state.areaMode,
-    showSelectionRects: true,
-    enableMarquee: state.areaMode,
-    showMarqueeRects: true,
-  }, DOCUMENT_ID);
-  state.viewer.toggleAttribute("data-tex-area", state.areaMode);
+function installAreaTool(registry, selectionCapability, commands, ui) {
+  const interaction = registry.getPlugin("interaction-manager").provides();
+  interaction.registerMode({ id: AREA_MODE, scope: "page", exclusive: false, cursor: "crosshair" });
+  const scope = interaction.forDocument(DOCUMENT_ID);
+  interaction.onModeChange(({ activeMode }) => {
+    state.areaMode = activeMode === AREA_MODE;
+    state.viewer.toggleAttribute("data-tex-area", state.areaMode);
+    if (!state.areaMode) return;
+    // The document's modes exist once it has loaded, which it has by the time a tool is picked.
+    selectionCapability.enableForMode(AREA_MODE, {
+      enableSelection: false, showSelectionRects: false, enableMarquee: true, showMarqueeRects: true,
+    }, DOCUMENT_ID);
+    state.selection.clear();
+  });
+  state.selection.onMarqueeEnd(({ pageIndex, rect }) => {
+    if (!state.areaMode || rect === null) return;
+    // A click, not a box.
+    if (rect.size.width < 4 || rect.size.height < 4) return;
+    scope.activateDefaultMode();
+    openCompose(
+      { kind: "area", page: pageIndex + 1, bbox: rectToBBox(rect), pdf_digest: state.pdfDigest },
+      `PDF area on p${pageIndex + 1}`,
+    );
+  });
+  state.viewer.registerIcon("tex-area", {
+    viewBox: "0 0 24 24",
+    path: "M3 9V3h6 M15 3h6v6 M21 15v6h-6 M9 21H3v-6 M8 12h8 M12 8v8",
+    strokeWidth: 2,
+  });
+  commands.registerCommand({
+    id: "tex-web:area",
+    label: "Draw a box to comment on",
+    icon: "tex-area",
+    categories: ["tools"],
+    action: () => (scope.getActiveMode() === AREA_MODE ? scope.activateDefaultMode() : scope.activate(AREA_MODE)),
+    active: ({ state: viewerState, documentId }) =>
+      viewerState.plugins["interaction-manager"]?.documents?.[documentId]?.activeMode === AREA_MODE,
+  });
+  const toolbar = ui.getSchema().toolbars["main-toolbar"];
+  const items = toolbar.items.map((item) => item.id !== "center-group" ? item : {
+    ...item,
+    items: [...item.items, { type: "command-button", id: "area-button", commandId: "tex-web:area", variant: "icon" }],
+  });
+  ui.mergeSchema({ toolbars: { "main-toolbar": { items } } });
 }
 
 function openCompose(anchor, label, selectionText = "") {
@@ -2089,7 +2107,6 @@ async function init() {
       }
     });
   }
-  $("#area-btn").addEventListener("click", () => setAreaMode(!state.areaMode));
   $("#paper-comment-btn").addEventListener("click", () =>
     openCompose({ kind: "paper" }, "Paper-level comment"));
   $("#compose-form").addEventListener("submit", (event) => {

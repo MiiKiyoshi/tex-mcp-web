@@ -56,9 +56,9 @@ so there is nothing else to start. Say it again after the agent restarts.
 
 - Drag over PDF text and write what should change. Add a suggested wording in the
   replacement box when you have one.
-- **□ Area**, then a drag on the PDF, draws a box to comment on what has no text to
-  select, such as part of a figure. The box holds while a compile leaves what it covers as
-  it was.
+- The box tool, beside pan and pointer in the PDF's toolbar, turns a drag on the PDF into a
+  box to comment on what has no text to select, such as part of a figure. The box holds
+  while a compile leaves what it covers as it was.
 - **+ Note** comments on the whole paper, and the **Sections** tab comments on a section.
   You can also select text in the Source tab and press **+ Comment**.
 - Press **Call agent**, the bell in the Comments tab, when your comments are ready. The

@@ -574,8 +574,8 @@ def test_highlight_badges_leave_pdf_text_selectable(tmp_path: Path) -> None:
 
 @pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
 def test_the_area_button_draws_a_box_to_comment_on(tmp_path: Path) -> None:
-    """With Area down, a drag draws a box even where it starts on text, the box becomes an
-    area comment in PDF points, and the next drag selects text again."""
+    """With the viewer's Area tool on, a drag draws a box even where it starts on text, the
+    box becomes an area comment in PDF points, and the next drag selects text again."""
     import fitz
 
     sentence = "The quick brown fox jumps over the lazy dog."
@@ -627,16 +627,19 @@ def test_the_area_button_draws_a_box_to_comment_on(tmp_path: Path) -> None:
                 .pointer_move(*start).pointer_down() \
                 .pointer_move(end[0], end[1], duration=300).pointer_up().perform()
 
-        browser.execute_script('document.querySelector("#area-btn").click()')
-        assert browser.execute_script(
-            'return document.querySelector("#area-btn").getAttribute("aria-pressed")') == "true"
+        # The tool sits with pan and pointer in the viewer's toolbar and shows pressed as they do.
+        area_tool = ('document.querySelector("embedpdf-container").shadowRoot'
+                     '.querySelector(\'[data-epdf-i="main-toolbar"] button[aria-label="Draw a box to comment on"]\')')
+        pressed = f'return {area_tool}.classList.contains("bg-interactive-selected");'
+        wait_until(lambda: browser.execute_script(f"return {area_tool} !== null"))
+        browser.execute_script(f"{area_tool}.click();")
+        wait_until(lambda: browser.execute_script(pressed))
         box = (words.x0 - 20, words.y0 - 20, words.x1 + 120, words.y1 + 150)
         drag(at(words.x0 + 2, (words.y0 + words.y1) / 2), at(box[2], box[3]))
         wait_until(lambda: browser.execute_script('return document.querySelector("#compose-dialog").open'))
         assert browser.execute_script(
             'return document.querySelector("#compose-anchor").textContent') == "PDF area on p1"
-        assert browser.execute_script(
-            'return document.querySelector("#area-btn").getAttribute("aria-pressed")') == "false"
+        assert not browser.execute_script(pressed)
         browser.execute_script('''
           document.querySelector("#compose-text").value = "this box";
           document.querySelector("#compose-form").requestSubmit();
