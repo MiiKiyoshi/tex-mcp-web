@@ -1137,6 +1137,8 @@ async def test_mcp_contract_is_typed_and_nonduplicative(tmp_path: Path):
     assert "Within the user's editing scope" in mcp.instructions
     assert "Respect read-only or discussion-only requests" in mcp.instructions
     assert "its dir can name the paper's folder anywhere" in mcp.instructions
+    assert "write in chat only what no thread carries" in mcp.instructions
+    assert "not the replies or the edits they report" in mcp.instructions
     for needed in ("asks to listen", "follow how", "Do not poll", "stay queued", "init.md"):
         assert needed in mcp.instructions, needed
     assert "state()" not in mcp.instructions
