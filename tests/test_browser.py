@@ -33,6 +33,18 @@ PAPER = (
 )
 
 
+def type_keys(browser, keys):
+    """Keys pressed one by one, with <C-[> for Ctrl+[ and <Enter> for Enter."""
+    actions = ActionSequence(browser, "key", "keyboard")
+    for key in keys:
+        if key == "<C-[>":
+            actions.key_down("\ue009").key_down("[").key_up("[").key_up("\ue009")
+        elif key == "<Enter>":
+            actions.key_down("\ue007").key_up("\ue007")
+        else:
+            actions.key_down(key).key_up(key)
+    actions.perform()
+
 def available_port() -> int:
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
@@ -1022,6 +1034,25 @@ def test_browser_source_selection_and_split_resize(tmp_path: Path) -> None:
         assert browser.execute_script(font_size) == "14px"
         assert browser.execute_script('return localStorage.getItem("texMcpSourceFontSize")') == "14"
         browser.execute_script('document.querySelector("#source-font-smaller-btn").click()')
+        # Long lines wrap until the wrap button turns it off, and the Vim button gives the
+        # editor Vim keys, with Ctrl+[ as Escape and :w saving.
+        editor = '(window.wrappedJSObject || window).ace.edit("source-editor")'
+        assert browser.execute_script(f"return {editor}.session.getUseWrapMode();") is True
+        browser.execute_script('document.querySelector("#source-wrap-btn").click()')
+        assert browser.execute_script(f"return {editor}.session.getUseWrapMode();") is False
+        assert browser.execute_script('return localStorage.getItem("texMcpSourceWrap")') == "0"
+        browser.execute_script('document.querySelector("#source-wrap-btn").click()')
+        assert browser.execute_script(f"return {editor}.session.getUseWrapMode();") is True
+        before = browser.execute_script(f"return {editor}.getValue();")
+        browser.execute_script('document.querySelector("#source-vim-btn").click()')
+        wait_until(lambda: browser.execute_script(f"return Boolean({editor}.$vimModeHandler);"))
+        type_keys(browser, [*"ggOvimtest", "<C-[>", *"dd"])
+        assert browser.execute_script(f"return {editor}.getValue();") == before
+        assert browser.execute_script('return document.querySelector("#source-save-btn").disabled') is False
+        type_keys(browser, [*":w", "<Enter>"])
+        wait_until(lambda: browser.execute_script('return document.querySelector("#source-save-btn").disabled'))
+        browser.execute_script('document.querySelector("#source-vim-btn").click()')
+        wait_until(lambda: not browser.execute_script(f"return Boolean({editor}.$vimModeHandler);"))
         coords = browser.execute_script('''
           const editor = (window.wrappedJSObject || window).ace.edit("source-editor");
           return [90, 175].map(column => {

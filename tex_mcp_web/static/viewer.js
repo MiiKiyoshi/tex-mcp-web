@@ -854,6 +854,39 @@ function stepSourceFontSize(step) {
   state.editor?.setFontSize(`${size}px`);
 }
 
+// Long lines wrap unless the viewer turned it off, and Vim keys are off unless the viewer
+// turned them on, each kept for next time. With Vim keys, :w saves.
+function sourceWraps() {
+  return localStorage.getItem("texMcpSourceWrap") !== "0";
+}
+
+function applySourceWrap() {
+  const on = sourceWraps();
+  $("#source-wrap-btn").classList.toggle("active", on);
+  $("#source-wrap-btn").setAttribute("aria-pressed", String(on));
+  state.editor?.session.setUseWrapMode(on);
+}
+
+function vimKeys() {
+  return localStorage.getItem("texMcpVimKeys") === "1";
+}
+
+function applyVimKeys() {
+  const on = vimKeys();
+  $("#source-vim-btn").classList.toggle("active", on);
+  $("#source-vim-btn").setAttribute("aria-pressed", String(on));
+  state.editor?.setKeyboardHandler(on ? "ace/keyboard/vim" : null, () => {
+    // Leaving Vim keys keeps Vim's block cursor, under which a click takes the character
+    // before the one clicked.
+    if (!on) {
+      state.editor.renderer.$blockCursor = false;
+      return;
+    }
+    window.ace.require("ace/keyboard/vim").Vim.defineEx("write", "w", () =>
+      saveSource().catch((error) => alert(`Could not save: ${error.message}`)));
+  });
+}
+
 async function initializeSourceEditor() {
   if (state.editor) return;
   if (!window.ace) throw new Error("Ace Editor did not load");
@@ -862,7 +895,7 @@ async function initializeSourceEditor() {
   state.editor.setTheme("ace/theme/textmate");
   state.editor.session.setMode("ace/mode/latex");
   state.editor.session.setUseWorker(false);
-  state.editor.session.setUseWrapMode(true);
+  state.editor.session.setUseWrapMode(sourceWraps());
   state.editor.setOptions({
     fontSize: `${sourceFontSize()}px`,
     showPrintMargin: false,
@@ -886,6 +919,7 @@ async function initializeSourceEditor() {
     bindKey: { win: "Ctrl-S", mac: "Command-S" },
     exec: () => saveSource().catch((error) => alert(`Could not save: ${error.message}`)),
   });
+  applyVimKeys();
   await refreshSourceFiles();
 }
 
@@ -2540,6 +2574,17 @@ async function init() {
   });
   $("#source-font-smaller-btn").addEventListener("click", () => stepSourceFontSize(-1));
   $("#source-font-larger-btn").addEventListener("click", () => stepSourceFontSize(1));
+  $("#source-wrap-btn").addEventListener("click", () => {
+    localStorage.setItem("texMcpSourceWrap", sourceWraps() ? "0" : "1");
+    applySourceWrap();
+  });
+  $("#source-vim-btn").addEventListener("click", () => {
+    localStorage.setItem("texMcpVimKeys", vimKeys() ? "0" : "1");
+    applyVimKeys();
+    state.editor?.focus();
+  });
+  applySourceWrap();
+  applyVimKeys();
   $("#source-comment-btn").addEventListener("click", openSourceCommentCompose);
   $("#source-pdf-btn").addEventListener("click", () => {
     showSourceSelectionInPdf().catch((error) => alert(`Could not show it in the Preview: ${error.message}`));

@@ -186,15 +186,19 @@ textarea {
   font: 0.8rem var(--mono);
 }
 .source-toolbar button {
-  padding: 0.2rem 0.55rem;
-  font-size: 0.78rem;
-  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.4rem;
+  line-height: 1;
   border: 1px solid var(--border);
   border-radius: 3px;
   background: var(--bg-elev);
 }
 .source-toolbar button:hover:not(:disabled) { background: var(--accent-soft); }
 .source-toolbar button:disabled { cursor: default; opacity: 0.5; }
+.source-toolbar button svg { display: block; }
+#source-vim-btn.active,
+#source-wrap-btn.active { background: var(--accent-soft); border-color: var(--accent); }
 .source-status {
   flex: 1;
   min-width: 0;
