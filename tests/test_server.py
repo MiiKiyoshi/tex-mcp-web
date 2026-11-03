@@ -2394,3 +2394,105 @@ def test_unknown_arguments_are_refused_and_schemas_are_compact(tmp_path: Path) -
     # A field that is itself named title stays.
     write = next(tool for tool in tools if tool.name == "write_comments").inputSchema
     assert any("title" in model["properties"] for model in write["$defs"].values())
+
+
+# --- Translation panel ---
+
+from tex_mcp_web.translate import split_paragraphs  # noqa: E402
+
+
+def _translation_project(project, server, runner):
+    from tex_mcp_web.synctex import SourcePosition, SyncTeXData
+    from tex_mcp_web.translate import Translator, TranslationStore
+
+    (project / "body.tex").write_text(
+        "% a plan kept in a comment\nFirst paragraph of the body text.\n\nSecond paragraph of the body text.\n\n"
+        "Third paragraph on another page.\n")
+    (project / "abs.tex").write_text("Abstract words are here.\n")
+    server.synctex_data = SyncTeXData(
+        pdf_to_source={1: [(10.0, SourcePosition("abs.tex", 1)), (80.0, SourcePosition("body.tex", 2)),
+                           (100.0, SourcePosition("body.tex", 4))],
+                       2: [(90.0, SourcePosition("body.tex", 6))]},
+        source_to_pdf={}, input_files={1: "abs.tex", 2: "body.tex"})
+    server.config.translation_language = "Korean"
+    server.translator = Translator(TranslationStore(project / ".tex-mcp-web" / "translations-korean.json"),
+                                   [], project, runner=runner, language="Korean")
+    server.translator.start = lambda paragraphs: server.translator.translate(paragraphs) or True
+
+
+def _echo_runner(calls):
+    def runner(prompt, cwd):
+        blocks = json.loads(prompt.split("Paragraphs (JSON):\n", 1)[1])
+        calls.append(list(blocks.values()))
+        return json.dumps({"t": {pid: "T " + text.split()[0] for pid, text in blocks.items()}})
+    return runner
+
+
+@pytest.mark.asyncio
+async def test_translations_cover_a_whole_file_once(client, project):
+    tc, server = client
+    calls = []
+    _translation_project(project, server, _echo_runner(calls))
+
+    first = await (await tc.get("/translations?file=body.tex&page=2")).json()
+    assert first["status"] == "pending" and first["file"] == "body.tex"
+    assert first["language"] == "Korean"
+    assert [(p["line_start"], p["text"], p["on_page"]) for p in first["paragraphs"]] == [
+        (2, None, False), (4, None, False), (6, None, True)]
+    assert calls == [["First paragraph of the body text.", "Second paragraph of the body text.",
+                      "Third paragraph on another page."]]
+
+    again = await (await tc.get("/translations?file=body.tex")).json()
+    assert again["status"] == "ready"
+    assert [p["text"] for p in again["paragraphs"]] == ["T First", "T Second", "T Third"]
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_translations_by_page_follow_the_file_most_on_that_page(client, project):
+    tc, server = client
+    _translation_project(project, server, _echo_runner([]))
+    data = await (await tc.get("/translations?page=1")).json()
+    assert data["file"] == "body.tex"
+    assert [p["on_page"] for p in data["paragraphs"]] == [True, True, False]
+
+
+@pytest.mark.asyncio
+async def test_translations_reject_bad_requests(client, project):
+    tc, server = client
+    _translation_project(project, server, _echo_runner([]))
+    assert (await tc.get("/translations")).status == 400
+    assert (await tc.get("/translations?page=x")).status == 400
+    assert (await tc.get("/translations?file=../secret.tex")).status == 400
+    assert (await tc.get("/translations?file=missing.tex")).status == 404
+    assert (await tc.get("/translations?page=9")).status == 404
+    server.synctex_data = None
+    assert (await tc.get("/translations?page=1")).status == 404
+
+
+@pytest.mark.asyncio
+async def test_translations_need_a_configured_language(client, project):
+    tc, server = client
+    assert server.config.translation_language is None
+    assert (await (await tc.get("/paper")).json())["translation_language"] is None
+    response = await tc.get("/translations?file=paper.tex")
+    assert response.status == 404
+    assert "translation" in (await response.json())["error"]
+
+
+@pytest.mark.asyncio
+async def test_each_language_keeps_its_own_translations(client, project):
+    tc, server = client
+    calls = []
+    _translation_project(project, server, _echo_runner(calls))
+    await tc.get("/translations?file=body.tex")
+    assert (project / ".tex-mcp-web" / "translations-korean.json").exists()
+
+    server.config.translation_language = "Japanese"
+    assert (await (await tc.get("/paper")).json())["translation_language"] == "Japanese"
+    translator = server._translator("Japanese")
+    assert translator.language == "Japanese"
+    assert translator.store.path.name == "translations-japanese.json"
+    assert translator.missing(split_paragraphs((project / "body.tex").read_text(), "body.tex"))
+    assert server._translator("Japanese") is translator
+

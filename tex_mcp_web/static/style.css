@@ -340,6 +340,52 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 
 /* ----- pdf ----- */
 #pdf-viewer { width: 100%; height: 100%; }
+/* The translation: the lower third of the PDF pane, one source file's paragraphs. */
+#pdf-pane { --translation-h: 36%; }
+#pdf-pane.translation-open #pdf-viewer { height: calc(100% - var(--translation-h)); }
+.translation-panel {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: var(--translation-h);
+  display: flex;
+  flex-direction: column;
+  border-top: 2px solid var(--warn);
+  background: var(--bg-elev);
+  color: var(--fg);
+}
+.translation-head {
+  display: flex;
+  gap: 0.6rem;
+  align-items: baseline;
+  padding: 0.25rem 0.6rem;
+  font-size: 0.8rem;
+  border-bottom: 1px solid var(--border);
+}
+.translation-grip {
+  height: 6px;
+  flex: none;
+  cursor: row-resize;
+  background: var(--border);
+  touch-action: none;
+}
+.translation-grip:hover, .translation-grip.dragging { background: var(--accent); }
+#translation-file { font-size: 0.8rem; max-width: 14rem; }
+#translation-page, #translation-status { color: var(--fg-dim); }
+#translation-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0.4rem 0.8rem 0.8rem;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  position: relative;
+}
+.translation-para { margin: 0 0 0.6rem; white-space: pre-wrap; cursor: pointer; }
+.translation-para:hover { background: var(--accent-soft); }
+.translation-para.pending { color: var(--fg-dim); font-style: italic; }
+.translation-para.on-page { border-left: 3px solid var(--warn); padding-left: 0.5rem; }
+.translation-para:not(.on-page) { padding-left: calc(0.5rem + 3px); }
+#translation-btn.active { background: var(--accent-soft); }
 /* The active tool's ring is 1px outside its button, and the toolbar sits on the top edge of
    the viewer host, which clips: two pixels of room. */
 #pdf-viewer embedpdf-container { padding-top: 2px; }

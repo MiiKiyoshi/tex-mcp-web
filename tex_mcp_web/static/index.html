@@ -20,6 +20,7 @@
     <div class="actions">
       <button id="compile-btn" type="button">Compile</button>
       <button id="paper-comment-btn" type="button" title="Add a paper-level comment">+ Note</button>
+      <button id="translation-btn" class="hidden" type="button" title="The paper's translation, under the Preview">Translation</button>
       <button id="sidebar-toggle-btn" type="button" title="Toggle sidebar (\)">⇥</button>
     </div>
   </header>
@@ -29,6 +30,16 @@
       <section id="pdf-pane">
         <div id="pdf-viewer">
           <p class="placeholder">No PDF yet — waiting for first compile…</p>
+        </div>
+        <div id="translation-panel" class="translation-panel hidden" aria-label="Translation of the source">
+          <div id="translation-grip" class="translation-grip" role="separator" aria-orientation="horizontal"
+               aria-label="Resize the translation" title="Drag to resize"></div>
+          <div class="translation-head"><b id="translation-language">Translation</b>
+            <select id="translation-file" aria-label="Source file to read translated">
+              <option value="">Auto</option>
+            </select>
+            <span id="translation-page"></span><span id="translation-status"></span></div>
+          <div id="translation-body"></div>
         </div>
         <div id="reference-preview" class="reference-preview hidden" title="Click to select reference text">
           <div id="reference-preview-text"></div>

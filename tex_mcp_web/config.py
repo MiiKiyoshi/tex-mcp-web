@@ -40,6 +40,10 @@ class Config:
         port: HTTP server port.
         references: Folder of reference papers converted to Markdown, relative to the
             config file's folder or absolute. Unset means no list of their terms.
+        translation_language: Language the page's translation panel shows the source in,
+            from ``translation: {language: ...}``. Unset means no translation panel.
+        translation_instructions: Extra rules the translator follows, such as a field's
+            terms to keep in English, from ``translation: {instructions: ...}``.
         config_path: Path to .tex-mcp-web.yaml file (used to resolve watch_dir).
     """
 
@@ -50,6 +54,8 @@ class Config:
     compiler: str = "auto"
     port: int = DEFAULT_PORT
     references: str | None = None
+    translation_language: str | None = None
+    translation_instructions: str | None = None
     config_path: Path | None = None
 
     @classmethod
@@ -63,6 +69,8 @@ class Config:
             compiler=data.get("compiler", "auto"),
             port=data.get("port", DEFAULT_PORT),
             references=data.get("references"),
+            translation_language=_translation(data).get("language"),
+            translation_instructions=_translation(data).get("instructions"),
             config_path=config_path,
         )
 
@@ -79,7 +87,28 @@ class Config:
             d["dir"] = self.dir
         if self.references is not None:
             d["references"] = self.references
+        if self.translation_language is not None:
+            d["translation"] = {"language": self.translation_language}
+            if self.translation_instructions is not None:
+                d["translation"]["instructions"] = self.translation_instructions
         return d
+
+
+def _translation(data: dict[str, Any]) -> dict[str, str]:
+    """``translation:`` as {language, instructions}, each a non-empty string when set."""
+    raw = data.get("translation")
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise ValueError("translation must be a mapping such as {language: Korean}")
+    out = {}
+    for key in ("language", "instructions"):
+        value = raw.get(key)
+        if value is not None and str(value).strip():
+            out[key] = str(value).strip()
+    if "instructions" in out and "language" not in out:
+        raise ValueError("translation.instructions needs translation.language")
+    return out
 
 
 DEFAULT_CONFIG_NAME = ".tex-mcp-web.yaml"

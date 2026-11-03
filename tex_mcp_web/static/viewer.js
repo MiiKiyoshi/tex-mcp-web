@@ -334,6 +334,7 @@ async function initializePdfViewer(pdfView) {
   });
   state.annotations = annotationCapability.forDocument(DOCUMENT_ID);
   state.scroll = scrollCapability.forDocument(DOCUMENT_ID);
+  state.scroll.onPageChange(() => scheduleTranslation(600));
   state.zoom = zoomCapability.forDocument(DOCUMENT_ID);
 
   commands.registerCommand({
@@ -804,6 +805,7 @@ async function openSource(path, line = null, force = false) {
   state.sourceRevision = source.revision;
   state.sourceDirty = false;
   $("#source-file").value = source.path;
+  if (state.view !== "pdf") scheduleTranslation(300);
   $("#source-save-btn").disabled = true;
   $("#source-reload-btn").disabled = false;
   setSourceStatus("Saved");
@@ -1688,6 +1690,7 @@ async function refreshPaper() {
   state.paper = await response.json();
   state.pdfDigest = state.paper.pdf_digest;
   $("#main-file").textContent = state.paper.main_file;
+  applyTranslationLanguage(state.paper.translation_language ?? null);
   renderSections();
 }
 
@@ -1741,6 +1744,142 @@ function applyCompiling(compiling) {
   if (compiling) $("#compile-status").textContent = "compiling…";
 }
 
+// ----- Translation -----
+// One source file's paragraphs in the language `translation: language:` names in the
+// configuration, with the ones typeset on the current PDF page marked. The server
+// translates a paragraph only the first time its text is seen, so paging, switching files
+// and recompiling cost nothing except for changed paragraphs. The file is the one chosen
+// in the panel, else the editor's file (Source/Split), else the file SyncTeX places most on
+// the current page. Without a configured language the button and the panel stay hidden.
+const translation = { on: false, language: null, page: 0, file: null, timer: null };
+
+function setTranslation(on) {
+  translation.on = on;
+  try { localStorage.setItem("texMcpTranslation", on ? "1" : "0"); } catch { /* per-viewer only */ }
+  showTranslation();
+}
+
+function applyTranslationLanguage(language) {
+  if (language === translation.language) return;
+  translation.language = language;
+  translation.file = null;
+  $("#translation-btn").classList.toggle("hidden", !language);
+  $("#translation-btn").textContent = language || "Translation";
+  $("#translation-language").textContent = language || "Translation";
+  showTranslation();
+}
+
+function translationShown() {
+  return translation.on && Boolean(translation.language);
+}
+
+function showTranslation() {
+  const shown = translationShown();
+  $("#translation-panel").classList.toggle("hidden", !shown);
+  $("#pdf-pane").classList.toggle("translation-open", shown);
+  $("#translation-btn").classList.toggle("active", shown);
+  refitPdf();
+  if (shown) {
+    syncTranslationFiles().catch((error) => console.error(error));
+    scheduleTranslation(0);
+  }
+}
+
+async function syncTranslationFiles() {
+  const response = await fetch("/sources");
+  if (!response.ok) return;
+  const files = (await response.json()).files.filter((file) => file.endsWith(".tex"));
+  const select = $("#translation-file");
+  const chosen = select.value;
+  select.replaceChildren(h("option", { value: "", text: "Auto" }),
+    ...files.map((file) => h("option", { value: file, text: file })));
+  select.value = files.includes(chosen) ? chosen : "";
+}
+
+function attachTranslationResize() {
+  const grip = $("#translation-grip");
+  const pane = $("#pdf-pane");
+  const apply = (fraction) => {
+    const value = Math.max(0.12, Math.min(0.85, fraction));
+    pane.style.setProperty("--translation-h", `${(value * 100).toFixed(1)}%`);
+    return value;
+  };
+  let saved = null;
+  try { saved = Number(localStorage.getItem("texMcpTranslationHeight")); } catch { /* per-viewer only */ }
+  if (saved) apply(saved);
+  grip.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    try { grip.setPointerCapture(event.pointerId); } catch { /* synthetic or lost pointer */ }
+    grip.classList.add("dragging");
+    let value = null;
+    const move = (moveEvent) => {
+      const box = pane.getBoundingClientRect();
+      value = apply((box.bottom - moveEvent.clientY) / Math.max(1, box.height));
+    };
+    const up = () => {
+      grip.classList.remove("dragging");
+      grip.removeEventListener("pointermove", move);
+      grip.removeEventListener("pointerup", up);
+      grip.removeEventListener("pointercancel", up);
+      if (value !== null) {
+        try { localStorage.setItem("texMcpTranslationHeight", String(value)); } catch { /* per-viewer only */ }
+      }
+      refitPdf();
+    };
+    grip.addEventListener("pointermove", move);
+    grip.addEventListener("pointerup", up);
+    grip.addEventListener("pointercancel", up);
+  });
+}
+
+function scheduleTranslation(delay = 800) {
+  if (!translationShown()) return;
+  clearTimeout(translation.timer);
+  translation.timer = setTimeout(() => loadTranslation().catch((error) => console.error(error)), delay);
+}
+
+async function loadTranslation() {
+  if (!translationShown() || !state.scroll) return;
+  const page = state.scroll.getCurrentPage();
+  const chosen = $("#translation-file").value || (state.view !== "pdf" ? state.sourcePath : null);
+  const params = new URLSearchParams({ page: String(page) });
+  if (chosen) params.set("file", chosen);
+  const request = params.toString();
+  translation.request = request;
+  const response = await fetch(`/translations?${request}`);
+  if (translation.request !== request) return;
+  if (!response.ok) {
+    $("#translation-status").textContent = await responseError(response);
+    return;
+  }
+  const data = await response.json();
+  const body = $("#translation-body");
+  const sameFile = data.file === translation.file;
+  const pageChanged = page !== translation.page;
+  const keepScroll = body.scrollTop;
+  translation.file = data.file;
+  translation.page = page;
+  $("#translation-page").textContent = `p. ${page}`;
+  $("#translation-status").textContent = data.status === "pending" ? "Translating…"
+    : data.status === "error" ? `Translation failed: ${data.error}` : "";
+  const items = data.paragraphs.map((paragraph) => h("p", {
+    class: ["translation-para", paragraph.text ? "" : "pending", paragraph.on_page ? "on-page" : ""].join(" ").trim(),
+    text: paragraph.text ?? "Translating…",
+    title: `${data.file}:${paragraph.line_start}-${paragraph.line_end}`,
+    onclick: async () => {
+      if (state.view === "pdf") await setWorkspaceView("split");
+      else await initializeSourceEditor();
+      await openSource(data.file, paragraph.line_start);
+    },
+  }));
+  body.replaceChildren(...items);
+  const first = items.find((item) => item.classList.contains("on-page"));
+  if ((!sameFile || pageChanged) && first) body.scrollTop = Math.max(0, first.offsetTop - 8);
+  else if (sameFile) body.scrollTop = keepScroll;
+  else body.scrollTop = 0;
+  if (data.status === "pending") translation.timer = setTimeout(() => scheduleTranslation(0), 3000);
+}
+
 async function applyCompletedCompile(result, pdfDigest) {
   const timestamp = result.timestamp;
   if (timestamp && timestamp === state.appliedCompileTimestamp) {
@@ -1788,6 +1927,7 @@ async function handleWebSocketMessage(message) {
       break;
     case "compiled":
       await applyCompletedCompile(message.result, message.pdf_digest);
+      scheduleTranslation(1500);
       break;
     case "comment_added":
     case "comment_updated":
@@ -2263,6 +2403,10 @@ async function init() {
     selection.addRange(range);
   });
   $("#compile-btn").addEventListener("click", () => compile());
+  $("#translation-btn").addEventListener("click", () => setTranslation(!translation.on));
+  $("#translation-file").addEventListener("change", () => scheduleTranslation(0));
+  attachTranslationResize();
+  try { if (localStorage.getItem("texMcpTranslation") === "1") setTranslation(true); } catch { /* per-viewer only */ }
   $("#source-save-btn").addEventListener("click", () => {
     saveSource().catch((error) => alert(`Could not save: ${error.message}`));
   });

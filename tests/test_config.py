@@ -56,6 +56,22 @@ class TestConfig:
         result = config.to_dict()
         assert result == original
 
+    def test_translation_names_a_language_and_optional_instructions(self):
+        config = Config.from_dict({"main": "a.tex", "translation": {
+            "language": "Korean", "instructions": "Keep cell names in English."}})
+        assert config.translation_language == "Korean"
+        assert config.translation_instructions == "Keep cell names in English."
+        assert config.to_dict()["translation"] == {
+            "language": "Korean", "instructions": "Keep cell names in English."}
+        plain = Config.from_dict({"main": "a.tex"})
+        assert plain.translation_language is None and "translation" not in plain.to_dict()
+
+    def test_translation_must_be_a_mapping_with_a_language(self):
+        with pytest.raises(ValueError):
+            Config.from_dict({"main": "a.tex", "translation": "Korean"})
+        with pytest.raises(ValueError):
+            Config.from_dict({"main": "a.tex", "translation": {"instructions": "x"}})
+
     def test_default_compiler_is_auto(self):
         """Test that default compiler is 'auto'."""
         config = Config(main="test.tex")

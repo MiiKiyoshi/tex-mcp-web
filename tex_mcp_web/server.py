@@ -67,6 +67,7 @@ from .synctex import (
     source_lines_to_boxes,
     source_to_page,
 )
+from .translate import Translator, TranslationStore, load_glossary, split_paragraphs, store_name
 from .watcher import Watcher, is_watched_source
 
 logger = logging.getLogger(__name__)
@@ -353,6 +354,9 @@ class TexMcpWebServer:
 
         self.last_result: CompileResult | None = None
         self.synctex_data: SyncTeXData | None = None
+        # The translation panel's translator; built on the first request for it and
+        # again when the configured language or instructions change.
+        self.translator: Translator | None = None
         self.structure: DocumentStructure | None = None
         self.compiling = False
         self.pdf_digest: str | None = None
@@ -407,6 +411,7 @@ class TexMcpWebServer:
         app.router.add_get("/synctex/source-to-pdf", self._handle_synctex_forward)
         app.router.add_post("/synctex/pdf-to-source", self._handle_synctex_backward)
         app.router.add_post("/synctex/source-to-pdf-words", self._handle_source_to_pdf_words)
+        app.router.add_get("/translations", self._handle_translations)
         app.router.add_post("/goto", self._handle_goto)
         app.router.add_get("/image", self._handle_image)
         app.router.add_get("/reference-preview", self._handle_reference_preview)
@@ -707,6 +712,7 @@ class TexMcpWebServer:
                 "compiling": self.compiling,
                 "last_compile": _result_to_dict(self.last_result),
                 "pdf_digest": self.pdf_digest,
+                "translation_language": self.config.translation_language,
                 **structure_to_dict(self.structure, self.watch_dir),
                 "comments": self._comment_summary(),
             }
@@ -1201,6 +1207,75 @@ class TexMcpWebServer:
         return web.json_response({"deleted": cid})
 
     # ----- SyncTeX -----
+
+    async def _handle_translations(self, request: web.Request) -> web.Response:
+        """Every prose paragraph of one source file, in the configured language.
+
+        ``?file=`` names the file; with only ``?page=N`` it is the file that
+        SyncTeX places most on that page. ``on_page`` marks the paragraphs
+        typeset on ``page``. Paragraphs already translated come from the store;
+        the rest start one background job and come back with ``text: null``.
+        """
+        language = self.config.translation_language
+        if language is None:
+            return web.json_response(
+                {"error": "no translation language is configured; set translation: "
+                          "{language: ...} in .tex-mcp-web.yaml"}, status=404)
+        raw_page = request.query.get("page")
+        try:
+            page = int(raw_page) if raw_page is not None else None
+        except ValueError:
+            return web.json_response({"error": "page must be a number"}, status=400)
+        raw_file = request.query.get("file")
+        if raw_file is None and page is None:
+            return web.json_response({"error": "file or page is required"}, status=400)
+        lines: dict[str, set[int]] = {}
+        if page is not None and self.synctex_data is not None:
+            for _, position in self.synctex_data.pdf_to_source.get(page, []):
+                lines.setdefault(position.file, set()).add(position.line)
+        if raw_file is None:
+            if not lines:
+                return web.json_response({"error": "no SyncTeX data for this page"}, status=404)
+            raw_file = max(sorted(lines), key=lambda f: len(lines[f]))
+        try:
+            path = self._resolve_source_path(raw_file)
+        except web.HTTPException as error:
+            return web.json_response({"error": error.text}, status=error.status)
+        file = path.relative_to(self.watch_dir.resolve()).as_posix()
+        translator = self._translator(language)
+        text, _ = self._read_source(path)
+        paragraphs = split_paragraphs(text, file)
+        on_page = lines.get(file, set())
+        missing = translator.missing(paragraphs)
+        failed = bool(missing) and translator.error is not None and not translator.busy()
+        body = {
+            "language": language,
+            "file": file,
+            "status": "error" if failed else "pending" if missing else "ready",
+            "error": translator.error,
+            "paragraphs": [{"line_start": p.line_start, "line_end": p.line_end,
+                            "on_page": any(p.line_start <= line <= p.line_end for line in on_page),
+                            "text": translator.store.get(p.key)} for p in paragraphs],
+        }
+        if missing:
+            translator.start(paragraphs)   # an error clears when this retry succeeds
+        return web.json_response(body)
+
+    def _translator(self, language: str) -> Translator:
+        """The translator for the configured language and instructions. Its store is kept
+        beside the comments; the reference term list it keeps as written is the one
+        guide() reads, beside the configuration file."""
+        instructions = self.config.translation_instructions
+        current = self.translator
+        if current is None or (current.language, current.instructions) != (language, instructions):
+            state = self.watch_dir / ".tex-mcp-web"
+            config_dir = (self.config.config_path.resolve().parent
+                          if self.config.config_path is not None else self.watch_dir)
+            current = self.translator = Translator(
+                TranslationStore(state / store_name(language)),
+                load_glossary(config_dir / ".tex-mcp-web" / "terms.md"), state,
+                language=language, instructions=instructions)
+        return current
 
     async def _handle_synctex_backward(self, request: web.Request) -> web.Response:
         """Selected PDF lines -> the source lines they come from: {page, rects, pdf_digest}
