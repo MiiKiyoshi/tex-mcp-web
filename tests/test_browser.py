@@ -1046,6 +1046,21 @@ def test_browser_source_selection_and_split_resize(tmp_path: Path) -> None:
         before = browser.execute_script(f"return {editor}.getValue();")
         browser.execute_script('document.querySelector("#source-vim-btn").click()')
         wait_until(lambda: browser.execute_script(f"return Boolean({editor}.$vimModeHandler);"))
+        # With a Korean input method on, a key outside Insert mode is read by where it sits
+        # (the key that gives ㅣ is l), and the letter the method composes is dropped.
+        ime = browser.execute_script(f"""
+          const editor = {editor};
+          editor.focus();
+          editor.gotoLine(1, 0);
+          const press = (code) => editor.textInput.getElement().dispatchEvent(new KeyboardEvent("keydown",
+            {{key: "Process", code, bubbles: true, cancelable: true}}));
+          press("KeyL");
+          const column = editor.getCursorPosition().column;
+          editor.onTextInput("ㅣ");
+          press("KeyH");
+          return [column, editor.getCursorPosition().column, editor.getValue() === arguments[0]];
+        """, script_args=[before], sandbox=None)
+        assert ime == [1, 0, True], ime
         type_keys(browser, [*"ggOvimtest", "<C-[>", *"dd"])
         assert browser.execute_script(f"return {editor}.getValue();") == before
         assert browser.execute_script('return document.querySelector("#source-save-btn").disabled') is False

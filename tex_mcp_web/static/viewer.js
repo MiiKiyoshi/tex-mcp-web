@@ -913,6 +913,35 @@ function defineVimCommands(Vim) {
   Vim.mapCommand("gc", "operator", "sourceComment");
 }
 
+// With Vim keys and an input method on, as with Korean, a key outside Insert mode reaches
+// the page as the method's own event and then as the letter it composed, and Vim knew
+// neither: the command was lost and the letter went into the text. The key is read by
+// where it sits on the keyboard instead, and the letter that follows is dropped.
+const COMPOSED = /[\u1100-\u11ff\u3130-\u318f\uac00-\ud7af]/;
+
+function vimCommandMode() {
+  const vim = state.editor?.state?.cm?.state.vim;
+  return Boolean(state.editor?.$vimModeHandler && vim && !vim.insertMode);
+}
+
+function attachVimInputMethod(editor) {
+  editor.container.addEventListener("keydown", (event) => {
+    if (!vimCommandMode() || event.ctrlKey || event.metaKey || event.altKey) return;
+    if (!(event.isComposing || event.key === "Process" || COMPOSED.test(event.key))) return;
+    const letter = /^Key([A-Z])$/.exec(event.code)?.[1];
+    if (letter === undefined) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    window.ace.require("ace/keyboard/vim").Vim.handleKey(
+      editor.state.cm, event.shiftKey ? letter : letter.toLowerCase(), "user");
+  }, true);
+  const typed = editor.onTextInput.bind(editor);
+  editor.onTextInput = (text, ...rest) => {
+    if (vimCommandMode() && COMPOSED.test(text)) return;
+    typed(text, ...rest);
+  };
+}
+
 // Ctrl+Alt+M (Cmd+Option+M), or gc with Vim keys. Comments wait for the file to be saved,
 // as the button does, and the bar says so.
 function commentSourceSelection() {
@@ -960,6 +989,7 @@ async function initializeSourceEditor() {
     bindKey: { win: "Ctrl-Alt-M", mac: "Command-Alt-M" },
     exec: commentSourceSelection,
   });
+  attachVimInputMethod(state.editor);
   applyVimKeys();
   await refreshSourceFiles();
 }
