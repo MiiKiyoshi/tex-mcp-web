@@ -48,7 +48,7 @@
            aria-valuemin="15" aria-valuemax="85" aria-valuenow="50" title="Drag to resize"></div>
       <section id="source-pane" aria-label="Source editor">
         <div class="source-toolbar">
-          <select id="source-file" aria-label="Source file"></select>
+          <span class="pick source-file-pick"><span id="source-file-name" class="pick-name" aria-hidden="true"></span><select id="source-file" aria-label="Source file"></select></span>
           <span id="source-status" class="source-status">Open Source to edit</span>
           <button id="source-font-smaller-btn" type="button" title="Smaller source text" aria-label="Smaller source text"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18 8 6l5 12M4.8 14h6.4M15 12h6"/></svg></button>
           <button id="source-font-larger-btn" type="button" title="Larger source text" aria-label="Larger source text"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18 8 6l5 12M4.8 14h6.4M15 12h6M18 9v6"/></svg></button>
@@ -87,12 +87,12 @@
 
       <div id="tab-comments" class="tab-pane active">
         <div class="filter-row">
-          <select id="comment-filter" aria-label="Comment status">
+          <span class="pick"><span id="comment-filter-name" class="pick-name" aria-hidden="true">open</span><select id="comment-filter" aria-label="Comment status">
             <option value="open" selected>open</option>
             <option value="resolved">resolved</option>
             <option value="archived">archived</option>
             <option value="all">all</option>
-          </select>
+          </select></span>
           <!-- Icons, with the words as title and aria-label. Each button shows the one drawing
                that fits its state; a count rides beside the drawing where the action has one.
                A button with nothing to do is greyed out, not taken away: the row keeps one shape. -->

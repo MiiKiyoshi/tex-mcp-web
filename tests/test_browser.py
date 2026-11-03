@@ -986,6 +986,13 @@ def test_a_finger_held_on_a_word_selects_it(tmp_path: Path) -> None:
         '''
         assert browser.execute_script(pressed, script_args=["Pointer"])
         assert not browser.execute_script(pressed, script_args=["Pan"])
+        # The editor's file list draws its name in the bar's type, not the 16px a list takes
+        # on a touch screen, and lies clear over it.
+        assert browser.execute_script('''
+          const name = getComputedStyle(document.querySelector("#source-file-name"));
+          const list = getComputedStyle(document.querySelector("#source-file"));
+          return [name.display, parseFloat(name.fontSize) < 14, list.opacity];
+        ''') == ["block", True, "0"]
         assert browser.execute_script('''
           const root = document.querySelector("embedpdf-container").shadowRoot;
           const layers = Array.from(root.querySelectorAll('[style*="touch-action: none"]'))

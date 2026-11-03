@@ -817,7 +817,7 @@ async function openSource(path, line = null, force = false) {
   }
   if (!force && state.sourceDirty && path !== state.sourcePath
       && !confirm(`Discard unsaved changes to ${state.sourcePath}?`)) {
-    $("#source-file").value = state.sourcePath;
+    showSourceFile(state.sourcePath);
     return false;
   }
 
@@ -831,7 +831,7 @@ async function openSource(path, line = null, force = false) {
   state.sourcePath = source.path;
   state.sourceRevision = source.revision;
   state.sourceDirty = false;
-  $("#source-file").value = source.path;
+  showSourceFile(source.path);
   if (state.view !== "pdf") scheduleTranslation(300);
   $("#source-save-btn").disabled = true;
   $("#source-reload-btn").disabled = false;
@@ -865,8 +865,17 @@ async function refreshSourceFiles() {
     : result.files.includes(result.main_file)
       ? result.main_file
       : result.files[0];
-  select.value = preferred;
+  showSourceFile(preferred);
   if (preferred !== state.sourcePath) await openSource(preferred);
+}
+
+// The file list's choice, and on a touch screen the name drawn over the list in the bar's
+// own type: a list there takes 16px type so the phone does not zoom in on it, which drew
+// the name larger than everything else in the bar. The list lies over the name, clear,
+// and still opens on a tap.
+function showSourceFile(path) {
+  $("#source-file").value = path;
+  $("#source-file-name").textContent = path.split("/").pop();
 }
 
 // The editor's type size, kept for next time. Stepped by a pixel between 10 and 28.
@@ -2734,7 +2743,8 @@ async function init() {
     $("#compose-dialog").close();
     clearPendingSelection();
   });
-  $("#comment-filter").addEventListener("change", () => {
+  $("#comment-filter").addEventListener("change", (event) => {
+    $("#comment-filter-name").textContent = event.target.selectedOptions[0].textContent;
     refreshComments().catch((error) => console.error(error));
   });
   for (const button of $$(".tab-btn")) {

@@ -182,6 +182,34 @@ textarea {
   border-bottom: 1px solid var(--border);
   background: var(--bg);
 }
+/* A list on a touch screen takes 16px type so the phone does not zoom in on it, which
+   drew it larger than everything around it. There its choice is drawn in the row's own
+   type, and the list lies clear over that and still opens on a tap. */
+.pick { position: relative; display: inline-flex; min-width: 0; }
+.pick-name { display: none; }
+@media (pointer: coarse) {
+  .pick-name {
+    position: relative;
+    display: block;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    padding: 0.2rem 1.2rem 0.2rem 0.4rem;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    background: var(--bg-elev);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.8rem;
+  }
+  .pick-name::after { content: "\25BE"; position: absolute; right: 0.4rem; top: 50%; transform: translateY(-50%); color: var(--fg-dim); }
+  .pick select {
+    position: absolute !important; inset: 0; width: 100% !important; height: 100% !important;
+    min-width: 0 !important; max-width: none !important; opacity: 0;
+  }
+}
+.source-file-pick .pick-name { font: 0.8rem var(--mono); }
+.filter-row .pick { min-width: 5.5rem; }
 .source-toolbar select {
   min-width: 12rem;
   max-width: 50%;
@@ -326,10 +354,14 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
   .view-tabs { order: 1; }
   .topbar .compile-status { order: 2; }
   .topbar .actions { order: 3; margin-left: auto; flex-wrap: wrap; }
-  .source-toolbar { flex-wrap: wrap; }
-  .source-toolbar select { flex: 0 1 9rem; min-width: 0; max-width: 9rem; height: 26px; padding: 0 0.3rem; }
-  /* After the buttons, at the right of their last row, in small type. */
-  .source-status { order: 2; flex: 0 0 auto; margin-left: auto; font-size: 0.7rem; }
+  /* One row on a phone: the buttons draw smaller, the file's name gives up what the row
+     lacks and ends in an ellipsis, and Saved follows the buttons in small type. */
+  .source-toolbar { flex-wrap: nowrap; gap: 0.25rem; padding: 0.1rem 0.35rem; }
+  .source-toolbar button { padding: 0.2rem 0.25rem; }
+  .source-toolbar button svg { width: 14px; height: 14px; }
+  .source-status { order: 2; flex: 0 0 auto; margin-left: auto; font-size: 0.62rem; }
+  .source-file-pick { flex: 0 1 8rem; min-width: 3rem; }
+  .source-toolbar select { width: 100%; min-width: 0; max-width: none; height: 24px; padding: 0 0.2rem; }
 }
 
 /* A phone zooms the whole page into a field smaller than 16px the moment it takes the
