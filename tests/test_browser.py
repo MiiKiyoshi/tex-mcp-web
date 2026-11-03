@@ -1051,8 +1051,23 @@ def test_browser_source_selection_and_split_resize(tmp_path: Path) -> None:
         assert browser.execute_script('return document.querySelector("#source-save-btn").disabled') is False
         type_keys(browser, [*":w", "<Enter>"])
         wait_until(lambda: browser.execute_script('return document.querySelector("#source-save-btn").disabled'))
+        # gc comments on what a motion covers: gcc the line the cursor is on, gcj that line
+        # and the next. The editor has the keys back once the comment is dropped.
+        for keys, label in (("ggjgcc", "Source: paper.tex:2-2"), ("gggcj", "Source: paper.tex:1-2")):
+            type_keys(browser, [*keys])
+            wait_until(lambda: browser.execute_script('return document.querySelector("#compose-dialog").open'))
+            assert browser.execute_script('return document.querySelector("#compose-anchor").textContent') == label
+            browser.execute_script('document.querySelector("#compose-cancel").click()')
+            wait_until(lambda: browser.execute_script(
+                'return document.querySelector("#source-editor").contains(document.activeElement)'))
         browser.execute_script('document.querySelector("#source-vim-btn").click()')
         wait_until(lambda: not browser.execute_script(f"return Boolean({editor}.$vimModeHandler);"))
+        # Without Vim keys, Ctrl+Alt+M comments on the selection.
+        browser.execute_script(f"{editor}.focus(); {editor}.selection.selectLine();")
+        ActionSequence(browser, "key", "keyboard").key_down("\ue009").key_down("\ue00a").key_down("m") \
+            .key_up("m").key_up("\ue00a").key_up("\ue009").perform()
+        wait_until(lambda: browser.execute_script('return document.querySelector("#compose-dialog").open'))
+        browser.execute_script('document.querySelector("#compose-cancel").click()')
         coords = browser.execute_script('''
           const editor = (window.wrappedJSObject || window).ace.edit("source-editor");
           return [90, 175].map(column => {
