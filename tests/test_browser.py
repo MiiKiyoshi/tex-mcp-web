@@ -903,8 +903,10 @@ def test_a_finger_held_on_a_word_selects_it(tmp_path: Path) -> None:
     shared = SharedProjectServer(load_config(config_path))
     profile = tempfile.mkdtemp(prefix="tex_mcp_hold_")
     marionette_port = available_port()
+    # A coarse pointer is what a finger is; the touch rules key off it.
     (Path(profile) / "user.js").write_text(
-        f'user_pref("marionette.port", {marionette_port});\n', encoding="utf-8"
+        f'user_pref("marionette.port", {marionette_port});\n'
+        'user_pref("ui.primaryPointerCapabilities", 1);\n', encoding="utf-8"
     )
     browser_process = None
     browser = None
@@ -973,6 +975,15 @@ def test_a_finger_held_on_a_word_selects_it(tmp_path: Path) -> None:
                 .pointer_down().pointer_up().perform()
             wait_until(lambda: not browser.execute_script(menu_shown))
             return anchor
+
+        # A finger dragged on the pages scrolls them, in the pointer mode too: the layer
+        # the viewer selects on lets a touch pan.
+        assert browser.execute_script('''
+          const root = document.querySelector("embedpdf-container").shadowRoot;
+          const layers = Array.from(root.querySelectorAll('[style*="touch-action: none"]'))
+            .filter((node) => !node.matches("[data-epdf-handle], [data-epdf-vertex]"));
+          return layers.length > 0 && layers.every((node) => getComputedStyle(node).touchAction === "pan-x pan-y");
+        ''')
 
         # Held still on a bare word, the finger selects that word.
         bare_x = int(highlight["right"] + 12)                 # inside "jumps"

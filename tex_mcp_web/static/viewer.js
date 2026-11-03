@@ -234,6 +234,14 @@ async function initializePdfViewer(pdfView) {
       color: #6d6650;
       background: #f6f1e2;
     }
+    /* On a touch screen a finger dragged on the pages scrolls them in the pointer mode too,
+       as a page does, and a finger held still selects first. The viewer turns touch
+       scrolling off in that mode so that every drag selects. */
+    @media (pointer: coarse) {
+      [style*="touch-action: none"]:not([data-epdf-handle]):not([data-epdf-vertex]) {
+        touch-action: pan-x pan-y !important;
+      }
+    }
   `;
   state.viewer.shadowRoot.appendChild(viewerStyle);
   state.viewer.shadowRoot.addEventListener("pointerdown", (event) => {
@@ -275,17 +283,23 @@ async function initializePdfViewer(pdfView) {
     endTouchHold();
     if (state.areaMode || event.pointerType !== "touch" || !event.isPrimary) return;
     const { clientX, clientY } = event;
-    touchHold = { x: clientX, y: clientY, timer: setTimeout(() => {
+    touchHold = { x: clientX, y: clientY, held: false, timer: setTimeout(() => {
       highlightPress = null;
+      touchHold.held = true;
       root.elementFromPoint(clientX, clientY)?.dispatchEvent(
         new MouseEvent("dblclick", { bubbles: true, clientX, clientY }));
     }, 500) };
   }, { capture: true });
   root.addEventListener("pointermove", (event) => {
-    if (touchHold !== null && Math.hypot(event.clientX - touchHold.x, event.clientY - touchHold.y) >= 10) {
+    if (touchHold !== null && !touchHold.held
+      && Math.hypot(event.clientX - touchHold.x, event.clientY - touchHold.y) >= 10) {
       endTouchHold();
     }
   }, { capture: true });
+  // Once held, the finger extends the selection rather than scrolling the pages.
+  root.addEventListener("touchmove", (event) => {
+    if (touchHold?.held) event.preventDefault();
+  }, { capture: true, passive: false });
   root.addEventListener("pointerup", endTouchHold, { capture: true });
   root.addEventListener("pointercancel", endTouchHold, { capture: true });
   root.addEventListener("contextmenu", (event) => {
