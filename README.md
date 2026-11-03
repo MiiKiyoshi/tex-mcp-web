@@ -60,7 +60,8 @@ so there is nothing else to start. Say it again after the agent restarts.
   editor, at the lines SyncTeX names, or those lines when a macro prints the words. The other
   way, **→ Preview** beside **+ Comment** in the editor's bar marks where the Preview prints
   the selected words. Either turns the view to Split. Both need a PDF built with SyncTeX,
-  which **Compile** builds.
+  which **Compile** builds. Cmd (macOS) or Ctrl with a double click on a PDF word does what
+  **Source** does for that word.
 - The box tool, beside pan and pointer in the PDF's toolbar, turns a drag on the PDF into a
   box to comment on what has no text to select, such as part of a figure. The box holds
   while a compile leaves what it covers as it was.

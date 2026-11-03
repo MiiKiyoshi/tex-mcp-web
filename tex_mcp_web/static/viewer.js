@@ -258,6 +258,13 @@ async function initializePdfViewer(pdfView) {
   // selects the word under the highlight; the lift is not the press that opens the
   // comment.
   let highlightPress = null;
+  // Cmd (macOS) or Ctrl + double click: the double click selects the word as usual,
+  // and Source opens it beside the PDF.
+  root.addEventListener("dblclick", (event) => {
+    if (!event.metaKey && !event.ctrlKey) return;
+    setTimeout(() => openSelectionInSource()
+      .catch((error) => alert(`Could not open the source: ${error.message}`)), 120);
+  });
   let touchHold = null;
   const endTouchHold = () => {
     if (touchHold === null) return;
