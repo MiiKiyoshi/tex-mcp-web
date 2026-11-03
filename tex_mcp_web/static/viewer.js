@@ -175,6 +175,9 @@ async function initializePdfViewer(pdfView) {
     },
     tabBar: "never",
     disabledCategories: ["annotation", "redaction", "insert", "form", "panel-comment"],
+    // The pointer mode on a touch screen too: a finger scrolls the pages in it (see the
+    // viewer's style), so a phone starts in the mode that also selects.
+    pan: { defaultMode: "never" },
     documentManager: {
       initialDocuments: [{ url: pdfUrl(), documentId: DOCUMENT_ID }],
     },

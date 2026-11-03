@@ -906,7 +906,8 @@ def test_a_finger_held_on_a_word_selects_it(tmp_path: Path) -> None:
     # A coarse pointer is what a finger is; the touch rules key off it.
     (Path(profile) / "user.js").write_text(
         f'user_pref("marionette.port", {marionette_port});\n'
-        'user_pref("ui.primaryPointerCapabilities", 1);\n', encoding="utf-8"
+        'user_pref("ui.primaryPointerCapabilities", 1);\n'
+        'user_pref("dom.maxtouchpoints.testing.value", 5);\n', encoding="utf-8"
     )
     browser_process = None
     browser = None
@@ -976,8 +977,15 @@ def test_a_finger_held_on_a_word_selects_it(tmp_path: Path) -> None:
             wait_until(lambda: not browser.execute_script(menu_shown))
             return anchor
 
-        # A finger dragged on the pages scrolls them, in the pointer mode too: the layer
-        # the viewer selects on lets a touch pan.
+        # A touch screen starts in the pointer mode, where a finger dragged on the pages
+        # scrolls them too: the layer the viewer selects on lets a touch pan.
+        pressed = '''
+          return document.querySelector("embedpdf-container").shadowRoot
+            .querySelector(`button[aria-label="Toggle ${arguments[0]} Mode"]`)
+            .classList.contains("bg-interactive-selected");
+        '''
+        assert browser.execute_script(pressed, script_args=["Pointer"])
+        assert not browser.execute_script(pressed, script_args=["Pan"])
         assert browser.execute_script('''
           const root = document.querySelector("embedpdf-container").shadowRoot;
           const layers = Array.from(root.querySelectorAll('[style*="touch-action: none"]'))
