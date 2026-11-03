@@ -9,6 +9,8 @@ const $$ = (selector) => Array.from(document.querySelectorAll(selector));
 const state = {
   viewer: null,
   selection: null,
+  selectionCapability: null,
+  areaMode: false,
   annotations: null,
   scroll: null,
   zoom: null,
@@ -121,6 +123,7 @@ async function initializePdfViewer(pdfView) {
   const host = $("#pdf-viewer");
   clear(host);
   state.selection = null;
+  state.selectionCapability = null;
   state.annotations = null;
   state.scroll = null;
   state.zoom = null;
@@ -203,8 +206,13 @@ async function initializePdfViewer(pdfView) {
       height: 16px !important;
       width: 16px !important;
     }
-    :host([data-tex-selecting]) [data-no-interaction] * {
+    :host([data-tex-selecting]) [data-no-interaction] *,
+    :host([data-tex-area]) [data-no-interaction] * {
       pointer-events: none !important;
+    }
+    :host([data-tex-area]) * {
+      cursor: crosshair !important;
+      touch-action: none !important;
     }
     .tex-comment-badge {
       position: absolute;
@@ -239,7 +247,19 @@ async function initializePdfViewer(pdfView) {
   const commands = registry.getPlugin("commands").provides();
   const ui = registry.getPlugin("ui").provides();
 
+  state.selectionCapability = selectionCapability;
   state.selection = selectionCapability.forDocument(DOCUMENT_ID);
+  state.selection.onMarqueeEnd(({ pageIndex, rect }) => {
+    if (!state.areaMode || rect === null) return;
+    // A click, not a box.
+    if (rect.size.width < 4 || rect.size.height < 4) return;
+    setAreaMode(false);
+    openCompose(
+      { kind: "area", page: pageIndex + 1, bbox: rectToBBox(rect), pdf_digest: state.pdfDigest },
+      `PDF area on p${pageIndex + 1}`,
+    );
+  });
+  applyAreaMode();
   state.selection.onBeginSelection(() => state.viewer.setAttribute("data-tex-selecting", ""));
   state.selection.onEndSelection(() => state.viewer.removeAttribute("data-tex-selecting"));
   const root = state.viewer.shadowRoot;
@@ -258,7 +278,7 @@ async function initializePdfViewer(pdfView) {
   };
   root.addEventListener("pointerdown", (event) => {
     endTouchHold();
-    if (event.pointerType !== "touch" || !event.isPrimary) return;
+    if (state.areaMode || event.pointerType !== "touch" || !event.isPrimary) return;
     const { clientX, clientY } = event;
     touchHold = { x: clientX, y: clientY, timer: setTimeout(() => {
       highlightPress = null;
@@ -277,7 +297,7 @@ async function initializePdfViewer(pdfView) {
     if (touchHold !== null) event.preventDefault();
   });
   root.addEventListener("pointerdown", (event) => {
-    if (event.target.closest(".tex-comment-badge")) return;
+    if (state.areaMode || event.target.closest(".tex-comment-badge")) return;
     if (!event.isTrusted || event.button !== 0 || !event.target.closest("[data-no-interaction]")) return;
     highlightPress = { target: event.target, x: event.clientX, y: event.clientY, dragged: false };
     state.viewer.setAttribute("data-tex-selecting", "");
@@ -452,6 +472,28 @@ async function openTextSelectionCompose() {
     `PDF text: "${quote.slice(0, 80)}${quote.length > 80 ? "…" : ""}"`,
     quote,
   );
+}
+
+// While the Area button is down, a drag on the PDF draws a box instead of selecting text,
+// and the comment written for it opens when the drag ends.
+function setAreaMode(on) {
+  state.areaMode = on;
+  const button = $("#area-btn");
+  button.classList.toggle("active", on);
+  button.setAttribute("aria-pressed", String(on));
+  applyAreaMode();
+}
+
+function applyAreaMode() {
+  if (state.selectionCapability === null) return;
+  if (state.areaMode) state.selection.clear();
+  state.selectionCapability.enableForMode("pointerMode", {
+    enableSelection: !state.areaMode,
+    showSelectionRects: true,
+    enableMarquee: state.areaMode,
+    showMarqueeRects: true,
+  }, DOCUMENT_ID);
+  state.viewer.toggleAttribute("data-tex-area", state.areaMode);
 }
 
 function openCompose(anchor, label, selectionText = "") {
@@ -2047,6 +2089,7 @@ async function init() {
       }
     });
   }
+  $("#area-btn").addEventListener("click", () => setAreaMode(!state.areaMode));
   $("#paper-comment-btn").addEventListener("click", () =>
     openCompose({ kind: "paper" }, "Paper-level comment"));
   $("#compose-form").addEventListener("submit", (event) => {

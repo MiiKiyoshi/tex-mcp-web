@@ -311,7 +311,9 @@ def _agent_comment_to_dict(comment, watch_dir: Path) -> dict[str, Any]:
         if quote is not None:
             payload["quote"] = quote
     elif isinstance(anchor, AreaAnchor):
+        # The box in PDF points, whole ones, for image(page, bbox) or image(comment=id).
         payload["page"] = anchor.page
+        payload["bbox"] = [round(value) for value in anchor.bbox]
     elif isinstance(anchor, SectionAnchor):
         payload["section"] = anchor.title
         if anchor.label is not None:

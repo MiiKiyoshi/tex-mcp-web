@@ -1,6 +1,7 @@
 """Tests for comment anchors, exact source selectors, and reattachment."""
 
 import json
+import secrets
 from pathlib import Path
 
 import pymupdf
@@ -21,6 +22,7 @@ from tex_mcp_web.comments import (
     capture_source_selector,
     find_source_selector,
     locate_pdf_quote,
+    area_digest,
     pdf_digest,
     swap_fragments,
 )
@@ -85,8 +87,17 @@ def test_agent_comment_view_exposes_source_without_pdf_coordinates(store: Commen
     assert "bbox" not in view
 
 
+def test_agent_view_of_an_area_is_its_page_and_box_in_whole_points(store: CommentStore):
+    from tex_mcp_web.mcp_server import _agent_comment_to_dict
+
+    comment = store.add(AreaAnchor(2, (60.4, 70.6, 200.2, 99.5), "digest", "pixels"), "this panel")
+    view = _agent_comment_to_dict(comment, store.path.parent)
+    assert (view["kind"], view["page"], view["bbox"]) == ("area", 2, [60, 71, 200, 100])
+    assert "pdf_digest" not in view and "region" not in view
+
+
 def test_area_anchor_roundtrip():
-    anchor = AreaAnchor(page=3, bbox=(10.5, 20.5, 100.0, 200.0), pdf_digest="abc")
+    anchor = AreaAnchor(page=3, bbox=(10.5, 20.5, 100.0, 200.0), pdf_digest="abc", region="def")
     assert anchor_from_dict(anchor.to_dict()) == anchor
 
 
@@ -337,15 +348,28 @@ def test_source_range_refresh_follows_exact_lines(store: CommentStore, tmp_path:
     assert not refreshed.stale
 
 
-def test_area_anchor_becomes_stale_after_pdf_changes(store: CommentStore, tmp_path: Path):
+def test_an_area_stays_while_its_pixels_do(store: CommentStore, tmp_path: Path):
+    """Every compile writes new bytes, so an area is stale only when what it covers changed."""
     pdf = tmp_path / "paper.pdf"
     make_pdf(pdf, "first")
-    comment = store.add(AreaAnchor(1, (10, 10, 30, 30), pdf_digest(pdf)), "area")
-    make_pdf(tmp_path / "replacement.pdf", "second")
-    (tmp_path / "replacement.pdf").replace(pdf)
-    newly_stale = store.refresh_anchors(tmp_path, pdf)
-    assert comment.id in newly_stale
+    box = (60, 60, 200, 100)
+    comment = store.add(AreaAnchor(1, box, pdf_digest(pdf), area_digest(pdf, 1, box)), "area")
+
+    def compile_to(text: str, y: float = 72) -> list[str]:
+        make_pdf(tmp_path / "replacement.pdf", text, y)
+        document = pymupdf.open(tmp_path / "replacement.pdf")
+        document.set_metadata({"title": f"build {secrets.token_hex(4)}"})
+        document.save(pdf)
+        document.close()
+        return store.refresh_anchors(tmp_path, pdf)
+
+    assert compile_to("first") == []
+    assert not store.get(comment.id).stale
+    assert store.get(comment.id).anchor.pdf_digest == pdf_digest(pdf)
+    assert compile_to("second") == [comment.id]
     assert store.get(comment.id).stale
+    assert compile_to("first") == []
+    assert not store.get(comment.id).stale
 
 
 def test_text_anchor_refreshes_pdf_rectangles(store: CommentStore, tmp_path: Path):

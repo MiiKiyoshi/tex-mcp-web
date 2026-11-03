@@ -573,6 +573,105 @@ def test_highlight_badges_leave_pdf_text_selectable(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
+def test_the_area_button_draws_a_box_to_comment_on(tmp_path: Path) -> None:
+    """With Area down, a drag draws a box even where it starts on text, the box becomes an
+    area comment in PDF points, and the next drag selects text again."""
+    import fitz
+
+    sentence = "The quick brown fox jumps over the lazy dog."
+    (tmp_path / "paper.tex").write_text(
+        f"\\documentclass{{article}}\n\\begin{{document}}\n{sentence}\n\\end{{document}}\n",
+        encoding="utf-8",
+    )
+    with fitz.open() as pdf:
+        pdf.new_page().insert_text((72, 72), sentence)
+        pdf.save(tmp_path / "paper.pdf")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    profile = tempfile.mkdtemp(prefix="tex_mcp_area_")
+    marionette_port = available_port()
+    (Path(profile) / "user.js").write_text(
+        f'user_pref("marionette.port", {marionette_port});\n', encoding="utf-8"
+    )
+    browser_process = None
+    browser = None
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: shared.server.pdf_digest is not None)
+        with fitz.open(shared.server.last_result.output_file) as pdf:
+            words = pdf[0].search_for("quick brown fox")[0]
+            page_width = pdf[0].rect.width
+        browser_process = subprocess.Popen(
+            ["firefox", "-marionette", "-headless", "-no-remote", "-profile", profile, "about:blank"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        browser = marionette.Marionette(host="127.0.0.1", port=marionette_port, startup_timeout=30)
+        browser.start_session()
+        browser.set_window_rect(x=0, y=0, width=1200, height=800)
+        browser.navigate(base)
+        page = wait_until(lambda: browser.execute_script(f'''
+          const image = document.querySelector("embedpdf-container")?.shadowRoot?.querySelector("img");
+          const rect = image?.getBoundingClientRect();
+          return rect && rect.width > 100 ? [rect.left, rect.top, rect.width / {page_width}] : false;
+        '''))
+
+        def at(x, y):
+            return int(page[0] + x * page[2]), int(page[1] + y * page[2])
+
+        def drag(start, end):
+            ActionSequence(browser, "pointer", "mouse", {"pointerType": "mouse"}) \
+                .pointer_move(*start).pointer_down() \
+                .pointer_move(end[0], end[1], duration=300).pointer_up().perform()
+
+        browser.execute_script('document.querySelector("#area-btn").click()')
+        assert browser.execute_script(
+            'return document.querySelector("#area-btn").getAttribute("aria-pressed")') == "true"
+        box = (words.x0 - 20, words.y0 - 20, words.x1 + 120, words.y1 + 150)
+        drag(at(words.x0 + 2, (words.y0 + words.y1) / 2), at(box[2], box[3]))
+        wait_until(lambda: browser.execute_script('return document.querySelector("#compose-dialog").open'))
+        assert browser.execute_script(
+            'return document.querySelector("#compose-anchor").textContent') == "PDF area on p1"
+        assert browser.execute_script(
+            'return document.querySelector("#area-btn").getAttribute("aria-pressed")') == "false"
+        browser.execute_script('''
+          document.querySelector("#compose-text").value = "this box";
+          document.querySelector("#compose-form").requestSubmit();
+        ''')
+        comments = wait_until(lambda: get_json(f"{base}/comments")["comments"] or False)
+        anchor = comments[0]["anchor"]
+        assert anchor["kind"] == "area" and anchor["page"] == 1 and anchor["region"]
+        drawn = (words.x0 + 2, (words.y0 + words.y1) / 2, box[2], box[3])
+        assert all(abs(got - want) < 2 / page[2] for got, want in zip(anchor["bbox"], drawn)), anchor
+
+        # With the button up again, a drag across the words selects them.
+        y = (words.y0 + words.y1) / 2
+        drag(at(words.x0 + 2, y), at(words.x1 - 2, y))
+        wait_until(lambda: browser.execute_script('''
+          const root = document.querySelector("embedpdf-container").shadowRoot;
+          return Array.from(root.querySelectorAll("button")).some((button) =>
+            /comment/i.test(button.textContent) && button.getBoundingClientRect().width > 0);
+        '''))
+    finally:
+        if browser is not None:
+            try:
+                browser.delete_session()
+            except Exception:
+                pass
+        if browser_process is not None:
+            browser_process.terminate()
+            try:
+                browser_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                browser_process.kill()
+        shutil.rmtree(profile, ignore_errors=True)
+        shared.stop()
+
+
+@pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
 def test_a_finger_held_on_a_word_selects_it(tmp_path: Path) -> None:
     """The viewer selects by a drag or a double click; a tablet asks with a finger held
     still. The hold selects the word under it, a highlight in between or not, the

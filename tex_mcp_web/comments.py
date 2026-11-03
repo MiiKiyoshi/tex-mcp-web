@@ -143,9 +143,13 @@ class TextSelectionAnchor:
 
 @dataclass
 class AreaAnchor:
+    """A box drawn on a page, for what has no text to select, such as part of a figure.
+    ``region`` is :func:`area_digest` of the box when it was drawn."""
+
     page: int
     bbox: BBox
     pdf_digest: str
+    region: str
     kind: Literal["area"] = "area"
 
     def to_dict(self) -> dict[str, Any]:
@@ -154,6 +158,7 @@ class AreaAnchor:
             "page": self.page,
             "bbox": list(self.bbox),
             "pdf_digest": self.pdf_digest,
+            "region": self.region,
         }
 
     def resolve_source(self, ctx: ResolveContext) -> "ResolvedSource | None":
@@ -271,6 +276,7 @@ def anchor_from_dict(d: dict[str, Any]) -> Anchor:
             page=int(d["page"]),
             bbox=tuple(float(value) for value in bbox),
             pdf_digest=str(d["pdf_digest"]),
+            region=str(d["region"]),
         )
     if kind == "section":
         return SectionAnchor(
@@ -671,6 +677,23 @@ def pdf_digest(pdf_path: Path) -> str:
     """Return the identity of the compiled PDF bytes."""
     with pdf_path.open("rb") as handle:
         return hashlib.file_digest(handle, "sha256").hexdigest()
+
+
+def area_digest(pdf_path: Path, page: int, bbox: BBox) -> str:
+    """What a box on a page shows: the digest of its pixels in grey at 72 dpi.
+
+    Every compile writes new PDF bytes, so the bytes cannot say whether a box still
+    covers what it was drawn on. Its pixels can.
+    """
+    with pymupdf.open(pdf_path) as pdf:
+        if not 1 <= page <= pdf.page_count:
+            raise ValueError(f"page {page} is not in the PDF")
+        sheet = pdf[page - 1]
+        rect = pymupdf.Rect(*bbox) & sheet.rect
+        if rect.is_empty:
+            raise ValueError("the area lies outside its page")
+        pixels = sheet.get_pixmap(clip=rect, dpi=72, colorspace=pymupdf.csGRAY)
+        return hashlib.sha256(pixels.samples).hexdigest()
 
 
 def _normalize_pdf_text(text: str) -> tuple[str, list[int]]:
@@ -1337,7 +1360,7 @@ class CommentStore:
             for comment in comments:
                 if not isinstance(comment.anchor, SourceRangeAnchor):
                     continue
-                stale, modified = self._refresh_anchor(comment, watch_dir, "", None, None, None)
+                stale, modified = self._refresh_anchor(comment, watch_dir, None, "", None, None, None)
                 changed |= modified or stale != comment.stale
                 comment.stale = stale
             if changed:
@@ -1376,6 +1399,7 @@ class CommentStore:
                     new_stale, modified = self._refresh_anchor(
                         c,
                         watch_dir,
+                        pdf_path,
                         digest,
                         sections_resolver,
                         text_resolver,
@@ -1402,6 +1426,7 @@ class CommentStore:
     def _refresh_anchor(
         c: Comment,
         watch_dir: Path,
+        pdf_path: Path | None,
         digest: str,
         sections_resolver,
         text_resolver,
@@ -1429,7 +1454,17 @@ class CommentStore:
             return False, False
 
         if kind == "area":
-            return c.anchor.pdf_digest != digest, False
+            anchor = c.anchor
+            if anchor.pdf_digest == digest:
+                return False, False
+            try:
+                region = area_digest(pdf_path, anchor.page, anchor.bbox)
+            except ValueError:
+                return True, False
+            if region != anchor.region:
+                return True, False
+            anchor.pdf_digest = digest
+            return False, True
 
         if kind == "text_selection":
             if text_index is None:

@@ -45,6 +45,7 @@ from .comments import (
     capture_source_selector,
     canonicalize_pdf_selection,
     locate_pdf_quote,
+    area_digest,
     pdf_digest,
     locate_fragments,
     source_offset,
@@ -873,6 +874,13 @@ class TexMcpWebServer:
                 {"error": "anchor and text are required"}, status=400
             )
         try:
+            # A box carries what its pixels show now, read from the PDF it was drawn on.
+            if anchor_d.get("kind") == "area":
+                if self.last_result is None or self.last_result.output_file is None:
+                    return web.json_response({"error": "no PDF available"}, status=409)
+                region = area_digest(self.last_result.output_file, int(anchor_d["page"]),
+                                     tuple(float(value) for value in anchor_d["bbox"]))
+                anchor_d = {**anchor_d, "region": region}
             anchor = anchor_from_dict(anchor_d)
         except (ValueError, KeyError, TypeError) as exc:
             return web.json_response(
@@ -946,8 +954,19 @@ class TexMcpWebServer:
         """Resolve one new anchor and capture its exact source selector."""
         from .comments import ResolveContext
 
-        if isinstance(anchor, (PaperAnchor, AreaAnchor)):
+        if isinstance(anchor, PaperAnchor):
             return None, None
+
+        # A box resolves to the source of what sits at its middle, as a figure's
+        # \includegraphics line does.
+        if isinstance(anchor, AreaAnchor):
+            if self.last_result is None or self.last_result.output_file is None:
+                return None, None
+            return resolve_text_selection_to_source(
+                self.last_result.output_file,
+                PageSelection(anchor.page, anchor.bbox, [anchor.bbox]),
+                self.watch_dir,
+            ), None
 
         if isinstance(anchor, TextSelectionAnchor):
             if self.last_result is None or self.last_result.output_file is None:

@@ -237,7 +237,8 @@ textarea {
 }
 .layout.sidebar-collapsed { grid-template-columns: 1fr; }
 .layout.sidebar-collapsed #sidebar { display: none; }
-#sidebar-toggle-btn.active { background: var(--accent-soft); }
+#sidebar-toggle-btn.active,
+#area-btn.active { background: var(--accent-soft); }
 
 /* Shown only where the review panel sits under the PDF, and dragged to divide the two. It
    is drawn as the split's bar is when the panes are stacked: a 10px band in the page
