@@ -129,18 +129,24 @@ textarea {
   overflow: hidden;
   background: var(--bg-pdf);
 }
-#source-pane {
+#source-pane, #translation-pane {
   display: flex;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  border-left: 1px solid var(--border);
   background: var(--bg-elev);
 }
-.layout.view-pdf #source-pane { display: none; }
-.layout.view-source #pdf-pane { display: none; }
-#split-grip { display: none; }
-.layout.view-split #split-grip {
+/* The view and the layout menu choose the panes; the script writes the grid that holds
+   them, so each pane and grip names only its area here. */
+#pdf-pane { grid-area: preview; }
+#source-pane { grid-area: source; }
+#translation-pane { grid-area: translation; }
+#split-grip { grid-area: split; }
+#translation-grip { grid-area: tgrip; }
+#workspace > .off { display: none; }
+/* A grip between two panes: a 10px band in the page colour with a 3px bar centred in it,
+   upright between panes side by side and lying down between stacked ones. */
+.workspace-grip {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -148,17 +154,18 @@ textarea {
   touch-action: none;
   background: var(--bg);
 }
-#split-grip::after {
+.workspace-grip::after {
   content: "";
   width: 3px;
   height: 32px;
   border-radius: 2px;
   background: var(--border);
 }
-#split-grip:hover::after, #split-grip:focus-visible::after { background: var(--accent); }
-.layout.view-split #workspace {
-  grid-template-columns: minmax(0, var(--split-first, 1fr)) 10px minmax(0, var(--split-second, 1fr));
-}
+.workspace-grip[aria-orientation="horizontal"] { cursor: row-resize; }
+.workspace-grip[aria-orientation="horizontal"]::after { width: 32px; height: 3px; }
+.workspace-grip:hover::after, .workspace-grip:focus-visible::after,
+.workspace-grip.dragging::after { background: var(--accent); }
+#layout-select { font-size: 0.82rem; max-width: 15rem; }
 /* A narrow editor takes its buttons onto a second row rather than past its edge. */
 .source-toolbar {
   display: flex;
@@ -325,34 +332,9 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
   }
 }
 
-@media (max-width: 950px) {
-  .layout.view-split #workspace {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, var(--split-first, 1fr)) 10px minmax(0, var(--split-second, 1fr));
-  }
-  .layout.view-split #split-grip { cursor: row-resize; }
-  .layout.view-split #split-grip::after { width: 32px; height: 3px; }
-  .layout.view-split #source-pane {
-    border-left: 0;
-    border-top: 1px solid var(--border);
-  }
-}
-
 /* ----- pdf ----- */
 #pdf-viewer { width: 100%; height: 100%; }
-/* The translation: the lower third of the PDF pane, one source file's paragraphs. */
-#pdf-pane { --translation-h: 36%; }
-#pdf-pane.translation-open #pdf-viewer { height: calc(100% - var(--translation-h)); }
-.translation-panel {
-  position: absolute;
-  left: 0; right: 0; bottom: 0;
-  height: var(--translation-h);
-  display: flex;
-  flex-direction: column;
-  border-top: 2px solid var(--warn);
-  background: var(--bg-elev);
-  color: var(--fg);
-}
+/* The translation: one source file's paragraphs, those on the current page marked. */
 .translation-head {
   display: flex;
   gap: 0.6rem;
@@ -361,14 +343,6 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
   font-size: 0.8rem;
   border-bottom: 1px solid var(--border);
 }
-.translation-grip {
-  height: 6px;
-  flex: none;
-  cursor: row-resize;
-  background: var(--border);
-  touch-action: none;
-}
-.translation-grip:hover, .translation-grip.dragging { background: var(--accent); }
 #translation-file { font-size: 0.8rem; max-width: 14rem; }
 #translation-page, #translation-status { color: var(--fg-dim); }
 #translation-body {

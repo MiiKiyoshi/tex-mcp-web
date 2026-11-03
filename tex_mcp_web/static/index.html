@@ -16,11 +16,18 @@
       <button class="view-tab" type="button" data-view="source">Source</button>
       <button class="view-tab" type="button" data-view="split">Split</button>
     </nav>
+    <select id="layout-select" class="hidden" aria-label="Where Split puts the translation"
+            title="Where Split puts the translation">
+      <option value="preview">Translation under Preview</option>
+      <option value="source">Translation under Source</option>
+      <option value="column">Translation beside Source</option>
+      <option value="replace">Translation instead of Source</option>
+    </select>
     <span id="compile-status" class="compile-status">idle</span>
     <div class="actions">
       <button id="compile-btn" type="button">Compile</button>
       <button id="paper-comment-btn" type="button" title="Add a paper-level comment">+ Note</button>
-      <button id="translation-btn" class="hidden" type="button" title="The paper's translation, under the Preview">Translation</button>
+      <button id="translation-btn" class="hidden" type="button" title="The source translated, beside the Preview or the editor">Translation</button>
       <button id="sidebar-toggle-btn" type="button" title="Toggle sidebar (\)">⇥</button>
     </div>
   </header>
@@ -31,24 +38,14 @@
         <div id="pdf-viewer">
           <p class="placeholder">No PDF yet — waiting for first compile…</p>
         </div>
-        <div id="translation-panel" class="translation-panel hidden" aria-label="Translation of the source">
-          <div id="translation-grip" class="translation-grip" role="separator" aria-orientation="horizontal"
-               aria-label="Resize the translation" title="Drag to resize"></div>
-          <div class="translation-head"><b id="translation-language">Translation</b>
-            <select id="translation-file" aria-label="Source file to read translated">
-              <option value="">Auto</option>
-            </select>
-            <span id="translation-page"></span><span id="translation-status"></span></div>
-          <div id="translation-body"></div>
-        </div>
         <div id="reference-preview" class="reference-preview hidden" title="Click to select reference text">
           <div id="reference-preview-text"></div>
         </div>
       </section>
 
-      <div id="split-grip" role="separator" tabindex="0" aria-label="Resize PDF and source panes"
-           aria-controls="pdf-pane source-pane" aria-orientation="vertical"
-           aria-valuemin="15" aria-valuemax="85" aria-valuenow="50" title="Drag to resize PDF and source"></div>
+      <div id="split-grip" class="workspace-grip" role="separator" tabindex="0"
+           aria-label="Resize the Preview and the panes beside it" aria-orientation="vertical"
+           aria-valuemin="15" aria-valuemax="85" aria-valuenow="50" title="Drag to resize"></div>
       <section id="source-pane" aria-label="Source editor">
         <div class="source-toolbar">
           <select id="source-file" aria-label="Source file"></select>
@@ -61,6 +58,17 @@
           <button id="source-save-btn" type="button" disabled>Save</button>
         </div>
         <div id="source-editor"></div>
+      </section>
+      <div id="translation-grip" class="workspace-grip off" role="separator" tabindex="0"
+           aria-label="Resize the translation" aria-orientation="horizontal"
+           aria-valuemin="15" aria-valuemax="85" aria-valuenow="64" title="Drag to resize"></div>
+      <section id="translation-pane" class="off" aria-label="Translation of the source">
+        <div class="translation-head"><b id="translation-language">Translation</b>
+          <select id="translation-file" aria-label="Source file to read translated">
+            <option value="">Auto</option>
+          </select>
+          <span id="translation-page"></span><span id="translation-status"></span></div>
+        <div id="translation-body"></div>
       </section>
     </div>
 

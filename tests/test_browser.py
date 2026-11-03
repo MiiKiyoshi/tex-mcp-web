@@ -1346,3 +1346,143 @@ def test_archived_threads_have_their_own_view_and_picked_archive_action(tmp_path
                 browser_process.kill()
         shutil.rmtree(profile, ignore_errors=True)
         shared.stop()
+
+
+@pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
+def test_split_puts_the_translation_where_the_layout_menu_says(tmp_path: Path, monkeypatch) -> None:
+    """The translation sits under the Preview in Preview, under the editor in Source, and in
+    Split where the layout menu puts it; each place keeps its grip's share and the choice
+    survives a reload. A narrow window stacks every pane."""
+    import fitz
+
+    monkeypatch.setattr("tex_mcp_web.translate.run_claude",
+                        lambda prompt, cwd, system: json.dumps({"t": {}}))
+    (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
+    with fitz.open() as pdf:
+        pdf.new_page().insert_text((72, 72), "Hello world.")
+        pdf.save(tmp_path / "paper.pdf")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(
+        f"main: paper.tex\nport: {port}\ntranslation:\n  language: Korean\n", encoding="utf-8")
+
+    shared = SharedProjectServer(load_config(config_path))
+    profile = tempfile.mkdtemp(prefix="tex_mcp_layout_")
+    marionette_port = available_port()
+    (Path(profile) / "user.js").write_text(
+        f'user_pref("marionette.port", {marionette_port});\n', encoding="utf-8")
+    browser_process = None
+    browser = None
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        browser_process = subprocess.Popen(
+            ["firefox", "-marionette", "-headless", "-no-remote", "-profile", profile, "about:blank"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        browser = marionette.Marionette(host="127.0.0.1", port=marionette_port, startup_timeout=30)
+        browser.start_session()
+        browser.set_window_rect(x=0, y=0, width=1500, height=1000)
+        browser.navigate(base)
+
+        def boxes():
+            return browser.execute_script("""
+              const out = {};
+              for (const [name, id] of [["preview", "pdf-pane"], ["source", "source-pane"],
+                                        ["translation", "translation-pane"]]) {
+                const element = document.getElementById(id);
+                if (getComputedStyle(element).display === "none") continue;
+                const box = element.getBoundingClientRect();
+                out[name] = [box.left, box.top, box.right, box.bottom].map(Math.round);
+              }
+              return out;
+            """)
+
+        def choose(place):
+            browser.execute_script(f"""
+              const menu = document.querySelector("#layout-select");
+              menu.value = "{place}";
+              menu.dispatchEvent(new Event("change", {{bubbles: true}}));
+            """)
+            return wait_until(lambda: (lambda shown: shown if len(shown) >= 2 else False)(boxes()))
+
+        def view(name):
+            browser.execute_script(f'document.querySelector(".view-tab[data-view={name}]").click();')
+
+        button = wait_until(lambda: browser.execute_script(
+            'const b = document.querySelector("#translation-btn");'
+            'return b.classList.contains("hidden") ? false : b.textContent;'))
+        assert button == "Korean"
+        assert set(boxes()) == {"preview"}
+
+        browser.execute_script('document.querySelector("#translation-btn").click();')
+        shown = wait_until(lambda: (lambda b: b if "translation" in b else False)(boxes()))
+        assert shown["translation"][1] > shown["preview"][3]           # under the Preview
+        assert shown["translation"][0] == shown["preview"][0]
+        assert browser.execute_script(
+            'return document.querySelector("#layout-select").classList.contains("hidden");')
+
+        view("source")
+        shown = wait_until(lambda: (lambda b: b if "source" in b else False)(boxes()))
+        assert set(shown) == {"source", "translation"}
+        assert shown["translation"][1] > shown["source"][3]
+
+        view("split")
+        wait_until(lambda: not browser.execute_script(
+            'return document.querySelector("#layout-select").classList.contains("hidden");'))
+        shown = choose("preview")
+        assert shown["translation"][1] > shown["preview"][3]
+        assert shown["source"][0] > shown["preview"][2] and shown["source"][0] > shown["translation"][2]
+        assert shown["source"][3] == shown["translation"][3]           # Source spans both rows
+
+        shown = choose("source")
+        assert shown["translation"][1] > shown["source"][3]
+        assert shown["translation"][0] == shown["source"][0] > shown["preview"][2]
+        assert shown["preview"][3] == shown["translation"][3]
+
+        shown = choose("column")
+        assert shown["preview"][2] < shown["source"][0] < shown["source"][2] < shown["translation"][0]
+        assert shown["preview"][1] == shown["source"][1] == shown["translation"][1]
+
+        # The translation grip's share in this place moves by a key and stays this place's.
+        before = shown["translation"][0]
+        browser.execute_script("""
+          const grip = document.querySelector("#translation-grip");
+          grip.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowLeft", bubbles: true}));
+        """)
+        moved = wait_until(lambda: (lambda b: b if b["translation"][0] < before - 10 else False)(boxes()))
+        assert browser.execute_script(
+            'return document.querySelector("#translation-grip").getAttribute("aria-orientation");'
+        ) == "vertical"
+
+        shown = choose("replace")
+        assert set(shown) == {"preview", "translation"}
+        assert shown["translation"][0] > shown["preview"][2]
+
+        choose("column")
+        browser.refresh()
+        shown = wait_until(lambda: (lambda b: b if len(b) == 3 else False)(boxes()))
+        assert browser.execute_script('return document.querySelector("#layout-select").value;') == "column"
+        assert shown["translation"][0] == moved["translation"][0]
+
+        # A narrow window stacks the three panes in the order the place reads.
+        browser.set_window_rect(x=0, y=0, width=900, height=1000)
+        shown = wait_until(lambda: (lambda b: b if b["source"][1] > b["preview"][3] else False)(boxes()))
+        assert shown["preview"][3] < shown["source"][1] < shown["source"][3] < shown["translation"][1]
+        assert browser.execute_script(
+            'return document.querySelector("#split-grip").getAttribute("aria-orientation");'
+        ) == "horizontal"
+    finally:
+        if browser is not None:
+            try:
+                browser.delete_session()
+            except Exception:
+                pass
+        if browser_process is not None:
+            browser_process.terminate()
+            try:
+                browser_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                browser_process.kill()
+        shutil.rmtree(profile, ignore_errors=True)
+        shared.stop()
