@@ -112,6 +112,7 @@ textarea {
   border-radius: 3px;
 }
 .topbar button:hover { background: var(--accent-soft); }
+.narrow-icon { display: none; }
 #compile-btn:disabled { cursor: wait; }
 /* Green reaches a parked waiter now; red queues the call for the next waiter. */
 .agent-dot { width: 8px; height: 8px; border-radius: 50%; }
@@ -349,11 +350,19 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 
 @media (max-width: 560px) {
-  .topbar { gap: 0.4rem 0.6rem; padding: 0.3rem 0.5rem; }
-  .topbar .main-file { display: none; }
+  /* One row on a phone, as on the HTML review page: the tabs narrow, the status takes small
+     type, and Compile and Note draw as icons. */
+  .topbar { flex-wrap: nowrap; gap: 0.4rem; padding: 0.3rem 0.5rem; }
+  .topbar .main-file, .topbar h1 { display: none; }
+  .topbar .view-tab { min-width: 0; padding: 0.2rem 0.45rem; }
+  .topbar .compile-status { overflow: hidden; min-width: 0; text-overflow: ellipsis; white-space: nowrap; font-size: 0.7rem; }
+  .topbar .actions { gap: 0.3rem; }
+  .topbar button { padding: 0.1rem 0.35rem; }
+  .topbar .wide-label { display: none; }
+  .topbar .narrow-icon { display: block; }
   .view-tabs { order: 1; }
   .topbar .compile-status { order: 2; }
-  .topbar .actions { order: 3; margin-left: auto; flex-wrap: wrap; }
+  .topbar .actions { order: 3; flex: none; margin-left: auto; }
   /* One row on a phone: the buttons draw smaller, the file's name gives up what the row
      lacks and ends in an ellipsis, and Saved follows the buttons in small type. */
   .source-toolbar { flex-wrap: nowrap; gap: 0.25rem; padding: 0.1rem 0.35rem; }

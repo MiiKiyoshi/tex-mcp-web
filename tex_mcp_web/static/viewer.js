@@ -1880,7 +1880,7 @@ function applyCompileResult(result) {
 function applyCompiling(compiling) {
   const button = $("#compile-btn");
   button.disabled = compiling;
-  button.textContent = compiling ? "Compiling…" : "Compile";
+  button.querySelector(".wide-label").textContent = compiling ? "Compiling…" : "Compile";
   if (compiling) $("#compile-status").textContent = "compiling…";
 }
 
