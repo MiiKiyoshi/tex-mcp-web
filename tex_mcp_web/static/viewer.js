@@ -665,6 +665,18 @@ async function refreshSourceFiles() {
   if (preferred !== state.sourcePath) await openSource(preferred);
 }
 
+// The editor's type size, kept for next time. Stepped by a pixel between 10 and 28.
+function sourceFontSize() {
+  const stored = Number(localStorage.getItem("texMcpSourceFontSize"));
+  return stored >= 10 && stored <= 28 ? stored : 13;
+}
+
+function stepSourceFontSize(step) {
+  const size = Math.min(28, Math.max(10, sourceFontSize() + step));
+  localStorage.setItem("texMcpSourceFontSize", String(size));
+  state.editor?.setFontSize(`${size}px`);
+}
+
 async function initializeSourceEditor() {
   if (state.editor) return;
   if (!window.ace) throw new Error("Ace Editor did not load");
@@ -675,7 +687,7 @@ async function initializeSourceEditor() {
   state.editor.session.setUseWorker(false);
   state.editor.session.setUseWrapMode(true);
   state.editor.setOptions({
-    fontSize: "13px",
+    fontSize: `${sourceFontSize()}px`,
     showPrintMargin: false,
     scrollPastEnd: 0.25,
   });
@@ -2005,6 +2017,8 @@ async function init() {
   $("#source-reload-btn").addEventListener("click", () => {
     reloadSource().catch((error) => alert(`Could not reload: ${error.message}`));
   });
+  $("#source-font-smaller-btn").addEventListener("click", () => stepSourceFontSize(-1));
+  $("#source-font-larger-btn").addEventListener("click", () => stepSourceFontSize(1));
   $("#source-comment-btn").addEventListener("click", openSourceCommentCompose);
   $("#source-file").addEventListener("change", (event) => {
     openSource(event.target.value).catch((error) => alert(`Could not open source: ${error.message}`));
