@@ -24,6 +24,7 @@ import asyncio
 import json
 import re
 import sys
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -969,17 +970,25 @@ def check(start_dir: Path) -> list[str]:
     return sorted(tool.name for tool in asyncio.run(server.list_tools()))
 
 
+def _connect_in_background(binding: "ProjectBinding") -> None:
+    try:
+        binding.connect()
+    except ProjectSetupError as error:
+        print(f"tex-mcp-web project is not ready: {error}", file=sys.stderr)
+
+
 def main(start_dir: Path | None = None) -> None:
     """Run the MCP server with stdio transport, serving the viewer alongside."""
     _check_deps()
     binding = ProjectBinding(Path.cwd() if start_dir is None else start_dir)
-    # Only read the configuration here. Starting the review server walks the paper's
-    # sources and stats hundreds of paths, which is quick against a warm filesystem and
-    # slow against a cold one; doing it now would put that wait in front of the client's
-    # handshake and lose the connection to a timeout. The first tool call that needs the
-    # server starts it.
+    # A discovered paper gets its review page without waiting for a tool call. Starting
+    # the review server walks the paper's sources and stats hundreds of paths, quick against
+    # a warm filesystem and slow against a cold one, so it runs beside the client's
+    # handshake rather than in front of it, which lost the connection to a timeout. A tool
+    # call made meanwhile waits for it.
     try:
-        binding.describe()
+        if binding.describe() is not None:
+            threading.Thread(target=_connect_in_background, args=(binding,), daemon=True).start()
     except ProjectSetupError as error:
         print(f"tex-mcp-web project is not ready: {error}", file=sys.stderr)
     mcp = create_server(binding)

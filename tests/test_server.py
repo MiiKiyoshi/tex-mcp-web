@@ -2091,6 +2091,40 @@ async def test_stdio_source_and_reply_use_explicit_detail_reads(project):
 
 
 @pytest.mark.asyncio
+async def test_a_discovered_paper_gets_its_review_page_without_a_tool_call(project):
+    """Started where a config is found, the MCP server opens the review page on its own,
+    beside the handshake, with no tool call."""
+    import os
+    import socket
+    import sys
+    import time
+    import urllib.request
+    from mcp import ClientSession, StdioServerParameters
+    from mcp.client.stdio import stdio_client
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = listener.getsockname()[1]
+    (project / ".tex-mcp-web.yaml").write_text(f"main: paper.tex\nport: {port}\n")
+    params = StdioServerParameters(command=sys.executable,
+        args=["-c", "from tex_mcp_web.cli import main_mcp; raise SystemExit(main_mcp())"],
+        cwd=project, env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1])})
+    async with stdio_client(params) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            deadline = time.monotonic() + 30
+            while True:
+                try:
+                    with urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=2) as response:
+                        assert response.status == 200
+                        break
+                except OSError:
+                    assert time.monotonic() < deadline, "the review page never answered"
+                    await asyncio.sleep(0.2)
+            info = json.loads((await session.call_tool("setup_info", {})).content[0].text)
+            assert info["bound_config_path"] == str((project / ".tex-mcp-web.yaml").resolve())
+
+
+@pytest.mark.asyncio
 async def test_an_archived_thread_is_listed_apart(client):
     tc, server = client
     kept = (await (await tc.post("/comments", json={"anchor": {"kind": "paper"}, "text": "keep"})).json())["id"]
