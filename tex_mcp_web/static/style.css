@@ -159,8 +159,10 @@ textarea {
 .layout.view-split #workspace {
   grid-template-columns: minmax(0, var(--split-first, 1fr)) 10px minmax(0, var(--split-second, 1fr));
 }
+/* A narrow editor takes its buttons onto a second row rather than past its edge. */
 .source-toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.45rem;
   min-height: 34px;
