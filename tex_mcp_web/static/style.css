@@ -209,6 +209,11 @@ textarea {
   position: absolute;
   background: rgba(252, 220, 0, 0.24);
 }
+#source-editor .ace_marker-layer .source-comment-deleted {
+  position: absolute;
+  background: rgba(252, 220, 0, 0.10);
+  border-bottom: 1px dashed rgba(180, 140, 0, 0.8);
+}
 #source-editor .ace_gutter-cell.source-comment-line::before {
   content: "";
   position: absolute;
@@ -507,6 +512,13 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
   font-size: 0.78rem;
   color: var(--fg-dim);
   margin-left: auto;
+}
+.reanchored {
+  background: var(--warn);
+  color: white;
+  font-size: 0.7rem;
+  padding: 0.05rem 0.3rem;
+  border-radius: 3px;
 }
 .stale {
   background: var(--err);

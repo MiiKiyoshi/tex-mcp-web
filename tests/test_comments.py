@@ -599,3 +599,101 @@ def test_an_archived_thread_stays_readable_and_comes_back(store: CommentStore):
     assert store.reopen(comment.id).status == "open"
     assert len(store.get(comment.id).thread) == 2      # the flips left the thread alone
     assert "archived" not in json.dumps(CommentStore(store.path).get(comment.id).to_dict()["status"])
+
+
+# --- reattach by surrounding context after the selected text itself was edited ---
+
+_CTX_BEFORE = "The paragraph before the comment talks about something else entirely.\n"
+_CTX_AFTER = "\nThe paragraph after the comment also stays exactly as it was written.\n"
+
+
+def _source_comment(store, source, start, end):
+    selector = capture_source_selector(source, start[0], end[0], column_start=start[1], column_end=end[1])
+    return store.add(
+        SourceRangeAnchor(file="paper.tex", line_start=start[0], line_end=end[0],
+                          column_start=start[1], column_end=end[1]),
+        "review",
+        resolved_source=ResolvedSource("paper.tex", start[0], end[0], start[1], end[1]),
+        source_selector=selector,
+    )
+
+
+def test_edited_selection_reattaches_between_unchanged_context(store: CommentStore, tmp_path: Path):
+    source = tmp_path / "paper.tex"
+    source.write_text(_CTX_BEFORE + "This sentence shortens a cell." + _CTX_AFTER)
+    comment = _source_comment(store, source, (2, 0), (2, 30))
+    source.write_text(_CTX_BEFORE + "This sentence reduces the cell width,\nand it adds a line." + _CTX_AFTER)
+    store.refresh_source_anchors(tmp_path)
+    refreshed = store.get(comment.id)
+    assert not refreshed.stale
+    assert refreshed.reanchored
+    assert refreshed.resolved_source == ResolvedSource("paper.tex", 2, 3, 0, 19)
+    assert refreshed.source_selector.exact == "This sentence reduces the cell width,\nand it adds a line."
+    # the new text is what the next edit is tracked from
+    source.write_text("new first line\n" + source.read_text())
+    store.refresh_source_anchors(tmp_path)
+    assert store.get(comment.id).resolved_source == ResolvedSource("paper.tex", 3, 4, 0, 19)
+
+
+def test_deleted_selection_reattaches_as_empty_range(store: CommentStore, tmp_path: Path):
+    source = tmp_path / "paper.tex"
+    source.write_text(_CTX_BEFORE + "Delete me." + _CTX_AFTER)
+    comment = _source_comment(store, source, (2, 0), (2, 10))
+    source.write_text(_CTX_BEFORE + _CTX_AFTER)
+    store.refresh_source_anchors(tmp_path)
+    refreshed = store.get(comment.id)
+    assert not refreshed.stale
+    assert refreshed.reanchored
+    assert refreshed.resolved_source == ResolvedSource("paper.tex", 2, 2, 0, 0)
+
+
+def test_changed_context_still_goes_stale(store: CommentStore, tmp_path: Path):
+    source = tmp_path / "paper.tex"
+    source.write_text(_CTX_BEFORE + "Edit me." + _CTX_AFTER)
+    comment = _source_comment(store, source, (2, 0), (2, 8))
+    source.write_text("Something totally different now.\nEdited.\nAnd a different ending too.\n")
+    store.refresh_source_anchors(tmp_path)
+    assert store.get(comment.id).stale
+
+
+def test_ambiguous_context_still_goes_stale(store: CommentStore, tmp_path: Path):
+    source = tmp_path / "paper.tex"
+    source.write_text(_CTX_BEFORE + "Edit me." + _CTX_AFTER)
+    comment = _source_comment(store, source, (2, 0), (2, 8))
+    block = _CTX_BEFORE + "Edited." + _CTX_AFTER
+    source.write_text(block + block)
+    store.refresh_source_anchors(tmp_path)
+    assert store.get(comment.id).stale
+
+
+def test_exact_match_does_not_mark_reanchored(store: CommentStore, tmp_path: Path):
+    source = tmp_path / "paper.tex"
+    source.write_text(_CTX_BEFORE + "Keep me." + _CTX_AFTER)
+    comment = _source_comment(store, source, (2, 0), (2, 8))
+    source.write_text("inserted\n" + source.read_text())
+    store.refresh_source_anchors(tmp_path)
+    refreshed = store.get(comment.id)
+    assert not refreshed.stale and not refreshed.reanchored
+    assert refreshed.resolved_source == ResolvedSource("paper.tex", 3, 3, 0, 8)
+
+
+def test_edited_line_selection_reattaches_between_context_lines(store: CommentStore, tmp_path: Path):
+    source = tmp_path / "paper.tex"
+    source.write_text("alpha context line\nbeta context line\nold one\nold two\ngamma context line\ndelta context line\n")
+    selector = capture_source_selector(source, 3, 4, context=2)
+    comment = store.add(SourceRangeAnchor(file="paper.tex", line_start=3, line_end=4), "review",
+                        resolved_source=ResolvedSource("paper.tex", 3, 4), source_selector=selector)
+    source.write_text("alpha context line\nbeta context line\nnew one\nnew two\nnew three\ngamma context line\ndelta context line\n")
+    store.refresh_source_anchors(tmp_path)
+    refreshed = store.get(comment.id)
+    assert not refreshed.stale and refreshed.reanchored
+    assert refreshed.resolved_source == ResolvedSource("paper.tex", 3, 5)
+
+
+def test_reanchored_flag_round_trips(store: CommentStore, tmp_path: Path):
+    source = tmp_path / "paper.tex"
+    source.write_text(_CTX_BEFORE + "Old words." + _CTX_AFTER)
+    comment = _source_comment(store, source, (2, 0), (2, 10))
+    source.write_text(_CTX_BEFORE + "New words." + _CTX_AFTER)
+    store.refresh_source_anchors(tmp_path)
+    assert CommentStore(store.path).get(comment.id).reanchored

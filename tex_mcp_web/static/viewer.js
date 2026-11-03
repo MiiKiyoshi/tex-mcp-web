@@ -705,10 +705,13 @@ function syncSourceCommentMarkers() {
     const lastRow = Math.max(firstRow, source.line_end - 1);
     const startColumn = source.column_start ?? 0;
     const endColumn = source.column_end ?? state.editor.session.getLine(lastRow).length;
+    // A reattached comment whose text was deleted has an empty range: the line where
+    // the text stood gets a faint mark instead, so the comment does not vanish.
+    const deleted = firstRow === lastRow && startColumn === endColumn;
     state.sourceCommentMarkers.push(state.editor.session.addMarker(
-      new Range(firstRow, startColumn, lastRow, endColumn),
-      "source-comment-highlight",
-      "text",
+      new Range(firstRow, startColumn, lastRow, deleted ? startColumn + 1 : endColumn),
+      deleted ? "source-comment-deleted" : "source-comment-highlight",
+      deleted ? "fullLine" : "text",
       false,
     ));
     state.editor.session.addGutterDecoration(firstRow, "source-comment-line");
@@ -1187,6 +1190,9 @@ function renderCommentItem(comment) {
   h("span", { class: "cmt-id", text: comment.id }),
   h("span", { class: "cmt-status", text: `[${comment.status}]` }),
   comment.stale ? h("span", { class: "stale", text: "STALE" }) : null,
+  !comment.stale && comment.reanchored
+    ? h("span", { class: "reanchored", text: "EDITED", title: "The commented text was edited; the highlight follows the edited text" })
+    : null,
   h("span", { class: "cmt-anchor", text: anchorLabel(comment.anchor) }));
 
   const children = [head];

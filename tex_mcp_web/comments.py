@@ -20,6 +20,9 @@ Staleness
 ---------
 Source selectors keep exact selected lines separate from their prefix and
 suffix.  Reattachment never widens the selected range to include context.
+When the selected source text itself was edited, the unchanged prefix and
+suffix around it, each found exactly once, reattach the comment to the edited
+text (``reanchored``); edited or ambiguous context leaves it stale.
 Text selections also carry the exact rendered quote; after a compile the
 quote is found again in the new PDF and its rectangles are regenerated.
 """
@@ -475,6 +478,9 @@ class Comment:
     # When the comment was last closed; None while it is open.
     resolved: str | None = None
     stale: bool = False
+    # The selected source text was edited and the comment was reattached by the
+    # unchanged text around it, so it now points at the edited text.
+    reanchored: bool = False
 
     @property
     def text(self) -> str:
@@ -500,6 +506,8 @@ class Comment:
             d["suggestion"] = self.suggestion.to_dict()
         if self.stale:
             d["stale"] = True
+        if self.reanchored:
+            d["reanchored"] = True
         return d
 
     @classmethod
@@ -528,6 +536,7 @@ class Comment:
             updated=str(d["updated"]),
             resolved=str(d["resolved"]) if "resolved" in d else None,
             stale=bool(d["stale"]) if "stale" in d else False,
+            reanchored=bool(d.get("reanchored", False)),
         )
 
 
@@ -605,6 +614,96 @@ def find_source_characters(selector: SourceSelector, file: Path, name: str) -> R
     ls, cs = coordinate(start)
     le, ce = coordinate(end)
     return ResolvedSource(name, ls, le, cs, ce)
+
+
+_CONTEXT_WINDOWS = (80, 40, 20)
+_CONTEXT_MIN_CHARS = 12
+
+
+def _unique_find(text: str, needle: str) -> int | None:
+    first = text.find(needle)
+    if first < 0 or text.find(needle, first + 1) >= 0:
+        return None
+    return first
+
+
+def _context_span(text: str, selector: SourceSelector) -> tuple[int, int] | None:
+    """Locate the edited selection as the text between its unchanged context.
+
+    The prefix and the suffix are each looked up on their own, shortened from
+    the side away from the selection when the full context was edited too. Both
+    must occur exactly once, in order, and close together; otherwise the
+    selection stays unresolved rather than being attached to a guess.
+    """
+    limit = 3 * len(selector.exact) + 400
+    for prefix_size in _CONTEXT_WINDOWS:
+        prefix = selector.prefix[-prefix_size:]
+        if len(prefix.strip()) < _CONTEXT_MIN_CHARS:
+            continue
+        start = _unique_find(text, prefix)
+        if start is None:
+            continue
+        start += len(prefix)
+        for suffix_size in _CONTEXT_WINDOWS:
+            suffix = selector.suffix[:suffix_size]
+            if len(suffix.strip()) < _CONTEXT_MIN_CHARS:
+                continue
+            end = _unique_find(text, suffix)
+            if end is None or end < start or end - start > limit:
+                continue
+            return start, end
+    return None
+
+
+def _coordinate(text: str, offset: int) -> tuple[int, int]:
+    before = text[:offset]
+    return before.count("\n") + 1, len(before.rsplit("\n", 1)[-1].encode("utf-16-le")) // 2
+
+
+def reattach_source_characters(
+    selector: SourceSelector, file: Path, name: str
+) -> tuple[ResolvedSource, SourceSelector] | None:
+    """Reattach an edited character selection by its surrounding context.
+
+    Returns the new range (empty when the selection was deleted) and a selector
+    holding the edited text, so the next edit is tracked from what is there now.
+    """
+    try:
+        text = file.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    span = _context_span(text, selector)
+    if span is None:
+        return None
+    start, end = span
+    ls, cs = _coordinate(text, start)
+    le, ce = _coordinate(text, end)
+    return (ResolvedSource(name, ls, le, cs, ce),
+            SourceSelector(text[start:end], text[max(0, start - 80):start], text[end:end + 80]))
+
+
+def reattach_source_lines(
+    selector: SourceSelector, file: Path, name: str
+) -> tuple[ResolvedSource, SourceSelector] | None:
+    """Reattach an edited line selection between its unchanged context lines."""
+    try:
+        text = file.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    if not selector.prefix.strip() or not selector.suffix.strip():
+        return None
+    lines = text.splitlines()
+    before = selector.prefix.splitlines()
+    after = selector.suffix.splitlines()
+    starts = [i for i in range(len(lines) - len(before) + 1) if lines[i:i + len(before)] == before]
+    ends = [i for i in range(len(lines) - len(after) + 1) if lines[i:i + len(after)] == after]
+    if len(starts) != 1 or len(ends) != 1:
+        return None
+    first, last = starts[0] + len(before), ends[0] - 1   # 0-based selected rows
+    if last < first or last - first > 3 * (selector.exact.count("\n") + 1) + 20:
+        return None
+    return (ResolvedSource(name, first + 1, last + 1),
+            SourceSelector("\n".join(lines[first:last + 1]), selector.prefix, selector.suffix))
 
 
 def _strip_for_match(s: str) -> str:
@@ -1526,13 +1625,23 @@ class CommentStore:
         if resolved.column_start is not None:
             located = find_source_characters(c.source_selector, file_path, resolved.file)
             if located is None:
-                return True, False
+                reattached = reattach_source_characters(c.source_selector, file_path, resolved.file)
+                if reattached is None:
+                    return True, False
+                c.resolved_source, c.source_selector = reattached
+                c.reanchored = True
+                return False, True
             modified = located != resolved
             c.resolved_source = located
             return False, modified
         located = find_source_selector(c.source_selector, file_path)
         if located is None:
-            return True, False
+            reattached = reattach_source_lines(c.source_selector, file_path, resolved.file)
+            if reattached is None:
+                return True, False
+            c.resolved_source, c.source_selector = reattached
+            c.reanchored = True
+            return False, True
         ls, le = located
         modified = False
         if (resolved.line_start, resolved.line_end) != (ls, le):

@@ -603,10 +603,12 @@ async def test_a_thread_whose_anchor_came_loose_can_still_be_proposed_on(client,
                    "line_end": 5, "column_start": 0, "column_end": 10},
         "text": "이 표현 손봐줘"})).json()
     (project / "paper.tex").write_text(
-        (project / "paper.tex").read_text(encoding="utf-8").replace("Some prose", "Rewritten"),
+        (project / "paper.tex").read_text(encoding="utf-8").replace("Some prose with", "Rewritten using"),
         encoding="utf-8")
     server.comments.refresh_source_anchors(project)
     loose = server.comments.get(pointed["id"])
+    # The words after the selection changed too, so no unchanged text around it
+    # can reattach it.
     assert loose.stale
 
     proposed = server.comments.suggest(
@@ -617,7 +619,7 @@ async def test_a_thread_whose_anchor_came_loose_can_still_be_proposed_on(client,
     response = await tc.post(f"/comments/{loose.id}/apply-suggestion",
                              json={"updated": proposed.updated})
     assert response.status == 200
-    assert "Clearer with \\cite{ref1}." in (project / "paper.tex").read_text(encoding="utf-8")
+    assert "Clearer using \\cite{ref1}." in (project / "paper.tex").read_text(encoding="utf-8")
 
 
 @pytest.mark.asyncio
