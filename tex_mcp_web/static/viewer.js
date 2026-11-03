@@ -2083,6 +2083,79 @@ function attachSidebarResize() {
   });
 }
 
+// The panel's left edge, where the panel sits beside the PDF: a drag or the arrow keys
+// set its width, kept per viewer. Stacked layouts hide this edge and use the grip above.
+// The Preview keeps its zoom mode, such as fitting the page width, through a change of
+// the room it has.
+function refitPdf() {
+  const zoomMode = state.zoom?.getState().zoomLevel;
+  requestAnimationFrame(() => { if (typeof zoomMode === "string") state.zoom?.requestZoom(zoomMode); });
+}
+
+function attachSidebarWidthResize() {
+  const grip = $("#sidebar-width-grip");
+  const layout = $(".layout");
+  const setWidth = (pixels) => {
+    const limited = Math.round(Math.max(240, Math.min(pixels, window.innerWidth * 0.7)));
+    layout.style.setProperty("--tex-mcp-sidebar-width", `${limited}px`);
+    return limited;
+  };
+  const save = (width) => {
+    try { localStorage.setItem("texMcpSidebarWidth", String(width)); } catch { /* per-viewer only */ }
+  };
+  let saved = 0;
+  try { saved = Number(localStorage.getItem("texMcpSidebarWidth")); } catch { /* per-viewer only */ }
+  if (saved > 0) layout.style.setProperty("--tex-mcp-sidebar-width", `${saved}px`);
+
+  grip.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    try { grip.setPointerCapture(event.pointerId); } catch { /* synthetic or lost pointer */ }
+    grip.classList.add("dragging");
+    document.body.classList.add("sidebar-resizing");
+    const right = layout.getBoundingClientRect().right;
+    let pointerX = null;
+    let frame = null;
+    let width = null;
+    const apply = () => {
+      frame = null;
+      width = setWidth(right - pointerX);
+      state.editor?.resize();
+    };
+    const move = (moved) => {
+      pointerX = moved.clientX;
+      if (frame === null) frame = requestAnimationFrame(apply);
+    };
+    const done = () => {
+      if (frame !== null) cancelAnimationFrame(frame);
+      if (pointerX !== null) {
+        apply();
+        state.panelDraggedAt = performance.now();
+      }
+      grip.classList.remove("dragging");
+      document.body.classList.remove("sidebar-resizing");
+      grip.removeEventListener("pointermove", move);
+      grip.removeEventListener("pointerup", done);
+      grip.removeEventListener("pointercancel", done);
+      if (width !== null) save(width);
+      state.editor?.resize();
+      refitPdf();
+    };
+    grip.addEventListener("pointermove", move);
+    grip.addEventListener("pointerup", done);
+    grip.addEventListener("pointercancel", done);
+  });
+  grip.addEventListener("keydown", (event) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const current = $("#sidebar").getBoundingClientRect().width;
+    const width = setWidth(event.key === "Home" ? Infinity : event.key === "End" ? 0
+      : current + (event.key === "ArrowLeft" ? 40 : -40));
+    save(width);
+    state.editor?.resize();
+    refitPdf();
+  });
+}
+
 function attachSplitResize() {
   const grip = $("#split-grip");
   const workspace = $("#workspace");
@@ -2158,6 +2231,7 @@ async function init() {
   attachKeyboardNavigation();
   attachSidebarToggle();
   attachSidebarResize();
+  attachSidebarWidthResize();
   attachSplitResize();
   window.addEventListener("beforeunload", (event) => {
     if (!state.sourceDirty) return;
