@@ -403,6 +403,7 @@ class TexMcpWebServer:
         app.router.add_post(r"/comments/{id}/edit", self._handle_edit_comment_entry)
         app.router.add_delete(r"/comments/{id}", self._handle_delete_comment)
         app.router.add_get("/synctex/source-to-pdf", self._handle_synctex_forward)
+        app.router.add_post("/synctex/pdf-to-source", self._handle_synctex_backward)
         app.router.add_post("/goto", self._handle_goto)
         app.router.add_get("/image", self._handle_image)
         app.router.add_get("/reference-preview", self._handle_reference_preview)
@@ -1197,6 +1198,27 @@ class TexMcpWebServer:
         return web.json_response({"deleted": cid})
 
     # ----- SyncTeX -----
+
+    async def _handle_synctex_backward(self, request: web.Request) -> web.Response:
+        """Selected PDF lines -> the source lines they come from: {page, rects, pdf_digest}
+        -> {file, line_start, line_end}, as a comment on the same selection resolves."""
+        try:
+            data = await request.json()
+            selection = PageSelection.from_dict({**data, "bbox": data["rects"][0]})
+            digest = str(data["pdf_digest"])
+        except (ValueError, KeyError, TypeError, IndexError) as exc:
+            return web.json_response({"error": f"invalid selection: {exc}"}, status=400)
+        if self.last_result is None or self.last_result.output_file is None:
+            return web.json_response({"error": "no PDF available"}, status=409)
+        if digest != self.pdf_digest:
+            return web.json_response({"error": "the PDF changed after this text was selected"}, status=409)
+        resolved = resolve_text_selection_to_source(
+            self.last_result.output_file, selection, self.watch_dir)
+        if resolved is None:
+            return web.json_response(
+                {"error": "SyncTeX gives no single source place for this selection"}, status=404)
+        return web.json_response(
+            {"file": resolved.file, "line_start": resolved.line_start, "line_end": resolved.line_end})
 
     async def _handle_synctex_forward(self, request: web.Request) -> web.Response:
         """source -> PDF: ?file=...&line=N -> {page, x, y, width, height}"""

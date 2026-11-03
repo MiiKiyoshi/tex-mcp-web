@@ -675,6 +675,87 @@ def test_the_area_button_draws_a_box_to_comment_on(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
+@pytest.mark.skipif(shutil.which("synctex") is None or shutil.which("latexmk") is None,
+                    reason="latexmk and synctex are required")
+def test_source_beside_comment_opens_the_selected_words_in_the_editor(tmp_path: Path) -> None:
+    """Source on a PDF selection opens the editor beside the PDF at the lines SyncTeX names
+    and selects the words there, though the PDF joined the lines into one paragraph."""
+    import fitz
+
+    (tmp_path / "paper.tex").write_text(
+        "\\documentclass{article}\n\\begin{document}\n"
+        "A first line of the paragraph.\n"
+        "The quick~brown fox jumps over the lazy dog.\n"
+        "A last line follows.\n"
+        "\\end{document}\n",
+        encoding="utf-8",
+    )
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    profile = tempfile.mkdtemp(prefix="tex_mcp_source_jump_")
+    marionette_port = available_port()
+    (Path(profile) / "user.js").write_text(
+        f'user_pref("marionette.port", {marionette_port});\n', encoding="utf-8"
+    )
+    browser_process = None
+    browser = None
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: shared.server.pdf_digest is not None)
+        with fitz.open(shared.server.last_result.output_file) as pdf:
+            words = pdf[0].search_for("quick brown fox")[0]
+            page_width = pdf[0].rect.width
+        browser_process = subprocess.Popen(
+            ["firefox", "-marionette", "-headless", "-no-remote", "-profile", profile, "about:blank"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        browser = marionette.Marionette(host="127.0.0.1", port=marionette_port, startup_timeout=30)
+        browser.start_session()
+        browser.set_window_rect(x=0, y=0, width=1400, height=900)
+        browser.navigate(base)
+        page = wait_until(lambda: browser.execute_script(f'''
+          const image = document.querySelector("embedpdf-container")?.shadowRoot?.querySelector("img");
+          const rect = image?.getBoundingClientRect();
+          return rect && rect.width > 100 ? [rect.left, rect.top, rect.width / {page_width}] : false;
+        '''))
+        y = page[1] + (words.y0 + words.y1) / 2 * page[2]
+        ActionSequence(browser, "pointer", "mouse", {"pointerType": "mouse"}) \
+            .pointer_move(int(page[0] + (words.x0 + 1) * page[2]), int(y)).pointer_down() \
+            .pointer_move(int(page[0] + (words.x1 - 1) * page[2]), int(y), duration=300).pointer_up().perform()
+        source_button = ('Array.from(document.querySelector("embedpdf-container").shadowRoot'
+                         '.querySelectorAll("button")).find((button) => button.textContent.trim() === "Source"'
+                         ' && button.getBoundingClientRect().width > 0)')
+        wait_until(lambda: browser.execute_script(f"return Boolean({source_button})"))
+        browser.execute_script(f"{source_button}.click();")
+        opened = wait_until(lambda: browser.execute_script('''
+          const editor = (window.wrappedJSObject || window).ace?.edit("source-editor");
+          const range = editor?.getSelectionRange();
+          return document.querySelector(".layout").classList.contains("view-split") && editor
+            && editor.getSelectedText() !== ""
+            ? {text: editor.getSelectedText(), row: range.start.row} : false;
+        '''))
+        assert opened == {"text": "quick~brown fox", "row": 3}
+    finally:
+        if browser is not None:
+            try:
+                browser.delete_session()
+            except Exception:
+                pass
+        if browser_process is not None:
+            browser_process.terminate()
+            try:
+                browser_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                browser_process.kill()
+        shutil.rmtree(profile, ignore_errors=True)
+        shared.stop()
+
+
+@pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
 def test_a_finger_held_on_a_word_selects_it(tmp_path: Path) -> None:
     """The viewer selects by a drag or a double click; a tablet asks with a finger held
     still. The hold selects the word under it, a highlight in between or not, the

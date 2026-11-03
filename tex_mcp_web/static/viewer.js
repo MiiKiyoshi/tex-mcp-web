@@ -335,6 +335,13 @@ async function initializePdfViewer(pdfView) {
     icon: "comment",
     action: openTextSelectionCompose,
   });
+  state.viewer.registerIcon("tex-source", { viewBox: "0 0 24 24", path: "M8 7l-5 5 5 5 M16 7l5 5-5 5", strokeWidth: 2 });
+  commands.registerCommand({
+    id: "tex-web:selection-source",
+    label: "Source",
+    icon: "tex-source",
+    action: () => openSelectionInSource().catch((error) => alert(`Could not open the source: ${error.message}`)),
+  });
   ui.mergeSchema({
     selectionMenus: {
       selection: {
@@ -344,6 +351,11 @@ async function initializePdfViewer(pdfView) {
           type: "command-button",
           id: "tex-web-comment-selection",
           commandId: "tex-web:comment-selection",
+          variant: "icon-text",
+        }, {
+          type: "command-button",
+          id: "tex-web-selection-source",
+          commandId: "tex-web:selection-source",
           variant: "icon-text",
         }],
       },
@@ -512,6 +524,65 @@ function installAreaTool(registry, selectionCapability, commands, ui) {
     items: [...item.items, { type: "command-button", id: "area-button", commandId: "tex-web:area", variant: "icon" }],
   });
   ui.mergeSchema({ toolbars: { "main-toolbar": { items } } });
+}
+
+// Source, beside Comment on a PDF selection, opens the editor where SyncTeX says the
+// selected lines come from, beside the PDF, and selects the words there.
+async function openSelectionInSource() {
+  if (!state.selection || !state.pdfDigest) return;
+  const formatted = state.selection.getFormattedSelection();
+  if (formatted.length !== 1) {
+    alert("Select text on one page at a time.");
+    return;
+  }
+  const quote = (await state.selection.getSelectedText().toPromise()).join(" ");
+  const response = await fetch("/synctex/pdf-to-source", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      page: formatted[0].pageIndex + 1,
+      rects: formatted[0].segmentRects.map(rectToBBox),
+      pdf_digest: state.pdfDigest,
+    }),
+  });
+  if (!response.ok) throw new Error(await responseError(response));
+  const place = await response.json();
+  if (state.view === "pdf") await setWorkspaceView("split");
+  await initializeSourceEditor();
+  if (!(await openSource(place.file, place.line_start))) return;
+  selectQuoteInLines(quote, place.line_start, place.line_end);
+}
+
+// The words a PDF shows and the TeX that prints them differ in spacing, in ties, in words
+// split at a line's end and in ligatures, so they are compared with all of that set aside.
+// Words a macro prints are not in the source as written; the lines are selected then.
+function selectQuoteInLines(quote, first, last) {
+  const Range = window.ace.require("ace/range").Range;
+  const session = state.editor.session;
+  const lines = session.getLines(first - 1, last - 1);
+  const kept = [];
+  lines.forEach((line, row) => {
+    for (let column = 0; column < line.length; column += 1) {
+      if (!/[\s~]/.test(line[column])) kept.push({ character: line[column], row: first - 1 + row, column });
+    }
+  });
+  const text = kept.map((item) => item.character).join("");
+  const unligated = quote.replace(/ﬀ/g, "ff").replace(/ﬁ/g, "fi").replace(/ﬂ/g, "fl")
+    .replace(/ﬃ/g, "ffi").replace(/ﬄ/g, "ffl");
+  let range = null;
+  for (const words of [unligated.replace(/(\p{L})-\s+(\p{L})/gu, "$1$2"), unligated]) {
+    const wanted = words.replace(/\s+/g, "");
+    const at = wanted === "" ? -1 : text.indexOf(wanted);
+    if (at < 0) continue;
+    const start = kept[at];
+    const end = kept[at + wanted.length - 1];
+    range = new Range(start.row, start.column, end.row, end.column + 1);
+    break;
+  }
+  if (range === null) range = new Range(first - 1, 0, last - 1, lines[lines.length - 1].length);
+  state.editor.selection.setRange(range);
+  state.editor.scrollToLine(range.start.row, true, true, () => {});
+  state.editor.focus();
 }
 
 function openCompose(anchor, label, selectionText = "") {

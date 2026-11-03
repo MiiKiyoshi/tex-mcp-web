@@ -1579,6 +1579,16 @@ async def test_image_invalid_bbox(client_with_pdf):
 
 
 @pytest.mark.asyncio
+async def test_pdf_to_source_refuses_a_stale_or_malformed_selection(client_with_pdf):
+    tc, server = client_with_pdf
+    rects = [[60, 60, 200, 100]]
+    stale = await tc.post("/synctex/pdf-to-source", json={"page": 1, "rects": rects, "pdf_digest": "old"})
+    assert stale.status == 409
+    for body in ({"page": 1, "rects": [], "pdf_digest": server.pdf_digest}, {"rects": rects, "pdf_digest": server.pdf_digest}):
+        assert (await tc.post("/synctex/pdf-to-source", json=body)).status == 400
+
+
+@pytest.mark.asyncio
 async def test_image_comment_with_area_anchor(client_with_pdf):
     tc, server = client_with_pdf
     resp = await tc.post(
