@@ -774,7 +774,7 @@ def test_source_beside_comment_opens_the_selected_words_in_the_editor(tmp_path: 
           const root = document.querySelector("embedpdf-container").shadowRoot;
           const image = root.querySelector("img").getBoundingClientRect();
           const mark = Array.from(root.querySelectorAll("div"))
-            .find((node) => node.style.opacity === "0.55" && node.getBoundingClientRect().width > 0);
+            .find((node) => node.style.opacity === "0.6" && node.getBoundingClientRect().width > 0);
           if (!mark) return false;
           const rect = mark.getBoundingClientRect();
           return [rect.left - image.left, rect.top - image.top, rect.right - image.left, rect.bottom - image.top,

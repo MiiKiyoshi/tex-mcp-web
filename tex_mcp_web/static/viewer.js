@@ -672,8 +672,9 @@ async function showSourceSelectionInPdf() {
     type: PdfAnnotationSubtype.HIGHLIGHT,
     rect: bboxToRect(place.bbox),
     segmentRects: place.rects.map(bboxToRect),
-    opacity: 0.55,
-    strokeColor: "#fbdc00",
+    // The editor's selection blue, apart from the comments' yellow.
+    opacity: 0.6,
+    strokeColor: "#b5d5ff",
     contents: "",
   });
 }
