@@ -678,8 +678,9 @@ def test_the_area_button_draws_a_box_to_comment_on(tmp_path: Path) -> None:
 @pytest.mark.skipif(shutil.which("synctex") is None or shutil.which("latexmk") is None,
                     reason="latexmk and synctex are required")
 def test_source_beside_comment_opens_the_selected_words_in_the_editor(tmp_path: Path) -> None:
-    """Source on a PDF selection opens the editor beside the PDF at the lines SyncTeX names
-    and selects the words there, though the PDF joined the lines into one paragraph."""
+    """In Split, Source on a PDF selection opens the editor at the lines SyncTeX names and
+    selects the words there, though the PDF joined the lines into one paragraph. Without the
+    editor beside the PDF, the selection offers Comment alone."""
     import fitz
 
     (tmp_path / "paper.tex").write_text(
@@ -722,15 +723,41 @@ def test_source_beside_comment_opens_the_selected_words_in_the_editor(tmp_path: 
           const rect = image?.getBoundingClientRect();
           return rect && rect.width > 100 ? [rect.left, rect.top, rect.width / {page_width}] : false;
         '''))
-        y = page[1] + (words.y0 + words.y1) / 2 * page[2]
-        ActionSequence(browser, "pointer", "mouse", {"pointerType": "mouse"}) \
-            .pointer_move(int(page[0] + (words.x0 + 1) * page[2]), int(y)).pointer_down() \
-            .pointer_move(int(page[0] + (words.x1 - 1) * page[2]), int(y), duration=300).pointer_up().perform()
-        source_button = ('Array.from(document.querySelector("embedpdf-container").shadowRoot'
-                         '.querySelectorAll("button")).find((button) => button.textContent.trim() === "Source"'
-                         ' && button.getBoundingClientRect().width > 0)')
-        wait_until(lambda: browser.execute_script(f"return Boolean({source_button})"))
-        browser.execute_script(f"{source_button}.click();")
+        def select_words():
+            image = browser.execute_script('''
+              const rect = document.querySelector("embedpdf-container").shadowRoot
+                .querySelector("img").getBoundingClientRect();
+              return [rect.left, rect.top];
+            ''')
+            y = image[1] + (words.y0 + words.y1) / 2 * page[2]
+            ActionSequence(browser, "pointer", "mouse", {"pointerType": "mouse"}) \
+                .pointer_move(int(image[0] + (words.x0 + 1) * page[2]), int(y)).pointer_down() \
+                .pointer_move(int(image[0] + (words.x1 - 1) * page[2]), int(y), duration=300).pointer_up().perform()
+
+        def menu_button(label):
+            return browser.execute_script(f'''
+              return Array.from(document.querySelector("embedpdf-container").shadowRoot.querySelectorAll("button"))
+                .some((button) => button.textContent.trim() === "{label}" && button.getBoundingClientRect().width > 0);
+            ''')
+
+        # Source is offered only where the editor is beside the PDF.
+        select_words()
+        wait_until(lambda: menu_button("Comment"))
+        assert not menu_button("Source")
+        browser.execute_script('document.querySelector(".view-tab[data-view=split]").click()')
+        wait_until(lambda: browser.execute_script(
+            'return document.querySelector(".layout").classList.contains("view-split")'))
+        time.sleep(1)  # the PDF fits itself to the narrower pane
+        page = browser.execute_script(f'''
+          const rect = document.querySelector("embedpdf-container").shadowRoot.querySelector("img").getBoundingClientRect();
+          return [rect.left, rect.top, rect.width / {page_width}];
+        ''')
+        select_words()
+        wait_until(lambda: menu_button("Source"))
+        browser.execute_script('''
+          Array.from(document.querySelector("embedpdf-container").shadowRoot.querySelectorAll("button"))
+            .find((button) => button.textContent.trim() === "Source").click();
+        ''')
         opened = wait_until(lambda: browser.execute_script('''
           const editor = (window.wrappedJSObject || window).ace?.edit("source-editor");
           const range = editor?.getSelectionRange();

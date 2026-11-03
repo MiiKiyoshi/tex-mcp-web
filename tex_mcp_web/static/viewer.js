@@ -9,6 +9,7 @@ const $$ = (selector) => Array.from(document.querySelectorAll(selector));
 const state = {
   viewer: null,
   selection: null,
+  ui: null,
   areaMode: false,
   annotations: null,
   scroll: null,
@@ -122,6 +123,7 @@ async function initializePdfViewer(pdfView) {
   const host = $("#pdf-viewer");
   clear(host);
   state.selection = null;
+  state.ui = null;
   state.areaMode = false;
   state.annotations = null;
   state.scroll = null;
@@ -342,25 +344,8 @@ async function initializePdfViewer(pdfView) {
     icon: "tex-source",
     action: () => openSelectionInSource().catch((error) => alert(`Could not open the source: ${error.message}`)),
   });
-  ui.mergeSchema({
-    selectionMenus: {
-      selection: {
-        id: "selection",
-        visibilityDependsOn: { itemIds: ["tex-web-comment-selection"] },
-        items: [{
-          type: "command-button",
-          id: "tex-web-comment-selection",
-          commandId: "tex-web:comment-selection",
-          variant: "icon-text",
-        }, {
-          type: "command-button",
-          id: "tex-web-selection-source",
-          commandId: "tex-web:selection-source",
-          variant: "icon-text",
-        }],
-      },
-    },
-  });
+  state.ui = ui;
+  applySelectionMenu();
 
   state.annotations.onStateChange((annotationState) => {
     if (annotationState.selectedUids.length !== 1) return;
@@ -526,8 +511,21 @@ function installAreaTool(registry, selectionCapability, commands, ui) {
   ui.mergeSchema({ toolbars: { "main-toolbar": { items } } });
 }
 
-// Source, beside Comment on a PDF selection, opens the editor where SyncTeX says the
-// selected lines come from, beside the PDF, and selects the words there.
+// Comment on a PDF selection, and in Split, where the editor is beside the PDF, Source.
+function applySelectionMenu() {
+  if (state.ui === null) return;
+  const item = (id, commandId) => ({ type: "command-button", id, commandId, variant: "icon-text" });
+  const items = [item("tex-web-comment-selection", "tex-web:comment-selection")];
+  if (state.view === "split") items.push(item("tex-web-selection-source", "tex-web:selection-source"));
+  state.ui.mergeSchema({
+    selectionMenus: {
+      selection: { id: "selection", visibilityDependsOn: { itemIds: ["tex-web-comment-selection"] }, items },
+    },
+  });
+}
+
+// Source opens the editor where SyncTeX says the selected lines come from and selects the
+// words there.
 async function openSelectionInSource() {
   if (!state.selection || !state.pdfDigest) return;
   const formatted = state.selection.getFormattedSelection();
@@ -547,7 +545,6 @@ async function openSelectionInSource() {
   });
   if (!response.ok) throw new Error(await responseError(response));
   const place = await response.json();
-  if (state.view === "pdf") await setWorkspaceView("split");
   await initializeSourceEditor();
   if (!(await openSource(place.file, place.line_start))) return;
   selectQuoteInLines(quote, place.line_start, place.line_end);
@@ -891,6 +888,7 @@ async function setWorkspaceView(view) {
   for (const button of $$(".view-tab")) {
     button.classList.toggle("active", button.dataset.view === view);
   }
+  applySelectionMenu();
   localStorage.setItem("workspaceView", view);
   if (view !== "pdf") await initializeSourceEditor();
   requestAnimationFrame(() => {
