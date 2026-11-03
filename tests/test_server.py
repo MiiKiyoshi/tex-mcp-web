@@ -1579,11 +1579,16 @@ async def test_image_invalid_bbox(client_with_pdf):
 
 
 @pytest.mark.asyncio
-async def test_pdf_to_source_refuses_a_stale_or_malformed_selection(client_with_pdf):
+async def test_pdf_to_source_refuses_a_malformed_selection_and_a_pdf_without_synctex(client_with_pdf):
+    """A PDF built without -synctex=1 records no source places, and the answer says so
+    rather than that this one selection has none."""
     tc, server = client_with_pdf
     rects = [[60, 60, 200, 100]]
-    stale = await tc.post("/synctex/pdf-to-source", json={"page": 1, "rects": rects, "pdf_digest": "old"})
-    assert stale.status == 409
+    bare = await tc.post("/synctex/pdf-to-source", json={"page": 1, "rects": rects, "pdf_digest": server.pdf_digest})
+    assert bare.status == 409 and "built without SyncTeX" in (await bare.json())["error"]
+    words = await tc.post("/synctex/source-to-pdf-words",
+                          json={"file": "paper.tex", "line_start": 1, "line_end": 1, "text": "word"})
+    assert words.status == 409 and "Press Compile" in (await words.json())["error"]
     for body in ({"page": 1, "rects": [], "pdf_digest": server.pdf_digest}, {"rects": rects, "pdf_digest": server.pdf_digest}):
         assert (await tc.post("/synctex/pdf-to-source", json=body)).status == 400
 

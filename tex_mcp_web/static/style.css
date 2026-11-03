@@ -184,6 +184,8 @@ textarea {
 }
 .source-toolbar button:hover:not(:disabled) { background: var(--accent-soft); }
 .source-toolbar button:disabled { cursor: default; opacity: 0.5; }
+/* The PDF the words are shown in is beside the editor only in Split. */
+.layout:not(.view-split) #source-pdf-btn { display: none; }
 .source-status {
   flex: 1;
   min-width: 0;

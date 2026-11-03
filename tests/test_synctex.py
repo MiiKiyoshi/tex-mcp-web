@@ -480,3 +480,11 @@ class TestSourceToPageBasenameFallback:
         )
         pos = source_to_page(data, "nonexistent.tex", 10)
         assert pos is None
+
+
+def test_printed_words_drop_markup_and_keep_what_tex_prints() -> None:
+    from tex_mcp_web.synctex import printed_words
+
+    assert printed_words("The quick~brown \\emph{fox} jumps") == "The quick brown fox jumps"
+    assert printed_words("costs 5\\% of $x$ % a note\nand more") == "costs 5% of x and more"
+    assert printed_words("\\textbf[b]{bold}\n\n  words") == "bold words"

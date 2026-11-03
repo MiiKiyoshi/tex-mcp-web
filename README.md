@@ -58,6 +58,8 @@ so there is nothing else to start. Say it again after the agent restarts.
   replacement box when you have one.
 - In Split, **Source** beside **Comment** on a PDF selection selects the same words in the
   source editor, at the lines SyncTeX names, or those lines when a macro prints the words.
+  The other way, **→ PDF** in the editor's bar marks where the PDF prints the selected words.
+  Both need a PDF built with SyncTeX, which **Compile** builds.
 - The box tool, beside pan and pointer in the PDF's toolbar, turns a drag on the PDF into a
   box to comment on what has no text to select, such as part of a figure. The box holds
   while a compile leaves what it covers as it was.

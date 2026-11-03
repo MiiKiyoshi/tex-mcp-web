@@ -285,6 +285,47 @@ def selection_to_source_range(
     return files.pop(), min(lines), max(lines)
 
 
+_VIEW_RESULT_PATTERN = re.compile(
+    r"^Page:(\d+)\n(?:.*\n)*?h:(-?[\d.]+)\nv:(-?[\d.]+)\nW:(-?[\d.]+)\nH:(-?[\d.]+)", re.MULTILINE)
+
+
+def source_lines_to_boxes(
+    pdf_path: Path, source: Path, line_start: int, line_end: int,
+) -> list[tuple[int, tuple[float, float, float, float]]]:
+    """The boxes the PDF sets source lines in, as (page, (x0, y0, x1, y1)) in PDF points.
+
+    ``synctex view`` reports each box by its left edge, baseline, width and height.
+    """
+    synctex = shutil.which("synctex")
+    if synctex is None or not pdf_path.is_file():
+        return []
+    boxes: list[tuple[int, tuple[float, float, float, float]]] = []
+    for line in range(line_start, min(line_end, line_start + 40) + 1):
+        try:
+            completed = subprocess.run(
+                [synctex, "view", "-i", f"{line}:0:{source.resolve()}", "-o", str(pdf_path)],
+                cwd=pdf_path.parent, text=True, capture_output=True, timeout=5, check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        for page, h, v, width, height in _VIEW_RESULT_PATTERN.findall(completed.stdout):
+            left, baseline = float(h), float(v)
+            boxes.append((int(page), (left, baseline - float(height), left + float(width), baseline)))
+    return boxes
+
+
+def printed_words(tex: str) -> str:
+    """The words TeX prints for plain prose: comments, command names, braces and math
+    shifts gone, ties as spaces, escaped characters as themselves. A command's argument
+    stays, which is the printed text for emphasis and the like."""
+    text = re.sub(r"(?<!\\)%.*", "", tex)
+    text = text.replace("~", " ")
+    text = re.sub(r"\\[A-Za-z@]+\*?(?:\[[^\]]*\])?", " ", text)
+    text = re.sub(r"\\(.)", r"\1", text)
+    text = re.sub(r"[{}$]", "", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def source_to_page(data: SyncTeXData, file: str, line: int) -> PDFPosition | None:
     """Find PDF position for a source line.
 

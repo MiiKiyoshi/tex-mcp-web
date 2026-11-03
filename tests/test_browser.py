@@ -766,6 +766,32 @@ def test_source_beside_comment_opens_the_selected_words_in_the_editor(tmp_path: 
             ? {text: editor.getSelectedText(), row: range.start.row} : false;
         '''))
         assert opened == {"text": "quick~brown fox", "row": 3}
+
+        # And back: → PDF on the words selected in the editor marks where the PDF prints them.
+        assert browser.execute_script(
+            'return getComputedStyle(document.querySelector("#source-pdf-btn")).display') != "none"
+        browser.execute_script('''
+          const page = window.wrappedJSObject || window;
+          const editor = page.ace.edit("source-editor");
+          const Range = page.ace.require("ace/range").Range;
+          editor.selection.setRange(new Range(3, 10, 3, 22));   // "brown fox ju"
+          document.querySelector("#source-pdf-btn").click();
+        ''')
+        with fitz.open(shared.server.last_result.output_file) as pdf:
+            printed = pdf[0].search_for("brown fox ju")[0]
+        marked = wait_until(lambda: browser.execute_script('''
+          const root = document.querySelector("embedpdf-container").shadowRoot;
+          const image = root.querySelector("img").getBoundingClientRect();
+          const mark = Array.from(root.querySelectorAll("div"))
+            .find((node) => node.style.opacity === "0.55" && node.getBoundingClientRect().width > 0);
+          if (!mark) return false;
+          const rect = mark.getBoundingClientRect();
+          return [rect.left - image.left, rect.top - image.top, rect.right - image.left, rect.bottom - image.top,
+                  image.width];
+        '''))
+        scale = marked[4] / page_width
+        drawn = [value / scale for value in marked[:4]]
+        assert all(abs(got - want) < 3 for got, want in zip(drawn, printed)), (drawn, printed)
     finally:
         if browser is not None:
             try:

@@ -62,7 +62,9 @@ from .synctex import (
     SyncTeXData,
     find_synctex_file,
     parse_synctex,
+    printed_words,
     selection_to_source_range,
+    source_lines_to_boxes,
     source_to_page,
 )
 from .watcher import Watcher, is_watched_source
@@ -404,6 +406,7 @@ class TexMcpWebServer:
         app.router.add_delete(r"/comments/{id}", self._handle_delete_comment)
         app.router.add_get("/synctex/source-to-pdf", self._handle_synctex_forward)
         app.router.add_post("/synctex/pdf-to-source", self._handle_synctex_backward)
+        app.router.add_post("/synctex/source-to-pdf-words", self._handle_source_to_pdf_words)
         app.router.add_post("/goto", self._handle_goto)
         app.router.add_get("/image", self._handle_image)
         app.router.add_get("/reference-preview", self._handle_reference_preview)
@@ -1208,17 +1211,73 @@ class TexMcpWebServer:
             digest = str(data["pdf_digest"])
         except (ValueError, KeyError, TypeError, IndexError) as exc:
             return web.json_response({"error": f"invalid selection: {exc}"}, status=400)
-        if self.last_result is None or self.last_result.output_file is None:
-            return web.json_response({"error": "no PDF available"}, status=409)
+        refused = self._without_synctex()
+        if refused is not None:
+            return refused
         if digest != self.pdf_digest:
             return web.json_response({"error": "the PDF changed after this text was selected"}, status=409)
         resolved = resolve_text_selection_to_source(
             self.last_result.output_file, selection, self.watch_dir)
         if resolved is None:
             return web.json_response(
-                {"error": "SyncTeX gives no single source place for this selection"}, status=404)
+                {"error": "SyncTeX places these lines in no single source file of the paper, "
+                          "as it does for a bibliography built from the .bib"}, status=404)
         return web.json_response(
             {"file": resolved.file, "line_start": resolved.line_start, "line_end": resolved.line_end})
+
+    def _without_synctex(self) -> web.Response | None:
+        """The answer when the PDF has no SyncTeX record of its own, as one built outside
+        the review server without -synctex=1 has: a lookup then finds nothing anywhere."""
+        if self.last_result is None or self.last_result.output_file is None:
+            return web.json_response({"error": "no PDF available"}, status=409)
+        pdf = self.last_result.output_file
+        record = find_synctex_file(pdf)
+        if record is None or record.stat().st_mtime < pdf.stat().st_mtime - 1:
+            return web.json_response({"error": (
+                f"{pdf.name} was built without SyncTeX, so it records no source places. "
+                "Press Compile to build it with SyncTeX, then try again")}, status=409)
+        return None
+
+    async def _handle_source_to_pdf_words(self, request: web.Request) -> web.Response:
+        """Selected source text -> where the PDF prints it: {file, line_start, line_end,
+        text} -> {page, bbox, rects, whole}. SyncTeX names the lines' boxes, and the printed
+        words are found in them. Words printed another way, such as a citation, find the
+        longest run of two or more printed words, or else the lines' boxes are the answer,
+        and whole is false."""
+        try:
+            data = await request.json()
+            source = self._resolve_source_path(str(data["file"]))
+            line_start, line_end = int(data["line_start"]), int(data["line_end"])
+            text = str(data["text"])
+        except (ValueError, KeyError, TypeError) as exc:
+            return web.json_response({"error": f"invalid selection: {exc}"}, status=400)
+        refused = self._without_synctex()
+        if refused is not None:
+            return refused
+        pdf = self.last_result.output_file
+        boxes = await asyncio.get_running_loop().run_in_executor(
+            None, source_lines_to_boxes, pdf, source, line_start, line_end)
+        if not boxes:
+            return web.json_response(
+                {"error": "SyncTeX places none of these lines in the PDF"}, status=404)
+        page = boxes[0][0]
+        rects = [box for number, box in boxes if number == page]
+        hint = PageSelection(page, (min(r[0] for r in rects) - 2, min(r[1] for r in rects) - 2,
+                                    max(r[2] for r in rects) + 2, max(r[3] for r in rects) + 2), rects)
+        words = printed_words(text)
+        found = locate_pdf_quote(pdf, words, hint=hint) if words else None
+        whole = found is not None
+        split = words.split()
+        for size in range(len(split) - 1, 1, -1):
+            if found is not None:
+                break
+            for first in range(len(split) - size + 1):
+                found = locate_pdf_quote(pdf, " ".join(split[first:first + size]), hint=hint)
+                if found is not None:
+                    break
+        found = found or hint
+        return web.json_response({"page": found.page, "bbox": list(found.bbox),
+                                  "rects": [list(rect) for rect in found.rects], "whole": whole})
 
     async def _handle_synctex_forward(self, request: web.Request) -> web.Response:
         """source -> PDF: ?file=...&line=N -> {page, x, y, width, height}"""

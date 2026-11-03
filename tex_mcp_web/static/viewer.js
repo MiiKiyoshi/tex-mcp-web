@@ -640,6 +640,43 @@ function updateSourceCommentButton() {
   button.title = state.sourceDirty
     ? "Save source before commenting"
     : selected ? "Comment on the selected source text" : "Select source text to comment";
+  $("#source-pdf-btn").disabled = !selected;
+}
+
+// The words selected in the editor, shown where the PDF prints them, at the zoom the PDF
+// is read at: SyncTeX names the boxes of their lines, and the server finds the printed
+// words in them.
+async function showSourceSelectionInPdf() {
+  const text = state.editor.getSelectedText();
+  if (!text.trim() || !state.sourcePath || !state.scroll || !state.annotations) return;
+  const range = state.editor.getSelectionRange();
+  const lastRow = range.end.column === 0 && range.end.row > range.start.row ? range.end.row - 1 : range.end.row;
+  const response = await fetch("/synctex/source-to-pdf-words", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ file: state.sourcePath, line_start: range.start.row + 1, line_end: lastRow + 1, text }),
+  });
+  if (!response.ok) throw new Error(await responseError(response));
+  const place = await response.json();
+  const [x1, y1, x2, y2] = place.bbox;
+  state.scroll.scrollToPage({
+    pageNumber: place.page,
+    pageCoordinates: { x: (x1 + x2) / 2, y: (y1 + y2) / 2 },
+    behavior: "smooth",
+    alignX: 50,
+    alignY: 50,
+  });
+  clearGotoHighlight();
+  state.annotations.createAnnotation(place.page - 1, {
+    id: GOTO_ANNOTATION_ID,
+    pageIndex: place.page - 1,
+    type: PdfAnnotationSubtype.HIGHLIGHT,
+    rect: bboxToRect(place.bbox),
+    segmentRects: place.rects.map(bboxToRect),
+    opacity: 0.55,
+    strokeColor: "#fbdc00",
+    contents: "",
+  });
 }
 
 function clearSourceCommentMarkers() {
@@ -2149,6 +2186,9 @@ async function init() {
   $("#source-font-smaller-btn").addEventListener("click", () => stepSourceFontSize(-1));
   $("#source-font-larger-btn").addEventListener("click", () => stepSourceFontSize(1));
   $("#source-comment-btn").addEventListener("click", openSourceCommentCompose);
+  $("#source-pdf-btn").addEventListener("click", () => {
+    showSourceSelectionInPdf().catch((error) => alert(`Could not show it in the PDF: ${error.message}`));
+  });
   $("#source-file").addEventListener("change", (event) => {
     openSource(event.target.value).catch((error) => alert(`Could not open source: ${error.message}`));
   });
