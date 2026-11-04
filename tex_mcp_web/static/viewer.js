@@ -376,6 +376,24 @@ async function initializePdfViewer(pdfView) {
   state.scroll = scrollCapability.forDocument(DOCUMENT_ID);
   state.scroll.onPageChange(() => scheduleTranslation(600));
   state.zoom = zoomCapability.forDocument(DOCUMENT_ID);
+  // A paper is read a column at a time. A wheel or a pinch zooms about the pointer, which
+  // in the middle of a column pushed the column's outer edge off the pane. Once such a zoom
+  // settles, the half of the page the pointer was on is moved into view whole when the pane
+  // holds it, so a column zoomed from its middle keeps both its edges.
+  let zoomAt = null;
+  root.addEventListener("wheel", (event) => {
+    if (event.ctrlKey || event.metaKey) zoomAt = { x: event.clientX, time: performance.now() };
+  }, { capture: true, passive: true });
+  root.addEventListener("touchmove", (event) => {
+    if (event.touches.length !== 2) return;
+    zoomAt = { x: (event.touches[0].clientX + event.touches[1].clientX) / 2, time: performance.now() };
+  }, { capture: true, passive: true });
+  zoomCapability.onZoomChange((change) => {
+    if (change.documentId !== DOCUMENT_ID || zoomAt === null || performance.now() - zoomAt.time > 1500) return;
+    const { x } = zoomAt;
+    zoomAt = null;
+    requestAnimationFrame(() => requestAnimationFrame(() => keepColumnInView(root, x)));
+  });
 
   commands.registerCommand({
     id: "tex-web:comment-selection",
@@ -572,6 +590,25 @@ function installAreaTool(registry, selectionCapability, commands, ui) {
       "annotate-mode", "shapes-mode", "insert-mode", "form-mode", "redact-mode", "zoom-toolbar"],
   };
   ui.mergeSchema({ toolbars: { "main-toolbar": { items, responsive: { breakpoints: { everyWidth } } } } });
+}
+
+// The half of the page at x, moved horizontally into the Preview's pane when the pane is
+// wider than it and the page is not. The pages scroll inside the viewer's one scrolling box,
+// whose content is as wide as a page.
+function keepColumnInView(root, x) {
+  const viewport = Array.from(root.querySelectorAll("div")).find((node) =>
+    /(auto|scroll)/.test(getComputedStyle(node).overflowY) && node.scrollHeight > node.clientHeight);
+  const pages = viewport?.firstElementChild?.firstElementChild;
+  if (!pages) return;
+  const page = pages.getBoundingClientRect();
+  const viewLeft = viewport.getBoundingClientRect().left + viewport.clientLeft;
+  const viewRight = viewLeft + viewport.clientWidth;
+  if (page.width <= viewport.clientWidth) return;
+  const middle = page.left + page.width / 2;
+  const [left, right] = x < middle ? [page.left, middle] : [middle, page.right];
+  if (right - left > viewRight - viewLeft) return;
+  if (left < viewLeft) viewport.scrollLeft -= viewLeft - left;
+  else if (right > viewRight) viewport.scrollLeft += right - viewRight;
 }
 
 // Source opens the editor beside the Preview, in Split, where SyncTeX says the selected

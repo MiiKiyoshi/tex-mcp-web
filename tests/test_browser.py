@@ -509,12 +509,14 @@ def test_highlight_badges_leave_pdf_text_selectable(tmp_path: Path) -> None:
             return box if abs(box[2] - width) < width * 0.02 and abs(box[1] - y) <= 2 \
                 and (not exact or abs(box[0] - x) <= 2) else None
 
-        for delta_y, exact in ((-3, False), (-3, False), (-3, False), (-3, False), (-3, True), (3, True)):
+        # Exact across only once half the page is wider than the pane: below that the
+        # column under the pointer is kept whole (further on).
+        for delta_y, exact in ((-3, False),) * 5 + ((-3, True), (-3, True), (3, True)):
             x, y, width = wheel_on_segment(delta_y)
             wait_until(lambda: settled(x, y, width * (1.25 if delta_y < 0 else 1 / 1.25), exact))
-        # Near the pane's width the gesture held the page about the pane's middle: from a page
-        # a little narrower than the pane to one a little wider, the words under the pointer
-        # slid aside by a share of the way. A trackpad's small steps take it there.
+        # A paper is read a column at a time: from a page a little narrower than the pane to
+        # one a little wider, a pinch on a column leaves that column, the half of the page it
+        # was on, whole in the pane rather than pushing its outer edge off.
         widths = '''
           const root = document.querySelector("embedpdf-container").shadowRoot;
           const viewport = Array.from(root.querySelectorAll("div")).find((node) =>
@@ -527,24 +529,35 @@ def test_highlight_badges_leave_pdf_text_selectable(tmp_path: Path) -> None:
         def pinch_to(share):
             pane, pages = wait_until(lambda: browser.execute_script(widths))
             delta = -100 * math.log(share * pane / pages)
+            # A trackpad's steps are small; one past 40px reads as a mouse notch.
+            steps = max(1, math.ceil(abs(delta) / 30))
             x, y, _ = browser.execute_script('''
               const root = document.querySelector("embedpdf-container").shadowRoot;
               const box = root.querySelector(".tex-comment-segment").getBoundingClientRect();
               const x = box.left + box.width / 2, y = box.top + box.height / 2;
-              root.elementFromPoint(x, y).dispatchEvent(new WheelEvent("wheel", {
-                deltaY: arguments[0], deltaMode: WheelEvent.DOM_DELTA_PIXEL, ctrlKey: true,
-                clientX: x, clientY: y, bubbles: true, cancelable: true, composed: true}));
+              for (let step = 0; step < arguments[1]; step++) {
+                root.elementFromPoint(x, y).dispatchEvent(new WheelEvent("wheel", {
+                  deltaY: arguments[0] / arguments[1], deltaMode: WheelEvent.DOM_DELTA_PIXEL, ctrlKey: true,
+                  clientX: x, clientY: y, bubbles: true, cancelable: true, composed: true}));
+              }
               return [x, y, box.width];
-            ''', script_args=[delta])
+            ''', script_args=[delta, steps])
             wait_until(lambda: (now := browser.execute_script(widths))
                        and abs(now[1] - share * pane) < 0.02 * pane)
             return x, y
 
         pinch_to(0.95)
-        x, y = pinch_to(1.12)
-        wait_until(lambda: settled(x, y, browser.execute_script(widths)[1] * 0 + browser.execute_script('''
-          return document.querySelector("embedpdf-container").shadowRoot
-            .querySelector(".tex-comment-segment").getBoundingClientRect().width;'''), True))
+        x, _ = pinch_to(1.12)
+        assert wait_until(lambda: browser.execute_script('''
+          const root = document.querySelector("embedpdf-container").shadowRoot;
+          const viewport = Array.from(root.querySelectorAll("div")).find((node) =>
+            /(auto|scroll)/.test(getComputedStyle(node).overflowY) && node.scrollHeight > node.clientHeight);
+          const page = viewport.firstElementChild.firstElementChild.getBoundingClientRect();
+          const view = viewport.getBoundingClientRect();
+          const middle = page.left + page.width / 2;
+          const [left, right] = arguments[0] < middle ? [page.left, middle] : [middle, page.right];
+          return left >= view.left - 1 && right <= view.left + viewport.clientWidth + 1;
+        ''', script_args=[x]))
         zoomed = wait_until(lambda: browser.execute_script(f'''
           const root = document.querySelector("embedpdf-container").shadowRoot;
           const badge = root.querySelector(".tex-comment-badge");
