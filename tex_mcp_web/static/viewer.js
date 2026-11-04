@@ -1021,10 +1021,25 @@ function applyVimKeys() {
     // before the one clicked.
     if (!on) {
       state.editor.renderer.$blockCursor = false;
+      state.editor.textInput.getElement().readOnly = false;
       return;
     }
     defineVimCommands(window.ace.require("ace/keyboard/vim").Vim);
+    holdKeysOutsideInsert(state.editor);
   });
+}
+
+// macOS answers a letter held down in a text field with its accent menu rather than a
+// repeat, so j held to run down the file opened the menu. Outside Insert mode the editor's
+// input field is read-only, which the menu leaves alone, so a held key repeats. A touch
+// screen keeps the field writable: its on-screen keyboard opens only for one.
+function holdKeysOutsideInsert(editor) {
+  if (window.matchMedia("(pointer: coarse)").matches) return;
+  const cm = editor.state.cm;
+  const field = editor.textInput.getElement();
+  const sync = () => { field.readOnly = !cm.state.vim.insertMode; };
+  cm.on("vim-mode-change", sync);
+  sync();
 }
 
 // :w saves, and gc comments on what a motion or the visual selection covers, as Vim's
@@ -1065,14 +1080,21 @@ function vimCommandMode() {
 
 function attachVimInputMethod(editor) {
   editor.container.addEventListener("keydown", (event) => {
-    if (!vimCommandMode() || event.ctrlKey || event.metaKey || event.altKey) return;
-    if (!(event.isComposing || event.key === "Process" || COMPOSED.test(event.key))) return;
-    const letter = /^Key([A-Z])$/.exec(event.code)?.[1];
-    if (letter === undefined) return;
+    const field = editor.textInput.getElement();
+    if (!vimCommandMode() || event.target !== field || event.ctrlKey || event.metaKey || event.altKey) return;
+    let key = null;
+    if (event.isComposing || event.key === "Process" || COMPOSED.test(event.key)) {
+      const letter = /^Key([A-Z])$/.exec(event.code)?.[1];
+      if (letter !== undefined) key = event.shiftKey ? letter : letter.toLowerCase();
+    } else if (field.readOnly && event.key.length === 1 && event.key !== " ") {
+      // A read-only field (below) takes no typing, so a character key reaches Vim here,
+      // where Vim otherwise reads it from the typing. Space is a named key Vim reads itself.
+      key = event.key;
+    }
+    if (key === null) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    window.ace.require("ace/keyboard/vim").Vim.handleKey(
-      editor.state.cm, event.shiftKey ? letter : letter.toLowerCase(), "user");
+    window.ace.require("ace/keyboard/vim").Vim.handleKey(editor.state.cm, key, "user");
   }, true);
   const typed = editor.onTextInput.bind(editor);
   editor.onTextInput = (text, ...rest) => {
