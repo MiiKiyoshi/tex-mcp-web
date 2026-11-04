@@ -137,7 +137,7 @@ async function initializePdfViewer(pdfView) {
     worker: false,
     fonts: { ui: null, signature: null },
     theme: {
-      preference: "light",
+      preference: document.documentElement.dataset.theme,
       light: {
         accent: {
           primary: "#647b95",
@@ -170,6 +170,40 @@ async function initializePdfViewer(pdfView) {
           default: "#ddd7ca",
           subtle: "#ebe6db",
           strong: "#bdb5a5",
+        },
+      },
+      dark: {
+        accent: {
+          primary: "#8ea5bf",
+          primaryHover: "#a2b6cc",
+          primaryActive: "#b6c6d8",
+          primaryLight: "#2e3238",
+          primaryForeground: "#1c1b19",
+        },
+        background: {
+          app: "#161513",
+          surface: "#242320",
+          surfaceAlt: "#1c1b19",
+          elevated: "#2a2925",
+          input: "#1c1b19",
+        },
+        foreground: {
+          primary: "#e4dfd4",
+          secondary: "#a39c8f",
+          muted: "#8a8479",
+          disabled: "#5f5a52",
+          onAccent: "#1c1b19",
+        },
+        interactive: {
+          hover: "#2e2c28",
+          active: "#38352f",
+          selected: "#2e3238",
+          focus: "#8ea5bf",
+        },
+        border: {
+          default: "#3b3934",
+          subtle: "#2e2c28",
+          strong: "#57534b",
         },
       },
     },
@@ -237,6 +271,7 @@ async function initializePdfViewer(pdfView) {
       color: #6d6650;
       background: #f6f1e2;
     }
+    :host([data-tex-theme="dark"]) * { color-scheme: dark; scrollbar-color: #4a4740 #161513; }
     /* On a touch screen a finger dragged on the pages scrolls them in the pointer mode too,
        as a page does, and a finger held still selects first. The viewer turns touch
        scrolling off in that mode so that every drag selects. */
@@ -247,6 +282,7 @@ async function initializePdfViewer(pdfView) {
     }
   `;
   state.viewer.shadowRoot.appendChild(viewerStyle);
+  state.viewer.setAttribute("data-tex-theme", document.documentElement.dataset.theme);
   state.viewer.shadowRoot.addEventListener("pointerdown", (event) => {
     state.lastViewerPointer = { x: event.clientX, y: event.clientY };
   }, { capture: true });
@@ -901,6 +937,25 @@ function showSourceFile(path) {
   $("#source-file-name").textContent = path.split("/").pop();
 }
 
+// Dark or light, as the reader last chose, else as the system is. The page's own parts and
+// the viewer's change; the PDF's pages are drawn as compiled.
+function darkTheme() {
+  return document.documentElement.dataset.theme === "dark";
+}
+
+function editorTheme() {
+  return darkTheme() ? "ace/theme/tomorrow_night" : "ace/theme/textmate";
+}
+
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  $("#theme-btn").setAttribute("aria-pressed", String(theme === "dark"));
+  state.editor?.setTheme(editorTheme());
+  state.viewer?.setTheme?.(theme);
+  // The viewer's scroll bars take the page's scheme, which its own theme does not set.
+  state.viewer?.setAttribute("data-tex-theme", theme);
+}
+
 // The editor's type size, kept for next time. Stepped by a pixel between 10 and 28.
 function sourceFontSize() {
   const stored = Number(localStorage.getItem("texMcpSourceFontSize"));
@@ -1014,7 +1069,7 @@ async function initializeSourceEditor() {
   if (!window.ace) throw new Error("Ace Editor did not load");
   window.ace.config.set("basePath", "/static/ace");
   state.editor = window.ace.edit("source-editor");
-  state.editor.setTheme("ace/theme/textmate");
+  state.editor.setTheme(editorTheme());
   state.editor.session.setMode("ace/mode/latex");
   state.editor.session.setUseWorker(false);
   state.editor.session.setUseWrapMode(sourceWraps());
@@ -2279,6 +2334,17 @@ function setSidebarCollapsed(collapsed) {
 }
 
 function attachSidebarToggle() {
+  $("#theme-btn").addEventListener("click", () => {
+    const theme = darkTheme() ? "light" : "dark";
+    try { localStorage.setItem("texMcpTheme", theme); } catch { /* the choice lasts this visit */ }
+    applyTheme(theme);
+  });
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (event) => {
+    let chosen = null;
+    try { chosen = localStorage.getItem("texMcpTheme"); } catch { /* none kept */ }
+    if (chosen === null) applyTheme(event.matches ? "dark" : "light");
+  });
+  applyTheme(document.documentElement.dataset.theme);
   $("#sidebar-toggle-btn").addEventListener("click", () =>
     setSidebarCollapsed(!$(".layout").classList.contains("sidebar-collapsed")));
   document.addEventListener("keydown", (event) => {

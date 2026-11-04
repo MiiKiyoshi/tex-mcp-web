@@ -1138,6 +1138,19 @@ def test_browser_source_selection_and_split_resize(tmp_path: Path) -> None:
         assert browser.execute_script(font_size) == "14px"
         assert browser.execute_script('return localStorage.getItem("texMcpSourceFontSize")') == "14"
         browser.execute_script('document.querySelector("#source-font-smaller-btn").click()')
+        # The moon button turns the page dark and back, keeps the choice, and takes the
+        # editor and the PDF viewer with it.
+        theme = '''
+          const page = window.wrappedJSObject || window;
+          const viewer = document.querySelector("embedpdf-container");
+          return [document.documentElement.dataset.theme, localStorage.getItem("texMcpTheme"),
+                  page.ace.edit("source-editor").getTheme(), viewer.getAttribute("data-tex-theme"),
+                  (viewer.wrappedJSObject || viewer).themePreference];
+        '''
+        browser.execute_script('document.querySelector("#theme-btn").click()')
+        assert browser.execute_script(theme) == ["dark", "dark", "ace/theme/tomorrow_night", "dark", "dark"]
+        browser.execute_script('document.querySelector("#theme-btn").click()')
+        assert browser.execute_script(theme) == ["light", "light", "ace/theme/textmate", "light", "light"]
         # Long lines wrap until the wrap button turns it off, and the Vim button gives the
         # editor Vim keys, with Ctrl+[ as Escape and :w saving.
         editor = '(window.wrappedJSObject || window).ace.edit("source-editor")'

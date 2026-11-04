@@ -113,6 +113,8 @@ textarea {
 }
 .topbar button:hover { background: var(--accent-soft); }
 .narrow-icon { display: none; }
+#theme-btn { display: inline-flex; align-items: center; line-height: 1; }
+#theme-btn svg { display: block; }
 #compile-btn:disabled { cursor: wait; }
 /* Green reaches a parked waiter now; red queues the call for the next waiter. */
 .agent-dot { width: 8px; height: 8px; border-radius: 50%; }
@@ -949,3 +951,26 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
   cursor: wait;
   opacity: 0.65;
 }
+
+/* ----- Dark theme -----
+   The page's own parts on a dark ground. The PDF's pages keep their colours. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  scrollbar-color: #4a4740 #1c1b19;
+  --bg: #1c1b19;
+  --bg-elev: #242320;
+  --bg-pdf: #161513;
+  --fg: #e4dfd4;
+  --fg-dim: #a39c8f;
+  --border: #3b3934;
+  --accent: #8ea5bf;
+  --accent-soft: #2e3238;
+  --warn: #d6a64a;
+  --err: #e0857c;
+  --ok: #8fcb9c;
+}
+:root[data-theme="dark"] #call-agent-btn.agent-ready { background: #1f2b21; }
+:root[data-theme="dark"] #call-agent-btn.agent-offline { background: #321f1e; }
+:root[data-theme="dark"] .cmt.status-archived .cmt-status { color: #9fb4e0; }
+:root[data-theme="dark"] dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
+:root[data-theme="dark"] #theme-btn { color: #d8c25a; }

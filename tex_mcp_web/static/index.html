@@ -5,6 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>tex-web</title>
 <link rel="stylesheet" href="/static/style.css">
+<script>
+  // The theme is set before the page is drawn, so a dark page does not flash light: the
+  // reader's last choice, else the system's.
+  try {
+    document.documentElement.dataset.theme = localStorage.getItem("texMcpTheme")
+      ?? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  } catch {
+    document.documentElement.dataset.theme = "light";
+  }
+</script>
 </head>
 <body>
 <div id="app">
@@ -28,6 +38,7 @@
       <button id="compile-btn" type="button" title="Compile" aria-label="Compile"><svg class="narrow-icon" viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v16l13-8z"/></svg><span class="wide-label">Compile</span></button>
       <button id="paper-comment-btn" type="button" title="Add a paper-level comment" aria-label="Add a paper-level comment"><svg class="narrow-icon" viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M12 12v6M9 15h6"/></svg><span class="wide-label">+ Note</span></button>
       <button id="translation-btn" class="hidden" type="button" title="The source translated, beside the Preview or the editor">Translation</button>
+      <button id="theme-btn" type="button" title="Dark mode" aria-label="Dark mode" aria-pressed="false"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></button>
       <button id="sidebar-toggle-btn" type="button" title="Toggle sidebar (\)">⇥</button>
     </div>
   </header>
