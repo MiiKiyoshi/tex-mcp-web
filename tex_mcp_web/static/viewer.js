@@ -750,10 +750,12 @@ async function showSourceSelectionInPdf() {
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   }
   const [x1, y1, x2, y2] = place.bbox;
+  // At once: a smooth scroll in Safari came late, or stopped short, when one place followed
+  // another.
   state.scroll.scrollToPage({
     pageNumber: place.page,
     pageCoordinates: { x: (x1 + x2) / 2, y: (y1 + y2) / 2 },
-    behavior: "smooth",
+    behavior: "instant",
     alignX: 50,
     alignY: 50,
   });
