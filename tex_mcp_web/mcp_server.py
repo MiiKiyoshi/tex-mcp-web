@@ -411,14 +411,13 @@ def _wait_method(ctx: "Context") -> str:
     name = ctx.session.client_params.clientInfo.name.casefold()
     if "claude" in name:
         return (
-            "Use this waiter while the review or task it serves remains part of your work, "
-            "including edits requested in chat and pending review. "
             'Run the script with Monitor(command=<script>, description="tex-mcp review", '
             "timeout_ms=1800000), then end the turn. On a 30-minute expiry notice, restart the same "
-            "Monitor only if that work still needs events, then end the turn without a reply. "
-            "Otherwise leave it stopped and end the turn without a reply. Stop an active Monitor "
-            "when that work no longer needs events. Judge from the work, not event inactivity or "
-            "an explicit stop request."
+            "Monitor only if it delivered an event in those 30 minutes or the user asked to keep "
+            "listening. Otherwise leave it stopped and tell the user in one line that listening "
+            "stopped and that asking again resumes it. Nothing is lost while it is stopped: new "
+            "comments wait for read_comments(new=True), and a Call agent press waits for the next "
+            "waiter. Stop an active Monitor when the review is finished or the user asks."
         )
     if "codex" in name:
         return (
