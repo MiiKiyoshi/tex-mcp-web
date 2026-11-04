@@ -509,9 +509,10 @@ def test_highlight_badges_leave_pdf_text_selectable(tmp_path: Path) -> None:
             return box if abs(box[2] - width) < width * 0.02 and abs(box[1] - y) <= 2 \
                 and (not exact or abs(box[0] - x) <= 2) else None
 
-        # Exact across only once half the page is wider than the pane: below that the
-        # column under the pointer is kept whole (further on).
-        for delta_y, exact in ((-3, False),) * 5 + ((-3, True), (-3, True), (3, True)):
+        # Exact across only once the column under the pointer is wide enough to fill the pane
+        # wherever the pointer holds it: below that the column is kept whole, or filling the
+        # pane (further on).
+        for delta_y, exact in ((-3, False),) * 6 + ((-3, True), (3, True)):
             x, y, width = wheel_on_segment(delta_y)
             wait_until(lambda: settled(x, y, width * (1.25 if delta_y < 0 else 1 / 1.25), exact))
         # A paper is read a column at a time: from a page a little narrower than the pane to
