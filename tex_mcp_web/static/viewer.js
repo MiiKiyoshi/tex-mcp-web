@@ -1084,6 +1084,9 @@ function defineVimCommands(Vim) {
   vimCommandsDefined = true;
   // jj typed quickly leaves Insert mode, as Escape and Ctrl+[ do.
   Vim.map("jj", "<Esc>", "insert");
+  Vim.defineEx("make", "mak", () => {
+    compileFromKeys().catch((error) => alert(`Could not compile: ${error.message}`));
+  });
   Vim.defineEx("write", "w", () =>
     saveSource().catch((error) => alert(`Could not save: ${error.message}`)));
   // What an operator covers, selected in the editor; its start is where the cursor ends.
@@ -2293,6 +2296,14 @@ async function applyCompletedCompile(result, pdfDigest) {
   }
 }
 
+// Ctrl+Enter (Cmd+Enter), or :make with Vim keys, compiles as the button does, saving the
+// editor's changes first so that the PDF shows them.
+async function compileFromKeys() {
+  if ($("#compile-btn").disabled) return;
+  if (state.sourceDirty) await saveSource();
+  await compile();
+}
+
 async function compile() {
   applyCompiling(true);
   try {
@@ -2553,6 +2564,17 @@ function attachSidebarToggle() {
     if (!event.target.closest(".more") || event.target.closest(".more-menu button")) closeMore();
   });
   $("#overleaf-import-btn").addEventListener("click", () => showOverleafDialog());
+  // Ctrl+Enter (Cmd+Enter) compiles from anywhere but a field being written in, where it
+  // sends what is written, and an open dialog.
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" || !(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
+    const inEditor = event.target.closest?.("#source-editor");
+    if (document.querySelector("dialog[open]")
+      || (!inEditor && event.target.matches?.("textarea, input, select, [contenteditable]"))) return;
+    event.preventDefault();
+    event.stopPropagation();
+    compileFromKeys().catch((error) => alert(`Could not compile: ${error.message}`));
+  }, true);
   // Ctrl+[ does outside the editor what Escape does: Safari in full screen takes Escape to
   // leave full screen, so a comment being written could not be dropped without it.
   document.addEventListener("keydown", (event) => {

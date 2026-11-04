@@ -1192,6 +1192,20 @@ def test_browser_source_selection_and_split_resize(tmp_path: Path) -> None:
         assert browser.execute_script(theme) == ["dark", "dark", "ace/theme/one_dark", "dark", "dark"]
         browser.execute_script('document.querySelector("#theme-btn").click()')
         assert browser.execute_script(theme) == ["light", "light", "ace/theme/textmate", "light", "light"]
+        # Ctrl+Enter in the editor compiles, as the button does.
+        browser.execute_script('''
+          window.compiles = 0;
+          const fetch = window.fetch.bind(window);
+          window.fetch = (url, ...rest) => {
+            if (String(url) === "/compile") window.compiles += 1;
+            return fetch(url, ...rest);
+          };
+        ''', sandbox=None)
+        browser.execute_script('(window.wrappedJSObject || window).ace.edit("source-editor").focus()')
+        ActionSequence(browser, "key", "keyboard").key_down("\ue009").key_down("\ue007") \
+            .key_up("\ue007").key_up("\ue009").perform()
+        assert wait_until(lambda: browser.execute_script("return window.compiles;", sandbox=None)) == 1
+        wait_until(lambda: not browser.execute_script('return document.querySelector("#compile-btn").disabled'))
         # Long lines wrap until the wrap button turns it off, and the Vim button gives the
         # editor Vim keys, with Ctrl+[ as Escape and :w saving.
         editor = '(window.wrappedJSObject || window).ace.edit("source-editor")'
