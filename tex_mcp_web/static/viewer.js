@@ -1082,6 +1082,8 @@ let vimCommandsDefined = false;
 function defineVimCommands(Vim) {
   if (vimCommandsDefined) return;
   vimCommandsDefined = true;
+  // jj typed quickly leaves Insert mode, as Escape and Ctrl+[ do.
+  Vim.map("jj", "<Esc>", "insert");
   Vim.defineEx("write", "w", () =>
     saveSource().catch((error) => alert(`Could not save: ${error.message}`)));
   // What an operator covers, selected in the editor; its start is where the cursor ends.
@@ -2551,6 +2553,20 @@ function attachSidebarToggle() {
     if (!event.target.closest(".more") || event.target.closest(".more-menu button")) closeMore();
   });
   $("#overleaf-import-btn").addEventListener("click", () => showOverleafDialog());
+  // Ctrl+[ does outside the editor what Escape does: Safari in full screen takes Escape to
+  // leave full screen, so a comment being written could not be dropped without it.
+  document.addEventListener("keydown", (event) => {
+    if (!event.ctrlKey || event.code !== "BracketLeft" || event.target.closest?.("#source-editor")) return;
+    event.preventDefault();
+    const dialog = document.querySelector("dialog[open]");
+    if (dialog === null) {
+      event.target.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true, cancelable: true }));
+    } else if (dialog.querySelector("#compose-cancel")) {
+      dialog.querySelector("#compose-cancel").click();
+    } else {
+      dialog.close();
+    }
+  }, true);
   $("#overleaf-file").addEventListener("change", (event) => {
     const [file] = event.target.files;
     event.target.value = "";

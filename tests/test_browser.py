@@ -1219,6 +1219,11 @@ def test_browser_source_selection_and_split_resize(tmp_path: Path) -> None:
         assert browser.execute_script(f"return {field};") is False
         type_keys(browser, ["<C-[>"])
         assert browser.execute_script(f"return {field};") is True
+        # jj typed quickly leaves Insert mode too, and leaves no j behind.
+        kept = browser.execute_script(f"return {editor}.getValue();")
+        type_keys(browser, ["i", "j", "j"])
+        assert wait_until(lambda: browser.execute_script(f"return {field};") is True)
+        assert browser.execute_script(f"return {editor}.getValue();") == kept
         # With a Korean input method on, a key outside Insert mode is read by where it sits
         # (the key that gives ㅣ is l), and the letter the method composes is dropped.
         ime = browser.execute_script(f"""
@@ -1262,7 +1267,9 @@ def test_browser_source_selection_and_split_resize(tmp_path: Path) -> None:
         ActionSequence(browser, "key", "keyboard").key_down("\ue009").key_down("\ue00a").key_down("m") \
             .key_up("m").key_up("\ue00a").key_up("\ue009").perform()
         wait_until(lambda: browser.execute_script('return document.querySelector("#compose-dialog").open'))
-        browser.execute_script('document.querySelector("#compose-cancel").click()')
+        # Ctrl+[ drops the comment being written, as Escape does where Safari keeps Escape.
+        ActionSequence(browser, "key", "keyboard").key_down("\ue009").key_down("[") \
+            .key_up("[").key_up("\ue009").perform()
         wait_until(lambda: browser.execute_script('return !document.querySelector("#compose-dialog").open'))
         coords = browser.execute_script('''
           const editor = (window.wrappedJSObject || window).ace.edit("source-editor");
