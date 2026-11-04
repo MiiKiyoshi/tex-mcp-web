@@ -364,11 +364,14 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
   .topbar .compile-status { order: 2; }
   .topbar .actions { order: 3; flex: none; margin-left: auto; }
   /* One row on a phone: the buttons draw smaller, the file's name gives up what the row
-     lacks and ends in an ellipsis, and Saved follows the buttons in small type. */
+     lacks and ends in an ellipsis, and Saved ends the row in small type. */
   .source-toolbar { flex-wrap: nowrap; gap: 0.25rem; padding: 0.1rem 0.35rem; }
   .source-toolbar button { padding: 0.2rem 0.25rem; }
   .source-toolbar button svg { width: 14px; height: 14px; }
-  .source-status { order: 2; flex: 0 0 auto; margin-left: auto; font-size: 0.62rem; }
+  .source-status { order: 2; flex: 0 0 auto; font-size: 0.62rem; }
+  /* The room the row has to spare goes between the file and the buttons, which keep to
+     the right beside Saved. */
+  #source-font-smaller-btn { margin-left: auto; }
   .source-file-pick { flex: 0 1 8rem; min-width: 3rem; }
   .source-toolbar select { width: 100%; min-width: 0; max-width: none; height: 24px; padding: 0 0.2rem; }
 }
