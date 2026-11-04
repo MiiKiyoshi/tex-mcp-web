@@ -980,15 +980,15 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
    The page's own parts on a dark ground. The PDF's pages keep their colours. */
 :root[data-theme="dark"] {
   color-scheme: dark;
-  scrollbar-color: #77736a #383733;
-  --bg: #383733;
-  --bg-elev: #42413c;
-  --bg-pdf: #302f2c;
+  scrollbar-color: #8a867c #4a4944;
+  --bg: #4a4944;
+  --bg-elev: #54524d;
+  --bg-pdf: #403f3b;
   --fg: #f5f2eb;
   --fg-dim: #d8d2c6;
-  --border: #66635b;
+  --border: #7a766e;
   --accent: #8ea5bf;
-  --accent-soft: #4b525b;
+  --accent-soft: #5b636d;
   --warn: #d6a64a;
   --err: #e0857c;
   --ok: #8fcb9c;
