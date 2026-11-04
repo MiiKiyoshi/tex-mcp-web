@@ -1665,3 +1665,67 @@ def test_split_puts_the_translation_where_the_layout_menu_says(tmp_path: Path, m
                 browser_process.kill()
         shutil.rmtree(profile, ignore_errors=True)
         shared.stop()
+
+
+@pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
+def test_the_more_menu_tells_how_to_bring_overleaf_comments(tmp_path: Path) -> None:
+    """Overleaf comments come in through the Overleaf Note extension for Chrome, which is
+    given this page's address. The more menu tells that address and the steps. Opened with
+    the extension's receipt in a browser without it, the page says it received nothing and
+    drops the receipt from its address."""
+    import fitz
+
+    (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
+    with fitz.open() as pdf:
+        pdf.new_page().insert_text((72, 72), "Hello world.")
+        pdf.save(tmp_path / "paper.pdf")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    profile = tempfile.mkdtemp(prefix="tex_mcp_overleaf_")
+    marionette_port = available_port()
+    (Path(profile) / "user.js").write_text(
+        f'user_pref("marionette.port", {marionette_port});\n', encoding="utf-8")
+    browser_process = None
+    browser = None
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        browser_process = subprocess.Popen(
+            ["firefox", "-marionette", "-headless", "-no-remote", "-profile", profile, "about:blank"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        browser = marionette.Marionette(host="127.0.0.1", port=marionette_port, startup_timeout=30)
+        browser.start_session()
+        browser.navigate(base)
+        dialog = '''
+          return [document.querySelector("#overleaf-dialog").open,
+                  document.querySelector("#overleaf-address").textContent,
+                  document.querySelector("#overleaf-status").textContent, location.href];
+        '''
+        browser.execute_script('document.querySelector("#more-btn").click()')
+        assert browser.execute_script('return document.querySelector("#more-menu").hidden') is False
+        browser.execute_script('document.querySelector("#overleaf-import-btn").click()')
+        opened = wait_until(lambda: (seen := browser.execute_script(dialog))[0] and seen)
+        assert opened[1] == base and opened[2] == ""
+        assert browser.execute_script('return document.querySelector("#more-menu").hidden') is True
+
+        browser.navigate(f"{base}/?overleaf-feedback=1#extension=abc&receipt=def")
+        told = wait_until(lambda: (seen := browser.execute_script(dialog))[0] and seen)
+        assert "received nothing" in told[2]
+        assert told[3] == f"{base}/"
+    finally:
+        if browser is not None:
+            try:
+                browser.delete_session()
+            except Exception:
+                pass
+        if browser_process is not None:
+            browser_process.terminate()
+            try:
+                browser_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                browser_process.kill()
+        shutil.rmtree(profile, ignore_errors=True)
+        shared.stop()

@@ -2496,3 +2496,24 @@ async def test_each_language_keeps_its_own_translations(client, project):
     assert translator.missing(split_paragraphs((project / "body.tex").read_text(), "body.tex"))
     assert server._translator("Japanese") is translator
 
+
+
+async def test_overleaf_comments_from_the_extension_are_kept_as_they_came(client) -> None:
+    """The Overleaf Note extension hands a project's threads and ranges to the review page,
+    which posts them here; they are kept whole in the project's state folder, counted, and
+    anything else is refused."""
+    test_client, server = client
+    project = "0123456789abcdef01234567"
+    payload = {
+        "project": project,
+        "threads": {"t1": {"messages": [{"content": "Shorter?"}]}, "t2": {"messages": []}},
+        "ranges": [{"id": "doc1", "ranges": {"comments": [{"id": "t1", "op": {"c": "word", "p": 4, "t": "t1"}}]}},
+                   {"id": "doc2", "ranges": {}}],
+    }
+    reply = await (await test_client.post("/overleaf-import", json=payload)).json()
+    assert reply["threads"] == 2 and reply["comments"] == 1
+    assert reply["saved"].startswith(f".tex-mcp-web/overleaf/{project}-") and reply["saved"].endswith(".json")
+    assert json.loads((server.watch_dir / reply["saved"]).read_text(encoding="utf-8")) == payload
+    for wrong in ({"project": "nope", "threads": {}, "ranges": []}, {"project": project, "threads": [], "ranges": []}, [1]):
+        response = await test_client.post("/overleaf-import", json=wrong)
+        assert response.status == 400

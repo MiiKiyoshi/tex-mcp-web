@@ -23,6 +23,7 @@ import re
 import stat
 import tempfile
 from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -416,6 +417,7 @@ class TexMcpWebServer:
         app.router.add_get("/image", self._handle_image)
         app.router.add_get("/reference-preview", self._handle_reference_preview)
         app.router.add_post("/review-request", self._handle_review_request)
+        app.router.add_post("/overleaf-import", self._handle_overleaf_import)
         app.router.add_get("/wait-review", self._handle_wait_review)
         app.router.add_post("/wait-review/ack", self._handle_ack_review)
         return app
@@ -608,6 +610,27 @@ class TexMcpWebServer:
         return (f"[review] reviewer called (press #{self.review_calls}): "
                 + (f"{waiting} unanswered comments" if waiting else "no unanswered comments")
                 + " -- read them with read_comments(unanswered=True)")
+
+    async def _handle_overleaf_import(self, request: web.Request) -> web.Response:
+        """Comments read from an Overleaf project by the Overleaf Note extension: its threads
+        and the ranges they mark, kept as they came in .tex-mcp-web/overleaf."""
+        try:
+            payload = await request.json()
+        except ValueError:
+            return web.json_response({"error": "the body is not JSON"}, status=400)
+        project = payload.get("project") if isinstance(payload, dict) else None
+        if (not isinstance(project, str) or not re.fullmatch(r"[a-f0-9]{24}", project)
+                or not isinstance(payload.get("threads"), dict) or not isinstance(payload.get("ranges"), list)):
+            return web.json_response({"error": "these are not an Overleaf project's comments"}, status=400)
+        folder = self.watch_dir / ".tex-mcp-web" / "overleaf"
+        folder.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        path = folder / f"{project}-{stamp}.json"
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=1), encoding="utf-8")
+        comments = sum(len(((doc.get("ranges") or {}).get("comments")) or [])
+                       for doc in payload["ranges"] if isinstance(doc, dict))
+        return web.json_response({"saved": path.relative_to(self.watch_dir).as_posix(),
+                                  "threads": len(payload["threads"]), "comments": comments})
 
     async def _handle_review_request(self, request: web.Request) -> web.Response:
         self.review_calls += 1
