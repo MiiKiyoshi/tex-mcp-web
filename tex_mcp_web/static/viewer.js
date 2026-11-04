@@ -1027,7 +1027,22 @@ function applyVimKeys() {
     defineVimCommands(window.ace.require("ace/keyboard/vim").Vim);
     holdKeysOutsideInsert(state.editor);
     syncYanksToClipboard(state.editor);
+    keepInputAtCursor(state.editor);
   });
+}
+
+// Outside Insert mode Vim moves the editor's hidden input off to the editor's left, out of
+// view, and Safari, bringing it into view at each key, made the text shake and flicker as
+// the cursor moved. The input stays at the cursor, inside the editor, in every mode. Ace
+// keeps it away from the cursor on iOS itself, which a touch screen leaves alone.
+function keepInputAtCursor(editor) {
+  if (window.matchMedia("(pointer: coarse)").matches) return;
+  const keep = () => {
+    editor.renderer.$keepTextAreaAtCursor = true;
+    editor.renderer.$moveTextAreaToCursor();
+  };
+  editor.state.cm.on("vim-mode-change", keep);
+  keep();
 }
 
 // What Vim yanks, deletes or changes goes to the system clipboard too, so it pastes in
