@@ -1026,7 +1026,23 @@ function applyVimKeys() {
     }
     defineVimCommands(window.ace.require("ace/keyboard/vim").Vim);
     holdKeysOutsideInsert(state.editor);
+    syncYanksToClipboard(state.editor);
   });
+}
+
+// What Vim yanks, deletes or changes goes to the system clipboard too, so it pastes in
+// another program. A browser lets a page write the clipboard only on localhost or https.
+function syncYanksToClipboard(editor) {
+  const Vim = window.ace.require("ace/keyboard/vim").Vim;
+  const unnamed = () => Vim.getRegisterController().getRegister('"').toString();
+  let last = unnamed();
+  // Vim says a command is done as it starts on it, before the text reaches the register.
+  editor.state.cm.on("vim-command-done", () => setTimeout(() => {
+    const text = unnamed();
+    if (text === last) return;
+    last = text;
+    navigator.clipboard?.writeText(text).catch(() => {});
+  }));
 }
 
 // macOS answers a letter held down in a text field with its accent menu rather than a

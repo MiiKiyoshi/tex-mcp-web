@@ -1187,6 +1187,13 @@ def test_browser_source_selection_and_split_resize(tmp_path: Path) -> None:
         wait_until(lambda: browser.execute_script(f"return Boolean({editor}.$vimModeHandler);"))
         # Outside Insert mode the editor's input field is read-only, so a held key repeats
         # rather than opening macOS's accent menu; Insert mode writes again.
+        # A yank goes to the system clipboard too.
+        browser.execute_script('''
+          navigator.clipboard.writeText = (text) => { window.copied = text; return Promise.resolve(); };
+        ''', sandbox=None)
+        type_keys(browser, [*"ggyy"])
+        assert wait_until(lambda: browser.execute_script("return window.copied ?? null;", sandbox=None)) \
+            == browser.execute_script(f"return {editor}.session.getLine(0) + '\\n';")
         field = f"{editor}.textInput.getElement().readOnly"
         assert browser.execute_script(f"return {field};") is True
         type_keys(browser, ["i"])
