@@ -75,27 +75,67 @@ def _has_prose(text: str) -> bool:
     return len(words) >= 3
 
 
+_FLOAT = re.compile(r"\\begin\{(figure|table)(\*?)\}.*?\\end\{\1\2\}", re.DOTALL)
+_CAPTION = re.compile(r"\\(?:sub)?caption\*?(?:\[[^\]]*\])?\{")
+_COMMENT_LINE = "%"
+
+
+def _argument_end(text: str, start: int) -> int | None:
+    """Index of the brace closing the argument that opens just before *start*."""
+    depth = 1
+    index = start
+    while index < len(text):
+        if text[index] == "\\":
+            index += 2
+            continue
+        if text[index] == "{":
+            depth += 1
+        elif text[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return index
+        index += 1
+    return None
+
+
+def _captions_only(float_match: re.Match) -> str:
+    """A figure or table blanked but for the words of its captions.
+
+    The line breaks stay, so a caption keeps its source lines.
+    """
+    body = float_match.group(0)
+    kept = [char if char == "\n" else " " for char in body]
+    for caption in _CAPTION.finditer(body):
+        end = _argument_end(body, caption.end())
+        if end is not None:
+            kept[caption.end():end] = body[caption.end():end]
+    return "".join(kept)
+
+
 def split_paragraphs(text: str, file: str) -> list[Paragraph]:
     """Blank-line separated paragraphs with % comments removed.
 
     Lines that are only a comment are dropped, so notes kept in comments are never
-    translated. A paragraph without at least three words of prose (environment
-    lines, \\label, \\includegraphics) is skipped.
+    translated. Of a figure or table only the caption is read: a drawing's labels and a
+    table's cells are not prose. A paragraph without at least three words of prose
+    (environment lines, \\label) is skipped.
     """
     paragraphs: list[Paragraph] = []
     current: list[tuple[int, str]] = []
 
     def flush() -> None:
         if current:
-            body = "\n".join(line for _, line in current)
+            body = "\n".join(line for _, line in current).strip()
             if _has_prose(body):
                 paragraphs.append(Paragraph(file, current[0][0], current[-1][0], body))
             current.clear()
 
-    for number, raw in enumerate(text.split("\n"), start=1):
-        if raw.lstrip().startswith("%"):
+    uncommented = "\n".join(_COMMENT_LINE if raw.lstrip().startswith("%") else _INLINE_COMMENT.sub("", raw)
+                            for raw in text.split("\n"))
+    for number, raw in enumerate(_FLOAT.sub(_captions_only, uncommented).split("\n"), start=1):
+        if raw == _COMMENT_LINE:
             continue
-        line = _INLINE_COMMENT.sub("", raw).rstrip()
+        line = raw.rstrip()
         if not line.strip():
             flush()
             continue

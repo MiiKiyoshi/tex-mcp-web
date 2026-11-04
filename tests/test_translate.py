@@ -33,10 +33,61 @@ Second paragraph with 50\\% savings and more words.
 
 def test_split_paragraphs_drops_comments_and_command_only_blocks():
     paragraphs = split_paragraphs(SOURCE, "tex/a.tex")
-    assert [(p.line_start, p.line_end) for p in paragraphs] == [(5, 8), (12, 12)]
+    assert [(p.line_start, p.line_end) for p in paragraphs] == [(5, 6), (12, 12)]
     assert "inline note" not in paragraphs[0].text
     assert "plan" not in paragraphs[0].text
     assert "50\\% savings" in paragraphs[1].text
+
+
+def test_a_float_gives_only_its_caption_at_the_caption_lines():
+    source = """Words before the float stay here.
+\\begin{figure}[t]
+    \\centering
+    \\begin{tikzpicture}
+        \\node at (0, 0) {left side: power in both rails};
+
+        \\draw (0, 0) -- (1, 1) node {right side of the drawing};
+    \\end{tikzpicture}
+    \\caption[Short]{Euler paths of a {\\it NAND2} gate,
+    % a note kept in a comment
+    with more of the caption here.}
+    \\label{fig:euler}
+\\end{figure}
+Words after the float stay here.
+
+\\begin{table*}[t]
+    \\caption{Results of the three benchmark runs.}
+    \\begin{tabular}{l|c}
+    words in a cell of the table & 12 \\\\
+    \\end{tabular}
+\\end{table*}
+"""
+    paragraphs = split_paragraphs(source, "a.tex")
+    assert [(p.line_start, p.line_end) for p in paragraphs] == [(1, 1), (9, 11), (14, 14), (17, 17)]
+    assert paragraphs[1].text == (
+        "Euler paths of a {\\it NAND2} gate,\n    with more of the caption here.")
+    assert paragraphs[3].text == "Results of the three benchmark runs."
+
+
+def test_a_commented_float_marker_or_caption_is_not_one():
+    source = """Some words of prose here.
+% \\begin{figure}
+More words of prose here.
+% \\end{figure}
+
+\\begin{figure}
+% \\caption{An old caption kept in a comment.}
+\\node {three words here};
+\\end{figure}
+"""
+    paragraphs = split_paragraphs(source, "a.tex")
+    assert [(p.line_start, p.line_end) for p in paragraphs] == [(1, 3)]
+
+
+def test_an_unclosed_float_or_caption_keeps_the_words_around_it():
+    assert [p.text for p in split_paragraphs("\\begin{figure}\nThree more words.\n", "a.tex")] == [
+        "\\begin{figure}\nThree more words."]
+    assert split_paragraphs("\\begin{figure}\n\\caption{Three more words.\n\\end{figure}\n", "a.tex") == []
 
 
 def test_key_ignores_reflowed_whitespace():
