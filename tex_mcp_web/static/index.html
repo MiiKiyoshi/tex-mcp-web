@@ -151,17 +151,19 @@
 </div>
 
 <dialog id="overleaf-dialog">
-  <form method="dialog">
+  <form method="dialog" id="overleaf-form">
     <h3>Overleaf comments</h3>
     <ol class="overleaf-steps">
-      <li>Install <a href="https://chromewebstore.google.com/detail/overleaf-comments-export/nbbappjfcankkjnpbaopjhejgdagaglc" target="_blank" rel="noopener">Overleaf Comments Export</a> in Chrome, or its Python tool.</li>
-      <li>Export the Overleaf project's comments with it, and keep its <code>comments.json</code>.</li>
-      <li>Choose that file here.</li>
+      <li>Install <a href="https://chromewebstore.google.com/detail/overleaf-comments-export/nbbappjfcankkjnpbaopjhejgdagaglc" target="_blank" rel="noopener">Overleaf Comments Export</a>.</li>
+      <li>Export the project's comments to <code>comments.json</code>.</li>
+      <li>Choose that file.</li>
     </ol>
-    <p class="overleaf-note">Each open thread becomes a comment on the words it was written about, its replies after it. A thread brought in before only gains its new replies.</p>
-    <input id="overleaf-file" type="file" accept=".json,application/json">
+    <p class="overleaf-note">Open threads come in on their words, replies after them. Again, only new replies.</p>
     <p id="overleaf-status" class="overleaf-status" role="status"></p>
-    <div class="actions"><button value="close">Close</button></div>
+    <div class="dialog-actions">
+      <button value="close" autofocus>Close</button>
+      <label class="file-button">Choose comments.json…<input id="overleaf-file" type="file" accept=".json,application/json"></label>
+    </div>
   </form>
 </dialog>
 
