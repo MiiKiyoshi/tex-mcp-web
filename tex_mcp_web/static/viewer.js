@@ -1065,6 +1065,10 @@ function defineVimCommands(Vim) {
     return start;
   });
   Vim.mapCommand("gc", "operator", "sourceComment");
+  Vim.defineAction("goToDefinition", () => {
+    goToDefinition().catch((error) => setSourceStatus(error.message, "conflict"));
+  });
+  Vim.mapCommand("gd", "action", "goToDefinition", {}, { context: "normal" });
 }
 
 // With Vim keys and an input method on, as with Korean, a key outside Insert mode reaches
@@ -1101,6 +1105,56 @@ function attachVimInputMethod(editor) {
     if (vimCommandMode() && COMPOSED.test(text)) return;
     typed(text, ...rest);
   };
+}
+
+// gd with Vim keys, or F12, goes from what the cursor is on to where it is defined: from
+// \input (or \include, \subfile) to that file, from \ref and its kin to the \label it
+// names, from \cite and its kin to the entry in a .bib file. In a list such as
+// \cite{a,b} it is the name under the cursor. The open file is searched first.
+const DEFINED = /\\(input|include|subfile|ref|cref|Cref|eqref|autoref|pageref|nameref|cite|citep|citet|parencite|textcite)\*?(?:\[[^\]]*\])*\{([^}]*)\}/g;
+
+async function goToDefinition() {
+  const editor = state.editor;
+  if (!editor) return;
+  const { row, column } = editor.getCursorPosition();
+  const line = editor.session.getLine(row);
+  const match = [...line.matchAll(DEFINED)].find((found) =>
+    column >= found.index && column <= found.index + found[0].length);
+  if (match === undefined) {
+    setSourceStatus("No \\input, \\ref or \\cite under the cursor");
+    return;
+  }
+  const [whole, command, argument] = match;
+  let at = match.index + whole.length - argument.length - 1;
+  let name = argument.trim();
+  for (const part of argument.split(",")) {
+    name = part.trim();
+    if (column <= at + part.length) break;
+    at += part.length + 1;
+  }
+  const files = Array.from($("#source-file").options, (option) => option.value);
+  if (["input", "include", "subfile"].includes(command)) {
+    const file = [name, `${name}.tex`].find((path) => files.includes(path));
+    if (file === undefined) setSourceStatus(`${name} is not among the source files`);
+    else await openSource(file, 1);
+    return;
+  }
+  const cited = command.includes("cite");
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = cited ? new RegExp(`@\\w+\\s*\\{\\s*${escaped}\\s*,`) : new RegExp(`\\\\label\\{\\s*${escaped}\\s*\\}`);
+  const candidates = files.filter((path) => path.endsWith(cited ? ".bib" : ".tex"))
+    .sort((a, b) => (b === state.sourcePath) - (a === state.sourcePath));
+  for (const path of candidates) {
+    const text = path === state.sourcePath
+      ? editor.getValue()
+      : (await (await fetch(`/source?${new URLSearchParams({ path })}`)).json()).text;
+    const index = text?.search(pattern) ?? -1;
+    if (index >= 0) {
+      await openSource(path, text.slice(0, index).split("\n").length);
+      return;
+    }
+  }
+  setSourceStatus(`No ${cited ? "bib entry" : "\\label"} for ${name}`);
 }
 
 // Ctrl+Alt+M (Cmd+Option+M), or gc with Vim keys. Comments wait for the file to be saved,
@@ -1144,6 +1198,11 @@ async function initializeSourceEditor() {
     name: "saveSource",
     bindKey: { win: "Ctrl-S", mac: "Command-S" },
     exec: () => saveSource().catch((error) => alert(`Could not save: ${error.message}`)),
+  });
+  state.editor.commands.addCommand({
+    name: "goToDefinition",
+    bindKey: { win: "F12", mac: "F12" },
+    exec: () => goToDefinition().catch((error) => setSourceStatus(error.message, "conflict")),
   });
   state.editor.commands.addCommand({
     name: "commentSource",
