@@ -138,7 +138,6 @@ textarea {
 #overleaf-form h3 { margin: 0; font-size: 1rem; }
 #overleaf-form a { color: var(--accent); }
 .overleaf-steps { margin: 0; padding-left: 1.3rem; line-height: 1.6; }
-.overleaf-note { margin: 0; color: var(--fg-dim); font-size: 0.82rem; }
 .overleaf-status:empty { display: none; }
 .overleaf-status { margin: 0; padding: 0.4rem 0.6rem; border-left: 3px solid var(--accent); background: var(--accent-soft); font-size: 0.85rem; }
 .file-button {
