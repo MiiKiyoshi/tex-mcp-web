@@ -1100,6 +1100,11 @@ function defineVimCommands(Vim) {
     goToDefinition().catch((error) => setSourceStatus(error.message, "conflict"));
   });
   Vim.mapCommand("gd", "action", "goToDefinition", {}, { context: "normal" });
+  Vim.mapCommand("<C-]>", "action", "goToDefinition", {}, { context: "normal" });
+  Vim.defineAction("backFromDefinition", () => {
+    backFromDefinition().catch((error) => setSourceStatus(error.message, "conflict"));
+  });
+  Vim.mapCommand("<C-t>", "action", "backFromDefinition", {}, { context: "normal" });
 }
 
 // With Vim keys and an input method on, as with Korean, a key outside Insert mode reaches
@@ -1153,6 +1158,23 @@ function attachVimInputMethod(editor) {
 // \cite{a,b} it is the name under the cursor. The open file is searched first.
 const DEFINED = /\\(input|include|subfile|ref|cref|Cref|eqref|autoref|pageref|nameref|cite|citep|citet|parencite|textcite)\*?(?:\[[^\]]*\])*\{([^}]*)\}/g;
 
+// Each jump to a definition leaves its starting place here, and Ctrl+T with Vim keys, or
+// Shift+F12, goes back to the last one, as Vim's tag stack does.
+const definitionTrail = [];
+
+async function backFromDefinition() {
+  const back = definitionTrail.pop();
+  if (back === undefined) {
+    setSourceStatus("No jump to go back from");
+    return;
+  }
+  if (await openSource(back.path, back.row + 1)) state.editor.moveCursorTo(back.row, back.column);
+}
+
+async function jumpTo(path, line, from) {
+  if (await openSource(path, line)) definitionTrail.push(from);
+}
+
 async function goToDefinition() {
   const editor = state.editor;
   if (!editor) return;
@@ -1176,7 +1198,7 @@ async function goToDefinition() {
   if (["input", "include", "subfile"].includes(command)) {
     const file = [name, `${name}.tex`].find((path) => files.includes(path));
     if (file === undefined) setSourceStatus(`${name} is not among the source files`);
-    else await openSource(file, 1);
+    else await jumpTo(file, 1, { path: state.sourcePath, row, column });
     return;
   }
   const cited = command.includes("cite");
@@ -1190,7 +1212,7 @@ async function goToDefinition() {
       : (await (await fetch(`/source?${new URLSearchParams({ path })}`)).json()).text;
     const index = text?.search(pattern) ?? -1;
     if (index >= 0) {
-      await openSource(path, text.slice(0, index).split("\n").length);
+      await jumpTo(path, text.slice(0, index).split("\n").length, { path: state.sourcePath, row, column });
       return;
     }
   }
@@ -1245,6 +1267,11 @@ async function initializeSourceEditor() {
     name: "saveSource",
     bindKey: { win: "Ctrl-S", mac: "Command-S" },
     exec: () => saveSource().catch((error) => alert(`Could not save: ${error.message}`)),
+  });
+  state.editor.commands.addCommand({
+    name: "backFromDefinition",
+    bindKey: { win: "Shift-F12", mac: "Shift-F12" },
+    exec: () => backFromDefinition().catch((error) => setSourceStatus(error.message, "conflict")),
   });
   state.editor.commands.addCommand({
     name: "goToDefinition",
