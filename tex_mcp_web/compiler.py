@@ -10,6 +10,8 @@ from typing import Literal
 
 import fitz
 
+from .synctex import has_synctex_record
+
 
 @dataclass
 class CompileMessage:
@@ -394,9 +396,10 @@ async def compile_tex(
     start_time = datetime.now(timezone.utc)
     is_pandoc = resolved_compiler == "pandoc"
     pdf_path = work_dir / (main_file.stem + ".pdf")
-    force_rebuild = (
-        resolved_compiler == "latexmk"
-        and _pdf_validation_error(pdf_path) is not None
+    # latexmk calls a PDF up to date though it was built outside without SyncTeX.
+    force_rebuild = resolved_compiler == "latexmk" and (
+        _pdf_validation_error(pdf_path) is not None
+        or not has_synctex_record(pdf_path)
     )
 
     try:

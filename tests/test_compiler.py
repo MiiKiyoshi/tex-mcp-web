@@ -1,5 +1,7 @@
 """Tests for compiler module."""
 
+import shutil
+import subprocess
 from pathlib import Path
 
 import fitz
@@ -494,3 +496,20 @@ class TestEnrichErrorContext:
         assert msg.context is not None
         assert len(msg.context) == 1
         assert msg.context[0] == ">>> Only line <<<"
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(shutil.which("latexmk") is None, reason="latexmk is required")
+async def test_compile_rebuilds_a_pdf_built_outside_without_synctex(tmp_path):
+    """latexmk calls such a PDF up to date, so a plain run would never add the record."""
+    main_file = tmp_path / "main.tex"
+    main_file.write_text(
+        "\\documentclass{article}\n\\begin{document}\nHello.\n\\end{document}\n", encoding="utf-8")
+    subprocess.run(["latexmk", "-norc", "-pdf", "-interaction=nonstopmode", "main.tex"],
+                   cwd=tmp_path, check=True, capture_output=True)
+    assert not (tmp_path / "main.synctex.gz").exists()
+
+    result = await compile_tex(main_file, work_dir=tmp_path)
+
+    assert result.success is True
+    assert (tmp_path / "main.synctex.gz").exists()

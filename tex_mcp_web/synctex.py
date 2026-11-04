@@ -196,6 +196,13 @@ def parse_synctex(synctex_path: Path) -> SyncTeXData | None:
     return data
 
 
+def has_synctex_record(pdf_path: Path) -> bool:
+    """Whether the PDF has a SyncTeX record of its own build, which a PDF built without
+    -synctex=1 lacks, or has only from an earlier build."""
+    record = find_synctex_file(pdf_path)
+    return record is not None and record.stat().st_mtime >= pdf_path.stat().st_mtime - 1
+
+
 def find_synctex_file(pdf_path: Path) -> Path | None:
     """Find the SyncTeX file for a PDF.
 

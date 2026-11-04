@@ -62,6 +62,7 @@ from .structure import (
 from .synctex import (
     SyncTeXData,
     find_synctex_file,
+    has_synctex_record,
     parse_synctex,
     printed_words,
     selection_to_source_range,
@@ -1406,8 +1407,7 @@ class TexMcpWebServer:
         if self.last_result is None or self.last_result.output_file is None:
             return web.json_response({"error": "no PDF available"}, status=409)
         pdf = self.last_result.output_file
-        record = find_synctex_file(pdf)
-        if record is None or record.stat().st_mtime < pdf.stat().st_mtime - 1:
+        if not has_synctex_record(pdf):
             return web.json_response({"error": (
                 f"{pdf.name} was built without SyncTeX, so it records no source places. "
                 "Press Compile to build it with SyncTeX, then try again")}, status=409)
