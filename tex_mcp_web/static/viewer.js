@@ -950,6 +950,7 @@ function editorTheme() {
 function applyTheme(theme) {
   document.documentElement.dataset.theme = theme;
   $("#theme-btn").setAttribute("aria-pressed", String(theme === "dark"));
+  $("#theme-btn").textContent = theme === "dark" ? "Light mode" : "Dark mode";
   state.editor?.setTheme(editorTheme());
   state.viewer?.setTheme?.(theme);
   // The viewer's scroll bars take the page's scheme, which its own theme does not set.
@@ -2389,13 +2390,11 @@ function attachSidebarToggle() {
     $("#more-menu").hidden = !open;
     $("#more-btn").setAttribute("aria-expanded", String(open));
   });
+  // A choice in the menu closes it.
   document.addEventListener("click", (event) => {
-    if (!event.target.closest(".more")) closeMore();
+    if (!event.target.closest(".more") || event.target.closest(".more-menu button")) closeMore();
   });
-  $("#overleaf-import-btn").addEventListener("click", () => {
-    closeMore();
-    showOverleafDialog();
-  });
+  $("#overleaf-import-btn").addEventListener("click", () => showOverleafDialog());
   $("#overleaf-copy-btn").addEventListener("click", () => {
     navigator.clipboard?.writeText(location.origin).catch(() => {});
   });

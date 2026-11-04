@@ -113,7 +113,7 @@ textarea {
 }
 .topbar button:hover { background: var(--accent-soft); }
 .narrow-icon { display: none; }
-#theme-btn, #more-btn { display: inline-flex; align-items: center; line-height: 1; }
+#more-btn { display: inline-flex; align-items: center; line-height: 1; }
 #more-btn svg { display: block; }
 .more { position: relative; display: inline-flex; }
 .more-menu {
@@ -139,7 +139,6 @@ textarea {
 .overleaf-steps { padding-left: 1.2rem; }
 .overleaf-steps li { margin-bottom: 0.3rem; }
 .overleaf-note { color: var(--fg-dim); font-size: 0.85rem; }
-#theme-btn svg { display: block; }
 #compile-btn:disabled { cursor: wait; }
 /* Green reaches a parked waiter now; red queues the call for the next waiter. */
 .agent-dot { width: 8px; height: 8px; border-radius: 50%; }
@@ -998,4 +997,3 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
 :root[data-theme="dark"] #call-agent-btn.agent-offline { background: #321f1e; }
 :root[data-theme="dark"] .cmt.status-archived .cmt-status { color: #9fb4e0; }
 :root[data-theme="dark"] dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
-:root[data-theme="dark"] #theme-btn { color: #d8c25a; }
