@@ -412,10 +412,9 @@ def _wait_method(ctx: "Context") -> str:
     if "claude" in name:
         return (
             'Run the script with Monitor(command=<script>, description="tex-mcp review", '
-            "timeout_ms=1800000), then end the turn. On a 30-minute expiry notice, restart the same "
-            "Monitor only if it delivered an event in those 30 minutes or the user asked to keep "
-            "listening. Otherwise leave it stopped and tell the user in one line that listening "
-            "stopped and that asking again resumes it. Nothing is lost while it is stopped: new "
+            "timeout_ms=1800000), then end the turn. When it expires, leave it stopped and tell the "
+            "user in one line that listening stopped and that asking again resumes it. Nothing is "
+            "lost while it is stopped: new "
             "comments wait for read_comments(new=True), and a Call agent press waits for the next "
             "waiter. Stop an active Monitor when the review is finished or the user asks."
         )
@@ -428,16 +427,13 @@ def _wait_method(ctx: "Context") -> str:
             "The script uses codex queue to deliver events as labeled user messages, "
             "including while idle. Delivery may take about 10 seconds. "
             "Requires codex queue on PATH and CODEX_THREAD_ID in the agent shell. "
-            "Keep one waiter while the review or task it serves still needs events. "
-            "Stop its process when that work no longer needs events."
+            "Run one waiter at a time. "
+            "Stop its process when the review is finished or the user asks."
         )
     return (
         "Run the script with your shell tool and read its output. If the tool returns a "
-        "running session, retain it and use the tool that reads subsequent output. Keep "
-        "the turn active while waiting unless your client explicitly supports resuming "
-        "a completed turn from background output. After handling an event, resume "
-        "waiting on the same process only while the review or task it serves still needs "
-        "events. Otherwise stop it."
+        "running session, read what follows with the tool that reads subsequent output. "
+        "After handling an event, stop it; listening resumes when the user asks again."
     )
 
 
@@ -829,8 +825,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         """Return a script and client-specific instructions for listening for Call agent.
 
         Run the returned script using the how field, selected for the connected
-        client. Reuse its process while review of this artifact remains part of your
-        work. Stop it when that review is finished or no longer part of your work.
+        client. Stop it when the review is finished or the user asks.
         """
         try:
             port = binding.require_shared().port
