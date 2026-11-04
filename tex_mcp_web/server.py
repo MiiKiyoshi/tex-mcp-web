@@ -23,7 +23,6 @@ import re
 import stat
 import tempfile
 from collections.abc import Callable
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -612,25 +611,102 @@ class TexMcpWebServer:
                 + " -- read them with read_comments(unanswered=True)")
 
     async def _handle_overleaf_import(self, request: web.Request) -> web.Response:
-        """Comments read from an Overleaf project by the Overleaf Note extension: its threads
-        and the ranges they mark, kept as they came in .tex-mcp-web/overleaf."""
+        """Comments exported from Overleaf by Overleaf Comments Export, its comments.json
+        (schema 1). Each open thread becomes a comment on the words it was written about,
+        and its replies the comment's later entries, every one marked with its Overleaf
+        author. Threads brought in before gain only their new replies, so the same
+        project's export can come in again as the review goes on."""
         try:
-            payload = await request.json()
+            data = await request.json()
         except ValueError:
-            return web.json_response({"error": "the body is not JSON"}, status=400)
-        project = payload.get("project") if isinstance(payload, dict) else None
-        if (not isinstance(project, str) or not re.fullmatch(r"[a-f0-9]{24}", project)
-                or not isinstance(payload.get("threads"), dict) or not isinstance(payload.get("ranges"), list)):
-            return web.json_response({"error": "these are not an Overleaf project's comments"}, status=400)
-        folder = self.watch_dir / ".tex-mcp-web" / "overleaf"
-        folder.mkdir(parents=True, exist_ok=True)
-        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        path = folder / f"{project}-{stamp}.json"
-        path.write_text(json.dumps(payload, ensure_ascii=False, indent=1), encoding="utf-8")
-        comments = sum(len(((doc.get("ranges") or {}).get("comments")) or [])
-                       for doc in payload["ranges"] if isinstance(doc, dict))
-        return web.json_response({"saved": path.relative_to(self.watch_dir).as_posix(),
-                                  "threads": len(payload["threads"]), "comments": comments})
+            return web.json_response({"error": "the file is not JSON"}, status=400)
+        if (not isinstance(data, dict) or not str(data.get("schema_version", "")).startswith("1.")
+                or not isinstance(data.get("comments"), list) or not isinstance(data.get("threads"), dict)):
+            return web.json_response(
+                {"error": "this is not a comments.json from Overleaf Comments Export"}, status=400)
+        ledger_path = self.watch_dir / ".tex-mcp-web" / "overleaf-imported.json"
+        try:
+            ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            ledger = {}
+        counts = {"added": 0, "replies": 0, "resolved": 0, "unplaced": 0}
+
+        def said(message: dict[str, Any]) -> str:
+            name = (message.get("user") or {}).get("name") or "someone"
+            return f"[Overleaf · {name}] {str(message.get('content', '')).strip()}"
+
+        for entry in data["comments"]:
+            if not isinstance(entry, dict):
+                continue
+            thread_id = str(entry.get("thread_id", ""))
+            thread = data["threads"].get(thread_id)
+            if not isinstance(thread, dict):
+                continue
+            if thread.get("resolved"):
+                counts["resolved"] += 1
+                continue
+            messages = [m for m in thread.get("messages") or []
+                        if isinstance(m, dict) and str(m.get("content", "")).strip()]
+            if not messages:
+                continue
+            known = ledger.get(thread_id)
+            if known and self.comments.get(known["comment"]) is not None:
+                for message in messages[known["messages"]:]:
+                    comment = self.comments.reply(known["comment"], said(message), "human")
+                    counts["replies"] += 1
+                if len(messages) > known["messages"]:
+                    await self.broadcast({"type": "comment_updated", "comment": _comment_to_dict(comment)})
+                known["messages"] = len(messages)
+                continue
+            anchor, resolved, selector, where = self._overleaf_anchor(entry)
+            text = said(messages[0]) if where is None else f"{said(messages[0])}\n(On Overleaf at {where}, not found here.)"
+            counts["unplaced"] += where is not None
+            comment = self.comments.add(anchor=anchor, text=text, author="human",
+                                        resolved_source=resolved, source_selector=selector)
+            for message in messages[1:]:
+                comment = self.comments.reply(comment.id, said(message), "human")
+            ledger[thread_id] = {"comment": comment.id, "messages": len(messages)}
+            counts["added"] += 1
+            await self.broadcast({"type": "comment_added", "comment": _comment_to_dict(comment)})
+        ledger_path.parent.mkdir(parents=True, exist_ok=True)
+        ledger_path.write_text(json.dumps(ledger, indent=1), encoding="utf-8")
+        return web.json_response(counts)
+
+    def _overleaf_anchor(self, entry: dict[str, Any]) -> tuple[Any, Any, Any, str | None]:
+        """Where an Overleaf comment sits here: its words in its file, the occurrence
+        nearest the line Overleaf gives. A comment on no words takes that whole line. Words
+        no longer in the file put it on the paper, with the place it had on Overleaf: the
+        line by number may now hold other words."""
+        path = str(entry.get("pathname") or "").lstrip("/")
+        line = entry.get("line") if isinstance(entry.get("line"), int) else None
+        where = f"{path}:{line}" if line else path or "an unknown place"
+        words = str(entry.get("anchored_text") or "")
+        try:
+            file = self._resolve_source_path(path)
+            text = file.read_text(encoding="utf-8")
+        except (web.HTTPException, OSError, UnicodeError):
+            return PaperAnchor(), None, None, where
+        relative = file.relative_to(self.watch_dir.resolve()).as_posix()
+        lines = text.split("\n")
+
+        def place(offset: int) -> tuple[int, int]:
+            before = text[:offset]
+            return before.count("\n") + 1, len(before.rsplit("\n", 1)[-1].encode("utf-16-le")) // 2
+
+        found = [match.start() for match in re.finditer(re.escape(words), text)] if words.strip() else []
+        if found:
+            start = min(found, key=lambda offset: abs(place(offset)[0] - (line or 1)))
+            (line_start, column_start), (line_end, column_end) = place(start), place(start + len(words))
+            anchor = SourceRangeAnchor(file=relative, line_start=line_start, line_end=line_end,
+                                       column_start=column_start, column_end=column_end)
+        elif not words.strip() and line and 1 <= line <= len(lines):
+            anchor = SourceRangeAnchor(file=relative, line_start=line, line_end=line)
+        else:
+            return PaperAnchor(), None, None, where
+        resolved, selector = self._resolve_anchor(anchor)
+        if selector is None:
+            return PaperAnchor(), None, None, where
+        return anchor, resolved, selector, None
 
     async def _handle_review_request(self, request: web.Request) -> web.Response:
         self.review_calls += 1

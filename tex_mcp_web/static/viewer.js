@@ -957,49 +957,30 @@ function applyTheme(theme) {
   state.viewer?.setAttribute("data-tex-theme", theme);
 }
 
-// Comments read from an Overleaf project by the Overleaf Note extension for Chrome. Given
-// this page's address, the extension opens it with a receipt in the address and hands the
-// comments to this tab alone; the server keeps them in the project's state folder.
+// Comments exported from Overleaf by Overleaf Comments Export: its comments.json, chosen
+// here, goes to the server, which turns each open thread into a comment.
 function showOverleafDialog(status = "") {
-  $("#overleaf-address").textContent = location.origin;
   $("#overleaf-status").textContent = status;
   if (!$("#overleaf-dialog").open) $("#overleaf-dialog").showModal();
 }
 
-async function receiveOverleafComments() {
-  if (new URLSearchParams(location.search).get("overleaf-feedback") !== "1") return;
-  const given = new URLSearchParams(location.hash.slice(1));
-  const extension = given.get("extension");
-  const receipt = given.get("receipt");
-  const runtime = window.chrome?.runtime;
-  const finish = (status) => {
-    history.replaceState(null, "", "/");
-    showOverleafDialog(status);
-  };
-  if (!extension || !receipt || typeof runtime?.sendMessage !== "function") {
-    finish("This page was not opened by the Overleaf Note extension in Chrome, so it received nothing.");
-    return;
-  }
-  // The extension checks the address it is asked from, so the receipt stays in it until
-  // the comments are handed over.
-  const ask = (message) => new Promise((resolve) => runtime.sendMessage(extension, message, resolve));
-  const taken = await ask({ type: "take", receipt });
-  if (!taken?.payload) {
-    finish(taken?.error ?? "The extension handed over no comments.");
-    return;
-  }
+async function importOverleafComments(file) {
+  showOverleafDialog(`Reading ${file.name}…`);
   const response = await fetch("/overleaf-import", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(taken.payload),
+    body: await file.text(),
   });
   if (!response.ok) {
-    finish(`Could not keep the comments: ${await responseError(response)}`);
+    showOverleafDialog(`Could not bring them in: ${await responseError(response)}`);
     return;
   }
-  await ask({ type: "done", receipt });
-  const kept = await response.json();
-  finish(`Received ${kept.comments} comments in ${kept.threads} threads from Overleaf, kept in ${kept.saved}.`);
+  const done = await response.json();
+  const parts = [`${done.added} new comments`, `${done.replies} new replies`];
+  if (done.resolved) parts.push(`${done.resolved} resolved threads left out`);
+  if (done.unplaced) parts.push(`${done.unplaced} not found in the source, put on the paper`);
+  showOverleafDialog(`Brought in ${parts.join(", ")}.`);
+  await refreshComments();
 }
 
 // The editor's type size, kept for next time. Stepped by a pixel between 10 and 28.
@@ -2395,10 +2376,11 @@ function attachSidebarToggle() {
     if (!event.target.closest(".more") || event.target.closest(".more-menu button")) closeMore();
   });
   $("#overleaf-import-btn").addEventListener("click", () => showOverleafDialog());
-  $("#overleaf-copy-btn").addEventListener("click", () => {
-    navigator.clipboard?.writeText(location.origin).catch(() => {});
+  $("#overleaf-file").addEventListener("change", (event) => {
+    const [file] = event.target.files;
+    event.target.value = "";
+    if (file) importOverleafComments(file).catch((error) => showOverleafDialog(`Could not bring them in: ${error.message}`));
   });
-  receiveOverleafComments().catch((error) => showOverleafDialog(`Could not receive the comments: ${error.message}`));
   $("#theme-btn").addEventListener("click", () => {
     const theme = darkTheme() ? "light" : "dark";
     try { localStorage.setItem("texMcpTheme", theme); } catch { /* the choice lasts this visit */ }

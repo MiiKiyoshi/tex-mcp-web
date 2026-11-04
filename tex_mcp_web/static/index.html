@@ -153,14 +153,15 @@
 <dialog id="overleaf-dialog">
   <form method="dialog">
     <h3>Overleaf comments</h3>
-    <p id="overleaf-status" class="overleaf-status"></p>
     <ol class="overleaf-steps">
-      <li>In Chrome, open the Overleaf project's editor tab.</li>
-      <li>Press the Overleaf Note extension's icon.</li>
-      <li>As the address that receives the comments, give <code id="overleaf-address"></code> and press its import button.</li>
+      <li>Install <a href="https://chromewebstore.google.com/detail/overleaf-comments-export/nbbappjfcankkjnpbaopjhejgdagaglc" target="_blank" rel="noopener">Overleaf Comments Export</a> in Chrome, or its Python tool.</li>
+      <li>Export the Overleaf project's comments with it, and keep its <code>comments.json</code>.</li>
+      <li>Choose that file here.</li>
     </ol>
-    <p class="overleaf-note">The extension opens this page, which takes the comments and keeps them in the project's <code>.tex-mcp-web/overleaf</code> folder.</p>
-    <div class="actions"><button id="overleaf-copy-btn" type="button">Copy address</button><button value="close">Close</button></div>
+    <p class="overleaf-note">Each open thread becomes a comment on the words it was written about, its replies after it. A thread brought in before only gains its new replies.</p>
+    <input id="overleaf-file" type="file" accept=".json,application/json">
+    <p id="overleaf-status" class="overleaf-status" role="status"></p>
+    <div class="actions"><button value="close">Close</button></div>
   </form>
 </dialog>
 

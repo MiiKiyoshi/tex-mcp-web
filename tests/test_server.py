@@ -2498,22 +2498,45 @@ async def test_each_language_keeps_its_own_translations(client, project):
 
 
 
-async def test_overleaf_comments_from_the_extension_are_kept_as_they_came(client) -> None:
-    """The Overleaf Note extension hands a project's threads and ranges to the review page,
-    which posts them here; they are kept whole in the project's state folder, counted, and
-    anything else is refused."""
+async def test_an_overleaf_export_becomes_comments_on_its_words(client) -> None:
+    """A comments.json from Overleaf Comments Export brings each open thread in as a
+    comment on the words it was written about, the occurrence nearest the line Overleaf
+    gives, with its replies after it and every entry marked with its Overleaf author. A
+    resolved thread stays out, words not in the source put the comment on the paper, and
+    the same export again adds only what is new."""
     test_client, server = client
-    project = "0123456789abcdef01234567"
-    payload = {
-        "project": project,
-        "threads": {"t1": {"messages": [{"content": "Shorter?"}]}, "t2": {"messages": []}},
-        "ranges": [{"id": "doc1", "ranges": {"comments": [{"id": "t1", "op": {"c": "word", "p": 4, "t": "t1"}}]}},
-                   {"id": "doc2", "ranges": {}}],
+
+    def message(name, content):
+        return {"user": {"name": name}, "content": content, "timestamp": "2026-11-04T00:00:00Z"}
+
+    export = {
+        "schema_version": "1.3",
+        "threads": {
+            "t1": {"resolved": False, "messages": [message("A. Reviewer", "Which prose?"),
+                                                   message("Co Author", "The intro.")]},
+            "t2": {"resolved": True, "messages": [message("A. Reviewer", "Done.")]},
+            "t3": {"resolved": False, "messages": [message("A. Reviewer", "Gone from here.")]},
+        },
+        "comments": [
+            {"thread_id": "t1", "pathname": "/paper.tex", "line": 8, "col": 5, "anchored_text": "prose"},
+            {"thread_id": "t2", "pathname": "/paper.tex", "line": 5, "col": 0, "anchored_text": "Some"},
+            {"thread_id": "t3", "pathname": "/paper.tex", "line": 2, "col": 0, "anchored_text": "not in the paper"},
+        ],
     }
-    reply = await (await test_client.post("/overleaf-import", json=payload)).json()
-    assert reply["threads"] == 2 and reply["comments"] == 1
-    assert reply["saved"].startswith(f".tex-mcp-web/overleaf/{project}-") and reply["saved"].endswith(".json")
-    assert json.loads((server.watch_dir / reply["saved"]).read_text(encoding="utf-8")) == payload
-    for wrong in ({"project": "nope", "threads": {}, "ranges": []}, {"project": project, "threads": [], "ranges": []}, [1]):
-        response = await test_client.post("/overleaf-import", json=wrong)
-        assert response.status == 400
+    reply = await (await test_client.post("/overleaf-import", json=export)).json()
+    assert reply == {"added": 2, "replies": 0, "resolved": 1, "unplaced": 1}
+    comments = {c.thread[0].text.split("] ", 1)[1].split("\n")[0]: c for c in server.comments.list()}
+    placed = comments["Which prose?"]
+    assert placed.anchor.to_dict() == {"kind": "source_range", "file": "paper.tex", "line_start": 5,
+                                       "line_end": 5, "column_start": 5, "column_end": 10}
+    assert [e.text for e in placed.thread] == ["[Overleaf · A. Reviewer] Which prose?", "[Overleaf · Co Author] The intro."]
+    assert comments["Gone from here."].anchor.kind == "paper"
+    assert "On Overleaf at paper.tex:2" in comments["Gone from here."].thread[0].text
+
+    export["threads"]["t1"]["messages"].append(message("A. Reviewer", "Thanks."))
+    reply = await (await test_client.post("/overleaf-import", json=export)).json()
+    assert reply == {"added": 0, "replies": 1, "resolved": 1, "unplaced": 0}
+    assert server.comments.get(placed.id).thread[-1].text == "[Overleaf · A. Reviewer] Thanks."
+    assert len(server.comments.list()) == 2
+    for wrong in ({"schema_version": "2.0", "threads": {}, "comments": []}, {"threads": {}, "comments": []}, [1]):
+        assert (await test_client.post("/overleaf-import", json=wrong)).status == 400

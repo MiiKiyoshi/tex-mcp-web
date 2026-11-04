@@ -1668,17 +1668,23 @@ def test_split_puts_the_translation_where_the_layout_menu_says(tmp_path: Path, m
 
 
 @pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
-def test_the_more_menu_tells_how_to_bring_overleaf_comments(tmp_path: Path) -> None:
-    """Overleaf comments come in through the Overleaf Note extension for Chrome, which is
-    given this page's address. The more menu tells that address and the steps. Opened with
-    the extension's receipt in a browser without it, the page says it received nothing and
-    drops the receipt from its address."""
+def test_the_more_menu_brings_in_an_overleaf_export(tmp_path: Path) -> None:
+    """Overleaf comments come in as the comments.json Overleaf Comments Export writes. The
+    more menu opens the steps and a file picker; the chosen file's open threads become
+    comments here, and the page says how many."""
     import fitz
 
     (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
     with fitz.open() as pdf:
         pdf.new_page().insert_text((72, 72), "Hello world.")
         pdf.save(tmp_path / "paper.pdf")
+    export = tmp_path / "comments.json"
+    export.write_text(json.dumps({
+        "schema_version": "1.3",
+        "threads": {"t1": {"resolved": False, "messages": [
+            {"user": {"name": "A. Reviewer"}, "content": "Say hello properly.", "timestamp": "2026-11-04T00:00:00Z"}]}},
+        "comments": [{"thread_id": "t1", "pathname": "/paper.tex", "line": 1, "col": 0, "anchored_text": "Hello world."}],
+    }), encoding="utf-8")
     port = available_port()
     config_path = tmp_path / ".tex-mcp-web.yaml"
     config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
@@ -1699,22 +1705,17 @@ def test_the_more_menu_tells_how_to_bring_overleaf_comments(tmp_path: Path) -> N
         browser = marionette.Marionette(host="127.0.0.1", port=marionette_port, startup_timeout=30)
         browser.start_session()
         browser.navigate(base)
-        dialog = '''
-          return [document.querySelector("#overleaf-dialog").open,
-                  document.querySelector("#overleaf-address").textContent,
-                  document.querySelector("#overleaf-status").textContent, location.href];
-        '''
+        wait_until(lambda: browser.execute_script('return document.querySelector("#comments-list") !== null'))
         browser.execute_script('document.querySelector("#more-btn").click()')
         assert browser.execute_script('return document.querySelector("#more-menu").hidden') is False
         browser.execute_script('document.querySelector("#overleaf-import-btn").click()')
-        opened = wait_until(lambda: (seen := browser.execute_script(dialog))[0] and seen)
-        assert opened[1] == base and opened[2] == ""
+        wait_until(lambda: browser.execute_script('return document.querySelector("#overleaf-dialog").open'))
         assert browser.execute_script('return document.querySelector("#more-menu").hidden') is True
-
-        browser.navigate(f"{base}/?overleaf-feedback=1#extension=abc&receipt=def")
-        told = wait_until(lambda: (seen := browser.execute_script(dialog))[0] and seen)
-        assert "received nothing" in told[2]
-        assert told[3] == f"{base}/"
+        browser.find_element("css selector", "#overleaf-file").send_keys(str(export))
+        wait_until(lambda: browser.execute_script(
+            'return document.querySelector("#overleaf-status").textContent').startswith("Brought in 1 new comments"))
+        wait_until(lambda: browser.execute_script(
+            'return document.querySelector("#comments-list").textContent.includes("Say hello properly.")'))
     finally:
         if browser is not None:
             try:
