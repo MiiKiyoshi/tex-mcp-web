@@ -1185,9 +1185,21 @@ function attachVimInputMethod(editor) {
 // \cite{a,b} it is the name under the cursor. The open file is searched first.
 const DEFINED = /\\(input|include|subfile|ref|cref|Cref|eqref|autoref|pageref|nameref|cite|citep|citet|parencite|textcite)\*?(?:\[[^\]]*\])*\{([^}]*)\}/g;
 
-// Each jump to a definition leaves its starting place here, and Ctrl+T with Vim keys, or
-// Shift+F12, goes back to the last one, as Vim's tag stack does.
+// Each jump to a definition leaves its starting place here, and Ctrl+T or Ctrl+O with Vim
+// keys, or Shift+F12, goes back to the last one, as Vim's tag stack does.
 const definitionTrail = [];
+
+// Windows browsers keep Ctrl+T for a new tab, so with Vim keys Ctrl+O, Vim's way back to
+// the last place, goes back from a definition too. With no such jump left it is Vim's own.
+function attachDefinitionBack(editor) {
+  editor.container.addEventListener("keydown", (event) => {
+    if (!vimCommandMode() || definitionTrail.length === 0 || event.code !== "KeyO"
+      || !event.ctrlKey || event.shiftKey || event.altKey || event.metaKey) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    backFromDefinition().catch((error) => setSourceStatus(error.message, "conflict"));
+  }, true);
+}
 
 async function backFromDefinition() {
   const back = definitionTrail.pop();
@@ -1338,6 +1350,7 @@ async function initializeSourceEditor() {
     exec: commentSourceSelection,
   });
   attachVimInputMethod(state.editor);
+  attachDefinitionBack(state.editor);
   applyVimKeys();
   await refreshSourceFiles();
 }

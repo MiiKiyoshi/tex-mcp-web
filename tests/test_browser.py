@@ -1825,8 +1825,8 @@ def test_the_more_menu_brings_in_an_overleaf_export(tmp_path: Path) -> None:
 @pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
 def test_go_to_definition_follows_input_ref_and_cite(tmp_path: Path) -> None:
     """gd with Vim keys, or F12, goes from \\input to the file, from \\ref to the \\label it
-    names, and from \\cite to the .bib entry, the name under the cursor in a list; Ctrl+T,
-    or Shift+F12, goes back to where the jump started."""
+    names, and from \\cite to the .bib entry, the name under the cursor in a list; Ctrl+T or
+    Ctrl+O, or Shift+F12, goes back to where the jump started."""
     import fitz
 
     (tmp_path / "sec").mkdir()
@@ -1892,6 +1892,12 @@ def test_go_to_definition_follows_input_ref_and_cite(tmp_path: Path) -> None:
         assert wait_until(lambda: (now := browser.execute_script(where)) == ["sec/a.tex", 1] and now)
         ActionSequence(browser, "key", "keyboard").key_down("\ue009").key_down("t") \
             .key_up("t").key_up("\ue009").perform()
+        assert wait_until(lambda: (now := browser.execute_script(where)) == ["paper.tex", 3] and now)
+        # Ctrl+O comes back as well, since Windows browsers keep Ctrl+T for a new tab.
+        ActionSequence(browser, "key", "keyboard").key_down("g").key_up("g").key_down("d").key_up("d").perform()
+        assert wait_until(lambda: (now := browser.execute_script(where)) == ["sec/a.tex", 1] and now)
+        ActionSequence(browser, "key", "keyboard").key_down("\ue009").key_down("o") \
+            .key_up("o").key_up("\ue009").perform()
         assert wait_until(lambda: (now := browser.execute_script(where)) == ["paper.tex", 3] and now)
     finally:
         if browser is not None:
