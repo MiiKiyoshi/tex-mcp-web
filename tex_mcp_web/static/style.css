@@ -1034,3 +1034,7 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
 :root[data-theme="dark"] .ace-one-dark .ace_cursor { color: #9cbcff; }
 
 :root[data-theme="dark"] .file-button { color: #1f2328; }
+/* Safari scrolls the boxes around the editor's hidden input to bring it into view as keys
+   are pressed, and the editor then put itself back: the text shook with every cursor move.
+   These boxes clip instead, which no scroll can move. */
+#source-pane, #source-editor, #source-editor .ace_scroller, #source-editor .ace_gutter { overflow: clip; }
