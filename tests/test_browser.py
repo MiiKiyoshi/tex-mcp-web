@@ -559,6 +559,28 @@ def test_highlight_badges_leave_pdf_text_selectable(tmp_path: Path) -> None:
           const [left, right] = arguments[0] < middle ? [page.left, middle] : [middle, page.right];
           return left >= view.left - 1 && right <= view.left + viewport.clientWidth + 1;
         ''', script_args=[x]))
+        # On the gap between the columns, the middle of the page, no column is chosen: the
+        # page zooms about the pointer, and its middle stays under it.
+        middle = browser.execute_script('''
+          const root = document.querySelector("embedpdf-container").shadowRoot;
+          const viewport = Array.from(root.querySelectorAll("div")).find((node) =>
+            /(auto|scroll)/.test(getComputedStyle(node).overflowY) && node.scrollHeight > node.clientHeight);
+          const page = viewport.firstElementChild.firstElementChild.getBoundingClientRect();
+          const x = page.left + page.width / 2, y = viewport.getBoundingClientRect().top + 200;
+          root.elementFromPoint(x, y).dispatchEvent(new WheelEvent("wheel", {
+            deltaY: -10, deltaMode: WheelEvent.DOM_DELTA_PIXEL, ctrlKey: true,
+            clientX: x, clientY: y, bubbles: true, cancelable: true, composed: true}));
+          return [x, page.width];
+        ''')
+        assert wait_until(lambda: (page := browser.execute_script('''
+          const root = document.querySelector("embedpdf-container").shadowRoot;
+          const viewport = Array.from(root.querySelectorAll("div")).find((node) =>
+            /(auto|scroll)/.test(getComputedStyle(node).overflowY) && node.scrollHeight > node.clientHeight);
+          const pages = viewport.firstElementChild;
+          if (/scale/.test(pages.style.transform)) return null;
+          const box = pages.firstElementChild.getBoundingClientRect();
+          return [box.left + box.width / 2, box.width];
+        ''')) and page[1] > middle[1] * 1.05 and abs(page[0] - middle[0]) <= 2)
         zoomed = wait_until(lambda: browser.execute_script(f'''
           const root = document.querySelector("embedpdf-container").shadowRoot;
           const badge = root.querySelector(".tex-comment-badge");
