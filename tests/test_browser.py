@@ -1326,6 +1326,12 @@ def test_browser_source_selection_and_split_resize(tmp_path: Path) -> None:
           });
         '''
         wait_until(lambda: browser.execute_script(coverage) == [False, True, True, True, False])
+        # Ctrl+Alt+K on the commented characters opens their comment in the comments.
+        browser.execute_script('const e = (window.wrappedJSObject || window).ace.edit("source-editor"); e.focus(); e.moveCursorTo(3, 130);')
+        ActionSequence(browser, "key", "keyboard").key_down("\ue009").key_down("\ue00a").key_down("k") \
+            .key_up("k").key_up("\ue00a").key_up("\ue009").perform()
+        wait_until(lambda: browser.execute_script(
+            'return document.querySelector("[data-comment-id].is-focused")?.dataset.commentId') == comment["id"])
         grip = browser.execute_script('''
           const r = document.querySelector("#split-grip").getBoundingClientRect();
           return {x: r.x + r.width / 2, y: r.y + r.height / 2,
