@@ -1208,13 +1208,19 @@ def test_browser_source_selection_and_split_resize(tmp_path: Path) -> None:
           editor.gotoLine(1, 0);
           const press = (code) => editor.textInput.getElement().dispatchEvent(new KeyboardEvent("keydown",
             {{key: "Process", code, bubbles: true, cancelable: true}}));
+          let blurred = 0;
+          editor.textInput.getElement().addEventListener("blur", () => {{ blurred += 1; }});
+          editor.textInput.getElement().dispatchEvent(new CompositionEvent("compositionstart", {{bubbles: true, data: ""}}));
+          editor.textInput.getElement().dispatchEvent(new CompositionEvent("compositionupdate", {{bubbles: true, data: "ㅣ"}}));
           press("KeyL");
           const column = editor.getCursorPosition().column;
           editor.onTextInput("ㅣ");
           press("KeyH");
-          return [column, editor.getCursorPosition().column, editor.getValue() === arguments[0]];
+          return [column, editor.getCursorPosition().column, editor.getValue() === arguments[0], blurred];
         """, script_args=[before], sandbox=None)
-        assert ime == [1, 0, True], ime
+        # A composition outside Insert mode never reaches Ace, which cancelled it by taking
+        # the focus off the editor and back: the cursor flickered in Safari at each key.
+        assert ime == [1, 0, True, 0], ime
         type_keys(browser, [*"ggOvimtest", "<C-[>", *"dd"])
         assert browser.execute_script(f"return {editor}.getValue();") == before
         assert browser.execute_script('return document.querySelector("#source-save-btn").disabled') is False

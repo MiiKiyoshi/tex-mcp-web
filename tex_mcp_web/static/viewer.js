@@ -1131,6 +1131,15 @@ function attachVimInputMethod(editor) {
     event.stopImmediatePropagation();
     window.ace.require("ace/keyboard/vim").Vim.handleKey(editor.state.cm, key, "user");
   }, true);
+  // Safari starts a composition at every key while a Korean method is on, and Ace answers
+  // one outside Insert mode by cancelling it, which takes the focus off the editor and back:
+  // the cursor and selection flickered at each key. The keys are read above, so outside
+  // Insert mode the composition never reaches Ace.
+  for (const kind of ["compositionstart", "compositionupdate", "compositionend"]) {
+    editor.container.addEventListener(kind, (event) => {
+      if (vimCommandMode() && event.target === editor.textInput.getElement()) event.stopImmediatePropagation();
+    }, true);
+  }
   const typed = editor.onTextInput.bind(editor);
   editor.onTextInput = (text, ...rest) => {
     if (vimCommandMode() && COMPOSED.test(text)) return;
