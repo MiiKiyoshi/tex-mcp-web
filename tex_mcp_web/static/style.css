@@ -997,3 +997,11 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
 :root[data-theme="dark"] #call-agent-btn.agent-offline { background: #321f1e; }
 :root[data-theme="dark"] .cmt.status-archived .cmt-status { color: #9fb4e0; }
 :root[data-theme="dark"] dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
+/* The editor's One Dark keeps its words' colours on the page's gray rather than its own
+   near-black ground. */
+:root[data-theme="dark"] .ace-one-dark,
+:root[data-theme="dark"] .ace-one-dark .ace_gutter { background: #403f3b; }
+:root[data-theme="dark"] .ace-one-dark .ace_gutter { color: #a8a397; }
+:root[data-theme="dark"] .ace-one-dark .ace_marker-layer .ace_active-line,
+:root[data-theme="dark"] .ace-one-dark .ace_gutter-active-line { background: #4a4944; }
+:root[data-theme="dark"] .ace-one-dark .ace_marker-layer .ace_selection { background: #5b636d; }
