@@ -1148,7 +1148,7 @@ def test_browser_source_selection_and_split_resize(tmp_path: Path) -> None:
                   (viewer.wrappedJSObject || viewer).themePreference];
         '''
         browser.execute_script('document.querySelector("#theme-btn").click()')
-        assert browser.execute_script(theme) == ["dark", "dark", "ace/theme/tomorrow_night", "dark", "dark"]
+        assert browser.execute_script(theme) == ["dark", "dark", "ace/theme/one_dark", "dark", "dark"]
         browser.execute_script('document.querySelector("#theme-btn").click()')
         assert browser.execute_script(theme) == ["light", "light", "ace/theme/textmate", "light", "light"]
         # Long lines wrap until the wrap button turns it off, and the Vim button gives the

@@ -984,8 +984,8 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
   --bg: #2a2926;
   --bg-elev: #33322e;
   --bg-pdf: #232220;
-  --fg: #eeeae1;
-  --fg-dim: #bdb6a9;
+  --fg: #f5f2eb;
+  --fg-dim: #d8d2c6;
   --border: #57544d;
   --accent: #8ea5bf;
   --accent-soft: #3d434b;

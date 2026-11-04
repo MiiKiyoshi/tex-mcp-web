@@ -188,9 +188,9 @@ async function initializePdfViewer(pdfView) {
           input: "#2a2926",
         },
         foreground: {
-          primary: "#eeeae1",
-          secondary: "#bdb6a9",
-          muted: "#a29b8f",
+          primary: "#f5f2eb",
+          secondary: "#d8d2c6",
+          muted: "#c2bbaf",
           disabled: "#77726a",
           onAccent: "#2a2926",
         },
@@ -944,7 +944,7 @@ function darkTheme() {
 }
 
 function editorTheme() {
-  return darkTheme() ? "ace/theme/tomorrow_night" : "ace/theme/textmate";
+  return darkTheme() ? "ace/theme/one_dark" : "ace/theme/textmate";
 }
 
 function applyTheme(theme) {
