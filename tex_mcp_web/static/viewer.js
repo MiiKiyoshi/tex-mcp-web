@@ -177,33 +177,33 @@ async function initializePdfViewer(pdfView) {
           primary: "#8ea5bf",
           primaryHover: "#a2b6cc",
           primaryActive: "#b6c6d8",
-          primaryLight: "#2e3238",
-          primaryForeground: "#1c1b19",
+          primaryLight: "#3d434b",
+          primaryForeground: "#2a2926",
         },
         background: {
-          app: "#161513",
-          surface: "#242320",
-          surfaceAlt: "#1c1b19",
-          elevated: "#2a2925",
-          input: "#1c1b19",
+          app: "#232220",
+          surface: "#33322e",
+          surfaceAlt: "#2a2926",
+          elevated: "#3a3935",
+          input: "#2a2926",
         },
         foreground: {
-          primary: "#e4dfd4",
-          secondary: "#a39c8f",
-          muted: "#8a8479",
-          disabled: "#5f5a52",
-          onAccent: "#1c1b19",
+          primary: "#eeeae1",
+          secondary: "#bdb6a9",
+          muted: "#a29b8f",
+          disabled: "#77726a",
+          onAccent: "#2a2926",
         },
         interactive: {
-          hover: "#2e2c28",
-          active: "#38352f",
-          selected: "#2e3238",
+          hover: "#3e3c37",
+          active: "#47443e",
+          selected: "#3d434b",
           focus: "#8ea5bf",
         },
         border: {
-          default: "#3b3934",
-          subtle: "#2e2c28",
-          strong: "#57534b",
+          default: "#57544d",
+          subtle: "#3e3c37",
+          strong: "#6e6a61",
         },
       },
     },
@@ -271,7 +271,7 @@ async function initializePdfViewer(pdfView) {
       color: #6d6650;
       background: #f6f1e2;
     }
-    :host([data-tex-theme="dark"]) * { color-scheme: dark; scrollbar-color: #4a4740 #161513; }
+    :host([data-tex-theme="dark"]) * { color-scheme: dark; scrollbar-color: #6a665e #232220; }
     /* On a touch screen a finger dragged on the pages scrolls them in the pointer mode too,
        as a page does, and a finger held still selects first. The viewer turns touch
        scrolling off in that mode so that every drag selects. */
