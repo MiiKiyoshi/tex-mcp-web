@@ -1007,8 +1007,8 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
 :root[data-theme="dark"] .ace-one-dark .ace_marker-layer .ace_selection { background: #5b636d; }
 /* One Dark's words, a step lighter for the gray ground; its comments, a dark gray meant for
    near-black, read as a light gray. */
-:root[data-theme="dark"] .ace-one-dark { color: #e2ded4; }
-:root[data-theme="dark"] .ace-one-dark .ace_comment { color: #c4beb1; font-style: italic; }
+:root[data-theme="dark"] .ace-one-dark { color: #fbfaf6; }
+:root[data-theme="dark"] .ace-one-dark .ace_comment { color: #d8d3c8; font-style: italic; }
 :root[data-theme="dark"] .ace-one-dark :is(.ace_keyword, .ace_storage) { color: #dcaaf0; }
 :root[data-theme="dark"] .ace-one-dark :is(.ace_constant.ace_language, .ace_constant.ace_numeric,
   .ace_support.ace_constant, .ace_variable.ace_parameter, .ace_keyword.ace_other.ace_unit) { color: #ecbb8c; }
