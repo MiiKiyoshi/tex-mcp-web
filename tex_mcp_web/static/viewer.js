@@ -177,33 +177,33 @@ async function initializePdfViewer(pdfView) {
           primary: "#8ea5bf",
           primaryHover: "#a2b6cc",
           primaryActive: "#b6c6d8",
-          primaryLight: "#3d434b",
-          primaryForeground: "#2a2926",
+          primaryLight: "#4b525b",
+          primaryForeground: "#383733",
         },
         background: {
-          app: "#232220",
-          surface: "#33322e",
-          surfaceAlt: "#2a2926",
-          elevated: "#3a3935",
-          input: "#2a2926",
+          app: "#302f2c",
+          surface: "#42413c",
+          surfaceAlt: "#383733",
+          elevated: "#4a4843",
+          input: "#383733",
         },
         foreground: {
           primary: "#f5f2eb",
           secondary: "#d8d2c6",
           muted: "#c2bbaf",
           disabled: "#77726a",
-          onAccent: "#2a2926",
+          onAccent: "#383733",
         },
         interactive: {
-          hover: "#3e3c37",
-          active: "#47443e",
-          selected: "#3d434b",
+          hover: "#4b4943",
+          active: "#55524b",
+          selected: "#4b525b",
           focus: "#8ea5bf",
         },
         border: {
-          default: "#57544d",
-          subtle: "#3e3c37",
-          strong: "#6e6a61",
+          default: "#66635b",
+          subtle: "#4b4943",
+          strong: "#7d796f",
         },
       },
     },
@@ -271,7 +271,7 @@ async function initializePdfViewer(pdfView) {
       color: #6d6650;
       background: #f6f1e2;
     }
-    :host([data-tex-theme="dark"]) * { color-scheme: dark; scrollbar-color: #6a665e #232220; }
+    :host([data-tex-theme="dark"]) * { color-scheme: dark; scrollbar-color: #77736a #302f2c; }
     /* On a touch screen a finger dragged on the pages scrolls them in the pointer mode too,
        as a page does, and a finger held still selects first. The viewer turns touch
        scrolling off in that mode so that every drag selects. */
