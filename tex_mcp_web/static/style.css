@@ -1001,7 +1001,21 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
    near-black ground. */
 :root[data-theme="dark"] .ace-one-dark,
 :root[data-theme="dark"] .ace-one-dark .ace_gutter { background: #403f3b; }
-:root[data-theme="dark"] .ace-one-dark .ace_gutter { color: #a8a397; }
+:root[data-theme="dark"] .ace-one-dark .ace_gutter { color: #c4beb1; }
 :root[data-theme="dark"] .ace-one-dark .ace_marker-layer .ace_active-line,
 :root[data-theme="dark"] .ace-one-dark .ace_gutter-active-line { background: #4a4944; }
 :root[data-theme="dark"] .ace-one-dark .ace_marker-layer .ace_selection { background: #5b636d; }
+/* One Dark's words, a step lighter for the gray ground; its comments, a dark gray meant for
+   near-black, read as a light gray. */
+:root[data-theme="dark"] .ace-one-dark { color: #e2ded4; }
+:root[data-theme="dark"] .ace-one-dark .ace_comment { color: #c4beb1; font-style: italic; }
+:root[data-theme="dark"] .ace-one-dark :is(.ace_keyword, .ace_storage) { color: #dcaaf0; }
+:root[data-theme="dark"] .ace-one-dark :is(.ace_constant.ace_language, .ace_constant.ace_numeric,
+  .ace_support.ace_constant, .ace_variable.ace_parameter, .ace_keyword.ace_other.ace_unit) { color: #ecbb8c; }
+:root[data-theme="dark"] .ace-one-dark :is(.ace_constant.ace_character, .ace_constant.ace_other) { color: #86d4de; }
+:root[data-theme="dark"] .ace-one-dark :is(.ace_support.ace_function, .ace_entity.ace_name.ace_function) { color: #93c9f7; }
+:root[data-theme="dark"] .ace-one-dark :is(.ace_support.ace_class, .ace_support.ace_type) { color: #f0d49a; }
+:root[data-theme="dark"] .ace-one-dark :is(.ace_string, .ace_markup.ace_heading) { color: #bcdb9e; }
+:root[data-theme="dark"] .ace-one-dark :is(.ace_variable, .ace_meta.ace_tag, .ace_entity.ace_name.ace_tag,
+  .ace_entity.ace_other.ace_attribute-name, .ace_string.ace_regexp) { color: #f2a0a7; }
+:root[data-theme="dark"] .ace-one-dark .ace_cursor { color: #9cbcff; }
