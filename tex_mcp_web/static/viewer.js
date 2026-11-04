@@ -1082,7 +1082,8 @@ function defineVimCommands(Vim) {
   vimCommandsDefined = true;
   Vim.defineEx("write", "w", () =>
     saveSource().catch((error) => alert(`Could not save: ${error.message}`)));
-  Vim.defineOperator("sourceComment", (cm, args, ranges) => {
+  // What an operator covers, selected in the editor; its start is where the cursor ends.
+  const select = (ranges) => {
     const ends = [ranges[0].anchor, ranges[0].head].sort((a, b) => a.line - b.line || a.ch - b.ch);
     const [start] = ends;
     let [, end] = ends;
@@ -1092,10 +1093,22 @@ function defineVimCommands(Vim) {
     }
     const Range = window.ace.require("ace/range").Range;
     state.editor.selection.setRange(new Range(start.line, start.ch, end.line, end.ch));
+    return start;
+  };
+  Vim.defineOperator("sourceComment", (cm, args, ranges) => {
+    const start = select(ranges);
     commentSourceSelection();
     return start;
   });
   Vim.mapCommand("gc", "operator", "sourceComment");
+  // gs shows what a motion or the selection covers in the Preview, as → Preview does: gss
+  // the line, gsip the paragraph.
+  Vim.defineOperator("showInPreview", (cm, args, ranges) => {
+    const start = select(ranges);
+    showSourceSelectionInPdf().catch((error) => alert(`Could not show it in the Preview: ${error.message}`));
+    return start;
+  });
+  Vim.mapCommand("gs", "operator", "showInPreview");
   Vim.defineAction("goToDefinition", () => {
     goToDefinition().catch((error) => setSourceStatus(error.message, "conflict"));
   });
@@ -1277,6 +1290,11 @@ async function initializeSourceEditor() {
     name: "goToDefinition",
     bindKey: { win: "F12", mac: "F12" },
     exec: () => goToDefinition().catch((error) => setSourceStatus(error.message, "conflict")),
+  });
+  state.editor.commands.addCommand({
+    name: "showInPreview",
+    bindKey: { win: "Ctrl-Alt-P", mac: "Command-Alt-P" },
+    exec: () => showSourceSelectionInPdf().catch((error) => alert(`Could not show it in the Preview: ${error.message}`)),
   });
   state.editor.commands.addCommand({
     name: "commentSource",

@@ -877,8 +877,11 @@ def test_source_beside_comment_opens_the_selected_words_in_the_editor(tmp_path: 
           const editor = page.ace.edit("source-editor");
           const Range = page.ace.require("ace/range").Range;
           editor.selection.setRange(new Range(3, 10, 3, 22));   // "brown fox ju"
-          document.querySelector("#source-pdf-btn").click();
+          editor.focus();
         ''')
+        # Its keys, Ctrl+Alt+P, do what the button does.
+        ActionSequence(browser, "key", "keyboard").key_down("\ue009").key_down("\ue00a").key_down("p") \
+            .key_up("p").key_up("\ue00a").key_up("\ue009").perform()
         with fitz.open(shared.server.last_result.output_file) as pdf:
             printed = pdf[0].search_for("brown fox ju")[0]
         marked = wait_until(lambda: browser.execute_script('''
@@ -895,6 +898,22 @@ def test_source_beside_comment_opens_the_selected_words_in_the_editor(tmp_path: 
         drawn = [value / scale for value in marked[:4]]
         assert all(abs(got - want) < 3 for got, want in zip(drawn, printed)), (drawn, printed)
         assert browser.execute_script('return document.querySelector(".layout").classList.contains("view-split")')
+        # With Vim keys, gss shows the cursor's line in the Preview as the keys above do.
+        browser.execute_script('''
+          const page = window.wrappedJSObject || window;
+          const fetch = page.fetch.bind(page);
+          page.shown = 0;
+          page.fetch = (url, ...rest) => {
+            if (String(url).includes("/synctex/source-to-pdf-words")) page.shown += 1;
+            return fetch(url, ...rest);
+          };
+          document.querySelector("#source-vim-btn").click();
+        ''', sandbox=None)
+        editor = '(window.wrappedJSObject || window).ace.edit("source-editor")'
+        wait_until(lambda: browser.execute_script(f"return Boolean({editor}.$vimModeHandler);"))
+        browser.execute_script(f"{editor}.focus(); {editor}.gotoLine(4, 0);")
+        type_keys(browser, [*"gss"])
+        assert wait_until(lambda: browser.execute_script("return window.shown;", sandbox=None))
     finally:
         if browser is not None:
             try:
