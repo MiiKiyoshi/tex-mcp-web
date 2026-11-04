@@ -1034,3 +1034,4 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
 :root[data-theme="dark"] .ace-one-dark .ace_cursor { color: #9cbcff; }
 
 :root[data-theme="dark"] .file-button { color: #1f2328; }
+#source-editor.steady-cursor .ace_cursor { animation: none !important; }

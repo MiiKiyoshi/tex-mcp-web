@@ -1213,6 +1213,13 @@ async function initializeSourceEditor() {
   window.ace.config.set("basePath", "/static/ace");
   state.editor = window.ace.edit("source-editor");
   state.editor.setTheme(editorTheme());
+  // Ace restarts its cursor's blinking animation at every move, and Safari redrew the whole
+  // editor each time, so the text flickered as the cursor moved. In Safari the cursor holds
+  // steady instead. Every browser on an iPhone or iPad is Safari underneath.
+  if (/iPhone|iPad|iPod/.test(navigator.userAgent)
+    || /^((?!chrome|chromium|android|edg).)*safari/i.test(navigator.userAgent)) {
+    state.editor.container.classList.add("steady-cursor");
+  }
   state.editor.session.setMode("ace/mode/latex");
   state.editor.session.setUseWorker(false);
   state.editor.session.setUseWrapMode(sourceWraps());
