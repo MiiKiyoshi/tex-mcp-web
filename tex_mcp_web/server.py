@@ -34,6 +34,7 @@ from .comments import (
     Comment,
     CommentStore,
     PageSelection,
+    PdfTextIndex,
     PaperAnchor,
     ResolvedSource,
     SectionAnchor,
@@ -1439,16 +1440,28 @@ class TexMcpWebServer:
         hint = PageSelection(page, (min(r[0] for r in rects) - 2, min(r[1] for r in rects) - 2,
                                     max(r[2] for r in rects) + 2, max(r[3] for r in rects) + 2), rects)
         words = printed_words(text)
-        found = locate_pdf_quote(pdf, words, hint=hint) if words else None
-        whole = found is not None
-        split = words.split()
-        for size in range(len(split) - 1, 1, -1):
-            if found is not None:
-                break
-            for first in range(len(split) - size + 1):
-                found = locate_pdf_quote(pdf, " ".join(split[first:first + size]), hint=hint)
-                if found is not None:
-                    break
+
+        # The PDF's text is read once for every run tried, and off the event loop: read
+        # again for each of the hundreds of runs a line of commands can try, it held every
+        # other request for seconds, and they all came back at once.
+        def find() -> tuple[PageSelection | None, bool]:
+            index = PdfTextIndex(pdf)
+            try:
+                found = index.locate(words, hint=hint) if words else None
+                whole = found is not None
+                split = words.split()
+                for size in range(len(split) - 1, 1, -1):
+                    if found is not None:
+                        break
+                    for first in range(len(split) - size + 1):
+                        found = index.locate(" ".join(split[first:first + size]), hint=hint)
+                        if found is not None:
+                            break
+                return found, whole
+            finally:
+                index.close()
+
+        found, whole = await asyncio.get_running_loop().run_in_executor(None, find)
         found = found or hint
         return web.json_response({"page": found.page, "bbox": list(found.bbox),
                                   "rects": [list(rect) for rect in found.rects], "whole": whole})

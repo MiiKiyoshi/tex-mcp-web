@@ -850,7 +850,7 @@ def _compact_pdf_text(text: str) -> tuple[str, list[int]]:
     return "".join(characters), compact_raw_indexes
 
 
-class _PdfTextIndex:
+class PdfTextIndex:
     def __init__(self, pdf_path: Path):
         self.document = pymupdf.open(pdf_path)
         self.pages: list[tuple[str, str, list[int]]] = []
@@ -931,7 +931,7 @@ def locate_pdf_quote(
     hint: PageSelection | None = None,
 ) -> PageSelection | None:
     """Find one exact rendered quote and return its per-line rectangles."""
-    index = _PdfTextIndex(pdf_path)
+    index = PdfTextIndex(pdf_path)
     try:
         return index.locate(quote, hint=hint)
     finally:
@@ -1488,7 +1488,7 @@ class CommentStore:
             changed = False
             digest = pdf_digest(pdf_path)
             text_index = (
-                _PdfTextIndex(pdf_path)
+                PdfTextIndex(pdf_path)
                 if any(isinstance(c.anchor, TextSelectionAnchor) for c in comments)
                 else None
             )
@@ -1529,7 +1529,7 @@ class CommentStore:
         digest: str,
         sections_resolver,
         text_resolver,
-        text_index: _PdfTextIndex | None,
+        text_index: PdfTextIndex | None,
     ) -> tuple[bool, bool]:
         """Refresh one anchor.  Returns ``(is_stale, was_modified)``."""
         kind = c.anchor.kind
