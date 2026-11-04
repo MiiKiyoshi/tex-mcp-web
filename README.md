@@ -76,7 +76,9 @@ so there is nothing else to start. Say it again after the agent restarts.
 - With `translation` set, the language's button shows the source translated under the
   Preview or the editor. In Split, the menu beside the view tabs puts it under the Preview,
   under Source, beside Source, or instead of Source. The grips between panes are dragged to
-  share the room, each place keeps its own share, and the page remembers both.
+  share the room, each place keeps its own share, and the page remembers both. Each
+  paragraph shows its source lines, and the one under the editor's cursor is marked and
+  brought into view. The **A−** and **A+** buttons step the type size.
 
 ## Suggested edits
 
@@ -145,7 +147,7 @@ translation:
 | `compiler` | `auto` (latexmk for LaTeX, pandoc for Markdown or text), `latexmk`, `pdflatex`, `xelatex`, `lualatex`, or `pandoc`. |
 | `port` | This paper's review page port. Any free port works. Init picks the first free one from 8765, so each paper can have its own. |
 | `references` | Folder holding only the papers yours builds on, converted to Markdown, relative to this file or absolute. Unset means no list of their terms. |
-| `translation` | `language` puts a button for that language beside **+ Note**: it shows each paragraph of the source translated by `claude -p`, with those on the current page marked. `instructions` adds rules for the translator, one per line. A paragraph is translated once per text. Unset means no translation. |
+| `translation` | `language` puts a button for that language beside **+ Note**: it shows each paragraph of the source translated by `claude -p`, with those on the current page marked. `instructions` adds rules for the translator, one per line. A paragraph is translated once per text, and of a figure or table only the caption is. Unset means no translation. |
 
 ## See also
 

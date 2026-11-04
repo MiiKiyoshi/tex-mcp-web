@@ -258,7 +258,8 @@ textarea {
   border-radius: 3px;
   font: 0.8rem var(--mono);
 }
-.source-toolbar button {
+.source-toolbar button,
+.translation-head button {
   display: inline-flex;
   align-items: center;
   padding: 0.25rem 0.4rem;
@@ -267,9 +268,11 @@ textarea {
   border-radius: 3px;
   background: var(--bg-elev);
 }
-.source-toolbar button:hover:not(:disabled) { background: var(--accent-soft); }
+.source-toolbar button:hover:not(:disabled),
+.translation-head button:hover { background: var(--accent-soft); }
 .source-toolbar button:disabled { cursor: default; opacity: 0.5; }
-.source-toolbar button svg { display: block; }
+.source-toolbar button svg,
+.translation-head button svg { display: block; }
 #source-vim-btn.active,
 #source-wrap-btn.active { background: var(--accent-soft); border-color: var(--accent); }
 .source-status {
@@ -439,6 +442,8 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 #translation-file { font-size: 0.8rem; max-width: 14rem; }
 #translation-page, #translation-status { color: var(--fg-dim); }
+#translation-font-smaller-btn { margin-left: auto; }
+.translation-head button { flex: none; padding: 0.15rem 0.3rem; }
 #translation-body {
   flex: 1;
   min-height: 0;
@@ -448,8 +453,20 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
   line-height: 1.6;
   position: relative;
 }
-.translation-para { margin: 0 0 0.6rem; white-space: pre-wrap; cursor: pointer; }
-.translation-para:hover { background: var(--accent-soft); }
+.translation-para { display: flex; align-items: baseline; margin: 0 0 0.6rem; cursor: pointer; }
+.translation-para:hover,
+.translation-para.at-cursor { background: var(--accent-soft); }
+/* The source lines, wide enough for 1000-1099, and left out of a copied selection. */
+.translation-line {
+  flex: none;
+  width: 9ch;
+  margin-right: 0.6rem;
+  text-align: right;
+  font: 0.75em var(--mono);
+  color: var(--fg-dim);
+  user-select: none;
+}
+.translation-text { flex: 1; min-width: 0; white-space: pre-wrap; }
 .translation-para.pending { color: var(--fg-dim); font-style: italic; }
 .translation-para.on-page { border-left: 3px solid var(--warn); padding-left: 0.5rem; }
 .translation-para:not(.on-page) { padding-left: calc(0.5rem + 3px); }

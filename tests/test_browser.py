@@ -1916,3 +1916,118 @@ def test_go_to_definition_follows_input_ref_and_cite(tmp_path: Path) -> None:
                 browser_process.kill()
         shutil.rmtree(profile, ignore_errors=True)
         shared.stop()
+
+
+@pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
+def test_translation_numbers_its_source_lines_and_follows_the_editor(tmp_path: Path, monkeypatch) -> None:
+    """Each translated paragraph shows its source lines, the paragraph under the editor's
+    cursor is marked and brought into view, and the type size steps and is kept."""
+    import fitz
+
+    def translated(prompt, cwd, system):
+        blocks = json.loads(prompt.split("Paragraphs (JSON):\n", 1)[1])
+        return json.dumps({"t": {pid: "T " + text for pid, text in blocks.items()}})
+
+    monkeypatch.setattr("tex_mcp_web.translate.run_claude", translated)
+    paragraphs = "\n\n".join(f"Paragraph number {n} has words\nacross two lines." for n in range(40))
+    (tmp_path / "paper.tex").write_text(
+        "\\documentclass{article}\n\\begin{document}\n\n" + paragraphs + "\n\n\\end{document}\n", encoding="utf-8")
+    with fitz.open() as pdf:
+        pdf.new_page().insert_text((72, 72), "Hello world.")
+        pdf.save(tmp_path / "paper.pdf")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(
+        f"main: paper.tex\nport: {port}\ntranslation:\n  language: Korean\n", encoding="utf-8")
+
+    shared = SharedProjectServer(load_config(config_path))
+    profile = tempfile.mkdtemp(prefix="tex_mcp_translation_")
+    marionette_port = available_port()
+    (Path(profile) / "user.js").write_text(
+        f'user_pref("marionette.port", {marionette_port});\n', encoding="utf-8")
+    browser_process = None
+    browser = None
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        browser_process = subprocess.Popen(
+            ["firefox", "-marionette", "-headless", "-no-remote", "-profile", profile, "about:blank"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        browser = marionette.Marionette(host="127.0.0.1", port=marionette_port, startup_timeout=30)
+        browser.start_session()
+        browser.set_window_rect(x=0, y=0, width=1500, height=1000)
+        browser.navigate(base)
+
+        wait_until(lambda: not browser.execute_script(
+            'return document.querySelector("#translation-btn").classList.contains("hidden");'))
+        browser.execute_script("""
+          document.querySelector("#translation-btn").click();
+          document.querySelector(".view-tab[data-view=split]").click();
+        """)
+        wait_until(lambda: browser.execute_script("""
+          const items = document.querySelectorAll(".translation-para");
+          return items.length === 40 && !items[39].classList.contains("pending");
+        """))
+
+        labels = browser.execute_script("""
+          return [...document.querySelectorAll(".translation-line")].slice(0, 2).map((x) => x.textContent);
+        """)
+        assert labels == ["4\u20135", "7\u20138"]
+        assert browser.execute_script(
+            'return document.querySelector(".translation-text").textContent;'
+        ) == "T Paragraph number 0 has words\nacross two lines."
+
+        def marked():
+            return browser.execute_script("""
+              const item = document.querySelector(".translation-para.at-cursor");
+              if (!item) return null;
+              const body = document.querySelector("#translation-body").getBoundingClientRect();
+              const box = item.getBoundingClientRect();
+              return [item.querySelector(".translation-line").textContent,
+                      box.top >= body.top && box.bottom <= body.bottom];
+            """)
+
+        def go_to(line):
+            browser.execute_script(
+                f'(window.wrappedJSObject || window).ace.edit("source-editor").gotoLine({line}, 0);')
+
+        wait_until(lambda: browser.execute_script(
+            'return Boolean((window.wrappedJSObject || window).ace)'))
+        go_to(119)                                                     # far down the file
+        wait_until(lambda: marked() == ["118\u2013119", True])
+        go_to(5)                                                       # back up
+        wait_until(lambda: marked() == ["4\u20135", True])
+        go_to(6)                                                       # the blank line between
+        wait_until(lambda: marked() is None)
+
+        def size():
+            return browser.execute_script(
+                'return parseFloat(getComputedStyle(document.querySelector(".translation-para")).fontSize);')
+
+        before = size()
+        browser.execute_script("""
+          const larger = document.querySelector("#translation-font-larger-btn");
+          larger.click(); larger.click();
+        """)
+        assert size() == before + 2
+        browser.execute_script('document.querySelector("#translation-font-smaller-btn").click();')
+        assert size() == before + 1
+        browser.refresh()
+        wait_until(lambda: browser.execute_script(
+            'return document.querySelectorAll(".translation-para").length === 40;'))
+        assert size() == before + 1
+    finally:
+        if browser is not None:
+            try:
+                browser.delete_session()
+            except Exception:
+                pass
+        if browser_process is not None:
+            browser_process.terminate()
+            try:
+                browser_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                browser_process.kill()
+        shutil.rmtree(profile, ignore_errors=True)
+        shared.stop()

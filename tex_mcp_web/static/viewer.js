@@ -460,6 +460,7 @@ async function initializePdfViewer(pdfView) {
   scrollCapability.onLayoutReady((event) => {
     if (event.documentId !== DOCUMENT_ID) return;
     state.layoutReady = true;
+    scheduleTranslation(0);   // asked for before the pages existed, and page 1 fires no change
     if (pdfView && event.totalPages > 0) {
       state.zoom.requestZoom(pdfView.zoomLevel);
       state.scroll.scrollToPage({
@@ -1310,6 +1311,7 @@ async function initializeSourceEditor() {
     if (!state.sourceLoading) setSourceDirty(true);
   });
   state.editor.on("changeSelection", updateSourceCommentButton);
+  state.editor.selection.on("changeCursor", followSourceCursor);
   state.editor.on("guttermousedown", (event) => {
     const row = event.getDocumentPosition().row;
     const comments = state.sourceCommentsByRow.get(row);
@@ -2293,21 +2295,62 @@ async function loadTranslation() {
     : data.status === "error" ? `Translation failed: ${data.error}` : "";
   const items = data.paragraphs.map((paragraph) => h("p", {
     class: ["translation-para", paragraph.text ? "" : "pending", paragraph.on_page ? "on-page" : ""].join(" ").trim(),
-    text: paragraph.text ?? "Translating…",
     title: `${data.file}:${paragraph.line_start}-${paragraph.line_end}`,
+    data: { start: paragraph.line_start, end: paragraph.line_end },
     onclick: async () => {
       if (state.view === "pdf") await showSourceBesidePreview();
       else await initializeSourceEditor();
       if (!layoutShows("source")) await setWorkspaceView("source");
       await openSource(data.file, paragraph.line_start);
     },
-  }));
+  }, h("span", {
+    class: "translation-line",
+    text: paragraph.line_start === paragraph.line_end
+      ? String(paragraph.line_start) : `${paragraph.line_start}–${paragraph.line_end}`,
+  }), h("span", { class: "translation-text", text: paragraph.text ?? "Translating…" })));
   body.replaceChildren(...items);
+  markTranslationCursor();
   const first = items.find((item) => item.classList.contains("on-page"));
   if ((!sameFile || pageChanged) && first) body.scrollTop = Math.max(0, first.offsetTop - 8);
   else if (sameFile) body.scrollTop = keepScroll;
   else body.scrollTop = 0;
   if (data.status === "pending") translation.timer = setTimeout(() => scheduleTranslation(0), 3000);
+}
+
+// The paragraph holding the editor's cursor, while the two show the same file.
+function markTranslationCursor() {
+  const line = state.editor && translation.file === state.sourcePath
+    ? state.editor.getCursorPosition().row + 1 : null;
+  let marked = null;
+  for (const item of $("#translation-body").children) {
+    const here = line !== null && Number(item.dataset.start) <= line && line <= Number(item.dataset.end);
+    item.classList.toggle("at-cursor", here);
+    if (here) marked = item;
+  }
+  return marked;
+}
+
+function followSourceCursor() {
+  if (!translationShown()) return;
+  const item = markTranslationCursor();
+  if (item === null) return;
+  const body = $("#translation-body");
+  const above = item.offsetTop < body.scrollTop;
+  const below = item.offsetTop + item.offsetHeight > body.scrollTop + body.clientHeight;
+  if (above || below) body.scrollTop = Math.max(0, item.offsetTop - 8);
+}
+
+// The translation's type size, kept for next time, stepped as the editor's is.
+function translationFontSize() {
+  let stored = 0;
+  try { stored = Number(localStorage.getItem("texMcpTranslationFontSize")); } catch { /* the default */ }
+  return stored >= 10 && stored <= 28 ? stored : 14;
+}
+
+function stepTranslationFontSize(step) {
+  const size = Math.min(28, Math.max(10, translationFontSize() + step));
+  try { localStorage.setItem("texMcpTranslationFontSize", String(size)); } catch { /* per-viewer only */ }
+  $("#translation-body").style.fontSize = `${size}px`;
 }
 
 async function applyCompletedCompile(result, pdfDigest) {
@@ -3061,6 +3104,9 @@ async function init() {
   $("#compile-btn").addEventListener("click", () => compile());
   $("#translation-btn").addEventListener("click", () => setTranslation(!translation.on));
   $("#translation-file").addEventListener("change", () => scheduleTranslation(0));
+  $("#translation-body").style.fontSize = `${translationFontSize()}px`;
+  $("#translation-font-smaller-btn").addEventListener("click", () => stepTranslationFontSize(-1));
+  $("#translation-font-larger-btn").addEventListener("click", () => stepTranslationFontSize(1));
   try { if (localStorage.getItem("texMcpTranslation") === "1") setTranslation(true); } catch { /* per-viewer only */ }
   $("#source-save-btn").addEventListener("click", () => {
     saveSource().catch((error) => alert(`Could not save: ${error.message}`));
