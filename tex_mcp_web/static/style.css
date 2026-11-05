@@ -1089,3 +1089,7 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
 
 :root[data-theme="dark"] .file-button { color: #1f2328; }
 #source-editor.steady-cursor .ace_cursor { animation: none !important; }
+.overleaf-sync-file { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.5rem; padding: 0.35rem 0.4rem; border-top: 1px solid var(--border, #ddd); }
+.overleaf-sync-file strong { font-weight: 600; }
+.overleaf-sync-file span { flex-basis: 100%; font-size: 0.85em; opacity: 0.85; }
+.overleaf-live-list .overleaf-sync-file button { width: auto; padding: 0.2rem 0.5rem; border: 1px solid var(--border, #ccc); }

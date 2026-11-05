@@ -45,6 +45,7 @@ class Config:
         translation_instructions: Extra rules the translator follows, such as a field's
             terms to keep in English, from ``translation: {instructions: ...}``.
         overleaf_write: Let the reviewer send replies and closes to that project.
+        overleaf_sync: Keep the paper's files and that project's the same, both ways.
         overleaf: The paper's Overleaf project, by its link, whose comments the page
             brings in with the reviewer's own session cookie. Unset means none.
         config_path: Path to .tex-mcp-web.yaml file (used to resolve watch_dir).
@@ -61,6 +62,7 @@ class Config:
     translation_instructions: str | None = None
     overleaf: str | None = None
     overleaf_write: bool = False
+    overleaf_sync: bool = False
     config_path: Path | None = None
 
     @classmethod
@@ -78,6 +80,7 @@ class Config:
             translation_instructions=_translation(data).get("instructions"),
             overleaf=_overleaf(data),
             overleaf_write=_overleaf_write(data),
+            overleaf_sync=_overleaf_flag(data, "overleaf_sync"),
             config_path=config_path,
         )
 
@@ -102,6 +105,8 @@ class Config:
             d["overleaf"] = self.overleaf
         if self.overleaf_write:
             d["overleaf_write"] = True
+        if self.overleaf_sync:
+            d["overleaf_sync"] = True
         return d
 
 
@@ -245,9 +250,14 @@ def get_main_file(config: Config) -> Path:
 def _overleaf_write(data: dict[str, Any]) -> bool:
     """``overleaf_write:``, which lets the reviewer send replies and closes to the project.
     Off unless it says true, since what goes there is read by everyone in the project."""
-    raw = data.get("overleaf_write", False)
+    return _overleaf_flag(data, "overleaf_write")
+
+
+def _overleaf_flag(data: dict[str, Any], key: str) -> bool:
+    """A switch that sends to the Overleaf project: off unless it says true."""
+    raw = data.get(key, False)
     if not isinstance(raw, bool):
-        raise ValueError(f"overleaf_write must be true or false, not {raw!r}")
+        raise ValueError(f"{key} must be true or false, not {raw!r}")
     if raw and _overleaf(data) is None:
-        raise ValueError("overleaf_write needs overleaf: to name the project")
+        raise ValueError(f"{key} needs overleaf: to name the project")
     return raw

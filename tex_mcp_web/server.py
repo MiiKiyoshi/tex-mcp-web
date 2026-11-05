@@ -71,7 +71,9 @@ from .synctex import (
     source_to_page,
 )
 from . import overleaf
+from . import overleaf_ot
 from .overleaf_live import LivePresence
+from .overleaf_sync import ProjectSync
 from .completion import bib_entries, defined_commands, defined_environments, labels
 from .translate import Translator, TranslationStore, load_glossary, split_paragraphs, store_name
 from .watcher import Watcher, is_watched_source, matches_patterns
@@ -394,6 +396,10 @@ class TexMcpWebServer:
         self._overleaf_live_stop: asyncio.TimerHandle | None = None
         self._overleaf_live_push: asyncio.TimerHandle | None = None
         self._overleaf_import = asyncio.Lock()
+        self.overleaf_sync: ProjectSync | None = None
+        # Texts the page may save over, by file and revision, for a save made over an
+        # edit from Overleaf to be brought together with it.
+        self._source_texts: dict[str, dict[str, str]] = {}
         self._overleaf_reads = 0
         self._overleaf_reader: asyncio.Future | None = None
         self._overleaf_deleted: set[str] = set()
@@ -445,6 +451,7 @@ class TexMcpWebServer:
         app.router.add_delete("/overleaf/cookie", self._handle_overleaf_cookie)
         app.router.add_post("/overleaf/pull", self._handle_overleaf_pull)
         app.router.add_get("/overleaf/live", self._handle_overleaf_live)
+        app.router.add_post("/overleaf/sync", self._handle_overleaf_sync)
         app.on_cleanup.append(lambda _app: self._stop_overleaf_live())
         app.router.add_get("/wait-review", self._handle_wait_review)
         app.router.add_post("/wait-review/listen", self._handle_claim_review)
@@ -567,13 +574,19 @@ class TexMcpWebServer:
         try:
             path = Path(changed_path).resolve()
             relative = path.relative_to(self.watch_dir.resolve()).as_posix()
-            revision = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
+            data = path.read_bytes() if path.is_file() else None
+            revision = hashlib.sha256(data).hexdigest() if data is not None else None
+            if data is not None and self.overleaf_sync is not None and self.overleaf_sync.owns(relative):
+                self._remember_source(relative, revision, data.decode("utf-8", errors="replace"))
             self.comments.refresh_source_anchors(self.watch_dir)
             await self.broadcast(
                 {"type": "source_changed", "path": relative, "revision": revision}
             )
         except (OSError, ValueError):
             pass
+        finally:
+            if self.overleaf_sync is not None:
+                self.overleaf_sync.poke()
 
     # ----- websocket -----
 
@@ -633,7 +646,8 @@ class TexMcpWebServer:
         wanted = bool(self.websockets) and bool(self.config.overleaf) and overleaf.read_cookie() is not None
         live = self.overleaf_live
         if live is not None and (restart or live.link != self.config.overleaf or not self.config.overleaf
-                                 or overleaf.read_cookie() is None):
+                                 or overleaf.read_cookie() is None
+                                 or (live.sync is not None) != self.config.overleaf_sync):
             await self._stop_overleaf_live()
             live = None
         if wanted:
@@ -641,8 +655,13 @@ class TexMcpWebServer:
                 self._overleaf_live_stop.cancel()
                 self._overleaf_live_stop = None
             if live is None:
+                if self.config.overleaf_sync:
+                    self.overleaf_sync = ProjectSync(self.watch_dir, self._overleaf_live_changed,
+                                                     written=self._overleaf_written)
+                    await self.overleaf_sync.start()
                 self.overleaf_live = LivePresence(self.config.overleaf, overleaf.read_cookie,
-                                                  self._overleaf_live_changed, comments=self._overleaf_comment_news)
+                                                  self._overleaf_live_changed, comments=self._overleaf_comment_news,
+                                                  sync=self.overleaf_sync)
                 await self.overleaf_live.start()
         elif live is not None and self._overleaf_live_stop is None:
             loop = asyncio.get_running_loop()
@@ -665,6 +684,9 @@ class TexMcpWebServer:
         live, self.overleaf_live = self.overleaf_live, None
         if live is not None:
             await live.stop()
+        sync, self.overleaf_sync = self.overleaf_sync, None
+        if sync is not None:
+            await sync.stop()
             await self.broadcast({"type": "overleaf_live", **live.snapshot()})
 
     def _overleaf_live_changed(self) -> None:
@@ -684,6 +706,8 @@ class TexMcpWebServer:
         """Comments changed on Overleaf, or the session opened after a time away: read them."""
         if name == "delete-thread" and args:
             self._overleaf_deleted.add(str(args[0]))
+            if self.overleaf_sync is not None:
+                self.overleaf_sync.forget_thread(str(args[0]))
         self._overleaf_reads = 2
         if self._overleaf_reader is None or self._overleaf_reader.done():
             self._overleaf_reader = asyncio.ensure_future(self._follow_overleaf_comments())
@@ -709,6 +733,30 @@ class TexMcpWebServer:
         if live.comments_trouble != trouble:
             live.comments_trouble = trouble
             self._overleaf_live_changed()
+
+    async def _overleaf_written(self, path: str) -> None:
+        """A file written with an edit from Overleaf: the page is told at once."""
+        await self.on_file_change(str(self.watch_dir / path))
+
+    async def _handle_overleaf_sync(self, request: web.Request) -> web.Response:
+        """The reviewer's choice for a file that stopped: which text stands."""
+        if self.overleaf_sync is None:
+            return web.json_response({"error": "files are not kept in step with Overleaf; "
+                                               "set overleaf_sync: true in .tex-mcp-web.yaml"}, status=409)
+        data, err = await self._read_json(request)
+        if err is not None:
+            return err
+        error = await self.overleaf_sync.decide(str(data.get("path", "")), str(data.get("choice", "")))
+        if error:
+            return web.json_response({"error": error}, status=400)
+        return web.json_response({"ok": True})
+
+    def _remember_source(self, relative: str, revision: str, text: str) -> None:
+        texts = self._source_texts.setdefault(relative, {})
+        texts.pop(revision, None)
+        texts[revision] = text
+        while len(texts) > 20:
+            texts.pop(next(iter(texts)))
 
     async def _handle_overleaf_live(self, request: web.Request) -> web.Response:
         snapshot = (self.overleaf_live.snapshot() if self.overleaf_live is not None else
@@ -859,6 +907,9 @@ class TexMcpWebServer:
         here is known by its words, once, since Overleaf does not say which message it made.
         The ledger is written however this ends, so what did come in does not come in again."""
         ledger = self._overleaf_ledger()
+        if self.overleaf_sync is not None:
+            self.overleaf_sync.resolved_threads = {
+                str(key) for key, thread in data["threads"].items() if isinstance(thread, dict) and thread.get("resolved")}
         counts = {"added": 0, "replies": 0, "resolved": 0, "unplaced": 0}
 
         def said(message: dict[str, Any]) -> str:
@@ -1256,6 +1307,9 @@ class TexMcpWebServer:
     async def _handle_source(self, request: web.Request) -> web.Response:
         path = self._resolve_source_path(request.query.get("path"))
         text, revision = self._read_source(path)
+        relative = path.relative_to(self.watch_dir.resolve()).as_posix()
+        if self.overleaf_sync is not None and self.overleaf_sync.owns(relative):
+            self._remember_source(relative, revision, text)
         return web.json_response(
             {
                 "path": path.relative_to(self.watch_dir.resolve()).as_posix(),
@@ -1279,23 +1333,32 @@ class TexMcpWebServer:
                 {"error": "text and revision are required"}, status=400
             )
 
-        _, current_revision = self._read_source(path)
+        current_text, current_revision = self._read_source(path)
+        relative = path.relative_to(self.watch_dir.resolve()).as_posix()
+        text, merged = data["text"], False
         if data["revision"] != current_revision:
-            return web.json_response(
-                {"error": "source changed after it was opened", "revision": current_revision},
-                status=409,
-            )
+            # A file kept in step with Overleaf changes under the page as others type:
+            # what the page changed since it opened the file goes in among their edits.
+            base = self._source_texts.get(relative, {}).get(data["revision"])
+            if base is None or self.overleaf_sync is None or not self.overleaf_sync.owns(relative):
+                return web.json_response(
+                    {"error": "source changed after it was opened", "revision": current_revision},
+                    status=409,
+                )
+            mine, _ = overleaf_ot.transform_x(overleaf_ot.diff(base, text), overleaf_ot.diff(base, current_text))
+            text, merged = overleaf_ot.apply(current_text, mine), True
 
-        encoded = data["text"].encode("utf-8")
+        encoded = text.encode("utf-8")
         self._replace_source(path, encoded)
         revision = hashlib.sha256(encoded).hexdigest()
+        if self.overleaf_sync is not None and self.overleaf_sync.owns(relative):
+            self._remember_source(relative, revision, text)
+            self.overleaf_sync.poke()
         self.comments.refresh_source_anchors(self.watch_dir)
-        return web.json_response(
-            {
-                "path": path.relative_to(self.watch_dir.resolve()).as_posix(),
-                "revision": revision,
-            }
-        )
+        answer = {"path": relative, "revision": revision}
+        if merged:
+            answer["text"] = text
+        return web.json_response(answer)
 
     def _comment_summary(self) -> dict[str, int]:
         open_comments = self.comments.list(status="open")

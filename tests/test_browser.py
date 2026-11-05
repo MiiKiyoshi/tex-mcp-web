@@ -1939,6 +1939,79 @@ def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path
 
 
 @pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
+def test_a_file_that_differs_from_overleaf_waits_for_a_choice_on_the_page(tmp_path: Path, monkeypatch) -> None:
+    """With overleaf_sync, a file that differs from Overleaf's at the start is listed with
+    a choice; choosing Overleaf's text writes it, and the panel says the file is in step."""
+    import asyncio
+    import threading
+    from aiohttp.test_utils import TestServer
+    from tests.test_overleaf_sync import BODY, MAIN, PROJECT_ID, FakeOverleaf
+    from tex_mcp_web import overleaf
+
+    loop = asyncio.new_event_loop()
+    threading.Thread(target=loop.run_forever, daemon=True).start()
+    fake = FakeOverleaf()
+    site = TestServer(fake.app, loop=loop)
+    asyncio.run_coroutine_threadsafe(site.start_server(), loop).result(10)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config-home"))
+    monkeypatch.delenv(overleaf.COOKIE_ENV, raising=False)
+    overleaf.save_cookie(fake.cookie)
+    (tmp_path / "tex").mkdir()
+    (tmp_path / "main.tex").write_text(MAIN + "\n% only here", encoding="utf-8")
+    (tmp_path / "tex" / "body.tex").write_text(BODY, encoding="utf-8")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: main.tex\nport: {port}\n"
+                           f"overleaf: http://127.0.0.1:{site.port}/project/{PROJECT_ID}\noverleaf_sync: true\n",
+                           encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    profile = tempfile.mkdtemp(prefix="tex_mcp_overleaf_sync_")
+    marionette_port = available_port()
+    (Path(profile) / "user.js").write_text(f'user_pref("marionette.port", {marionette_port});\n', encoding="utf-8")
+    browser_process = None
+    browser = None
+    text = lambda selector: browser.execute_script(f'return document.querySelector("{selector}").textContent')
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        browser_process = subprocess.Popen(
+            ["firefox", "-marionette", "-headless", "-no-remote", "-profile", profile, "about:blank"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        browser = marionette.Marionette(host="127.0.0.1", port=marionette_port, startup_timeout=30)
+        browser.start_session()
+        browser.navigate(base)
+        wait_until(lambda: browser.execute_script(
+            'return document.querySelector(\'#overleaf-sync-files [data-path="main.tex"]\') !== null'), timeout=20)
+        assert "wait for your choice" in text("#overleaf-sync-head")
+        assert browser.execute_script(
+            'return document.querySelector("#overleaf-live-btn").classList.contains("trouble")') is True
+        assert (tmp_path / "main.tex").read_text(encoding="utf-8") == MAIN + "\n% only here"
+        browser.execute_script("(window.wrappedJSObject || window).confirm = () => true;", sandbox=None)
+        browser.execute_script("document.querySelector('#overleaf-sync-files .overleaf-sync-overleaf').click()")
+        wait_until(lambda: (tmp_path / "main.tex").read_text(encoding="utf-8") == MAIN, timeout=15)
+        wait_until(lambda: "2 files kept in step with Overleaf" in text("#overleaf-sync-head"), timeout=15)
+        assert fake.docs["d-main"]["text"] == MAIN
+        assert list((tmp_path / ".tex-mcp-web" / "overleaf-sync" / "kept").glob("main.tex.here.*"))
+    finally:
+        if browser is not None:
+            try:
+                browser.delete_session()
+            except Exception:
+                pass
+        if browser_process is not None:
+            browser_process.terminate()
+            try:
+                browser_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                browser_process.kill()
+        shutil.rmtree(profile, ignore_errors=True)
+        shared.stop()
+        asyncio.run_coroutine_threadsafe(site.close(), loop).result(10)
+        loop.call_soon_threadsafe(loop.stop)
+
+
+@pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
 def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_changed(
         tmp_path: Path, monkeypatch) -> None:
     """With the project named and the cookie kept, an open page sits in the Overleaf project:

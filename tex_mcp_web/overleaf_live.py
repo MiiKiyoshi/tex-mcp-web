@@ -9,6 +9,8 @@ reviewer is, the top of the main file, which needs that file opened (joinDoc) fi
 editor that sees no one else sends its cursor every five minutes, and one that sees the
 reviewer sends it twice a second. To the others it is one more tab of the reviewer's, idle.
 The service also says when a comment changes, which is passed on for the server to read.
+With a sync attached, the session also carries the files' edits both ways (overleaf_sync);
+a file added, renamed or deleted on Overleaf joins the project again, to read its files anew.
 
 The protocol is the service's own (services/real-time in overleaf/overleaf), not a public
 API; a change on Overleaf's side ends in an error here, never in a change there.
@@ -62,17 +64,60 @@ class SessionRefused(Exception):
     """Overleaf refused the session cookie."""
 
 
+# What Overleaf says when the project's files change: the session is begun again.
+_STRUCTURE = ("reciveNewDoc", "reciveNewFile", "reciveNewFolder", "reciveEntityRename", "reciveEntityMove",
+              "removeEntity")
+
+
+class _Session:
+    """Asking Overleaf over one open connection, and waiting for its answer."""
+
+    def __init__(self, ws: aiohttp.ClientWebSocketResponse, public_id: str) -> None:
+        self.ws = ws
+        self.public_id = public_id
+        self.waiting: dict[int, asyncio.Future] = {}
+        self._next = 10
+
+    async def emit(self, name: str, args: list) -> None:
+        await self.ws.send_str("5:::" + json.dumps({"name": name, "args": args}))
+
+    async def call(self, name: str, args: list, timeout: float = 30) -> list:
+        self._next += 1
+        number, answer = self._next, asyncio.get_running_loop().create_future()
+        self.waiting[number] = answer
+        try:
+            await self.ws.send_str(f"5:{number}+::" + json.dumps({"name": name, "args": args}))
+            return await asyncio.wait_for(answer, timeout)
+        finally:
+            self.waiting.pop(number, None)
+
+    def answered(self, number: int, reply: list) -> bool:
+        answer = self.waiting.get(number)
+        if answer is None:
+            return False
+        if not answer.done():
+            answer.set_result(reply)
+        return True
+
+    def closed(self) -> None:
+        for answer in self.waiting.values():
+            if not answer.done():
+                answer.set_exception(ConnectionError("the connection to Overleaf closed"))
+
+
 class LivePresence:
     """One read-only connection to the project's editor session, kept up until stopped."""
 
     def __init__(self, link: str, cookie: Callable[[], tuple[str, str] | None], changed: Callable[[], Any], *,
-                 comments: Callable[[str, list], Any] = lambda name, args: None,
+                 comments: Callable[[str, list], Any] = lambda name, args: None, sync: Any = None,
                  retry_delays: tuple[float, ...] = (2, 5, 15, 30, 60)) -> None:
         self.server, self.project = project_of(link)
         self.link = link
         self._cookie = cookie
         self._changed = changed
         self._comments = comments
+        self.sync = sync
+        self._session_api: _Session | None = None
         self.comments_trouble = ""
         self.doc_type = ""
         self._retry_delays = retry_delays
@@ -98,7 +143,8 @@ class LivePresence:
         changes = sorted(self._changes.values(), key=lambda change: change["at"], reverse=True)
         return {"status": self.status, "message": self.message, "project": self.link,
                 "users": sorted(users, key=lambda user: user["name"]), "changes": changes,
-                "comments_trouble": self.comments_trouble, "doc_type": self.doc_type}
+                "comments_trouble": self.comments_trouble, "doc_type": self.doc_type,
+                "files": self.sync.snapshot() if self.sync is not None else []}
 
     def _set(self, status: str, message: str = "") -> None:
         self.status, self.message = status, message
@@ -185,7 +231,14 @@ class LivePresence:
             cookies = "; ".join(f"{name}={value}" for name, value in jar.items())
             async with session.ws_connect(f"{socket_url}/socket.io/1/websocket/{sid}?{query}",
                                           headers={"Cookie": cookies}, autoping=True) as ws:
-                await self._listen(ws, heartbeat)
+                try:
+                    await self._listen(ws, heartbeat)
+                finally:
+                    api, self._session_api = self._session_api, None
+                    if api is not None:
+                        api.closed()
+                        if self.sync is not None:
+                            self.sync.session_closed()
 
     async def _listen(self, ws: aiohttp.ClientWebSocketResponse, heartbeat: int) -> None:
         while True:
@@ -211,6 +264,9 @@ class LivePresence:
                 await self._event(ws, str(payload.get("name")), payload.get("args") or [])
             elif kind == "6":
                 acked = re.match(r"(\d+)\+?(.*)$", data, re.S)
+                if acked and self._session_api is not None and self._session_api.answered(
+                        int(acked.group(1)), json.loads(acked.group(2) or "[]")):
+                    continue
                 if acked and int(acked.group(1)) == _ASK_USERS and acked.group(2):
                     self._connected_users(json.loads(acked.group(2)))
                 elif acked and int(acked.group(1)) == _OPEN_MAIN:
@@ -231,6 +287,8 @@ class LivePresence:
             raise RuntimeError(f"Overleaf refused the connection: {reason}")
         if name in ("forceDisconnect", "reconnectGracefully"):
             raise RuntimeError(f"Overleaf asked to reconnect ({name})")
+        if name in _STRUCTURE:
+            raise RuntimeError("the project's files changed on Overleaf; joining again to read them")
         if name == "joinProjectResponse" and isinstance(first, dict):
             project = first.get("project") or {}
             self._me = str(first.get("publicId", ""))
@@ -245,6 +303,9 @@ class LivePresence:
             self._comment_news("joined", [])
             await ws.send_str(f"5:{_ASK_USERS}+::" + json.dumps(
                 {"name": "clientTracking.getConnectedUsers", "args": []}))
+            if self.sync is not None:
+                self._session_api = _Session(ws, self._me)
+                self.sync.session_opened(self._session_api, dict(self._docs))
             root = str(project.get("rootDoc_id") or "")
             self._main_doc = root if root in self._docs else next(iter(self._docs), "")
             if self._main_doc:
@@ -262,8 +323,15 @@ class LivePresence:
         elif name == "clientTracking.clientDisconnected":
             if self._users.pop(str(first), None) is not None:
                 self._notify()
+        elif name == "otUpdateError" and self.sync is not None:
+            detail = args[1] if len(args) > 1 and isinstance(args[1], dict) else {}
+            self.sync.failed(str(detail.get("doc_id", "")), str(first))
+        elif name == "otUpdateApplied" and isinstance(first, dict) and self.sync is not None and not first.get("op"):
+            self.sync.remote(first)
         elif name == "otUpdateApplied" and isinstance(first, dict) and first.get("op"):
             # A collaborator's edit; one's own comes back without its op.
+            if self.sync is not None:
+                self.sync.remote(first)
             path = self._docs.get(str(first.get("doc")))
             if path is None:
                 return

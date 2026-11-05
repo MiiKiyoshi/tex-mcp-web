@@ -1108,6 +1108,53 @@ function overleafItem(dot, text, where, onClick) {
   return item;
 }
 
+// Files kept in step with Overleaf: how many are, and a choice for each that stopped.
+const OVERLEAF_CHOICES = {
+  differs: [["overleaf", "Use Overleaf's"], ["here", "Send this file's"]],
+  stopped: [["overleaf", "Use Overleaf's"], ["here", "Send this file's"]],
+  held: [["anyway", "Send it anyway"], ["overleaf", "Put Overleaf's back"]],
+};
+
+function renderOverleafFiles(files, choosing) {
+  const head = $("#overleaf-sync-head");
+  const followed = files.filter((file) => file.status !== "unsupported").length;
+  head.hidden = !files.length;
+  head.textContent = choosing.length
+    ? `${choosing.length} file${choosing.length === 1 ? "" : "s"} wait for your choice; the others stay in step with Overleaf.`
+    : `${followed} file${followed === 1 ? "" : "s"} kept in step with Overleaf.`;
+  $("#overleaf-sync-files").replaceChildren(...choosing.map((file) => {
+    const item = document.createElement("li");
+    item.className = "overleaf-sync-file";
+    item.dataset.path = file.path;
+    const name = document.createElement("strong");
+    name.textContent = file.path;
+    const why = document.createElement("span");
+    why.textContent = file.message;
+    item.append(name, why);
+    for (const [choice, label] of OVERLEAF_CHOICES[file.status] ?? []) {
+      const choose = document.createElement("button");
+      choose.type = "button";
+      choose.className = `overleaf-sync-${choice}`;
+      choose.textContent = label;
+      choose.addEventListener("click", () => chooseOverleafText(file.path, choice, label).catch(
+        (error) => alert(`Could not settle ${file.path}: ${error.message}`)));
+      item.append(choose);
+    }
+    return item;
+  }));
+}
+
+async function chooseOverleafText(path, choice, label) {
+  const replaced = choice === "overleaf" ? "this file's text" : "Overleaf's text";
+  if (choice !== "anyway" && !confirm(`${label} for ${path}? ${replaced} is kept in .tex-mcp-web/overleaf-sync/kept/.`)) return;
+  const response = await fetch("/overleaf/sync", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path, choice }),
+  });
+  if (!response.ok) throw new Error(await responseError(response));
+}
+
 function renderOverleafLive(snapshot) {
   overleafLive.snapshot = snapshot;
   const { status, users = [], changes = [] } = snapshot;
@@ -1115,7 +1162,11 @@ function renderOverleafLive(snapshot) {
   button.hidden = status === "off";
   if (button.hidden) $("#overleaf-live-panel").hidden = true;
   const commentsTrouble = status === "live" ? snapshot.comments_trouble : "";
-  button.classList.toggle("trouble", status === "signed_out" || status === "reconnecting" || !!commentsTrouble);
+  const files = snapshot.files ?? [];
+  const choosing = files.filter((file) => ["differs", "stopped", "held"].includes(file.status));
+  button.classList.toggle("trouble", status === "signed_out" || status === "reconnecting" || !!commentsTrouble
+    || choosing.length > 0);
+  renderOverleafFiles(files, choosing);
   $("#overleaf-live-label").textContent = status === "live"
     ? (users.length ? `${users.length} on Overleaf` : "Overleaf")
     : status === "connecting" ? "Overleaf…" : "Overleaf offline";
@@ -1800,10 +1851,22 @@ async function saveSource() {
     throw new Error(await responseError(response));
   }
   const result = await response.json();
+  if (typeof result.text === "string" && result.text !== state.editor.getValue()) {
+    // Brought together with edits made on Overleaf meanwhile: the editor takes the result
+    // where it stands.
+    const cursor = state.editor.getCursorPosition();
+    const top = state.editor.session.getScrollTop();
+    state.sourceLoading = true;
+    state.editor.session.doc.setValue(result.text);
+    state.sourceLoading = false;
+    state.editor.moveCursorToPosition(cursor);
+    state.editor.clearSelection();
+    state.editor.session.setScrollTop(top);
+  }
   state.sourceRevision = result.revision;
   state.sourceDirty = false;
   button.disabled = true;
-  setSourceStatus("Saved");
+  setSourceStatus(typeof result.text === "string" ? "Saved with Overleaf's edits" : "Saved");
   scheduleCompletions(300);
   await refreshComments();
   updateSourceCommentButton();
@@ -1838,7 +1901,9 @@ async function handleSourceChanged(message) {
   if (!state.editor || message.path !== state.sourcePath
       || message.revision === state.sourceRevision) return;
   if (state.sourceDirty) {
-    setSourceStatus("Changed on disk · reload", "conflict");
+    const followed = (overleafLive.snapshot?.files ?? []).some((file) => file.path === message.path);
+    setSourceStatus(followed ? "Edited on Overleaf · saving takes both" : "Changed on disk · reload",
+      followed ? "" : "conflict");
     return;
   }
   const line = state.editor.getCursorPosition().row + 1;

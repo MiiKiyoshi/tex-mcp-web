@@ -110,6 +110,18 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   the project to read: a plain reply stays here, since it may be an instruction to the
   agent, and the agent's never go. Overleaf takes it first, so what it refuses is not
   shown as done here.
+- With `overleaf_sync: true`, the paper's files and the project's are kept the same both
+  ways while a page is open: an edit on Overleaf is written into the file within a second,
+  and what changes in a file here, from the page, an editor or the agent, is sent as the
+  smallest edit that makes it, so comments on words left alone keep them. A save from
+  the page over an edit from Overleaf takes both. Edits made on either side while no page
+  was open come together when one is. Nothing is overwritten on a guess: a file that
+  differs with nothing to say which side changed it, an edit that would delete every word
+  of an open comment, and an edit Overleaf turns away each stop that file, and the
+  Overleaf list in the top bar asks which text stands. The text that gives way is kept in
+  `.tex-mcp-web/overleaf-sync/kept/`. Only Overleaf's older kind of document
+  (`sharejs-text-ot`) is followed, and files added, renamed or deleted on Overleaf are not
+  mirrored beyond taking up a document's text.
 
 ## Suggested edits
 
@@ -189,6 +201,7 @@ overleaf: https://www.overleaf.com/project/0123456789abcdef01234567
 | `translation` | `language` puts a button for that language beside **+ Note**: it shows each paragraph of the source translated by `claude -p`, with those on the current page marked. `instructions` adds rules for the translator, one per line. A paragraph is translated once per text, and of a figure or table only the caption is. Unset means no translation. |
 | `overleaf` | The paper's Overleaf project, by its link, whose comments an open page follows and **Bring in from Overleaf** reads. Unset means comments come in only from a file. |
 | `overleaf_write` | `true` lets you send replies and closes to that project, each with its own button. Unset means nothing is sent there. |
+| `overleaf_sync` | `true` keeps the paper's files and that project's the same both ways while a page is open. Unset means files are not touched and no edit is sent. |
 
 ## See also
 
