@@ -148,8 +148,9 @@ async def test_the_project_shows_who_is_there_where_they_are_and_what_they_chang
     await live.start()
     try:
         await wait_for(lambda: live.snapshot()["users"])
+        await wait_for(lambda: live.snapshot()["doc_type"])
         snapshot = live.snapshot()
-        assert snapshot["status"] == "live"
+        assert snapshot["status"] == "live" and snapshot["doc_type"] == "sharejs-text-ot"
         assert fake.handshakes[0] == {"cookie": "overleaf_session2=s%3Agood", "origin": f"{link.split('/project')[0]}",
                                       "project": PROJECT_ID}
         # Others only, by name and file; no e-mail addresses.

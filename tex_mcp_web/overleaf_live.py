@@ -74,6 +74,7 @@ class LivePresence:
         self._changed = changed
         self._comments = comments
         self.comments_trouble = ""
+        self.doc_type = ""
         self._retry_delays = retry_delays
         self._task: asyncio.Task | None = None
         self.status = "off"
@@ -97,7 +98,7 @@ class LivePresence:
         changes = sorted(self._changes.values(), key=lambda change: change["at"], reverse=True)
         return {"status": self.status, "message": self.message, "project": self.link,
                 "users": sorted(users, key=lambda user: user["name"]), "changes": changes,
-                "comments_trouble": self.comments_trouble}
+                "comments_trouble": self.comments_trouble, "doc_type": self.doc_type}
 
     def _set(self, status: str, message: str = "") -> None:
         self.status, self.message = status, message
@@ -215,6 +216,7 @@ class LivePresence:
                 elif acked and int(acked.group(1)) == _OPEN_MAIN:
                     reply = json.loads(acked.group(2) or "[null]")
                     if reply and reply[0] is None:
+                        self.doc_type = str(reply[5]) if len(reply) > 5 else ""
                         await ws.send_str("5:::" + json.dumps({"name": "clientTracking.updatePosition", "args": [
                             {"row": 0, "column": 0, "doc_id": self._main_doc}]}))
                     else:
