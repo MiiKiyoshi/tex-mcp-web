@@ -115,6 +115,121 @@ function capturePdfView() {
   };
 }
 
+// The viewer's colours for each of the page's themes. Warm, the restful one, is drawn on
+// the viewer's light scheme with its own warm paper colours.
+const VIEWER_COLORS = {
+  light: {
+    accent: {
+      primary: "#647b95",
+      primaryHover: "#536b86",
+      primaryActive: "#455c75",
+      primaryLight: "#e5e9ed",
+      primaryForeground: "#fffdf8",
+    },
+    background: {
+      app: "#faf8f2",
+      surface: "#fffdf8",
+      surfaceAlt: "#f4f1e8",
+      elevated: "#fffdf8",
+      input: "#fffdf8",
+    },
+    foreground: {
+      primary: "#302e29",
+      secondary: "#6f6a61",
+      muted: "#8a8479",
+      disabled: "#aaa396",
+      onAccent: "#fffdf8",
+    },
+    interactive: {
+      hover: "#f0ece2",
+      active: "#e7e1d4",
+      selected: "#e5e9ed",
+      focus: "#647b95",
+    },
+    border: {
+      default: "#ddd7ca",
+      subtle: "#ebe6db",
+      strong: "#bdb5a5",
+    },
+  },
+  dark: {
+    accent: {
+      primary: "#8ea5bf",
+      primaryHover: "#a2b6cc",
+      primaryActive: "#b6c6d8",
+      primaryLight: "#5b636d",
+      primaryForeground: "#4a4944",
+    },
+    background: {
+      app: "#403f3b",
+      surface: "#54524d",
+      surfaceAlt: "#4a4944",
+      elevated: "#5c5a54",
+      input: "#4a4944",
+    },
+    foreground: {
+      primary: "#f5f2eb",
+      secondary: "#d8d2c6",
+      muted: "#c2bbaf",
+      disabled: "#77726a",
+      onAccent: "#4a4944",
+    },
+    interactive: {
+      hover: "#5d5b55",
+      active: "#68655e",
+      selected: "#5b636d",
+      focus: "#8ea5bf",
+    },
+    border: {
+      default: "#7a766e",
+      subtle: "#5d5b55",
+      strong: "#8e8a80",
+    },
+  },
+  warm: {
+    accent: {
+      primary: "#9b6a3d",
+      primaryHover: "#8a5c33",
+      primaryActive: "#774f2b",
+      primaryLight: "#ded6c6",
+      primaryForeground: "#fbf3e4",
+    },
+    background: {
+      app: "#d9d2c5",
+      surface: "#ece6dc",
+      surfaceAlt: "#e2dccf",
+      elevated: "#efebe2",
+      input: "#f4f0e9",
+    },
+    foreground: {
+      primary: "#3a2f22",
+      secondary: "#6c5c46",
+      muted: "#8a7860",
+      disabled: "#b2a186",
+      onAccent: "#fbf3e4",
+    },
+    interactive: {
+      hover: "#e3dccf",
+      active: "#d8cfc0",
+      selected: "#ded6c6",
+      focus: "#9b6a3d",
+    },
+    border: {
+      default: "#ccc3b3",
+      subtle: "#dcd6c9",
+      strong: "#b3a896",
+    },
+  },
+};
+
+function viewerTheme(theme) {
+  return {
+    preference: theme === "dark" ? "dark" : "light",
+    light: theme === "warm" ? VIEWER_COLORS.warm : VIEWER_COLORS.light,
+    dark: VIEWER_COLORS.dark,
+  };
+}
+
 async function initializePdfViewer(pdfView) {
   state.annotationObserver?.disconnect();
   state.annotationObserver = null;
@@ -139,77 +254,7 @@ async function initializePdfViewer(pdfView) {
     wasmUrl: "/static/embedpdf/pdfium.wasm",
     worker: false,
     fonts: { ui: null, signature: null },
-    theme: {
-      preference: document.documentElement.dataset.theme,
-      light: {
-        accent: {
-          primary: "#647b95",
-          primaryHover: "#536b86",
-          primaryActive: "#455c75",
-          primaryLight: "#e5e9ed",
-          primaryForeground: "#fffdf8",
-        },
-        background: {
-          app: "#faf8f2",
-          surface: "#fffdf8",
-          surfaceAlt: "#f4f1e8",
-          elevated: "#fffdf8",
-          input: "#fffdf8",
-        },
-        foreground: {
-          primary: "#302e29",
-          secondary: "#6f6a61",
-          muted: "#8a8479",
-          disabled: "#aaa396",
-          onAccent: "#fffdf8",
-        },
-        interactive: {
-          hover: "#f0ece2",
-          active: "#e7e1d4",
-          selected: "#e5e9ed",
-          focus: "#647b95",
-        },
-        border: {
-          default: "#ddd7ca",
-          subtle: "#ebe6db",
-          strong: "#bdb5a5",
-        },
-      },
-      dark: {
-        accent: {
-          primary: "#8ea5bf",
-          primaryHover: "#a2b6cc",
-          primaryActive: "#b6c6d8",
-          primaryLight: "#5b636d",
-          primaryForeground: "#4a4944",
-        },
-        background: {
-          app: "#403f3b",
-          surface: "#54524d",
-          surfaceAlt: "#4a4944",
-          elevated: "#5c5a54",
-          input: "#4a4944",
-        },
-        foreground: {
-          primary: "#f5f2eb",
-          secondary: "#d8d2c6",
-          muted: "#c2bbaf",
-          disabled: "#77726a",
-          onAccent: "#4a4944",
-        },
-        interactive: {
-          hover: "#5d5b55",
-          active: "#68655e",
-          selected: "#5b636d",
-          focus: "#8ea5bf",
-        },
-        border: {
-          default: "#7a766e",
-          subtle: "#5d5b55",
-          strong: "#8e8a80",
-        },
-      },
-    },
+    theme: viewerTheme(document.documentElement.dataset.theme),
     tabBar: "never",
     disabledCategories: ["annotation", "redaction", "insert", "form", "panel-comment"],
     // The pointer mode on a touch screen too: a finger scrolls the pages in it (see the
@@ -275,6 +320,7 @@ async function initializePdfViewer(pdfView) {
       background: #f6f1e2;
     }
     :host([data-tex-theme="dark"]) * { color-scheme: dark; scrollbar-color: #8a867c #403f3b; }
+    :host([data-tex-theme="warm"]) * { scrollbar-color: #b3a896 #d9d2c5; }
     /* On a touch screen a finger dragged on the pages scrolls them in the pointer mode too,
        as a page does, and a finger held still selects first. The viewer turns touch
        scrolling off in that mode so that every drag selects. */
@@ -946,8 +992,11 @@ function showSourceFile(path) {
   $("#source-file-name").textContent = path.split("/").pop();
 }
 
-// Dark or light, as the reader last chose, else as the system is. The page's own parts and
-// the viewer's change; the PDF's pages are drawn as compiled.
+// Light, dark or warm, as the reader last chose, else light or dark as the system is. The
+// page's own parts and the viewer's change; the PDF's pages are drawn as compiled, white
+// in every theme.
+const THEMES = ["light", "dark", "warm"];
+
 function darkTheme() {
   return document.documentElement.dataset.theme === "dark";
 }
@@ -957,11 +1006,13 @@ function editorTheme() {
 }
 
 function applyTheme(theme) {
+  if (!THEMES.includes(theme)) theme = "light";
   document.documentElement.dataset.theme = theme;
-  $("#theme-btn").setAttribute("aria-pressed", String(theme === "dark"));
-  $("#theme-btn").textContent = theme === "dark" ? "Light mode" : "Dark mode";
+  for (const button of document.querySelectorAll("[data-theme-choice]")) {
+    button.setAttribute("aria-checked", String(button.dataset.themeChoice === theme));
+  }
   state.editor?.setTheme(editorTheme());
-  state.viewer?.setTheme?.(theme);
+  state.viewer?.setTheme?.(viewerTheme(theme));
   // The viewer's scroll bars take the page's scheme, which its own theme does not set.
   state.viewer?.setAttribute("data-tex-theme", theme);
 }
@@ -1115,6 +1166,38 @@ const OVERLEAF_CHOICES = {
   held: [["anyway", "Send it anyway"], ["overleaf", "Put Overleaf's back"]],
 };
 
+// What a file waiting for a choice says, by why it waits.
+const OVERLEAF_WAITS = {
+  held: "Not sent to Overleaf",
+  differs: "Not in step with Overleaf",
+  stopped: "Stopped following Overleaf",
+};
+
+function overleafChoiceItem(file, withOpen) {
+  const item = document.createElement("li");
+  item.className = "overleaf-sync-file";
+  item.dataset.path = file.path;
+  const name = document.createElement("strong");
+  name.textContent = withOpen ? `${OVERLEAF_WAITS[file.status] ?? "Waiting"}: ${file.path}` : file.path;
+  const why = document.createElement("span");
+  why.textContent = file.message;
+  item.append(name, why);
+  const choices = [...(OVERLEAF_CHOICES[file.status] ?? [])];
+  if (withOpen) choices.unshift(["open", "Open the file"]);
+  for (const [choice, label] of choices) {
+    const choose = document.createElement("button");
+    choose.type = "button";
+    choose.className = `overleaf-sync-${choice}`;
+    choose.textContent = label;
+    choose.addEventListener("click", () => (choice === "open"
+      ? goToOverleafPlace(file.path, null)
+      : chooseOverleafText(file.path, choice, label)).catch(
+      (error) => alert(`Could not settle ${file.path}: ${error.message}`)));
+    item.append(choose);
+  }
+  return item;
+}
+
 function renderOverleafFiles(files, choosing) {
   const head = $("#overleaf-sync-head");
   const followed = files.filter((file) => file.status !== "unsupported").length;
@@ -1122,26 +1205,17 @@ function renderOverleafFiles(files, choosing) {
   head.textContent = choosing.length
     ? `${choosing.length} file${choosing.length === 1 ? "" : "s"} wait for your choice; the others stay in step with Overleaf.`
     : `${followed} file${followed === 1 ? "" : "s"} kept in step with Overleaf.`;
-  $("#overleaf-sync-files").replaceChildren(...choosing.map((file) => {
-    const item = document.createElement("li");
-    item.className = "overleaf-sync-file";
-    item.dataset.path = file.path;
-    const name = document.createElement("strong");
-    name.textContent = file.path;
-    const why = document.createElement("span");
-    why.textContent = file.message;
-    item.append(name, why);
-    for (const [choice, label] of OVERLEAF_CHOICES[file.status] ?? []) {
-      const choose = document.createElement("button");
-      choose.type = "button";
-      choose.className = `overleaf-sync-${choice}`;
-      choose.textContent = label;
-      choose.addEventListener("click", () => chooseOverleafText(file.path, choice, label).catch(
-        (error) => alert(`Could not settle ${file.path}: ${error.message}`)));
-      item.append(choose);
-    }
-    return item;
-  }));
+  $("#overleaf-sync-files").replaceChildren(...choosing.map((file) => overleafChoiceItem(file, false)));
+  // A file that waits is said across the top of the page until it is settled, since edits
+  // to it go nowhere meanwhile.
+  const alertBox = $("#overleaf-sync-alert");
+  const wasHidden = alertBox.hidden;
+  alertBox.hidden = !choosing.length;
+  $("#overleaf-sync-alert-head").textContent = choosing.length === 1
+    ? "A file waits for your choice. Edits to it stay here until you choose."
+    : `${choosing.length} files wait for your choice. Edits to them stay here until you choose.`;
+  $("#overleaf-sync-alert-files").replaceChildren(...choosing.map((file) => overleafChoiceItem(file, true)));
+  if (wasHidden !== alertBox.hidden) requestAnimationFrame(() => state.editor?.resize());
 }
 
 async function chooseOverleafText(path, choice, label) {
@@ -1167,9 +1241,10 @@ function renderOverleafLive(snapshot) {
   button.classList.toggle("trouble", status === "signed_out" || status === "reconnecting" || !!commentsTrouble
     || choosing.length > 0);
   renderOverleafFiles(files, choosing);
-  $("#overleaf-live-label").textContent = status === "live"
+  $("#overleaf-live-label").textContent = (status === "live"
     ? (users.length ? `${users.length} on Overleaf` : "Overleaf")
-    : status === "connecting" ? "Overleaf…" : "Overleaf offline";
+    : status === "connecting" ? "Overleaf…" : "Overleaf offline")
+    + (choosing.length ? ` · ${choosing.length} waiting` : "");
   const faces = $("#overleaf-live-faces");
   faces.replaceChildren(...users.slice(0, 4).map((user) => {
     const face = document.createElement("span");
@@ -1236,9 +1311,14 @@ function renderOverleafCursors() {
     return [caret];
   }));
   const change = snapshot.changes.find((item) => item.file === state.sourcePath);
-  const notice = change
+  const waiting = (snapshot.files ?? []).find((file) => file.path === state.sourcePath
+    && OVERLEAF_WAITS[file.status]);
+  const notice = waiting
+    ? `${OVERLEAF_WAITS[waiting.status]}: ${waiting.message}`
+    : change
     ? `${change.by} edited this file on Overleaf ${overleafWhen(change.at)} (${change.count} ${change.count === 1 ? "edit" : "edits"}). Bring those in before saving here.`
     : "";
+  $("#overleaf-file-notice").classList.toggle("waiting", !!waiting);
   if (notice !== overleafLive.notice) {
     overleafLive.notice = notice;
     $("#overleaf-file-notice").textContent = notice;
@@ -3205,11 +3285,13 @@ function attachSidebarToggle() {
     event.target.value = "";
     if (file) importOverleafComments(file).catch((error) => showOverleafDialog(`Could not bring them in: ${error.message}`));
   });
-  $("#theme-btn").addEventListener("click", () => {
-    const theme = darkTheme() ? "light" : "dark";
-    try { localStorage.setItem("texMcpTheme", theme); } catch { /* the choice lasts this visit */ }
-    applyTheme(theme);
-  });
+  for (const button of document.querySelectorAll("[data-theme-choice]")) {
+    button.addEventListener("click", () => {
+      const theme = button.dataset.themeChoice;
+      try { localStorage.setItem("texMcpTheme", theme); } catch { /* the choice lasts this visit */ }
+      applyTheme(theme);
+    });
+  }
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (event) => {
     let chosen = null;
     try { chosen = localStorage.getItem("texMcpTheme"); } catch { /* none kept */ }

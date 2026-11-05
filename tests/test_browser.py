@@ -1189,9 +1189,17 @@ def test_browser_source_selection_and_split_resize(tmp_path: Path) -> None:
                   page.ace.edit("source-editor").getTheme(), viewer.getAttribute("data-tex-theme"),
                   (viewer.wrappedJSObject || viewer).themePreference];
         '''
-        browser.execute_script('document.querySelector("#theme-btn").click()')
+        pick = 'document.querySelector("[data-theme-choice=%s]").click()'
+        browser.execute_script(pick % "dark")
         assert browser.execute_script(theme) == ["dark", "dark", "ace/theme/one_dark", "dark", "dark"]
-        browser.execute_script('document.querySelector("#theme-btn").click()')
+        # Warm, the restful theme, is drawn on the light schemes with its own colours.
+        browser.execute_script(pick % "warm")
+        assert browser.execute_script(theme) == ["warm", "warm", "ace/theme/textmate", "warm", "light"]
+        assert browser.execute_script(
+            'return document.querySelector("[data-theme-choice=warm]").getAttribute("aria-checked")') == "true"
+        assert browser.execute_script(
+            'return getComputedStyle(document.body).backgroundColor') == "rgb(231, 225, 215)"
+        browser.execute_script(pick % "light")
         assert browser.execute_script(theme) == ["light", "light", "ace/theme/textmate", "light", "light"]
         # Ctrl+Enter in the editor compiles, as the button does.
         browser.execute_script('''
@@ -1986,11 +1994,23 @@ def test_a_file_that_differs_from_overleaf_waits_for_a_choice_on_the_page(tmp_pa
         assert "wait for your choice" in text("#overleaf-sync-head")
         assert browser.execute_script(
             'return document.querySelector("#overleaf-live-btn").classList.contains("trouble")') is True
+        assert "1 waiting" in text("#overleaf-live-label")
+        # The file that waits is said across the top of the page, with its choices, without
+        # opening the Overleaf panel.
+        assert browser.execute_script('return document.querySelector("#overleaf-sync-alert").hidden') is False
+        assert browser.execute_script(
+            'return document.querySelector("#overleaf-sync-alert").getBoundingClientRect().height') > 20
+        assert "Not in step with Overleaf: main.tex" in text("#overleaf-sync-alert")
+        assert [b for b in browser.execute_script(
+            'return [...document.querySelectorAll("#overleaf-sync-alert button")].map((b) => b.textContent)')] == [
+            "Open the file", "Use Overleaf's", "Send this file's"]
         assert (tmp_path / "main.tex").read_text(encoding="utf-8") == MAIN + "\n% only here"
         browser.execute_script("(window.wrappedJSObject || window).confirm = () => true;", sandbox=None)
-        browser.execute_script("document.querySelector('#overleaf-sync-files .overleaf-sync-overleaf').click()")
+        browser.execute_script("document.querySelector('#overleaf-sync-alert .overleaf-sync-overleaf').click()")
         wait_until(lambda: (tmp_path / "main.tex").read_text(encoding="utf-8") == MAIN, timeout=15)
         wait_until(lambda: "2 files kept in step with Overleaf" in text("#overleaf-sync-head"), timeout=15)
+        assert browser.execute_script('return document.querySelector("#overleaf-sync-alert").hidden') is True
+        assert "waiting" not in text("#overleaf-live-label")
         assert fake.docs["d-main"]["text"] == MAIN
         assert list((tmp_path / ".tex-mcp-web" / "overleaf-sync" / "kept").glob("main.tex.here.*"))
     finally:

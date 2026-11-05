@@ -13,8 +13,18 @@
   --warn: #98751f;
   --err: #b44a43;
   --ok: #4f7758;
+  --wait-soft: #f7ecd2;
   --highlight: rgba(252, 220, 0, 0.45);
   --highlight-hover: rgba(252, 192, 0, 0.7);
+  /* A comment's words in the editor, and the dot beside their line. */
+  --source-comment: rgba(252, 220, 0, 0.24);
+  --source-comment-edge: transparent;
+  --source-comment-deleted: rgba(252, 220, 0, 0.10);
+  --source-comment-deleted-edge: rgba(180, 140, 0, 0.8);
+  --source-comment-dot: #fbdc00;
+  --source-comment-dot-edge: #b69600;
+  --source-suggestion: rgba(183, 56, 56, 0.14);
+  --source-suggestion-edge: rgba(183, 56, 56, 0.55);
   --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Consolas, monospace;
   --sans: -apple-system, "Helvetica Neue", system-ui, sans-serif;
   /* The bar along the top of each panel, as tall as the Preview's: the viewer's 27px
@@ -136,6 +146,18 @@ textarea {
 .overleaf-dot { flex: none; width: 0.6rem; height: 0.6rem; border-radius: 50%; }
 .overleaf-file-notice { margin: 0; padding: 0.3rem 0.6rem; border-bottom: 1px solid var(--border); background: var(--accent-soft); font-size: 0.85rem; }
 .overleaf-file-notice[hidden] { display: none; }
+.overleaf-file-notice.waiting { color: var(--fg); background: var(--wait-soft); border-left: 3px solid var(--warn); font-weight: 600; }
+/* Files that wait for a choice, across the top of the page until each is settled. */
+.overleaf-sync-alert { padding: 0.45rem 0.8rem; border-bottom: 1px solid var(--warn); border-left: 4px solid var(--warn); background: var(--wait-soft); color: var(--fg); font-size: 0.88rem; }
+.overleaf-sync-alert[hidden] { display: none; }
+.overleaf-sync-alert-head { margin: 0 0 0.2rem; font-weight: 600; }
+.overleaf-sync-alert-head::before { content: "⚠"; margin-right: 0.4rem; color: var(--warn); }
+.overleaf-sync-alert-files { list-style: none; margin: 0; padding: 0; }
+.overleaf-sync-alert .overleaf-sync-file { border-top: 0; padding: 0.2rem 0; }
+.overleaf-sync-alert .overleaf-sync-file button { padding: 0.15rem 0.6rem; border: 1px solid var(--border); border-radius: 3px; background: var(--bg-elev); color: var(--fg); }
+.overleaf-sync-alert .overleaf-sync-file button:hover { border-color: var(--accent); }
+.overleaf-sync-alert .overleaf-sync-anyway { order: 2; }
+.overleaf-live-btn.trouble { font-weight: 600; }
 /* A collaborator's cursor in the source editor, drawn over the text. */
 .overleaf-cursors { position: absolute; inset: 0; z-index: 6; overflow: hidden; pointer-events: none; }
 .overleaf-cursor { position: absolute; width: 2px; }
@@ -157,6 +179,9 @@ textarea {
 .more-menu[hidden] { display: none; }
 .topbar .more-menu button { border: 0; border-radius: 3px; background: transparent; text-align: left; white-space: nowrap; padding: 0.35rem 0.6rem; }
 .topbar .more-menu button:hover { background: var(--accent-soft); }
+.theme-choice { display: flex; gap: 2px; padding: 0.2rem 0.35rem; }
+.topbar .theme-choice button { flex: 1; text-align: center; padding: 0.3rem 0.4rem; border: 1px solid var(--border); }
+.topbar .theme-choice button[aria-checked="true"] { background: var(--accent-soft); border-color: var(--accent); font-weight: 600; }
 #overleaf-dialog { max-width: 30rem; }
 #overleaf-form { display: flex; flex-direction: column; gap: 0.6rem; }
 #overleaf-form h3 { margin: 0; font-size: 1rem; }
@@ -331,12 +356,13 @@ textarea {
 }
 #source-editor .ace_marker-layer .source-comment-highlight {
   position: absolute;
-  background: rgba(252, 220, 0, 0.24);
+  background: var(--source-comment);
+  box-shadow: inset 0 -2px 0 var(--source-comment-edge);
 }
 #source-editor .ace_marker-layer .source-comment-deleted {
   position: absolute;
-  background: rgba(252, 220, 0, 0.10);
-  border-bottom: 1px dashed rgba(180, 140, 0, 0.8);
+  background: var(--source-comment-deleted);
+  border-bottom: 1px dashed var(--source-comment-deleted-edge);
 }
 #source-editor .ace_gutter-cell.source-comment-line::before {
   content: "";
@@ -345,17 +371,17 @@ textarea {
   top: 50%;
   width: 7px;
   height: 7px;
-  border: 1px solid #b69600;
+  border: 1px solid var(--source-comment-dot-edge);
   border-radius: 50%;
-  background: #fbdc00;
+  background: var(--source-comment-dot);
   transform: translateY(-50%);
 }
 #source-editor .ace_gutter-cell.source-comment-line { cursor: pointer; }
 /* What an open suggestion would replace, in the red of the card's − line. */
 #source-editor .ace_marker-layer .source-suggestion-highlight {
   position: absolute;
-  background: rgba(183, 56, 56, 0.14);
-  box-shadow: inset 0 -2px 0 rgba(183, 56, 56, 0.55);
+  background: var(--source-suggestion);
+  box-shadow: inset 0 -2px 0 var(--source-suggestion-edge);
 }
 #source-editor .ace_gutter-cell.source-suggestion-line::before {
   border-color: #9c3a33;
@@ -1059,6 +1085,17 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
   --warn: #d6a64a;
   --err: #e0857c;
   --ok: #8fcb9c;
+  --wait-soft: #5e5240;
+  /* Yellow laid thin on gray turns olive; a warm gold, laid thicker and edged below,
+     stays a highlight and leaves the words on it light. */
+  --source-comment: rgba(255, 196, 64, 0.34);
+  --source-comment-edge: rgba(255, 208, 102, 0.95);
+  --source-comment-deleted: rgba(255, 196, 64, 0.14);
+  --source-comment-deleted-edge: rgba(255, 208, 102, 0.85);
+  --source-comment-dot: #ffd166;
+  --source-comment-dot-edge: #fff1c4;
+  --source-suggestion: rgba(255, 120, 110, 0.26);
+  --source-suggestion-edge: rgba(255, 150, 140, 0.95);
 }
 :root[data-theme="dark"] #call-agent-btn.agent-ready { background: #1f2b21; }
 :root[data-theme="dark"] #call-agent-btn.agent-offline { background: #321f1e; }
@@ -1093,3 +1130,38 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
 .overleaf-sync-file strong { font-weight: 600; }
 .overleaf-sync-file span { flex-basis: 100%; font-size: 0.85em; opacity: 0.85; }
 .overleaf-live-list .overleaf-sync-file button { width: auto; padding: 0.2rem 0.5rem; border: 1px solid var(--border, #ccc); }
+
+/* ----- Warm theme -----
+   A restful page for long writing, as a screen looks with its blue light turned down: warm
+   paper grounds in place of white and a soft brown ink. The PDF's pages stay white, as
+   compiled. */
+:root[data-theme="warm"] {
+  scrollbar-color: #b3a896 #d9d2c5;
+  --bg: #e7e1d7;
+  --bg-elev: #efebe2;
+  --bg-pdf: #d9d2c5;
+  --fg: #3a2f22;
+  --fg-dim: #77664f;
+  --border: #ccc3b3;
+  --accent: #9b6a3d;
+  --accent-soft: #ded6c6;
+  --warn: #a0620f;
+  --err: #b0493f;
+  --ok: #5d7a3a;
+  --wait-soft: #f6dcae;
+  --source-comment: rgba(235, 165, 20, 0.36);
+  --source-comment-edge: rgba(180, 110, 0, 0.7);
+  --source-comment-deleted: rgba(235, 165, 20, 0.12);
+  --source-comment-dot: #f0b429;
+  --source-comment-dot-edge: #9a6a00;
+}
+:root[data-theme="warm"] .ace-tm { background: #f2eee6; color: #3a2f22; }
+:root[data-theme="warm"] .ace-tm .ace_gutter { background: #e8e2d8; color: #8d7b60; }
+:root[data-theme="warm"] .ace-tm .ace_marker-layer .ace_active-line,
+:root[data-theme="warm"] .ace-tm .ace_gutter-active-line { background: #e9e4d9; }
+:root[data-theme="warm"] .ace-tm .ace_marker-layer .ace_selection { background: #d7cdba; }
+:root[data-theme="warm"] .ace-tm .ace_comment { color: #9a8768; font-style: italic; }
+:root[data-theme="warm"] .ace-tm :is(.ace_keyword, .ace_storage) { color: #8b4a62; }
+:root[data-theme="warm"] .ace-tm :is(.ace_constant.ace_language, .ace_constant.ace_numeric) { color: #a0522d; }
+:root[data-theme="warm"] .ace-tm .ace_support.ace_function { color: #3c6e8f; }
+:root[data-theme="warm"] .ace-tm .ace_string { color: #6a7a2c; }

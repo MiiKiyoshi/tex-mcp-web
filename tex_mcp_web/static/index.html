@@ -9,8 +9,9 @@
   // The theme is set before the page is drawn, so a dark page does not flash light: the
   // reader's last choice, else the system's.
   try {
-    document.documentElement.dataset.theme = localStorage.getItem("texMcpTheme")
-      ?? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    const chosen = localStorage.getItem("texMcpTheme");
+    document.documentElement.dataset.theme = ["light", "dark", "warm"].includes(chosen) ? chosen
+      : (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
   } catch {
     document.documentElement.dataset.theme = "light";
   }
@@ -52,13 +53,21 @@
         <button id="more-btn" type="button" title="More" aria-label="More" aria-haspopup="menu" aria-expanded="false"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg></button>
         <div id="more-menu" class="more-menu" role="menu" hidden>
           <button id="paper-comment-btn" type="button" role="menuitem">Add a paper note…</button>
-          <button id="theme-btn" type="button" role="menuitem" aria-pressed="false">Dark mode</button>
+          <div class="theme-choice" role="group" aria-label="Theme">
+            <button type="button" role="menuitemradio" data-theme-choice="light" aria-checked="false">Light</button>
+            <button type="button" role="menuitemradio" data-theme-choice="dark" aria-checked="false">Dark</button>
+            <button type="button" role="menuitemradio" data-theme-choice="warm" aria-checked="false">Warm</button>
+          </div>
           <button id="overleaf-import-btn" type="button" role="menuitem">Import Overleaf comments…</button>
         </div>
       </span>
       <button id="sidebar-toggle-btn" type="button" title="Toggle sidebar (\)">⇥</button>
     </div>
   </header>
+  <div id="overleaf-sync-alert" class="overleaf-sync-alert" role="alert" hidden>
+    <p id="overleaf-sync-alert-head" class="overleaf-sync-alert-head"></p>
+    <ul id="overleaf-sync-alert-files" class="overleaf-sync-alert-files"></ul>
+  </div>
 
   <main class="layout view-pdf">
     <div id="workspace">
