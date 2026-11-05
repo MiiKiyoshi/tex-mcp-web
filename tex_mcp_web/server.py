@@ -348,6 +348,50 @@ def load_synctex_for_main(main_file: Path) -> SyncTeXData | None:
 # ---------------------------------------------------------------------------
 
 
+
+_OVERLEAF_HOSTS = ("www.overleaf.com", "overleaf.com")
+
+
+def _overleaf_link(raw: Any) -> str:
+    """A project's link given on the page, as the config keeps it. Only overleaf.com, or
+    plain http to this machine, since the reviewer's cookie goes wherever it points."""
+    from urllib.parse import urlsplit
+
+    server, project = overleaf.project_of(str(raw))
+    host = urlsplit(server).hostname
+    if host not in _OVERLEAF_HOSTS and not server.startswith("http://"):
+        raise ValueError("give the project's link on overleaf.com; another server is named in "
+                         ".tex-mcp-web.yaml itself")
+    if host in _OVERLEAF_HOSTS:
+        server = "https://www.overleaf.com"
+    return f"{server}/project/{project}"
+
+
+def _set_config_keys(path: Path, changes: dict[str, Any]) -> None:
+    """Set or remove top-level ``key: value`` lines of a config, leaving every other line,
+    comment and order as it was. A value None removes the key; True is written ``true``."""
+    lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+    for key, value in changes.items():
+        pattern = re.compile(rf"^{re.escape(key)}\s*:")
+        found = [i for i, line in enumerate(lines) if pattern.match(line)]
+        text = None if value is None else f"{key}: {'true' if value is True else value}\n"
+        for i in reversed(found[1:]):
+            del lines[i]
+        if found:
+            if text is None:
+                del lines[found[0]]
+            else:
+                lines[found[0]] = text
+        elif text is not None:
+            if lines and not lines[-1].endswith("\n"):
+                lines[-1] += "\n"
+            lines.append(text)
+    new = "".join(lines)
+    yaml.safe_load(new)              # still a config before it replaces the old one
+    temp = path.with_name(path.name + ".tmp")
+    temp.write_text(new, encoding="utf-8")
+    os.replace(temp, path)
+
 class TexMcpWebServer:
     """Single-paper watch + serve + comment store."""
 
@@ -452,6 +496,7 @@ class TexMcpWebServer:
         app.router.add_post("/overleaf/pull", self._handle_overleaf_pull)
         app.router.add_get("/overleaf/live", self._handle_overleaf_live)
         app.router.add_post("/overleaf/sync", self._handle_overleaf_sync)
+        app.router.add_post("/overleaf/connect", self._handle_overleaf_connect)
         app.on_cleanup.append(lambda _app: self._stop_overleaf_live())
         app.router.add_get("/wait-review", self._handle_wait_review)
         app.router.add_post("/wait-review/listen", self._handle_claim_review)
@@ -807,12 +852,47 @@ class TexMcpWebServer:
         """The paper's Overleaf project and where the reviewer's cookie comes from; never
         the cookie itself."""
         return {"project": self.config.overleaf, "cookie": overleaf.cookie_source(),
-                "write": self.config.overleaf_write,
+                "write": self.config.overleaf_write, "sync": self.config.overleaf_sync,
+                "settable": self.config.config_path is not None,
                 "threads": [known["comment"] for known in self._overleaf_ledger().values()]
                 if self.config.overleaf_write else []}
 
     async def _handle_overleaf(self, request: web.Request) -> web.Response:
         return web.json_response(self._overleaf_status(), headers={"Cache-Control": "no-store"})
+
+    async def _handle_overleaf_connect(self, request: web.Request) -> web.Response:
+        """Name the paper's Overleaf project from the page, or forget it, and turn sending
+        replies and keeping the files the same on or off. Each is written into
+        .tex-mcp-web.yaml, so the file stays the one place that says them. A project named
+        here must be on overleaf.com (or this machine): the reviewer's cookie goes to it."""
+        path = self.config.config_path
+        if path is None:
+            return web.json_response({"error": "this paper has no .tex-mcp-web.yaml to keep it in"}, status=409)
+        try:
+            body = await request.json()
+            if not isinstance(body, dict):
+                raise ValueError("send {project, write, sync}")
+            changes: dict[str, Any] = {}
+            if "project" in body:
+                changes["overleaf"] = _overleaf_link(body["project"]) if body["project"] else None
+            project = changes["overleaf"] if "overleaf" in changes else self.config.overleaf
+            for key in ("write", "sync"):
+                if key in body:
+                    if not isinstance(body[key], bool):
+                        raise ValueError(f"{key} must be true or false")
+                    if body[key] and project is None:
+                        raise ValueError("connect a project first")
+                    changes[f"overleaf_{key}"] = body[key] or None
+            if project is None:          # no project: nothing may send to one
+                changes.update(overleaf=None, overleaf_write=None, overleaf_sync=None)
+        except ValueError as error:
+            return web.json_response({"error": str(error)}, status=400)
+        try:
+            _set_config_keys(path, changes)
+            await self.apply_config()
+        except (OSError, TypeError, ValueError, yaml.YAMLError) as error:
+            return web.json_response({"error": f"could not keep it in {path.name}: {error}"}, status=500)
+        return web.json_response(self._overleaf_status())
 
     async def _handle_overleaf_cookie(self, request: web.Request) -> web.Response:
         """Keep the reviewer's Overleaf session cookie, or forget it. Kept in their own

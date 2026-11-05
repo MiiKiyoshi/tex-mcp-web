@@ -1029,7 +1029,17 @@ function showOverleafDialog(status = "") {
   }
 }
 
-function renderOverleafStatus({ project, cookie }) {
+function renderOverleafStatus({ project, cookie, write = false, sync = false, settable = true }) {
+  $("#overleaf-link-row").hidden = Boolean(project) || !settable;
+  $("#overleaf-connected").hidden = !project;
+  $("#overleaf-disconnect-btn").hidden = !settable;
+  $("#overleaf-settable").hidden = settable || Boolean(project);
+  $("#overleaf-write-row").hidden = !project;
+  $("#overleaf-sync-row").hidden = !project;
+  $("#overleaf-write").checked = write;
+  $("#overleaf-sync").checked = sync;
+  $("#overleaf-write").disabled = $("#overleaf-sync").disabled = !settable;
+  $("#overleaf-import-btn").textContent = project ? "Overleaf…" : "Connect to Overleaf…";
   $("#overleaf-direct").hidden = !project;
   $("#overleaf-unset").hidden = Boolean(project);
   $("#overleaf-pull").hidden = !project;
@@ -1049,6 +1059,43 @@ function renderOverleafStatus({ project, cookie }) {
 async function loadOverleafStatus() {
   const response = await fetch("/overleaf", { cache: "no-store" });
   if (response.ok) renderOverleafStatus(await response.json());
+}
+
+// Connecting names the project in the paper's config, as a line written there by hand
+// would; sending replies and keeping the files the same each ask once before they start,
+// since both change what everyone in the project sees.
+const OVERLEAF_SWITCHES = {
+  write: "Replies, resolves and reopens made with the Overleaf buttons will be posted to the "
+    + "Overleaf project, for everyone in it to read. Turn this on?",
+  sync: "The paper's files and the Overleaf project will be kept the same both ways while a "
+    + "page is open: edits here are sent to Overleaf, and edits there are written into the files. "
+    + "A file that differs at the start waits for your choice. Turn this on?",
+};
+
+async function connectOverleaf(change, done) {
+  const response = await fetch("/overleaf/connect", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(change),
+  });
+  if (!response.ok) {
+    showOverleafDialog(`Could not change it: ${await responseError(response)}`);
+    await loadOverleafStatus();
+    return false;
+  }
+  renderOverleafStatus(await response.json());
+  showOverleafDialog(done);
+  return true;
+}
+
+async function switchOverleaf(key) {
+  const box = $(`#overleaf-${key}`);
+  if (box.checked && !confirm(OVERLEAF_SWITCHES[key])) {
+    box.checked = false;
+    return;
+  }
+  const name = key === "write" ? "Sending to Overleaf" : "Keeping the files the same";
+  await connectOverleaf({ [key]: box.checked }, `${name} is ${box.checked ? "on" : "off"}.`);
 }
 
 async function saveOverleafCookie() {
@@ -3237,6 +3284,23 @@ function attachSidebarToggle() {
     if (!event.target.closest(".more") || event.target.closest(".more-menu button")) closeMore();
   });
   $("#overleaf-import-btn").addEventListener("click", () => showOverleafDialog());
+  $("#overleaf-connect-btn").addEventListener("click", async () => {
+    const link = $("#overleaf-link").value.trim();
+    if (!link) return;
+    if (await connectOverleaf({ project: link }, "Connected. Who is on Overleaf shows in the top bar.")) {
+      $("#overleaf-link").value = "";
+    }
+  });
+  $("#overleaf-link").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") { event.preventDefault(); $("#overleaf-connect-btn").click(); }
+  });
+  $("#overleaf-disconnect-btn").addEventListener("click", () => {
+    if (confirm("Disconnect this paper from its Overleaf project? Nothing is sent or followed until it is connected again.")) {
+      connectOverleaf({ project: null }, "Disconnected.");
+    }
+  });
+  $("#overleaf-write").addEventListener("change", () => switchOverleaf("write"));
+  $("#overleaf-sync").addEventListener("change", () => switchOverleaf("sync"));
   $("#overleaf-live-btn").addEventListener("click", (event) => {
     event.stopPropagation();
     const open = $("#overleaf-live-panel").hidden;

@@ -90,7 +90,13 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   share the room, each place keeps its own share, and the page remembers both. Each
   paragraph shows its source lines, and the one under the editor's cursor is marked and
   brought into view. The **A−** and **A+** buttons step the type size.
-- **Import Overleaf comments** in the top bar's menu brings Overleaf's open threads in as
+- **Connect to Overleaf…** in the top bar's menu takes the project's link
+  (`https://www.overleaf.com/project/…`) and writes it into `.tex-mcp-web.yaml` as
+  `overleaf:`; **Disconnect** there takes it out. Once connected, the same dialog turns
+  `overleaf_write` and `overleaf_sync` (below) on and off, each asking once before it
+  starts, and writes them into the file too. A project on another Overleaf server is
+  named in the file by hand.
+- The same dialog brings Overleaf's open threads in as
   comments on the words they were written about, with their replies. With `overleaf` set,
   **Bring in from Overleaf** reads them from the project itself, signed in with your
   Overleaf session cookie (`overleaf_session2`, copied once from the browser's developer

@@ -58,7 +58,7 @@
             <button type="button" role="menuitemradio" data-theme-choice="dark" aria-checked="false">Dark</button>
             <button type="button" role="menuitemradio" data-theme-choice="warm" aria-checked="false">Warm</button>
           </div>
-          <button id="overleaf-import-btn" type="button" role="menuitem">Import Overleaf comments…</button>
+          <button id="overleaf-import-btn" type="button" role="menuitem">Connect to Overleaf…</button>
         </div>
       </span>
       <button id="sidebar-toggle-btn" type="button" title="Toggle sidebar (\)">⇥</button>
@@ -175,9 +175,18 @@
 
 <dialog id="overleaf-dialog">
   <form method="dialog" id="overleaf-form">
-    <h3>Overleaf comments</h3>
+    <h3>Overleaf</h3>
+    <section id="overleaf-connect" class="overleaf-direct">
+      <div id="overleaf-link-row" class="overleaf-cookie">
+        <input id="overleaf-link" type="url" autocomplete="off" spellcheck="false" aria-label="Overleaf project link" placeholder="https://www.overleaf.com/project/…">
+        <button id="overleaf-connect-btn" type="button">Connect</button>
+      </div>
+      <p id="overleaf-connected" hidden>Connected to <a id="overleaf-project" target="_blank" rel="noopener"></a> <button id="overleaf-disconnect-btn" type="button" class="overleaf-forget">Disconnect</button></p>
+      <label id="overleaf-write-row" class="overleaf-switch" hidden><input id="overleaf-write" type="checkbox"> Send replies and closes to Overleaf <span>(Reply / Resolve / Reopen on Overleaf)</span></label>
+      <label id="overleaf-sync-row" class="overleaf-switch" hidden><input id="overleaf-sync" type="checkbox"> Keep the files and Overleaf the same, both ways <span>(while a page is open)</span></label>
+      <p id="overleaf-settable" class="overleaf-unset" hidden>This paper has no <code>.tex-mcp-web.yaml</code>, so the project is named there by hand.</p>
+    </section>
     <section id="overleaf-direct" class="overleaf-direct" hidden>
-      <p>From <a id="overleaf-project" target="_blank" rel="noopener"></a></p>
       <div id="overleaf-cookie-row" class="overleaf-cookie">
         <input id="overleaf-cookie" type="password" autocomplete="off" spellcheck="false" aria-label="Overleaf session cookie" placeholder="Value of the overleaf_session2 cookie">
         <button id="overleaf-cookie-save" type="button">Save</button>
@@ -188,7 +197,7 @@
       </details>
       <p id="overleaf-signed" class="overleaf-signed" hidden><span id="overleaf-signed-text"></span> <button id="overleaf-cookie-forget" type="button" class="overleaf-forget">Forget it</button></p>
     </section>
-    <p id="overleaf-unset" class="overleaf-unset" hidden>To read them from Overleaf directly, name the project in <code>.tex-mcp-web.yaml</code> as <code>overleaf: https://www.overleaf.com/project/…</code>. Or from a file:</p>
+    <p id="overleaf-unset" class="overleaf-unset" hidden>Without a project, comments can come in from a file:</p>
     <ol class="overleaf-steps">
       <li>Install <a href="https://chromewebstore.google.com/detail/overleaf-comments-export/nbbappjfcankkjnpbaopjhejgdagaglc" target="_blank" rel="noopener">Overleaf Comments Export</a>.</li>
       <li>Export the project's comments to <code>comments.json</code>.</li>

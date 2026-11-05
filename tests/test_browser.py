@@ -1810,6 +1810,13 @@ def test_the_more_menu_brings_in_an_overleaf_export(tmp_path: Path) -> None:
         browser.execute_script('document.querySelector("#overleaf-import-btn").click()')
         wait_until(lambda: browser.execute_script('return document.querySelector("#overleaf-dialog").open'))
         assert browser.execute_script('return document.querySelector("#more-menu").hidden') is True
+        # With no project named, the dialog asks for its link before anything else.
+        wait_until(lambda: browser.execute_script(
+            'return !document.querySelector("#overleaf-link-row").hidden'
+            ' && document.querySelector("#overleaf-connected").hidden'
+            ' && document.querySelector("#overleaf-sync-row").hidden'))
+        assert browser.execute_script(
+            'return document.querySelector("#overleaf-import-btn").textContent') == "Connect to Overleaf…"
         browser.find_element("css selector", "#overleaf-file").send_keys(str(export))
         wait_until(lambda: browser.execute_script(
             'return document.querySelector("#overleaf-status").textContent').startswith("Brought in 1 new comments"))
@@ -1912,6 +1919,11 @@ def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path
         assert not shown("#overleaf-unset") and shown("#overleaf-cookie-row") and not shown("#overleaf-signed")
         assert browser.execute_script('return document.querySelector("#overleaf-pull").disabled') is True
         assert browser.execute_script('return document.querySelector("#overleaf-project").textContent').endswith(project)
+        # Named in the config, the project shows as connected, with both switches off.
+        assert shown("#overleaf-connected") and not shown("#overleaf-link-row")
+        assert shown("#overleaf-write-row") and shown("#overleaf-sync-row")
+        assert browser.execute_script(
+            'return [document.querySelector("#overleaf-write").checked, document.querySelector("#overleaf-sync").checked]') == [False, False]
 
         field = browser.find_element("css selector", "#overleaf-cookie")
         field.send_keys(cookie)

@@ -515,3 +515,51 @@ async def test_choosing_overleafs_text_for_a_file_that_differs_writes_it_and_kee
         assert kept and kept[0].read_text() == MAIN + "\n% only here"
     finally:
         await opened.close()
+
+
+# ----- Connecting from the page -----
+
+async def test_the_page_connects_a_project_and_turns_each_switch_in_the_config(paper, overleaf_site) -> None:
+    from tex_mcp_web.server import _overleaf_link
+
+    fake, link = overleaf_site
+    config = paper / ".tex-mcp-web.yaml"
+    config.write_text("main: main.tex\n# the reviewer's note stays\n", encoding="utf-8")
+    server = TexMcpWebServer(load_config(config))
+    server.OVERLEAF_LIVE_GRACE = 0
+    client = TestClient(TestServer(server.app))
+    await client.start_server()
+    overleaf.save_cookie(fake.cookie)
+    page = await client.ws_connect("/ws")
+    try:
+        status = await (await client.get("/overleaf")).json()
+        assert status["project"] is None and status["settable"] is True
+        # Nothing may send before a project is named, and only Overleaf's own site is named.
+        assert (await client.post("/overleaf/connect", json={"sync": True})).status == 400
+        assert (await client.post("/overleaf/connect",
+                                  json={"project": f"https://evil.example/project/{PROJECT_ID}"})).status == 400
+        assert _overleaf_link(f"https://overleaf.com/project/{PROJECT_ID}?a=1") == \
+            f"https://www.overleaf.com/project/{PROJECT_ID}"
+
+        response = await client.post("/overleaf/connect", json={"project": link})
+        assert response.status == 200
+        assert (await response.json())["project"] == link
+        assert config.read_text() == f"main: main.tex\n# the reviewer's note stays\noverleaf: {link}\n"
+        await wait_for(lambda: fake.sockets)            # the open page now sits in the project
+        assert server.overleaf_sync is None
+
+        status = await (await client.post("/overleaf/connect", json={"sync": True, "write": True})).json()
+        assert status["sync"] is True and status["write"] is True
+        assert "overleaf_sync: true\n" in config.read_text() and "overleaf_write: true\n" in config.read_text()
+        await wait_for(lambda: server.overleaf_sync is not None and len(server.overleaf_sync.docs) == 2)
+
+        await client.post("/overleaf/connect", json={"write": False})
+        assert "overleaf_write" not in config.read_text() and server.config.overleaf_write is False
+
+        status = await (await client.post("/overleaf/connect", json={"project": None})).json()
+        assert status["project"] is None and status["sync"] is False
+        assert config.read_text() == "main: main.tex\n# the reviewer's note stays\n"
+        await wait_for(lambda: server.overleaf_sync is None)
+    finally:
+        await page.close()
+        await client.close()

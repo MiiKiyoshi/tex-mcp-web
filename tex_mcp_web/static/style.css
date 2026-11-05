@@ -188,6 +188,10 @@ textarea {
 #overleaf-form a { color: var(--accent); }
 .overleaf-steps { margin: 0; padding-left: 1.3rem; line-height: 1.6; }
 .overleaf-direct { display: flex; flex-direction: column; gap: 0.4rem; }
+.overleaf-direct[hidden], #overleaf-dialog [hidden] { display: none; }
+#overleaf-connect { padding-bottom: 0.5rem; border-bottom: 1px solid var(--border); }
+.overleaf-switch { display: flex; align-items: baseline; gap: 0.4rem; flex-wrap: wrap; }
+.overleaf-switch span { color: var(--fg-dim); font-size: 0.85em; }
 .overleaf-direct[hidden], .overleaf-cookie[hidden], .overleaf-signed[hidden], .overleaf-unset[hidden] { display: none; }
 .overleaf-direct p, .overleaf-unset { margin: 0; overflow-wrap: anywhere; }
 .overleaf-cookie { display: flex; gap: 0.4rem; }
