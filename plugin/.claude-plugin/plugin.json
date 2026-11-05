@@ -1,5 +1,5 @@
 {
   "name": "tex-mcp",
-  "description": "Keeps an agent from using tex-mcp's tools, guide() aside, until this context has read the files guide() lists, again after each compaction",
+  "description": "Keeps an agent from using tex-mcp's tools, guide() aside, until this context has read the files guide() lists, again after each compaction, and runs the review waiter for the whole session",
   "author": {"name": "MiiKiyoshi"}
 }

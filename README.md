@@ -50,7 +50,8 @@ do tex listen
 ```
 
 Open `http://localhost:<port>` with the port you chose at init. The agent serves the page,
-so there is nothing else to start. Say it again after the agent restarts.
+so there is nothing else to start. In Claude Code the agent keeps listening for the rest of
+the session, however long the page sits idle. Say it again after the agent restarts.
 
 ## Reviewing
 

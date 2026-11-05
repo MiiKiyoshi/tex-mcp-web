@@ -46,8 +46,9 @@ Remove a registration the user agreed to replace (`claude mcp remove --scope use
 
 For Claude Code, also install the plugin from the checkout. It refuses tex-mcp's tools other
 than `guide()` and `setup_info()` until that context has read the files `guide()` lists, again
-after each compaction. It loads from the checkout in place, so an update of the checkout
-updates it.
+after each compaction. Its monitor runs the waiter `listen()` hands it for the rest of the
+session, so a Call agent press reaches the agent however long the review page sits idle. It
+loads from the checkout in place, so an update of the checkout updates it.
 
     claude plugin marketplace add "$DIR"
     claude plugin install tex-mcp@tex-mcp-web

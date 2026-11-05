@@ -1948,8 +1948,11 @@ async def test_listen(bound_project, project, monkeypatch, codex):
 
     import aiohttp
 
+    from tex_mcp_web import plugin_monitor
     from tex_mcp_web.mcp_server import create_server
 
+    # No plugin monitor runs for this session, whatever runs for the one running the tests.
+    monkeypatch.setattr(plugin_monitor, "DIRECTORY", project / "no-monitor")
     mcp = create_server(bound_project)
     context = SimpleNamespace(session=SimpleNamespace(client_params=SimpleNamespace(
         clientInfo=SimpleNamespace(name="claude-code"))))
@@ -2011,6 +2014,58 @@ async def test_listen(bound_project, project, monkeypatch, codex):
     finally:
         waiter.kill()
         waiter.wait()
+
+
+@pytest.mark.asyncio
+async def test_listen_hands_the_waiter_to_the_plugin_monitor(bound_project, project, monkeypatch, tmp_path):
+    """In a session the plugin's monitor serves, listen() hands it the waiter and tells the
+    agent not to start one, and the monitor passes a press on as the waiter prints it."""
+    pytest.importorskip("mcp")
+    import os
+    import shlex
+
+    import aiohttp
+
+    from tex_mcp_web import plugin_monitor
+    from tex_mcp_web.mcp_server import create_server
+
+    cache = tmp_path / "cache"
+    monkeypatch.setattr(plugin_monitor, "DIRECTORY", cache / "tex-mcp-web" / "monitor")
+    session = await asyncio.create_subprocess_exec("sleep", "60")
+    monkeypatch.setattr(plugin_monitor, "claude_pid", lambda: session.pid)
+    monitor = await asyncio.create_subprocess_exec(
+        "sh", str(Path(__file__).parents[1] / "plugin" / "monitors" / "review.sh"), str(session.pid),
+        stdout=asyncio.subprocess.PIPE, env={**os.environ, "XDG_CACHE_HOME": str(cache)})
+    try:
+        record = plugin_monitor.DIRECTORY / f"{session.pid}.monitor"
+        for _ in range(50):
+            if record.exists():
+                break
+            await asyncio.sleep(0.1)
+        assert int(record.read_text()) == monitor.pid
+        mcp = create_server(bound_project)
+        context = SimpleNamespace(session=SimpleNamespace(client_params=SimpleNamespace(
+            clientInfo=SimpleNamespace(name="claude-code"))))
+        monkeypatch.setattr(mcp, "get_context", lambda: context)
+        result = json.loads((await mcp.call_tool("listen", {}))[0].text)
+        assert "plugin's monitor now runs the script" in result["how"]
+        assert "Monitor(" not in result["how"] and "On [review]" in result["how"]
+        handed = (plugin_monitor.DIRECTORY / f"{session.pid}.command").read_text().splitlines()
+        assert handed[1] == shlex.quote(result["script"])
+        async with aiohttp.ClientSession() as client:
+            async with client.post(f"{bound_project.base_url()}/review-request") as response:
+                assert (await response.json())["calls"] == 1
+        line = await asyncio.wait_for(monitor.stdout.readline(), 15)
+        assert line.decode().startswith("[review] reviewer called (press #1)")
+        # The session ending ends the monitor, its waiter, and its record.
+        session.kill()
+        await asyncio.wait_for(monitor.wait(), 10)
+        assert not record.exists()
+    finally:
+        for process in (session, monitor):
+            if process.returncode is None:
+                process.kill()
+                await process.wait()
 
 
 @pytest.mark.asyncio
