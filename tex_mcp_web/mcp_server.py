@@ -538,6 +538,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             "opening another comment. Respect read-only or discussion-only requests. "
             "After replying, write in chat only what no thread carries, such as a failed tool or a choice left to the user, not the replies or the edits they report. Call listen() when the user asks to listen and follow "
             "how. Do not poll or duplicate it. Unacknowledged presses stay queued. "
+            "A [review] notification is the user pressing Call agent on the review page, a request to handle the review now. "
             "The config sits in the startup directory, and its dir can name the paper's folder anywhere. "
             f"Setup: read {INIT_GUIDE}."
         ),

@@ -1139,6 +1139,9 @@ async def test_mcp_contract_is_typed_and_nonduplicative(tmp_path: Path):
     assert "read_comments(ids=[...])" in mcp.instructions
     assert "compile() once" in mcp.instructions
     assert "Within the user's editing scope" in mcp.instructions
+    # A session that listens from its start never sees listen()'s how, and a press that
+    # reads as a mere notification was left alone.
+    assert "a request to handle the review now" in mcp.instructions
     assert "Respect read-only or discussion-only requests" in mcp.instructions
     assert "its dir can name the paper's folder anywhere" in mcp.instructions
     assert "write in chat only what no thread carries" in mcp.instructions
