@@ -4,8 +4,10 @@ read from the session Overleaf's own editor keeps open, signed in with the revie
 Overleaf's editor talks to its real-time service over socket.io 0.9: a handshake names the
 project, the service answers with the project's files, and from then on it tells the editor
 who moved where (clientTracking.*) and every edit applied to any file (otUpdateApplied).
-This reads that and sends nothing but heartbeats and one question, who is connected. It
-sends no edit and no cursor, so to the others it is one more tab of the reviewer's, idle.
+This reads that and sends no edit. It asks once who is connected, and says once where the
+reviewer is, the top of the main file, which needs that file opened (joinDoc) first: an
+editor that sees no one else sends its cursor every five minutes, and one that sees the
+reviewer sends it twice a second. To the others it is one more tab of the reviewer's, idle.
 
 The protocol is the service's own (services/real-time in overleaf/overleaf), not a public
 API; a change on Overleaf's side ends in an error here, never in a change there.
@@ -29,6 +31,7 @@ logger = logging.getLogger(__name__)
 
 _FRAME = re.compile(r"^(\d):(\d*)(\+?):([^:]*):?(.*)$", re.S)
 _ASK_USERS = 1
+_OPEN_MAIN = 2
 
 
 def _paths(folder: dict, prefix: str = "") -> dict[str, str]:
@@ -68,6 +71,7 @@ class LivePresence:
         self.status = "off"
         self.message = ""
         self._me = ""
+        self._main_doc = ""
         self._docs: dict[str, str] = {}
         self._people: dict[str, str] = {}
         self._users: dict[str, dict] = {}
@@ -193,6 +197,13 @@ class LivePresence:
                 acked = re.match(r"(\d+)\+?(.*)$", data, re.S)
                 if acked and int(acked.group(1)) == _ASK_USERS and acked.group(2):
                     self._connected_users(json.loads(acked.group(2)))
+                elif acked and int(acked.group(1)) == _OPEN_MAIN:
+                    reply = json.loads(acked.group(2) or "[null]")
+                    if reply and reply[0] is None:
+                        await ws.send_str("5:::" + json.dumps({"name": "clientTracking.updatePosition", "args": [
+                            {"row": 0, "column": 0, "doc_id": self._main_doc}]}))
+                    else:
+                        logger.info("Overleaf presence: could not open the main file: %s", reply[0] if reply else "")
 
     async def _event(self, ws: aiohttp.ClientWebSocketResponse, name: str, args: list) -> None:
         first = args[0] if args else None
@@ -216,6 +227,12 @@ class LivePresence:
             self._set("live")
             await ws.send_str(f"5:{_ASK_USERS}+::" + json.dumps(
                 {"name": "clientTracking.getConnectedUsers", "args": []}))
+            root = str(project.get("rootDoc_id") or "")
+            self._main_doc = root if root in self._docs else next(iter(self._docs), "")
+            if self._main_doc:
+                # Read-only: the text that comes back is not used.
+                await ws.send_str(f"5:{_OPEN_MAIN}+::" + json.dumps(
+                    {"name": "joinDoc", "args": [self._main_doc, -1, {"encodeRanges": True, "supportsHistoryOT": True}]}))
         elif name == "clientTracking.clientUpdated" and isinstance(first, dict):
             if str(first.get("id")) != self._me:
                 self._users[str(first.get("id"))] = {
