@@ -536,7 +536,7 @@ async def test_only_what_is_asked_to_goes_to_overleaf(review) -> None:
     client, server, fake = review
     page, comment = await on_overleaf(client, server, fake)
     status = await (await client.get("/overleaf")).json()
-    assert status["write"] is True and status["threads"] == [comment.id]
+    assert status["write"] is True and status["threads"] == [comment.id] and status["imported"] == [comment.id]
     await client.post(f"/comments/{comment.id}/reply", json={"text": "Claude, fix this."})
     server.comments.reply(comment.id, "Done.", "agent")
     await client.post(f"/comments/{comment.id}/resolve", json={"summary": ""})

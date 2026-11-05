@@ -851,11 +851,13 @@ class TexMcpWebServer:
     def _overleaf_status(self) -> dict[str, Any]:
         """The paper's Overleaf project and where the reviewer's cookie comes from; never
         the cookie itself."""
+        brought = [known["comment"] for known in self._overleaf_ledger().values()]
         return {"project": self.config.overleaf, "cookie": overleaf.cookie_source(),
                 "write": self.config.overleaf_write, "sync": self.config.overleaf_sync,
                 "settable": self.config.config_path is not None,
-                "threads": [known["comment"] for known in self._overleaf_ledger().values()]
-                if self.config.overleaf_write else []}
+                # Every comment brought in from Overleaf, which the page may leave out of view.
+                "imported": brought,
+                "threads": brought if self.config.overleaf_write else []}
 
     async def _handle_overleaf(self, request: web.Request) -> web.Response:
         return web.json_response(self._overleaf_status(), headers={"Cache-Control": "no-store"})

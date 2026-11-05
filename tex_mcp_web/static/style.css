@@ -645,6 +645,15 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 .icon-btn svg { display: block; }
 .icon-btn .count:empty { display: none; }
 .icon-btn:disabled { opacity: .45; }
+/* Beside the status filter, since it filters too: the eye says whether Overleaf's comments
+   are in view, and the button stands out while they are not, so a short list is explained. */
+.overleaf-comments-btn[hidden] { display: none; }
+.overleaf-comments-word { font-size: 10px; font-weight: 600; letter-spacing: .02em; }
+.overleaf-comments-btn.off { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.overleaf-hidden-note { margin: 4px 8px 8px; font-size: 12px; color: var(--fg-dim); }
+.overleaf-hidden-note .link-btn {
+  padding: 0; border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; text-decoration: underline;
+}
 .comment-pick { flex: none; margin: 0; width: 14px; height: 14px; cursor: pointer; }
 #call-agent-btn.agent-ready { color: var(--ok); border-color: var(--ok); background: #eef7ef; }
 #call-agent-btn.agent-ready .agent-dot { background: var(--ok); }

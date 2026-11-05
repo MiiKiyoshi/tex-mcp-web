@@ -104,6 +104,9 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   alone, or given by `TEX_MCP_WEB_OVERLEAF_COOKIE`, and serves every paper you open.
   Without it, choose the `comments.json` that Overleaf Comments Export writes. Bringing
   them in again adds only new threads and replies; a comment you deleted here stays deleted.
+- Once comments have come in from Overleaf, the eye button (**OL**) beside the comment filter
+  hides them from the list, the editor and the PDF, and shows them again. It changes no
+  comment and is kept per browser; while they are hidden, the list says how many.
 - With `overleaf` set and the cookie kept, an open page also sits in the Overleaf project,
   read-only: the top bar shows a face for each collaborator there, its list says which file
   and line each is on, their cursors are drawn in the editor on that file, and a file they

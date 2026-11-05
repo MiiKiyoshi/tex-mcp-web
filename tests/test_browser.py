@@ -1828,6 +1828,28 @@ def test_the_more_menu_brings_in_an_overleaf_export(tmp_path: Path) -> None:
             'return document.querySelector("#overleaf-status").textContent').startswith("Brought in 1 new comments"))
         wait_until(lambda: browser.execute_script(
             'return document.querySelector("#comments-list").textContent.includes("Say hello properly.")'))
+        # Comments from Overleaf can be left out of view and brought back; one written here stays.
+        post_json(f"{base}/comments", {"anchor": {"kind": "paper"}, "text": "Written here."})
+        browser.execute_script('document.querySelector("#overleaf-dialog").close()')
+        listed = 'return document.querySelector("#comments-list").textContent'
+        wait_until(lambda: "Written here." in browser.execute_script(listed))
+        toggle = ('const b = document.querySelector("#overleaf-comments-btn");'
+                  ' return [b.hidden, b.getAttribute("aria-pressed")];')
+        assert browser.execute_script(toggle) == [False, "true"]
+        browser.execute_script('document.querySelector("#overleaf-comments-btn").click()')
+        wait_until(lambda: "Say hello properly." not in browser.execute_script(listed))
+        text = browser.execute_script(listed)
+        assert "Written here." in text and "1 comment from Overleaf hidden" in text
+        assert browser.execute_script(toggle) == [False, "false"]
+        assert browser.execute_script('return document.querySelector("#comments-tab-count").textContent') == "1"
+        # The choice is this viewer's and outlasts a reload.
+        browser.navigate(base)
+        wait_until(lambda: "1 comment from Overleaf hidden" in (browser.execute_script(
+            'const l = document.querySelector("#comments-list"); return l ? l.textContent : ""') or ""))
+        browser.execute_script('document.querySelector(".overleaf-hidden-note button").click()')
+        wait_until(lambda: "Say hello properly." in browser.execute_script(listed))
+        assert "hidden" not in browser.execute_script(listed)
+        assert browser.execute_script(toggle) == [False, "true"]
     finally:
         if browser is not None:
             try:

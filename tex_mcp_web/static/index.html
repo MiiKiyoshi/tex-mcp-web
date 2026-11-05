@@ -133,6 +133,13 @@
             <option value="archived">archived</option>
             <option value="all">all</option>
           </select></span>
+          <!-- Shown once comments have come in from Overleaf: leaves them out of the list,
+               the editor and the PDF on this page, or brings them back. Nothing is changed. -->
+          <button id="overleaf-comments-btn" class="icon-btn overleaf-comments-btn" type="button" hidden aria-pressed="true" aria-label="Hide comments from Overleaf" title="Hide comments from Overleaf">
+            <svg class="icon-shown" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8 12.1 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg>
+            <svg class="icon-hidden hidden" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 8s2.4-4.5 6.5-4.5c1.3 0 2.4.4 3.4 1M14.5 8s-2.4 4.5-6.5 4.5c-1.3 0-2.4-.4-3.4-1"/><path d="M2.5 13.5l11-11"/></svg>
+            <span class="overleaf-comments-word">OL</span>
+          </button>
           <!-- Icons, with the words as title and aria-label. Each button shows the one drawing
                that fits its state; a count rides beside the drawing where the action has one.
                A button with nothing to do is greyed out, not taken away: the row keeps one shape. -->

@@ -29,6 +29,10 @@ const state = {
   pickedFrom: null,
   activeForm: null,
   overleafThreads: new Set(),
+  // Comments brought in from Overleaf, and whether this page shows them (kept per viewer).
+  overleafImported: new Set(),
+  showOverleafComments: true,
+  hiddenOverleafComments: 0,
   editingEntry: null,
   focusedCommentId: null,
   annotationCommentById: new Map(),
@@ -2099,7 +2103,16 @@ async function refreshComments() {
   if (!response.ok) throw new Error(await responseError(response));
   const data = await response.json();
   // Which threads can be answered on Overleaf; none when the config does not allow it.
-  state.overleafThreads = new Set(overleaf.ok ? (await overleaf.json()).threads : []);
+  const linked = overleaf.ok ? await overleaf.json() : {};
+  state.overleafThreads = new Set(linked.threads ?? []);
+  state.overleafImported = new Set(linked.imported ?? []);
+  // Hidden comments are left out here, once, so the list, the editor's marks, the PDF's
+  // highlights and the count all agree without each asking.
+  const shown = state.showOverleafComments ? data.comments
+    : data.comments.filter((comment) => !state.overleafImported.has(comment.id));
+  state.hiddenOverleafComments = data.comments.length - shown.length;
+  data.comments = shown;
+  renderOverleafCommentsButton();
   // The open view keeps the order the comments were written in, which is the order the
   // paper reads in. The resolved view leads with the comment closed last, the one the
   // reader has just closed and looks for. The mixed view leads with the one written
@@ -2119,6 +2132,26 @@ async function refreshComments() {
   syncSourceCommentMarkers();
 }
 
+function renderOverleafCommentsButton() {
+  const button = $("#overleaf-comments-btn");
+  const shown = state.showOverleafComments;
+  button.hidden = state.overleafImported.size === 0 && shown;
+  button.setAttribute("aria-pressed", String(shown));
+  button.classList.toggle("off", !shown);
+  const words = shown ? "Hide comments from Overleaf" : "Show comments from Overleaf";
+  button.title = words;
+  button.setAttribute("aria-label", words);
+  button.querySelector(".icon-shown").classList.toggle("hidden", !shown);
+  button.querySelector(".icon-hidden").classList.toggle("hidden", shown);
+}
+
+function setShowOverleafComments(shown) {
+  state.showOverleafComments = shown;
+  try { localStorage.setItem("texMcpShowOverleafComments", shown ? "1" : "0"); } catch { /* this visit only */ }
+  renderOverleafCommentsButton();
+  refreshComments().catch((error) => console.error(error));
+}
+
 function renderComments() {
   const list = $("#comments-list");
   const scrollTop = list.scrollTop;
@@ -2133,6 +2166,13 @@ function renderComments() {
     scrollTop: activeInput.scrollTop,
   } : null;
   clear(list);
+  if (state.hiddenOverleafComments > 0) {
+    const count = state.hiddenOverleafComments;
+    list.appendChild(h("p", { class: "overleaf-hidden-note" },
+      `${count} comment${count === 1 ? "" : "s"} from Overleaf hidden · `,
+      h("button", { type: "button", class: "link-btn", text: "Show",
+        onclick: () => setShowOverleafComments(true) })));
+  }
   if (state.comments.length === 0) list.appendChild(placeholder("No comments at this filter."));
   else for (const comment of state.comments) list.appendChild(renderCommentItem(comment));
   list.scrollTop = scrollTop;
@@ -3828,6 +3868,8 @@ async function init() {
     if (!$("#call-agent-btn").disabled) $("#call-agent-btn").click();
   }, true);
   $("#call-agent-btn").addEventListener("click", () => callAgent());
+  try { state.showOverleafComments = localStorage.getItem("texMcpShowOverleafComments") !== "0"; } catch { /* shown */ }
+  $("#overleaf-comments-btn").addEventListener("click", () => setShowOverleafComments(!state.showOverleafComments));
   $("#fold-all-btn").addEventListener("click", foldAll);
   $("#pick-all-btn").addEventListener("click", pickAll);
   // The buttons carry the ids they were drawn with, so a press acts on what its label counted.
