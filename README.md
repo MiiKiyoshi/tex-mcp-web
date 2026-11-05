@@ -81,6 +81,9 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
 - **Resolve** a thread whose edit satisfies you, or **Reply** in it when it does not.
   **Archive** sets a thread aside, and it still takes replies.
 - Edits in the Source tab are saved when you press **Save**.
+- The top bar's menu picks the page's look: **Light**, **Dark**, or **Warm**, a softer paper
+  tone for long writing, as a screen looks with its blue light turned down. The PDF's pages
+  stay as compiled in each. The page remembers the choice.
 - With `translation` set, the language's button shows the source translated under the
   Preview or the editor. In Split, the menu beside the view tabs puts it under the Preview,
   under Source, beside Source, or instead of Source. The grips between panes are dragged to
@@ -98,7 +101,8 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
 - With `overleaf` set and the cookie kept, an open page also sits in the Overleaf project,
   read-only: the top bar shows a face for each collaborator there, its list says which file
   and line each is on, their cursors are drawn in the editor on that file, and a file they
-  edit says so above the editor. It sends Overleaf no edit. It opens the main file and
+  edit says so above the editor. It sends Overleaf no edit unless `overleaf_sync` is on
+  (below). It opens the main file and
   puts one cursor at its top, which is what makes the others' editors send their cursors
   at once, so to them it is one more of your tabs, idle.
 - While a page is open that way, comments come in by themselves, within seconds, as do
@@ -113,12 +117,14 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
 - With `overleaf_sync: true`, the paper's files and the project's are kept the same both
   ways while a page is open: an edit on Overleaf is written into the file within a second,
   and what changes in a file here, from the page, an editor or the agent, is sent as the
-  smallest edit that makes it, so comments on words left alone keep them. A save from
+  smallest edit that makes it, so comments on words left alone keep them, and words
+  written over commented words take the comment, as if typed inside it. A save from
   the page over an edit from Overleaf takes both. Edits made on either side while no page
   was open come together when one is. Nothing is overwritten on a guess: a file that
   differs with nothing to say which side changed it, an edit that would delete every word
-  of an open comment, and an edit Overleaf turns away each stop that file, and the
-  Overleaf list in the top bar asks which text stands. The text that gives way is kept in
+  of an open comment, and an edit Overleaf turns away each stop that file: a bar across
+  the top of the page, and the editor on that file, say why and ask which text stands, and
+  edits to the file stay here until then. The text that gives way is kept in
   `.tex-mcp-web/overleaf-sync/kept/`. Only Overleaf's older kind of document
   (`sharejs-text-ot`) is followed, and files added, renamed or deleted on Overleaf are not
   mirrored beyond taking up a document's text.
