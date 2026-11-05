@@ -1824,6 +1824,121 @@ def test_the_more_menu_brings_in_an_overleaf_export(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
+def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path: Path, monkeypatch) -> None:
+    """With the project named in the config, the dialog takes the reviewer's session cookie
+    once, keeps it in their own config folder for them alone, never shows it again, and
+    brings the project's comments in from Overleaf with one button."""
+    import fitz
+    import http.server
+    import stat
+    import threading
+
+    project = "0123456789abcdef01234567"
+    cookie = "s%3Asecret.value"
+    threads = {"t1": {"messages": [{"user": {"first_name": "A.", "last_name": "Reviewer"},
+                                    "content": "Say hello properly."}]}}
+    ranges = [{"id": "d1", "ranges": {"comments": [{"op": {"c": "Hello world.", "p": PAPER.index("Hello"), "t": "t1"}}]}}]
+
+    class Overleaf(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            if f"overleaf_session2={cookie}" not in self.headers.get("Cookie", ""):
+                self.send_response(302)
+                self.send_header("Location", "/login")
+                self.end_headers()
+                return
+            routes = {f"/project/{project}/threads": threads, f"/project/{project}/ranges": ranges,
+                      f"/project/{project}/entities": {"entities": [{"path": "/paper.tex", "type": "doc"}]}}
+            if self.path in routes:
+                body, kind = json.dumps(routes[self.path]).encode(), "application/json"
+            elif self.path == f"/Project/{project}/doc/d1/download":
+                body, kind = PAPER.encode(), "text/plain"
+            else:
+                self.send_response(404)
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", kind)
+            self.send_header("Content-Disposition", 'attachment; filename="paper.tex"')
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    overleaf_server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Overleaf)
+    threading.Thread(target=overleaf_server.serve_forever, daemon=True).start()
+    config_home = tmp_path / "config-home"
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
+    monkeypatch.delenv("TEX_MCP_WEB_OVERLEAF_COOKIE", raising=False)
+    (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
+    with fitz.open() as pdf:
+        pdf.new_page().insert_text((72, 72), "Hello world.")
+        pdf.save(tmp_path / "paper.pdf")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nport: {port}\n"
+                           f"overleaf: http://127.0.0.1:{overleaf_server.server_port}/project/{project}\n",
+                           encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    profile = tempfile.mkdtemp(prefix="tex_mcp_overleaf_direct_")
+    marionette_port = available_port()
+    (Path(profile) / "user.js").write_text(
+        f'user_pref("marionette.port", {marionette_port});\n', encoding="utf-8")
+    browser_process = None
+    browser = None
+    shown = lambda selector: browser.execute_script(f'return !document.querySelector("{selector}").hidden')
+    status = lambda: browser.execute_script('return document.querySelector("#overleaf-status").textContent')
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        browser_process = subprocess.Popen(
+            ["firefox", "-marionette", "-headless", "-no-remote", "-profile", profile, "about:blank"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        browser = marionette.Marionette(host="127.0.0.1", port=marionette_port, startup_timeout=30)
+        browser.start_session()
+        browser.navigate(base)
+        wait_until(lambda: browser.execute_script('return document.querySelector("#comments-list") !== null'))
+        browser.execute_script('document.querySelector("#overleaf-import-btn").click()')
+        wait_until(lambda: shown("#overleaf-direct"))
+        assert not shown("#overleaf-unset") and shown("#overleaf-cookie-row") and not shown("#overleaf-signed")
+        assert browser.execute_script('return document.querySelector("#overleaf-pull").disabled') is True
+        assert browser.execute_script('return document.querySelector("#overleaf-project").textContent').endswith(project)
+
+        field = browser.find_element("css selector", "#overleaf-cookie")
+        field.send_keys(cookie)
+        type_keys(browser, ["<Enter>"])
+        wait_until(lambda: status() == "Cookie saved.")
+        assert browser.execute_script('return document.querySelector("#overleaf-dialog").open') is True
+        assert not shown("#overleaf-cookie-row") and shown("#overleaf-signed")
+        assert browser.execute_script('return document.querySelector("#overleaf-cookie").value') == ""
+        assert cookie not in browser.execute_script("return document.documentElement.outerHTML")
+        kept = config_home / "tex-mcp-web" / "overleaf-cookie"
+        assert kept.read_text(encoding="utf-8").strip() == f"overleaf_session2={cookie}"
+        assert stat.S_IMODE(kept.stat().st_mode) == 0o600
+
+        browser.execute_script('document.querySelector("#overleaf-pull").click()')
+        wait_until(lambda: status().startswith("Brought in 1 new comments"))
+        wait_until(lambda: browser.execute_script(
+            'return document.querySelector("#comments-list").textContent.includes("Say hello properly.")'))
+    finally:
+        overleaf_server.shutdown()
+        if browser is not None:
+            try:
+                browser.delete_session()
+            except Exception:
+                pass
+        if browser_process is not None:
+            browser_process.terminate()
+            try:
+                browser_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                browser_process.kill()
+        shutil.rmtree(profile, ignore_errors=True)
+        shared.stop()
+
+
+@pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
 def test_go_to_definition_follows_input_ref_and_cite(tmp_path: Path) -> None:
     """gd with Vim keys, or F12, goes from \\input to the file, from \\ref to the \\label it
     names, and from \\cite to the .bib entry, the name under the cursor in a list; Ctrl+T or

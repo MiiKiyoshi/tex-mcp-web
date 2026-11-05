@@ -44,6 +44,8 @@ class Config:
             from ``translation: {language: ...}``. Unset means no translation panel.
         translation_instructions: Extra rules the translator follows, such as a field's
             terms to keep in English, from ``translation: {instructions: ...}``.
+        overleaf: The paper's Overleaf project, by its link, whose comments the page
+            brings in with the reviewer's own session cookie. Unset means none.
         config_path: Path to .tex-mcp-web.yaml file (used to resolve watch_dir).
     """
 
@@ -56,6 +58,7 @@ class Config:
     references: str | None = None
     translation_language: str | None = None
     translation_instructions: str | None = None
+    overleaf: str | None = None
     config_path: Path | None = None
 
     @classmethod
@@ -71,6 +74,7 @@ class Config:
             references=data.get("references"),
             translation_language=_translation(data).get("language"),
             translation_instructions=_translation(data).get("instructions"),
+            overleaf=_overleaf(data),
             config_path=config_path,
         )
 
@@ -91,7 +95,20 @@ class Config:
             d["translation"] = {"language": self.translation_language}
             if self.translation_instructions is not None:
                 d["translation"]["instructions"] = self.translation_instructions
+        if self.overleaf is not None:
+            d["overleaf"] = self.overleaf
         return d
+
+
+def _overleaf(data: dict[str, Any]) -> str | None:
+    """``overleaf:`` as a project's link, checked the way the fetch reads it."""
+    raw = data.get("overleaf")
+    if raw is None or not str(raw).strip():
+        return None
+    from .overleaf import project_of
+
+    project_of(str(raw))
+    return str(raw).strip()
 
 
 def _translation(data: dict[str, Any]) -> dict[str, str]:

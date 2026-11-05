@@ -70,6 +70,7 @@ from .synctex import (
     source_lines_to_boxes,
     source_to_page,
 )
+from . import overleaf
 from .completion import bib_entries, defined_commands, defined_environments, labels
 from .translate import Translator, TranslationStore, load_glossary, split_paragraphs, store_name
 from .watcher import Watcher, is_watched_source, matches_patterns
@@ -431,6 +432,10 @@ class TexMcpWebServer:
         app.router.add_get("/reference-preview", self._handle_reference_preview)
         app.router.add_post("/review-request", self._handle_review_request)
         app.router.add_post("/overleaf-import", self._handle_overleaf_import)
+        app.router.add_get("/overleaf", self._handle_overleaf)
+        app.router.add_post("/overleaf/cookie", self._handle_overleaf_cookie)
+        app.router.add_delete("/overleaf/cookie", self._handle_overleaf_cookie)
+        app.router.add_post("/overleaf/pull", self._handle_overleaf_pull)
         app.router.add_get("/wait-review", self._handle_wait_review)
         app.router.add_post("/wait-review/listen", self._handle_claim_review)
         app.router.add_post("/wait-review/ack", self._handle_ack_review)
@@ -635,6 +640,47 @@ class TexMcpWebServer:
             data = await request.json()
         except ValueError:
             return web.json_response({"error": "the file is not JSON"}, status=400)
+        return await self._import_overleaf(data)
+
+    def _overleaf_status(self) -> dict[str, Any]:
+        """The paper's Overleaf project and where the reviewer's cookie comes from; never
+        the cookie itself."""
+        return {"project": self.config.overleaf, "cookie": overleaf.cookie_source()}
+
+    async def _handle_overleaf(self, request: web.Request) -> web.Response:
+        return web.json_response(self._overleaf_status(), headers={"Cache-Control": "no-store"})
+
+    async def _handle_overleaf_cookie(self, request: web.Request) -> web.Response:
+        """Keep the reviewer's Overleaf session cookie, or forget it. Kept in their own
+        config folder, so it serves every paper they open."""
+        if request.method == "DELETE":
+            overleaf.forget_cookie()
+        else:
+            try:
+                body = await request.json()
+                overleaf.save_cookie(str((body or {}).get("cookie", "")))
+            except (ValueError, AttributeError) as error:
+                return web.json_response({"error": str(error) or "paste the cookie's value"}, status=400)
+        return web.json_response(self._overleaf_status())
+
+    async def _handle_overleaf_pull(self, request: web.Request) -> web.Response:
+        """Bring in the comments of the project the config names, read from Overleaf with
+        the reviewer's cookie, as an export file of them would come in."""
+        if not self.config.overleaf:
+            return web.json_response(
+                {"error": "name the project in .tex-mcp-web.yaml as overleaf: <its link>"}, status=409)
+        cookie = overleaf.read_cookie()
+        if cookie is None:
+            return web.json_response({"error": "paste your Overleaf session cookie first"}, status=401)
+        try:
+            data = await overleaf.fetch_export(self.config.overleaf, cookie)
+        except overleaf.SignedOut as error:
+            return web.json_response({"error": f"{error} (the cookie has expired or is wrong)"}, status=401)
+        except overleaf.OverleafError as error:
+            return web.json_response({"error": str(error)}, status=502)
+        return await self._import_overleaf(data)
+
+    async def _import_overleaf(self, data: Any) -> web.Response:
         if (not isinstance(data, dict) or not str(data.get("schema_version", "")).startswith("1.")
                 or not isinstance(data.get("comments"), list) or not isinstance(data.get("threads"), dict)):
             return web.json_response(

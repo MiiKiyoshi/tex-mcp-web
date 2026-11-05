@@ -87,6 +87,14 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   share the room, each place keeps its own share, and the page remembers both. Each
   paragraph shows its source lines, and the one under the editor's cursor is marked and
   brought into view. The **A−** and **A+** buttons step the type size.
+- **Import Overleaf comments** in the top bar's menu brings Overleaf's open threads in as
+  comments on the words they were written about, with their replies. With `overleaf` set,
+  **Bring in from Overleaf** reads them from the project itself, signed in with your
+  Overleaf session cookie (`overleaf_session2`, copied once from the browser's developer
+  tools). The cookie is kept in `~/.config/tex-mcp-web/overleaf-cookie`, readable by you
+  alone, or given by `TEX_MCP_WEB_OVERLEAF_COOKIE`, and serves every paper you open.
+  Without it, choose the `comments.json` that Overleaf Comments Export writes. Bringing
+  them in again adds only new threads and replies.
 
 ## Suggested edits
 
@@ -151,6 +159,7 @@ port: 8765
 translation:
   language: Korean
   instructions: Keep cell names in English.
+overleaf: https://www.overleaf.com/project/0123456789abcdef01234567
 ```
 
 | Field | Effect |
@@ -163,6 +172,7 @@ translation:
 | `port` | This paper's review page port. Any free port works. Init picks the first free one from 8765, so each paper can have its own. |
 | `references` | Folder holding only the papers yours builds on, converted to Markdown, relative to this file or absolute. Unset means no list of their terms. |
 | `translation` | `language` puts a button for that language beside **+ Note**: it shows each paragraph of the source translated by `claude -p`, with those on the current page marked. `instructions` adds rules for the translator, one per line. A paragraph is translated once per text, and of a figure or table only the caption is. Unset means no translation. |
+| `overleaf` | The paper's Overleaf project, by its link, whose comments **Bring in from Overleaf** reads. Unset means comments come in only from a file. |
 
 ## See also
 

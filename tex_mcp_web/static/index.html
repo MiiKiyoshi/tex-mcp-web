@@ -155,6 +155,19 @@
 <dialog id="overleaf-dialog">
   <form method="dialog" id="overleaf-form">
     <h3>Overleaf comments</h3>
+    <section id="overleaf-direct" class="overleaf-direct" hidden>
+      <p>From <a id="overleaf-project" target="_blank" rel="noopener"></a></p>
+      <div id="overleaf-cookie-row" class="overleaf-cookie">
+        <input id="overleaf-cookie" type="password" autocomplete="off" spellcheck="false" aria-label="Overleaf session cookie" placeholder="Value of the overleaf_session2 cookie">
+        <button id="overleaf-cookie-save" type="button">Save</button>
+      </div>
+      <details id="overleaf-cookie-help" class="overleaf-help">
+        <summary>Where to find the cookie</summary>
+        <p>On Overleaf, signed in, open the browser's developer tools: Application (Chrome, Edge) or Storage (Safari, Firefox), then Cookies, then overleaf.com. Copy the value of <code>overleaf_session2</code>. It signs in as you, so it is kept in your own config folder, readable by you alone, and is not shown here again.</p>
+      </details>
+      <p id="overleaf-signed" class="overleaf-signed" hidden><span id="overleaf-signed-text"></span> <button id="overleaf-cookie-forget" type="button" class="overleaf-forget">Forget it</button></p>
+    </section>
+    <p id="overleaf-unset" class="overleaf-unset" hidden>To read them from Overleaf directly, name the project in <code>.tex-mcp-web.yaml</code> as <code>overleaf: https://www.overleaf.com/project/…</code>. Or from a file:</p>
     <ol class="overleaf-steps">
       <li>Install <a href="https://chromewebstore.google.com/detail/overleaf-comments-export/nbbappjfcankkjnpbaopjhejgdagaglc" target="_blank" rel="noopener">Overleaf Comments Export</a>.</li>
       <li>Export the project's comments to <code>comments.json</code>.</li>
@@ -164,6 +177,7 @@
     <div class="dialog-actions">
       <button value="close" autofocus>Close</button>
       <label class="file-button">Choose comments.json…<input id="overleaf-file" type="file" accept=".json,application/json"></label>
+      <button id="overleaf-pull" type="button" class="overleaf-pull" hidden>Bring in from Overleaf</button>
     </div>
   </form>
 </dialog>

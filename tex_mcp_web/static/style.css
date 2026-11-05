@@ -138,6 +138,19 @@ textarea {
 #overleaf-form h3 { margin: 0; font-size: 1rem; }
 #overleaf-form a { color: var(--accent); }
 .overleaf-steps { margin: 0; padding-left: 1.3rem; line-height: 1.6; }
+.overleaf-direct { display: flex; flex-direction: column; gap: 0.4rem; }
+.overleaf-direct[hidden], .overleaf-cookie[hidden], .overleaf-signed[hidden], .overleaf-unset[hidden] { display: none; }
+.overleaf-direct p, .overleaf-unset { margin: 0; overflow-wrap: anywhere; }
+.overleaf-cookie { display: flex; gap: 0.4rem; }
+.overleaf-cookie input { flex: 1; min-width: 0; padding: 0.35rem 0.5rem; border: 1px solid var(--border); border-radius: 3px; background: var(--bg); color: inherit; font: inherit; }
+.overleaf-cookie button, .overleaf-forget { padding: 0.35rem 0.7rem; border: 1px solid var(--border); border-radius: 3px; background: var(--bg); color: inherit; }
+.overleaf-help { font-size: 0.85rem; }
+.overleaf-help summary { cursor: pointer; color: var(--accent); }
+.overleaf-help p { margin: 0.3rem 0 0; line-height: 1.5; }
+.overleaf-signed { font-size: 0.9rem; }
+.dialog-actions .overleaf-pull { background: var(--accent); color: white; border: none; }
+.dialog-actions .overleaf-pull[hidden] { display: none; }
+.dialog-actions .overleaf-pull:disabled { opacity: 0.55; cursor: default; }
 .overleaf-status:empty { display: none; }
 .overleaf-status { margin: 0; padding: 0.4rem 0.6rem; border-left: 3px solid var(--accent); background: var(--accent-soft); font-size: 0.85rem; }
 .file-button {

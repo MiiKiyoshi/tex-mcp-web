@@ -965,11 +965,85 @@ function applyTheme(theme) {
   state.viewer?.setAttribute("data-tex-theme", theme);
 }
 
-// Comments exported from Overleaf by Overleaf Comments Export: its comments.json, chosen
-// here, goes to the server, which turns each open thread into a comment.
+// Comments from Overleaf, as the server reads them itself or from the comments.json that
+// Overleaf Comments Export writes; either way each open thread becomes a comment. The
+// server reads the project the paper's config names, signed in with the reviewer's own
+// session cookie, which the page hands over once and is never shown again.
 function showOverleafDialog(status = "") {
   $("#overleaf-status").textContent = status;
-  if (!$("#overleaf-dialog").open) $("#overleaf-dialog").showModal();
+  if (!$("#overleaf-dialog").open) {
+    $("#overleaf-dialog").showModal();
+    loadOverleafStatus().catch((error) => console.error(error));
+  }
+}
+
+function renderOverleafStatus({ project, cookie }) {
+  $("#overleaf-direct").hidden = !project;
+  $("#overleaf-unset").hidden = Boolean(project);
+  $("#overleaf-pull").hidden = !project;
+  if (project) {
+    $("#overleaf-project").href = project;
+    $("#overleaf-project").textContent = project.replace(/^https?:\/\//, "");
+  }
+  $("#overleaf-cookie-row").hidden = Boolean(cookie);
+  $("#overleaf-signed").hidden = !cookie;
+  $("#overleaf-signed-text").textContent = cookie === "environment"
+    ? "Signed in with the cookie TEX_MCP_WEB_OVERLEAF_COOKIE gives."
+    : "Signed in with your saved cookie.";
+  $("#overleaf-cookie-forget").hidden = cookie !== "file";
+  $("#overleaf-pull").disabled = !cookie;
+}
+
+async function loadOverleafStatus() {
+  const response = await fetch("/overleaf", { cache: "no-store" });
+  if (response.ok) renderOverleafStatus(await response.json());
+}
+
+async function saveOverleafCookie() {
+  const input = $("#overleaf-cookie");
+  const response = await fetch("/overleaf/cookie", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ cookie: input.value }),
+  });
+  if (!response.ok) {
+    showOverleafDialog(`Could not keep it: ${await responseError(response)}`);
+    return;
+  }
+  input.value = "";
+  renderOverleafStatus(await response.json());
+  showOverleafDialog("Cookie saved.");
+}
+
+async function forgetOverleafCookie() {
+  const response = await fetch("/overleaf/cookie", { method: "DELETE" });
+  if (response.ok) renderOverleafStatus(await response.json());
+  showOverleafDialog(response.ok ? "Cookie forgotten." : `Could not forget it: ${await responseError(response)}`);
+}
+
+function overleafBroughtIn(done) {
+  const parts = [`${done.added} new comments`, `${done.replies} new replies`];
+  if (done.resolved) parts.push(`${done.resolved} resolved threads left out`);
+  if (done.unplaced) parts.push(`${done.unplaced} not found in the source, put on the paper`);
+  return `Brought in ${parts.join(", ")}.`;
+}
+
+async function pullOverleafComments() {
+  showOverleafDialog("Reading Overleaf…");
+  $("#overleaf-pull").disabled = true;
+  try {
+    const response = await fetch("/overleaf/pull", { method: "POST" });
+    if (!response.ok) {
+      // A cookie Overleaf turned away is asked for again.
+      if (response.status === 401) $("#overleaf-cookie-row").hidden = false;
+      showOverleafDialog(`Could not bring them in: ${await responseError(response)}`);
+      return;
+    }
+    showOverleafDialog(overleafBroughtIn(await response.json()));
+    await refreshComments();
+  } finally {
+    $("#overleaf-pull").disabled = $("#overleaf-signed").hidden;
+  }
 }
 
 async function importOverleafComments(file) {
@@ -983,11 +1057,7 @@ async function importOverleafComments(file) {
     showOverleafDialog(`Could not bring them in: ${await responseError(response)}`);
     return;
   }
-  const done = await response.json();
-  const parts = [`${done.added} new comments`, `${done.replies} new replies`];
-  if (done.resolved) parts.push(`${done.resolved} resolved threads left out`);
-  if (done.unplaced) parts.push(`${done.unplaced} not found in the source, put on the paper`);
-  showOverleafDialog(`Brought in ${parts.join(", ")}.`);
+  showOverleafDialog(overleafBroughtIn(await response.json()));
   await refreshComments();
 }
 
@@ -2889,6 +2959,15 @@ function attachSidebarToggle() {
       dialog.close();
     }
   }, true);
+  const overleafFailed = (error) => showOverleafDialog(`Could not reach the server: ${error.message}`);
+  $("#overleaf-cookie-save").addEventListener("click", () => saveOverleafCookie().catch(overleafFailed));
+  $("#overleaf-cookie").addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();  // Enter keeps the cookie rather than closing the dialog.
+    saveOverleafCookie().catch(overleafFailed);
+  });
+  $("#overleaf-cookie-forget").addEventListener("click", () => forgetOverleafCookie().catch(overleafFailed));
+  $("#overleaf-pull").addEventListener("click", () => pullOverleafComments().catch(overleafFailed));
   $("#overleaf-file").addEventListener("change", (event) => {
     const [file] = event.target.files;
     event.target.value = "";
