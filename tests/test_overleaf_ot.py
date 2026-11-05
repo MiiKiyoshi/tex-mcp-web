@@ -92,3 +92,55 @@ def test_a_delete_that_names_other_text_is_refused() -> None:
 def test_comment_steps_change_no_text() -> None:
     assert text_only([{"p": 0, "c": "ab", "t": "t1"}, {"p": 1, "i": "x"}]) == [{"p": 1, "i": "x"}]
     assert move_comments([], [{"p": 1, "c": "b", "t": "t9"}]) == [{"t": "t9", "p": 1, "n": 1}]
+
+
+def covered(text: str, comment: dict) -> str:
+    return text[py_index(text, comment["p"]):py_index(text, comment["p"] + comment["n"])]
+
+
+def test_words_that_replace_commented_words_take_the_comment() -> None:
+    old = "Intro.\nTESTA\nTESTB\n"
+    new = "Intro.\nThis is test comment\nTESTB\n"
+    comment = {"t": "t1", "p": old.index("TESTA"), "n": 5}
+    edit = diff(old, new, [comment])
+    assert apply(old, edit) == new
+    assert comments_removed([comment], edit) == []
+    assert covered(new, move_comments([comment], edit)[0]) == "This is test comment"
+    # without the comments the old order stays, and the comment keeps only the shared "T"
+    assert covered(new, move_comments([comment], diff(old, new))[0]) == "T"
+
+
+def test_a_comment_over_more_than_the_replaced_words_keeps_the_rest_too() -> None:
+    old = "The placer is fast and small.\n"
+    new = "The placer is quick and small.\n"
+    comment = {"t": "t1", "p": old.index("fast"), "n": len("fast and small")}
+    edit = diff(old, new, [comment])
+    assert apply(old, edit) == new
+    assert covered(new, move_comments([comment], edit)[0]) == "quick and small"
+    first_word = {"t": "t2", "p": old.index("is fast"), "n": len("is fast")}
+    assert covered(new, move_comments([first_word], diff(old, new, [first_word]))[0]) == "is quick"
+
+
+def test_a_deleted_or_one_character_comment_still_counts_as_removed() -> None:
+    old = "The placer is fast.\n"
+    comment = {"t": "t1", "p": old.index("fast"), "n": 4}
+    gone = old.replace(" is fast", "")
+    assert comments_removed([comment], diff(old, gone, [comment])) == ["t1"]
+    single = {"t": "t2", "p": old.index("f"), "n": 1}
+    swapped = old.replace("fast", "slow")
+    assert comments_removed([single], diff(old, swapped, [single])) == ["t2"]
+
+
+def test_an_edit_made_around_comments_still_makes_the_new_text() -> None:
+    rng = random.Random(5)
+    for _ in range(3000):
+        old = random_text(rng, rng.randint(1, 30))
+        new = apply(old, random_op(rng, old, rng.randint(1, 4)))
+        bounds = [js_len(old[:i]) for i in range(len(old) + 1)]
+        comments = []
+        for index in range(rng.randint(1, 3)):
+            a, b = sorted(rng.sample(bounds, 2)) if len(bounds) > 1 else (0, 0)
+            comments.append({"t": f"t{index}", "p": a, "n": b - a})
+        edit = diff(old, new, comments)
+        assert apply(old, edit) == new, (old, new, comments, edit)
+        assert len(comments_removed(comments, edit)) <= len(comments_removed(comments, diff(old, new)))

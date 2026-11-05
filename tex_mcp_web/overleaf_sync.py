@@ -294,9 +294,17 @@ class ProjectSync:
         text = self._read(doc)
         if text is None or text == doc.local:
             return
-        doc.pending = doc.pending + ot.diff(doc.local, text)
+        doc.pending = doc.pending + ot.diff(doc.local, text, self._comments_here(doc))
         doc.local = text
         self._save(doc)
+
+    def _comments_here(self, doc: Doc) -> list[dict]:
+        """The open comments on the file's text as this side last followed it."""
+        try:
+            moved = ot.move_comments(doc.comments, (doc.inflight or []) + doc.pending)
+        except (KeyError, TypeError):
+            return []
+        return [c for c in moved if c["t"] not in self.resolved_threads]
 
     # ----- The record -----
 

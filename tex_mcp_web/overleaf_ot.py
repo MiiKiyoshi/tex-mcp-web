@@ -183,10 +183,37 @@ def _pieces(text: str) -> list[str]:
     return _TOKEN.findall(text)
 
 
-def diff(old: str, new: str) -> Op:
+def _inside(was: str, start: int, comments: list[dict]) -> int | None:
+    """Where in text *was*, removed from *start*, to put what replaces it so that it lands
+    inside a comment on it: a place strictly inside the most comments, as an offset into
+    *was* in JavaScript units, or None when no comment has such a place there."""
+    size = js_len(was)
+    best: tuple[int, int] | None = None
+    for comment in comments:
+        if comment["n"] < 2:
+            continue
+        low, high = max(start, comment["p"] + 1), min(start + size, comment["p"] + comment["n"] - 1)
+        for at in range(low, high + 1):
+            try:
+                py_index(was, at - start)
+            except Mismatch:      # inside a character that counts two
+                continue
+            covered = sum(1 for c in comments if c["p"] < at < c["p"] + c["n"])
+            if best is None or covered > best[0]:
+                best = (covered, at - start)
+            break
+    return None if best is None else best[1]
+
+
+def diff(old: str, new: str, comments: list[dict] | None = None) -> Op:
     """An edit turning *old* into *new* that leaves as much in place as it can: the
     lines that are the same, and within lines that changed, the words that are. A delete
-    removes only what changed, so a comment on the words around a change keeps them."""
+    removes only what changed, so a comment on the words around a change keeps them.
+
+    *comments* are ranges ``{"t", "p", "n"}`` on *old*. Where words a comment covers are
+    replaced, the new words go in inside the comment before the old ones are removed, so
+    the comment widens over them first and then covers them alone, as it would have
+    if the reviewer had typed them inside it."""
     if old == new:
         return []
     start = 0
@@ -212,15 +239,27 @@ def diff(old: str, new: str) -> Op:
             pairs.append(("~", was, now))
     op: Op = []
     at = js_len(new[:start])
+    old_at = js_len(old[:start])     # the same place, counted on *old*
     for kind, was, now in pairs:
         if kind == "=":
             at += js_len(now)
+            old_at += js_len(was)
             continue
-        if was:
-            op.append({"p": at, "d": was})
-        if now:
-            op.append({"p": at, "i": now})
-            at += js_len(now)
+        cut = _inside(was, old_at, comments) if (comments and was and now) else None
+        if cut is not None:
+            before, after = _units(was, 0, cut), _units(was, cut)
+            op.append({"p": at + cut, "i": now})
+            if after:
+                op.append({"p": at + cut + js_len(now), "d": after})
+            if before:
+                op.append({"p": at, "d": before})
+        else:
+            if was:
+                op.append({"p": at, "d": was})
+            if now:
+                op.append({"p": at, "i": now})
+        at += js_len(now)
+        old_at += js_len(was)
     return op
 
 

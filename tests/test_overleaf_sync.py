@@ -374,6 +374,18 @@ async def test_a_comment_on_words_kept_keeps_them_through_a_rewrite_around_it(re
     assert _units(fake.docs["d-main"]["text"], comment["p"], comment["p"] + comment["n"]) == "fast"
 
 
+async def test_words_written_over_commented_words_take_the_comment_on_overleaf(review) -> None:
+    fake = review.fake
+    fake.comment("d-main", "t1", "fast")
+    await review.settled()
+    review.write("main.tex", MAIN.replace("is fast.", "is quick and small."))
+    await review.settled()
+    assert review.files()["main.tex"] == "synced"
+    assert fake.docs["d-main"]["text"] == MAIN.replace("is fast.", "is quick and small.")
+    comment = fake.docs["d-main"]["comments"][0]
+    assert _units(fake.docs["d-main"]["text"], comment["p"], comment["p"] + comment["n"]) == "quick and small"
+
+
 async def test_files_that_differ_at_the_start_wait_and_neither_is_overwritten(paper, overleaf_site) -> None:
     fake, link = overleaf_site
     (paper / "main.tex").write_text(MAIN + "\n% only here")
