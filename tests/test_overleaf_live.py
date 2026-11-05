@@ -27,6 +27,9 @@ PROJECT = {
 }
 
 
+MAIN = "\\documentclass{article}\n\\begin{document}\nHi there.\n\\end{document}\n"
+
+
 def event(name, *args):
     return "5:::" + json.dumps({"name": name, "args": list(args)})
 
@@ -41,10 +44,42 @@ class FakeRealtime:
         self.sockets: list[web.WebSocketResponse] = []
         self.connected = asyncio.Event()
         self.reject_with: str | None = None
+        self.threads: dict = {}
+        self.ranges: list = []             # what /ranges gives, the words each thread is on
+        self.ranges_read = 0
+        self.ranges_after_first_read: list = []
         app = web.Application()
         app.router.add_get("/socket.io/1/", self._handshake)
         app.router.add_get("/socket.io/1/websocket/{sid}", self._websocket)
+        app.router.add_get(f"/project/{PROJECT_ID}/threads", self._threads)
+        app.router.add_get(f"/project/{PROJECT_ID}/ranges", self._ranges)
+        app.router.add_get(f"/project/{PROJECT_ID}/entities", self._entities)
+        app.router.add_get(f"/Project/{PROJECT_ID}/doc/d-main/download", self._download)
         self.app = app
+
+    def _refuse(self, request: web.Request) -> None:
+        if request.cookies.get("overleaf_session2") != self.cookie:
+            raise web.HTTPFound("/login")
+
+    async def _threads(self, request: web.Request) -> web.Response:
+        self._refuse(request)
+        return web.json_response(self.threads)
+
+    async def _ranges(self, request: web.Request) -> web.Response:
+        self._refuse(request)
+        comments, self.ranges_read = list(self.ranges), self.ranges_read + 1
+        self.ranges += self.ranges_after_first_read
+        self.ranges_after_first_read = []
+        return web.json_response([{"id": "d-main", "ranges": {"comments": comments}}])
+
+    async def _entities(self, request: web.Request) -> web.Response:
+        self._refuse(request)
+        return web.json_response({"entities": [{"path": "/main.tex", "type": "doc"}]})
+
+    async def _download(self, request: web.Request) -> web.Response:
+        self._refuse(request)
+        return web.Response(text=MAIN, content_type="text/plain",
+                            headers={"Content-Disposition": 'attachment; filename="main.tex"'})
 
     async def _handshake(self, request: web.Request) -> web.Response:
         self.handshakes.append({"cookie": request.headers.get("Cookie", ""), "origin": request.headers.get("Origin"),
@@ -158,6 +193,27 @@ async def test_the_project_shows_who_is_there_where_they_are_and_what_they_chang
     assert live.snapshot()["status"] == "off"
 
 
+async def test_news_of_comments_is_passed_on_with_the_session_opening_first(realtime) -> None:
+    fake, link = realtime
+    news = []
+    live = LivePresence(link, lambda: ("overleaf_session2", fake.cookie), lambda: None,
+                        comments=lambda name, args: news.append((name, args)))
+    await live.start()
+    try:
+        await wait_for(lambda: news)
+        assert news == [("joined", [])]     # what was said while no page was open
+        for name in ("new-comment", "new-comment-threads", "delete-message", "resolve-thread", "reopen-thread",
+                     "delete-thread"):
+            await fake.push(event(name, "t1"))
+        await fake.push(event("edit-message", "t1", "m1", "reworded"))  # not mirrored here
+        await wait_for(lambda: len(news) == 7)
+        assert [item[0] for item in news[1:]] == ["new-comment", "new-comment-threads", "delete-message",
+                                                  "resolve-thread", "reopen-thread", "delete-thread"]
+        assert news[-1][1] == ["t1"]
+    finally:
+        await live.stop()
+
+
 async def test_a_session_overleaf_turns_away_stops_and_says_so(realtime) -> None:
     fake, link = realtime
     live = LivePresence(link, lambda: ("overleaf_session2", "s%3Aexpired"), lambda: None)
@@ -190,10 +246,11 @@ async def review(tmp_path: Path, monkeypatch, realtime):
     fake, link = realtime
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config-home"))
     monkeypatch.delenv(overleaf.COOKIE_ENV, raising=False)
-    (tmp_path / "main.tex").write_text("\\documentclass{article}\n\\begin{document}\nHi.\n\\end{document}\n")
+    (tmp_path / "main.tex").write_text(MAIN)
     (tmp_path / ".tex-mcp-web.yaml").write_text(f"main: main.tex\noverleaf: {link}\n")
     server = TexMcpWebServer(load_config(tmp_path / ".tex-mcp-web.yaml"))
     server.OVERLEAF_LIVE_GRACE = 0
+    server.OVERLEAF_COMMENT_SETTLE = 0.01
     client = TestClient(TestServer(server.app))
     await client.start_server()
     try:
@@ -222,3 +279,176 @@ async def test_an_open_page_is_live_on_overleaf_and_a_closed_one_is_not(review) 
     await page.close()
     await wait_for(lambda: server.overleaf_live is None)
     assert (await (await client.get("/overleaf/live")).json())["status"] == "off"
+
+
+# ----- Comments coming in by themselves -----
+
+def said(name, content):
+    return {"user": {"first_name": name}, "content": content}
+
+
+def on_the_words(thread, words="there"):
+    return {"id": f"c-{thread}", "op": {"c": words, "p": MAIN.index(words), "t": thread}}
+
+
+async def opened(client, fake):
+    """A page open, with the cookie kept, so the session is up."""
+    await client.post("/overleaf/cookie", json={"cookie": fake.cookie})
+    page = await client.ws_connect("/ws")
+    await page.receive_json(timeout=5)
+    await wait_for(lambda: fake.sockets and fake.connected.is_set())
+    return page
+
+
+def texts(comment):
+    return [entry.text for entry in comment.thread]
+
+
+async def test_what_was_said_while_no_page_was_open_comes_in_on_opening(review) -> None:
+    client, server, fake = review
+    fake.threads["t1"] = {"messages": [said("Ann", "Earlier.")]}
+    fake.ranges.append(on_the_words("t1"))
+    page = await opened(client, fake)
+    await wait_for(lambda: server.comments.list())
+    assert texts(server.comments.list()[0]) == ["[Overleaf · Ann] Earlier."]
+    await page.close()
+
+
+async def test_a_comment_and_its_replies_come_in_by_themselves_and_close_and_open_with_overleaf(review) -> None:
+    client, server, fake = review
+    page = await opened(client, fake)
+    await wait_for(lambda: fake.ranges_read)
+
+    fake.threads["t1"] = {"messages": [said("Ann", "Which words?")]}
+    fake.ranges.append(on_the_words("t1"))
+    await fake.push(event("new-comment", "t1", {}))
+    await wait_for(lambda: server.comments.list())
+    comment = server.comments.list()[0]
+    assert texts(comment) == ["[Overleaf · Ann] Which words?"]
+    assert comment.anchor.to_dict()["file"] == "main.tex" and comment.anchor.to_dict()["line_start"] == 3
+    seen = []
+    while not any(m.get("type") == "comment_added" for m in seen):
+        seen.append(await page.receive_json(timeout=5))
+
+    fake.threads["t1"]["messages"].append(said("Bo", "These."))
+    await fake.push(event("new-comment", "t1", {}))
+    await wait_for(lambda: len(server.comments.get(comment.id).thread) == 2)
+    assert texts(server.comments.get(comment.id))[1] == "[Overleaf · Bo] These."
+
+    # A reply taken back, and then another: the new one still comes in.
+    fake.threads["t1"]["messages"].pop()
+    await fake.push(event("delete-message", "t1", "m2"))
+    await wait_for(lambda: fake.ranges_read >= 6)
+    fake.threads["t1"]["messages"].append(said("Bo", "Those."))
+    await fake.push(event("new-comment", "t1", {}))
+    await wait_for(lambda: len(server.comments.get(comment.id).thread) == 3)
+    assert texts(server.comments.get(comment.id))[2] == "[Overleaf · Bo] Those."
+
+    fake.threads["t1"]["resolved"] = True
+    await fake.push(event("resolve-thread", "t1", {}))
+    await wait_for(lambda: server.comments.get(comment.id).status == "resolved")
+    fake.threads["t1"]["resolved"] = False
+    await fake.push(event("reopen-thread", "t1"))
+    await wait_for(lambda: server.comments.get(comment.id).status == "open")
+    await page.close()
+
+
+async def test_what_the_reviewer_did_here_stands(review) -> None:
+    client, server, fake = review
+    fake.threads = {"t1": {"messages": [said("Ann", "One.")]}, "t2": {"messages": [said("Ann", "Two.")]}}
+    fake.ranges += [on_the_words("t1"), on_the_words("t2", "Hi")]
+    page = await opened(client, fake)
+    await wait_for(lambda: len(server.comments.list()) == 2)
+    one, two = sorted(server.comments.list(), key=lambda comment: texts(comment)[0])
+
+    # Closed here, open on Overleaf: another reading does not open it again.
+    server.comments.resolve(one.id, summary="", author="human")
+    # Deleted here: it does not come back.
+    server.comments.delete(two.id)
+    read = fake.ranges_read
+    await fake.push(event("new-comment", "t9", {}))
+    await wait_for(lambda: fake.ranges_read >= read + 2)
+    assert [comment.id for comment in server.comments.list()] == [one.id]
+    assert server.comments.get(one.id).status == "resolved"
+    await page.close()
+
+
+async def test_a_thread_deleted_on_overleaf_is_closed_here_not_lost(review) -> None:
+    client, server, fake = review
+    fake.threads["t1"] = {"messages": [said("Ann", "Mistake.")]}
+    fake.ranges.append(on_the_words("t1"))
+    page = await opened(client, fake)
+    await wait_for(lambda: server.comments.list())
+    comment = server.comments.list()[0]
+
+    fake.threads.clear()
+    fake.ranges.clear()
+    await fake.push(event("delete-thread", "t1"))
+    await wait_for(lambda: server.comments.get(comment.id).status == "resolved")
+    assert texts(server.comments.get(comment.id)) == ["[Overleaf · Ann] Mistake.", "[Overleaf] Deleted there."]
+    await page.close()
+
+
+async def test_a_comment_announced_before_its_words_are_stored_still_comes_in(review) -> None:
+    client, server, fake = review
+    page = await opened(client, fake)
+    await wait_for(lambda: fake.ranges_read)
+    fake.threads["t1"] = {"messages": [said("Ann", "Late words.")]}
+    fake.ranges_after_first_read = [on_the_words("t1")]
+    await fake.push(event("new-comment", "t1", {}))
+    await wait_for(lambda: server.comments.list())
+    await page.close()
+
+
+async def test_comments_that_cannot_be_read_say_so_on_the_page_and_recover(review) -> None:
+    client, server, fake = review
+    page = await opened(client, fake)
+    await wait_for(lambda: fake.ranges_read)
+    good, fake.cookie = fake.cookie, "s%3Arotated"
+    await fake.push(event("new-comment", "t1", {}))
+    await wait_for(lambda: server.overleaf_live.snapshot()["comments_trouble"])
+    assert "cookie" in server.overleaf_live.snapshot()["comments_trouble"]
+    fake.cookie = good
+    await fake.push(event("new-comment", "t1", {}))
+    await wait_for(lambda: not server.overleaf_live.snapshot()["comments_trouble"])
+    await page.close()
+
+
+async def test_two_readings_at_once_do_not_bring_a_comment_in_twice(review, monkeypatch) -> None:
+    client, server, fake = review
+    broadcast = server.broadcast
+
+    async def slowly(message):     # a page on a slow link: readings overlap while it is told
+        await asyncio.sleep(0.02)
+        await broadcast(message)
+
+    monkeypatch.setattr(server, "broadcast", slowly)
+    fake.threads = {f"t{n}": {"messages": [said("Ann", f"Note {n}.")]} for n in range(6)}
+    fake.ranges += [on_the_words(f"t{n}") for n in range(6)]
+    await client.post("/overleaf/cookie", json={"cookie": fake.cookie})
+    page = await client.ws_connect("/ws")
+    await asyncio.gather(client.post("/overleaf/pull"), client.post("/overleaf/pull"), client.post("/overleaf/pull"))
+    await wait_for(lambda: len(server.comments.list()) >= 6)
+    await asyncio.sleep(0.2)
+    assert len(server.comments.list()) == 6
+    await page.close()
+
+
+async def test_closing_the_session_while_comments_come_in_does_not_bring_them_in_twice(review, monkeypatch) -> None:
+    client, server, fake = review
+    fake.threads = {f"t{n}": {"messages": [said("Ann", f"Note {n}.")]} for n in range(3)}
+    fake.ranges += [on_the_words(f"t{n}") for n in range(3)]
+    await client.post("/overleaf/cookie", json={"cookie": fake.cookie})
+    broadcast = server.broadcast
+
+    async def cut_short(message):
+        if message.get("type") == "comment_added":
+            raise asyncio.CancelledError
+        await broadcast(message)
+
+    monkeypatch.setattr(server, "broadcast", cut_short)
+    with pytest.raises(asyncio.CancelledError):
+        await server._bring_in_overleaf(await overleaf.fetch_export(server.config.overleaf, overleaf.read_cookie()))
+    monkeypatch.setattr(server, "broadcast", broadcast)
+    await client.post("/overleaf/pull")
+    assert len(server.comments.list()) == 3

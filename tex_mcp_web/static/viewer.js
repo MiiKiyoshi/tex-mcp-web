@@ -1113,7 +1113,8 @@ function renderOverleafLive(snapshot) {
   const button = $("#overleaf-live-btn");
   button.hidden = status === "off";
   if (button.hidden) $("#overleaf-live-panel").hidden = true;
-  button.classList.toggle("trouble", status === "signed_out" || status === "reconnecting");
+  const commentsTrouble = status === "live" ? snapshot.comments_trouble : "";
+  button.classList.toggle("trouble", status === "signed_out" || status === "reconnecting" || !!commentsTrouble);
   $("#overleaf-live-label").textContent = status === "live"
     ? (users.length ? `${users.length} on Overleaf` : "Overleaf")
     : status === "connecting" ? "Overleaf…" : "Overleaf offline";
@@ -1126,7 +1127,7 @@ function renderOverleafLive(snapshot) {
     face.title = user.name;
     return face;
   }));
-  $("#overleaf-live-status").textContent = {
+  $("#overleaf-live-status").textContent = commentsTrouble ? `Overleaf comments are not coming in: ${commentsTrouble}` : {
     live: users.length ? "In the Overleaf project now:" : "No one else is in the Overleaf project.",
     connecting: "Joining the Overleaf project…",
   }[status] ?? (snapshot.message || "Not connected to Overleaf.");

@@ -2017,6 +2017,20 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
         wait_until(lambda: not browser.execute_script('return document.querySelector("#overleaf-file-notice").hidden'))
         assert text("#overleaf-file-notice").startswith("Co Author edited this file on Overleaf")
         assert "tex/body.tex" in text("#overleaf-live-changes")
+
+        # A comment written on Overleaf comes in with no button pressed.
+        fake.threads["t1"] = {"messages": [{"user": {"first_name": "Ann"}, "content": "Came in by itself."}]}
+        fake.ranges.append({"id": "c1", "op": {"c": "documentclass", "p": 1, "t": "t1"}})
+        push(event("new-comment", "t1", {}))
+        wait_until(lambda: browser.execute_script(
+            'return document.body.textContent.includes("Came in by itself.")'), timeout=15)
+
+        # When comments cannot be read, the page says so.
+        fake.cookie = "s%3Arotated"
+        push(event("new-comment", "t1", {}))
+        wait_until(lambda: "not coming in" in text("#overleaf-live-status"), timeout=15)
+        assert browser.execute_script(
+            'return document.querySelector("#overleaf-live-btn").classList.contains("trouble")') is True
     finally:
         if browser is not None:
             try:

@@ -94,13 +94,17 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   tools). The cookie is kept in `~/.config/tex-mcp-web/overleaf-cookie`, readable by you
   alone, or given by `TEX_MCP_WEB_OVERLEAF_COOKIE`, and serves every paper you open.
   Without it, choose the `comments.json` that Overleaf Comments Export writes. Bringing
-  them in again adds only new threads and replies.
+  them in again adds only new threads and replies; a comment you deleted here stays deleted.
 - With `overleaf` set and the cookie kept, an open page also sits in the Overleaf project,
   read-only: the top bar shows a face for each collaborator there, its list says which file
   and line each is on, their cursors are drawn in the editor on that file, and a file they
   edit says so above the editor. It sends Overleaf no edit. It opens the main file and
   puts one cursor at its top, which is what makes the others' editors send their cursors
   at once, so to them it is one more of your tabs, idle.
+- While a page is open that way, comments come in by themselves, within seconds, as do
+  their replies, and they close and open with Overleaf, unless you changed that one here.
+  A thread deleted on Overleaf closes here and keeps what was said. A message reworded on
+  Overleaf stays as it came in. Opening the page reads what was said in the meantime.
 
 ## Suggested edits
 
@@ -178,7 +182,7 @@ overleaf: https://www.overleaf.com/project/0123456789abcdef01234567
 | `port` | This paper's review page port. Any free port works. Init picks the first free one from 8765, so each paper can have its own. |
 | `references` | Folder holding only the papers yours builds on, converted to Markdown, relative to this file or absolute. Unset means no list of their terms. |
 | `translation` | `language` puts a button for that language beside **+ Note**: it shows each paragraph of the source translated by `claude -p`, with those on the current page marked. `instructions` adds rules for the translator, one per line. A paragraph is translated once per text, and of a figure or table only the caption is. Unset means no translation. |
-| `overleaf` | The paper's Overleaf project, by its link, whose comments **Bring in from Overleaf** reads. Unset means comments come in only from a file. |
+| `overleaf` | The paper's Overleaf project, by its link, whose comments an open page follows and **Bring in from Overleaf** reads. Unset means comments come in only from a file. |
 
 ## See also
 

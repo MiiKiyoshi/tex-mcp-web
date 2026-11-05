@@ -23,7 +23,7 @@ import os
 import re
 import stat
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
@@ -393,6 +393,10 @@ class TexMcpWebServer:
         self.overleaf_live: LivePresence | None = None
         self._overleaf_live_stop: asyncio.TimerHandle | None = None
         self._overleaf_live_push: asyncio.TimerHandle | None = None
+        self._overleaf_import = asyncio.Lock()
+        self._overleaf_reads = 0
+        self._overleaf_reader: asyncio.Future | None = None
+        self._overleaf_deleted: set[str] = set()
         self.watcher: Watcher | None = None
         self._runner: web.AppRunner | None = None
         self._store_watch: asyncio.Task[None] | None = None
@@ -618,6 +622,9 @@ class TexMcpWebServer:
 
     # Seconds the connection outlives the last page, so a reload does not drop it.
     OVERLEAF_LIVE_GRACE = 30
+    # Seconds before reading comments after news of them, twice: the thread is announced
+    # before the words it is on are stored.
+    OVERLEAF_COMMENT_SETTLE = 2
 
     async def _sync_overleaf_live(self, restart: bool = False) -> None:
         """Keep the read-only Overleaf session open while a page is: the reviewer looking at
@@ -635,7 +642,7 @@ class TexMcpWebServer:
                 self._overleaf_live_stop = None
             if live is None:
                 self.overleaf_live = LivePresence(self.config.overleaf, overleaf.read_cookie,
-                                                  self._overleaf_live_changed)
+                                                  self._overleaf_live_changed, comments=self._overleaf_comment_news)
                 await self.overleaf_live.start()
         elif live is not None and self._overleaf_live_stop is None:
             loop = asyncio.get_running_loop()
@@ -649,6 +656,12 @@ class TexMcpWebServer:
         if self._overleaf_live_stop is not None:
             self._overleaf_live_stop.cancel()
             self._overleaf_live_stop = None
+        self._overleaf_reads = 0
+        self._overleaf_deleted.clear()
+        reader, self._overleaf_reader = self._overleaf_reader, None
+        if reader is not None:
+            reader.cancel()
+            await asyncio.gather(reader, return_exceptions=True)
         live, self.overleaf_live = self.overleaf_live, None
         if live is not None:
             await live.stop()
@@ -667,9 +680,40 @@ class TexMcpWebServer:
 
         self._overleaf_live_push = asyncio.get_running_loop().call_later(0.2, push)
 
+    def _overleaf_comment_news(self, name: str, args: list) -> None:
+        """Comments changed on Overleaf, or the session opened after a time away: read them."""
+        if name == "delete-thread" and args:
+            self._overleaf_deleted.add(str(args[0]))
+        self._overleaf_reads = 2
+        if self._overleaf_reader is None or self._overleaf_reader.done():
+            self._overleaf_reader = asyncio.ensure_future(self._follow_overleaf_comments())
+
+    async def _follow_overleaf_comments(self) -> None:
+        while self._overleaf_reads > 0:
+            self._overleaf_reads -= 1
+            await asyncio.sleep(self.OVERLEAF_COMMENT_SETTLE)
+            await self._read_overleaf_comments()
+
+    async def _read_overleaf_comments(self) -> None:
+        live, cookie = self.overleaf_live, overleaf.read_cookie()
+        if live is None or cookie is None:
+            return
+        trouble = ""
+        try:
+            data = await overleaf.fetch_export(live.link, cookie)
+            async with self._overleaf_import:
+                deleted, self._overleaf_deleted = self._overleaf_deleted, set()
+                await self._bring_in_overleaf(data, deleted)
+        except overleaf.OverleafError as error:
+            trouble = str(error)
+        if live.comments_trouble != trouble:
+            live.comments_trouble = trouble
+            self._overleaf_live_changed()
+
     async def _handle_overleaf_live(self, request: web.Request) -> web.Response:
         snapshot = (self.overleaf_live.snapshot() if self.overleaf_live is not None else
-                    {"status": "off", "message": "", "project": self.config.overleaf, "users": [], "changes": []})
+                    {"status": "off", "message": "", "project": self.config.overleaf, "users": [], "changes": [],
+                     "comments_trouble": ""})
         return web.json_response(snapshot, headers={"Cache-Control": "no-store"})
 
     # ----- API: Call agent -----
@@ -755,6 +799,15 @@ class TexMcpWebServer:
                 or not isinstance(data.get("comments"), list) or not isinstance(data.get("threads"), dict)):
             return web.json_response(
                 {"error": "this is not a comments.json from Overleaf Comments Export"}, status=400)
+        async with self._overleaf_import:
+            return web.json_response(await self._bring_in_overleaf(data))
+
+    async def _bring_in_overleaf(self, data: dict[str, Any], deleted: Iterable[str] = ()) -> dict[str, int]:
+        """What is new in an export. A thread in the ledger gains its new replies and closes
+        and opens with Overleaf, but only when it changes there: what the reviewer did here
+        stands, and one they deleted stays deleted. A thread deleted on Overleaf closes here,
+        since agents and the reviewer may have said more on it. The ledger is written however
+        this ends, so what did come in does not come in again."""
         ledger_path = self.watch_dir / ".tex-mcp-web" / "overleaf-imported.json"
         try:
             ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
@@ -766,42 +819,64 @@ class TexMcpWebServer:
             name = (message.get("user") or {}).get("name") or "someone"
             return f"[Overleaf · {name}] {str(message.get('content', '')).strip()}"
 
-        for entry in data["comments"]:
-            if not isinstance(entry, dict):
-                continue
-            thread_id = str(entry.get("thread_id", ""))
-            thread = data["threads"].get(thread_id)
-            if not isinstance(thread, dict):
-                continue
-            if thread.get("resolved"):
-                counts["resolved"] += 1
-                continue
-            messages = [m for m in thread.get("messages") or []
-                        if isinstance(m, dict) and str(m.get("content", "")).strip()]
-            if not messages:
-                continue
-            known = ledger.get(thread_id)
-            if known and self.comments.get(known["comment"]) is not None:
-                for message in messages[known["messages"]:]:
-                    comment = self.comments.reply(known["comment"], said(message), "human")
-                    counts["replies"] += 1
-                if len(messages) > known["messages"]:
-                    await self.broadcast({"type": "comment_updated", "comment": _comment_to_dict(comment)})
-                known["messages"] = len(messages)
-                continue
-            anchor, resolved, selector, where = self._overleaf_anchor(entry)
-            text = said(messages[0]) if where is None else f"{said(messages[0])}\n(On Overleaf at {where}, not found here.)"
-            counts["unplaced"] += where is not None
-            comment = self.comments.add(anchor=anchor, text=text, author="human",
-                                        resolved_source=resolved, source_selector=selector)
-            for message in messages[1:]:
+        async def update(thread: dict[str, Any], messages: list[dict[str, Any]], known: dict[str, Any]) -> None:
+            comment = self.comments.get(known["comment"])
+            if comment is None:
+                return
+            new = messages[known["messages"]:]
+            for message in new:
                 comment = self.comments.reply(comment.id, said(message), "human")
-            ledger[thread_id] = {"comment": comment.id, "messages": len(messages)}
-            counts["added"] += 1
-            await self.broadcast({"type": "comment_added", "comment": _comment_to_dict(comment)})
-        ledger_path.parent.mkdir(parents=True, exist_ok=True)
-        ledger_path.write_text(json.dumps(ledger, indent=1), encoding="utf-8")
-        return web.json_response(counts)
+            counts["replies"] += len(new)
+            known["messages"] = len(messages)
+            closed = bool(thread.get("resolved"))
+            counts["resolved"] += closed
+            moved = closed != bool(known.get("resolved"))
+            known["resolved"] = closed
+            if moved and closed and comment.status == "open":
+                comment = self.comments.resolve(comment.id, summary="", author="human")
+            elif moved and not closed and comment.status == "resolved":
+                comment = self.comments.reopen(comment.id)
+            elif not new:
+                return
+            await self.broadcast({"type": "comment_updated", "comment": _comment_to_dict(comment)})
+
+        try:
+            for entry in data["comments"]:
+                if not isinstance(entry, dict):
+                    continue
+                thread_id = str(entry.get("thread_id", ""))
+                thread = data["threads"].get(thread_id)
+                if not isinstance(thread, dict):
+                    continue
+                messages = [m for m in thread.get("messages") or []
+                            if isinstance(m, dict) and str(m.get("content", "")).strip()]
+                if not messages:
+                    continue
+                if thread_id in ledger:
+                    await update(thread, messages, ledger[thread_id])
+                    continue
+                if thread.get("resolved"):
+                    counts["resolved"] += 1
+                    continue
+                anchor, resolved, selector, where = self._overleaf_anchor(entry)
+                text = said(messages[0]) if where is None else f"{said(messages[0])}\n(On Overleaf at {where}, not found here.)"
+                counts["unplaced"] += where is not None
+                comment = self.comments.add(anchor=anchor, text=text, author="human",
+                                            resolved_source=resolved, source_selector=selector)
+                for message in messages[1:]:
+                    comment = self.comments.reply(comment.id, said(message), "human")
+                ledger[thread_id] = {"comment": comment.id, "messages": len(messages)}
+                counts["added"] += 1
+                await self.broadcast({"type": "comment_added", "comment": _comment_to_dict(comment)})
+            for thread_id in deleted:
+                comment = self.comments.get(ledger.get(thread_id, {}).get("comment", ""))
+                if comment is not None and comment.status == "open":
+                    comment = self.comments.resolve(comment.id, summary="[Overleaf] Deleted there.", author="human")
+                    await self.broadcast({"type": "comment_updated", "comment": _comment_to_dict(comment)})
+        finally:
+            ledger_path.parent.mkdir(parents=True, exist_ok=True)
+            ledger_path.write_text(json.dumps(ledger, indent=1), encoding="utf-8")
+        return counts
 
     def _overleaf_anchor(self, entry: dict[str, Any]) -> tuple[Any, Any, Any, str | None]:
         """Where an Overleaf comment sits here: its words in its file, the occurrence

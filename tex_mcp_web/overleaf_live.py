@@ -8,6 +8,7 @@ This reads that and sends no edit. It asks once who is connected, and says once 
 reviewer is, the top of the main file, which needs that file opened (joinDoc) first: an
 editor that sees no one else sends its cursor every five minutes, and one that sees the
 reviewer sends it twice a second. To the others it is one more tab of the reviewer's, idle.
+The service also says when a comment changes, which is passed on for the server to read.
 
 The protocol is the service's own (services/real-time in overleaf/overleaf), not a public
 API; a change on Overleaf's side ends in an error here, never in a change there.
@@ -32,6 +33,10 @@ logger = logging.getLogger(__name__)
 _FRAME = re.compile(r"^(\d):(\d*)(\+?):([^:]*):?(.*)$", re.S)
 _ASK_USERS = 1
 _OPEN_MAIN = 2
+# What the editor is told when comments change. edit-message is left out: a reworded message
+# stays as it came in.
+COMMENT_NEWS = ("new-comment", "new-comment-threads", "delete-message", "resolve-thread", "reopen-thread",
+                "delete-thread")
 
 
 def _paths(folder: dict, prefix: str = "") -> dict[str, str]:
@@ -61,11 +66,14 @@ class LivePresence:
     """One read-only connection to the project's editor session, kept up until stopped."""
 
     def __init__(self, link: str, cookie: Callable[[], tuple[str, str] | None], changed: Callable[[], Any], *,
+                 comments: Callable[[str, list], Any] = lambda name, args: None,
                  retry_delays: tuple[float, ...] = (2, 5, 15, 30, 60)) -> None:
         self.server, self.project = project_of(link)
         self.link = link
         self._cookie = cookie
         self._changed = changed
+        self._comments = comments
+        self.comments_trouble = ""
         self._retry_delays = retry_delays
         self._task: asyncio.Task | None = None
         self.status = "off"
@@ -88,7 +96,8 @@ class LivePresence:
         ]
         changes = sorted(self._changes.values(), key=lambda change: change["at"], reverse=True)
         return {"status": self.status, "message": self.message, "project": self.link,
-                "users": sorted(users, key=lambda user: user["name"]), "changes": changes}
+                "users": sorted(users, key=lambda user: user["name"]), "changes": changes,
+                "comments_trouble": self.comments_trouble}
 
     def _set(self, status: str, message: str = "") -> None:
         self.status, self.message = status, message
@@ -99,6 +108,12 @@ class LivePresence:
             self._changed()
         except Exception:  # the page's trouble is not the connection's
             logger.exception("Overleaf presence listener failed")
+
+    def _comment_news(self, name: str, args: list) -> None:
+        try:
+            self._comments(name, args)
+        except Exception:  # the server's trouble is not the connection's
+            logger.exception("Overleaf comment listener failed")
 
     # ----- Running -----
 
@@ -225,6 +240,7 @@ class LivePresence:
             self._people = {str(person["_id"]): _name(person) for person in people
                             if isinstance(person, dict) and person.get("_id")}
             self._set("live")
+            self._comment_news("joined", [])
             await ws.send_str(f"5:{_ASK_USERS}+::" + json.dumps(
                 {"name": "clientTracking.getConnectedUsers", "args": []}))
             root = str(project.get("rootDoc_id") or "")
@@ -233,6 +249,8 @@ class LivePresence:
                 # Read-only: the text that comes back is not used.
                 await ws.send_str(f"5:{_OPEN_MAIN}+::" + json.dumps(
                     {"name": "joinDoc", "args": [self._main_doc, -1, {"encodeRanges": True, "supportsHistoryOT": True}]}))
+        elif name in COMMENT_NEWS:
+            self._comment_news(name, args)
         elif name == "clientTracking.clientUpdated" and isinstance(first, dict):
             if str(first.get("id")) != self._me:
                 self._users[str(first.get("id"))] = {

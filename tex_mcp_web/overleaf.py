@@ -15,6 +15,7 @@ file, for a machine set up by script.
 
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 from pathlib import Path
@@ -162,8 +163,8 @@ class _Reader:
                 if "json" not in response.headers.get("Content-Type", ""):
                     raise SignedOut("Overleaf sent a page, not data; paste a new cookie")
                 return await response.json()
-        except aiohttp.ClientError as error:
-            raise OverleafError(f"could not reach Overleaf: {error}") from error
+        except (aiohttp.ClientError, asyncio.TimeoutError) as error:
+            raise OverleafError(f"could not reach Overleaf: {error or 'no answer'}") from error
 
 
 def _place(names: dict[str, str | None], paths: list[str]) -> dict[str, str]:
