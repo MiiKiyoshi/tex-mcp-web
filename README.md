@@ -43,15 +43,22 @@ The agent finds the main `.tex` file and a free port, shows you the settings, an
 
 ## Listen
 
-To review, say:
+With the plugin installed, a recent Claude Code, one that runs plugin monitors, needs no
+command: a session started in the paper's folder listens for Call agent for as long as it
+runs, however long the page sits idle. In Codex, or in a Claude Code without plugin
+monitors, say:
 
 ```
 do tex listen
 ```
 
-Open `http://localhost:<port>` with the port you chose at init. The agent serves the page,
-so there is nothing else to start. In Claude Code the agent keeps listening for the rest of
-the session, however long the page sits idle. Say it again after the agent restarts.
+and say it again after the agent restarts.
+
+Either way, open `http://localhost:<port>` with the port you chose at init. The agent serves
+the page, so there is nothing else to start.
+
+Presses go to one session per paper. A Claude Code session that starts while another
+listens leaves the presses to it, and `do tex listen` in any session moves them there.
 
 ## Reviewing
 

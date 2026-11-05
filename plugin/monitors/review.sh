@@ -1,9 +1,10 @@
 #!/bin/sh
 # The tex-mcp review monitor. Claude Code starts it with the session and turns each line it
 # prints into a notification. It prints nothing of its own: it runs the newest waiter command
-# tex-mcp's listen() hands this session (tex_mcp_web/plugin_monitor.py), in place of the one
-# it ran before, and passes on what the waiter prints. It never ends while the session's
-# Claude Code process lives, since Claude Code does not start an ended monitor again.
+# tex-mcp hands this session (tex_mcp_web/plugin_monitor.py), at the session's start or on
+# listen(), in place of the one it ran before, and passes on what the waiter prints. It never
+# ends while the session's Claude Code process lives, since Claude Code does not start an
+# ended monitor again.
 # The first argument, when given, names that process in place of the one found above.
 dir="${XDG_CACHE_HOME:-$HOME/.cache}/tex-mcp-web/monitor"
 session=${1-}

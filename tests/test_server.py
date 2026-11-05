@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import shlex
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -1858,18 +1860,19 @@ async def test_call_button_wakes_a_parked_waiter_and_keeps_an_early_press(client
     from tex_mcp_web.comments import PaperAnchor
 
     test_client, server = client
+    wait = f"/wait-review?listener=one&pid={os.getpid()}"
 
     # Presses with nobody parked are kept, and coalesce into the next wait.
     reply = await (await test_client.post("/review-request")).json()
     assert reply == {"calls": 1, "delivered": False}
     reply = await (await test_client.post("/review-request")).json()
     assert reply == {"calls": 2, "delivered": False}
-    early = await test_client.get("/wait-review")
+    early = await test_client.get(wait)
     assert early.status == 200
     assert early.headers["X-Press"] == "2"
     line = await early.text()
     assert line.startswith("[review] reviewer called (press #2)")
-    assert "read_comments(unanswered=True)" in line
+    assert "read_comments(new=True)" in line
     # The line counts threads whose last word is the reviewer's: a count of open threads
     # sent an agent to read one it had already answered.
     assert "no unanswered comments" in line
@@ -1879,7 +1882,7 @@ async def test_call_button_wakes_a_parked_waiter_and_keeps_an_early_press(client
     assert "no unanswered comments" in server._review_line()
 
     # Not acked yet (the line may never have reached the harness), so it is offered again.
-    again = await test_client.get("/wait-review")
+    again = await test_client.get(wait)
     assert again.status == 200
     assert again.headers["X-Press"] == "2"
 
@@ -1887,11 +1890,11 @@ async def test_call_button_wakes_a_parked_waiter_and_keeps_an_early_press(client
     acked = await (await test_client.post("/wait-review/ack?upto=2")).json()
     assert acked == {"calls": 2, "consumed": 2}
     server.REVIEW_POLL_TIMEOUT = 0.05
-    assert (await test_client.get("/wait-review")).status == 204
+    assert (await test_client.get(wait)).status == 204
     server.REVIEW_POLL_TIMEOUT = TexMcpWebServer.REVIEW_POLL_TIMEOUT
 
     # A parked waiter is released by the press.
-    parked = asyncio.ensure_future(test_client.get("/wait-review"))
+    parked = asyncio.ensure_future(test_client.get(wait))
     for _ in range(50):
         if server.review_waiters == 1:
             break
@@ -1911,7 +1914,7 @@ async def test_call_button_wakes_a_parked_waiter_and_keeps_an_early_press(client
     stale = await (await test_client.post("/wait-review/ack?upto=1")).json()
     assert stale == {"calls": 3, "consumed": 3}
     server.REVIEW_POLL_TIMEOUT = 0.05
-    assert (await test_client.get("/wait-review")).status == 204
+    assert (await test_client.get(wait)).status == 204
 
 
 @pytest.mark.asyncio
@@ -1926,7 +1929,7 @@ async def test_presses_survive_a_server_restart(client) -> None:
     second_client = TestClient(TestServer(reborn.app))
     await second_client.start_server()
     try:
-        offered = await second_client.get("/wait-review")
+        offered = await second_client.get(f"/wait-review?listener=one&pid={os.getpid()}")
         assert offered.status == 200
         assert offered.headers["X-Press"] == "1"
         await second_client.post("/wait-review/ack?upto=1")
@@ -1934,6 +1937,52 @@ async def test_presses_survive_a_server_restart(client) -> None:
         assert (third.review_calls, third.review_consumed) == (1, 1)
     finally:
         await second_client.close()
+
+
+@pytest.mark.asyncio
+async def test_presses_go_to_one_listener(client) -> None:
+    """Two sessions answering one press would edit the same threads, so a press goes to
+    one waiter: the one asked to listen last, or else the one that listened first. A
+    waiter whose place is taken hears so once, with no press to ack."""
+    test_client, server = client
+    pid = os.getpid()
+
+    # A waiter with no listener named before it is the one.
+    parked = asyncio.ensure_future(test_client.get(f"/wait-review?listener=one&pid={pid}"))
+    for _ in range(50):
+        if server.review_waiters == 1:
+            break
+        await asyncio.sleep(0.02)
+    assert server.review_listener == "one"
+    # A session starting up leaves the presses to a waiter that runs.
+    refused = await test_client.post("/wait-review/listen?listener=two&if_free=1")
+    assert await refused.json() == {"listening": False}
+    # A session asked to listen takes them, and the parked waiter hears it at once.
+    taken = await test_client.post("/wait-review/listen?listener=two")
+    assert await taken.json() == {"listening": True}
+    moved = await parked
+    assert moved.headers["X-Moved"] == "1" and "X-Press" not in moved.headers
+    assert (await moved.text()).startswith("[moved] another session took over listening")
+
+    await test_client.post("/review-request")
+    offered = await test_client.get(f"/wait-review?listener=two&pid={pid}")
+    assert offered.headers["X-Press"] == "1"
+    assert (await test_client.get(f"/wait-review?listener=one&pid={pid}")).headers["X-Moved"] == "1"
+    await test_client.post("/wait-review/ack?upto=1")
+
+    # A listener whose waiter has ended leaves the presses to the next session that starts.
+    ended = await asyncio.create_subprocess_exec("true")
+    await ended.wait()
+    server.REVIEW_POLL_TIMEOUT = 0.05
+    assert (await test_client.get(f"/wait-review?listener=two&pid={ended.pid}")).status == 204
+    started = await test_client.post("/wait-review/listen?listener=three&if_free=1")
+    assert await started.json() == {"listening": True}
+    # One that was just named has a while to start its waiter before it counts as ended.
+    early = await test_client.post("/wait-review/listen?listener=four&if_free=1")
+    assert await early.json() == {"listening": False}
+    server.LISTENER_START = 0
+    late = await test_client.post("/wait-review/listen?listener=four&if_free=1")
+    assert await late.json() == {"listening": True}
 
 
 @pytest.mark.asyncio
@@ -1948,17 +1997,15 @@ async def test_listen(bound_project, project, monkeypatch, codex):
 
     import aiohttp
 
-    from tex_mcp_web import plugin_monitor
     from tex_mcp_web.mcp_server import create_server
 
-    # No plugin monitor runs for this session, whatever runs for the one running the tests.
-    monkeypatch.setattr(plugin_monitor, "DIRECTORY", project / "no-monitor")
     mcp = create_server(bound_project)
     context = SimpleNamespace(session=SimpleNamespace(client_params=SimpleNamespace(
         clientInfo=SimpleNamespace(name="claude-code"))))
     monkeypatch.setattr(mcp, "get_context", lambda: context)
     result = json.loads((await mcp.call_tool("listen", {}))[0].text)
-    script = Path(result["script"])
+    script, listener = shlex.split(result["command"])
+    script = Path(script)
     assert script == project / ".tex-mcp-web" / "wait-review.sh"
     assert script.stat().st_mode & 0o111
     # Claude Code's Monitor takes command, description and timeout_ms (at most 30 minutes).
@@ -1993,7 +2040,9 @@ async def test_listen(bound_project, project, monkeypatch, codex):
         stub.chmod(0o755)
         monkeypatch.setenv("PATH", f"{project}:{os.environ['PATH']}")
         args = ["--codex", "test-thread"]
-    waiter = subprocess.Popen(["sh", str(script), *args], stdout=subprocess.PIPE, text=True)
+    # Each listen() call names a new listener, and the last one is the one presses go to.
+    listener = shlex.split(selected["command"])[1]
+    waiter = subprocess.Popen(["sh", str(script), listener, *args], stdout=subprocess.PIPE, text=True)
     try:
         if codex:
             deadline = time.monotonic() + 5
@@ -2048,10 +2097,10 @@ async def test_listen_hands_the_waiter_to_the_plugin_monitor(bound_project, proj
             clientInfo=SimpleNamespace(name="claude-code"))))
         monkeypatch.setattr(mcp, "get_context", lambda: context)
         result = json.loads((await mcp.call_tool("listen", {}))[0].text)
-        assert "plugin's monitor now runs the script" in result["how"]
+        assert "plugin's monitor now runs the command" in result["how"]
         assert "Monitor(" not in result["how"] and "On [review]" in result["how"]
         handed = (plugin_monitor.DIRECTORY / f"{session.pid}.command").read_text().splitlines()
-        assert handed[1] == shlex.quote(result["script"])
+        assert handed[1] == result["command"]
         async with aiohttp.ClientSession() as client:
             async with client.post(f"{bound_project.base_url()}/review-request") as response:
                 assert (await response.json())["calls"] == 1
@@ -2061,6 +2110,62 @@ async def test_listen_hands_the_waiter_to_the_plugin_monitor(bound_project, proj
         session.kill()
         await asyncio.wait_for(monitor.wait(), 10)
         assert not record.exists()
+    finally:
+        for process in (session, monitor):
+            if process.returncode is None:
+                process.kill()
+                await process.wait()
+
+
+@pytest.mark.asyncio
+async def test_a_session_with_the_plugin_listens_from_its_start(bound_project, project, monkeypatch, tmp_path):
+    """Where the plugin's monitor runs for the session, the server starts listening with
+    no listen() call, unless another session listens to the paper already."""
+    pytest.importorskip("mcp")
+    import aiohttp
+
+    from tex_mcp_web import plugin_monitor
+    from tex_mcp_web.mcp_server import _listen_from_start, create_server
+
+    cache = tmp_path / "cache"
+    monkeypatch.setattr(plugin_monitor, "DIRECTORY", cache / "tex-mcp-web" / "monitor")
+    session = await asyncio.create_subprocess_exec("sleep", "60")
+    monkeypatch.setattr(plugin_monitor, "claude_pid", lambda: session.pid)
+    monitor = await asyncio.create_subprocess_exec(
+        "sh", str(Path(__file__).parents[1] / "plugin" / "monitors" / "review.sh"), str(session.pid),
+        stdout=asyncio.subprocess.PIPE, env={**os.environ, "XDG_CACHE_HOME": str(cache)})
+    try:
+        shared = bound_project.require_shared()
+        base = bound_project.base_url()
+        handed = plugin_monitor.DIRECTORY / f"{session.pid}.command"
+        async with aiohttp.ClientSession() as client:
+            async with client.post(f"{base}/wait-review/listen?listener=other") as response:
+                assert (await response.json())["listening"]
+            await asyncio.to_thread(_listen_from_start, shared)
+            assert not handed.exists()
+            # The other session never started its waiter: this one listens in its place.
+            shared.server.LISTENER_START = 0
+            await asyncio.to_thread(_listen_from_start, shared)
+            script, _ = shlex.split(handed.read_text().splitlines()[1])
+            assert script == str(project / ".tex-mcp-web" / "wait-review.sh")
+            async with client.post(f"{base}/review-request") as response:
+                assert (await response.json())["calls"] == 1
+        line = await asyncio.wait_for(monitor.stdout.readline(), 15)
+        assert line.decode().startswith("[review] reviewer called (press #1)")
+        # Asked to listen again, the session restarts its waiter, which hears of no takeover.
+        mcp = create_server(bound_project)
+        context = SimpleNamespace(session=SimpleNamespace(client_params=SimpleNamespace(
+            clientInfo=SimpleNamespace(name="claude-code"))))
+        monkeypatch.setattr(mcp, "get_context", lambda: context)
+        told = json.loads((await mcp.call_tool("listen", {}))[0].text)
+        assert "plugin's monitor now runs the command" in told["how"]
+        async with aiohttp.ClientSession() as client:
+            async with client.post(f"{base}/review-request") as response:
+                assert (await response.json())["calls"] == 2
+        line = await asyncio.wait_for(monitor.stdout.readline(), 15)
+        assert line.decode().startswith("[review] reviewer called (press #2)")
+        session.kill()
+        await asyncio.wait_for(monitor.wait(), 10)
     finally:
         for process in (session, monitor):
             if process.returncode is None:
@@ -2123,7 +2228,8 @@ async def test_stdio_source_and_reply_use_explicit_detail_reads(project):
     (project / ".tex-mcp-web.yaml").write_text(f"main: paper.tex\nport: {port}\n")
     params = StdioServerParameters(command=sys.executable,
         args=["-c", "from tex_mcp_web.cli import main_mcp; raise SystemExit(main_mcp())"],
-        cwd=project, env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1])})
+        cwd=project, env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1]),
+                          "XDG_CACHE_HOME": str(project / "cache")})
     async with stdio_client(params) as (read, write):
         async with ClientSession(read, write) as session:
             initialized = await session.initialize()
@@ -2169,7 +2275,8 @@ async def test_a_discovered_paper_gets_its_review_page_without_a_tool_call(proje
     (project / ".tex-mcp-web.yaml").write_text(f"main: paper.tex\nport: {port}\n")
     params = StdioServerParameters(command=sys.executable,
         args=["-c", "from tex_mcp_web.cli import main_mcp; raise SystemExit(main_mcp())"],
-        cwd=project, env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1])})
+        cwd=project, env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1]),
+                          "XDG_CACHE_HOME": str(project / "cache")})
     async with stdio_client(params) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()

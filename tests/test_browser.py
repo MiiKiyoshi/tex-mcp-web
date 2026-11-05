@@ -6,6 +6,7 @@ one-click close and the in-place edit are exercised through actual clicks here.
 
 import json
 import math
+import os
 import shutil
 import socket
 import subprocess
@@ -269,7 +270,7 @@ def test_browser_comment_actions(tmp_path: Path) -> None:
                  "Agent is not waiting; queue this call until it reconnects (Ctrl+Alt+Enter)", "rgb(180, 74, 67)"]
         with ThreadPoolExecutor(max_workers=1) as pool:
             waiter = pool.submit(lambda: urllib.request.urlopen(
-                f"{base}/wait-review", timeout=10).read())
+                f"{base}/wait-review?listener=one&pid={os.getpid()}", timeout=10).read())
             wait_until(lambda: browser.execute_script('''
               const button = document.querySelector("#call-agent-btn");
               return button.classList.contains("agent-ready")

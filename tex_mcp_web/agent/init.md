@@ -84,4 +84,5 @@ verified. Otherwise report what was prepared and what remains unverified.
 Report setup as ready only after the current MCP connection passes the check. If restarting
 the MCP process remains necessary, say that the files are prepared but this session is not
 ready yet, and state the remaining action. Saying "do tex listen" starts the review page.
-Start listening only when the user asks for it.
+With the plugin, Claude Code started in the folder later listens on its own. Start listening
+only when the user asks for it.

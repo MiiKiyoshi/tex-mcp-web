@@ -5,7 +5,7 @@
     {
       "name": "tex-mcp",
       "source": "./plugin",
-      "description": "Keeps an agent from using tex-mcp's tools, guide() aside, until this context has read the files guide() lists, and runs the review waiter for the whole session"
+      "description": "Keeps an agent from using tex-mcp's tools, guide() aside, until this context has read the files guide() lists, and listens for Call agent from the session's start to its end"
     }
   ]
 }

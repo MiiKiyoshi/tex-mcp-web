@@ -19,6 +19,7 @@ import dataclasses
 import hashlib
 import json
 import logging
+import os
 import re
 import stat
 import tempfile
@@ -349,6 +350,9 @@ class TexMcpWebServer:
     # A parked waiter is answered within this long even when nothing happened, so the
     # script's curl never trips its own timeout and a lost connection is noticed.
     REVIEW_POLL_TIMEOUT = 55.0
+    # How long a session that asked to listen has to start its waiter before a session
+    # starting up may listen in its place.
+    LISTENER_START = 60.0
 
     def __init__(self, config: Config):
         self.config = config
@@ -376,6 +380,12 @@ class TexMcpWebServer:
         self.review_calls, self.review_consumed = self._load_review_state()
         self.review_called = asyncio.Event()
         self.review_waiters = 0
+        # Presses go to one waiter, named by the id listen() gave it: two sessions answering
+        # one press would edit the same threads. Its pid, which its polls report, says
+        # whether it still runs.
+        self.review_listener: str | None = None
+        self.review_listener_pid: int | None = None
+        self.review_listener_claimed = 0.0
         self.closing = False
         self.websockets: set[web.WebSocketResponse] = set()
         self.watcher: Watcher | None = None
@@ -422,6 +432,7 @@ class TexMcpWebServer:
         app.router.add_post("/review-request", self._handle_review_request)
         app.router.add_post("/overleaf-import", self._handle_overleaf_import)
         app.router.add_get("/wait-review", self._handle_wait_review)
+        app.router.add_post("/wait-review/listen", self._handle_claim_review)
         app.router.add_post("/wait-review/ack", self._handle_ack_review)
         return app
 
@@ -612,7 +623,7 @@ class TexMcpWebServer:
         waiting = sum(comment.thread[-1].author == "human" for comment in self.comments.list(status="open"))
         return (f"[review] reviewer called (press #{self.review_calls}): "
                 + (f"{waiting} unanswered comments" if waiting else "no unanswered comments")
-                + " -- read them with read_comments(unanswered=True)")
+                + " -- read them with read_comments(new=True)")
 
     async def _handle_overleaf_import(self, request: web.Request) -> web.Response:
         """Comments exported from Overleaf by Overleaf Comments Export, its comments.json
@@ -712,15 +723,47 @@ class TexMcpWebServer:
             return PaperAnchor(), None, None, where
         return anchor, resolved, selector, None
 
+    def _wake_review_waiters(self) -> None:
+        released = self.review_called
+        self.review_called = asyncio.Event()
+        released.set()
+
+    def _review_listener_alive(self) -> bool:
+        if self.review_listener is None:
+            return False
+        if self.review_listener_pid is None:
+            return asyncio.get_running_loop().time() - self.review_listener_claimed < self.LISTENER_START
+        try:
+            os.kill(self.review_listener_pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+
     async def _handle_review_request(self, request: web.Request) -> web.Response:
         self.review_calls += 1
         self._save_review_state()
         delivered = self.review_waiters > 0
-        released = self.review_called
-        self.review_called = asyncio.Event()
-        released.set()
+        self._wake_review_waiters()
         await self.broadcast({"type": "review_requested", "calls": self.review_calls, "delivered": delivered})
         return web.json_response({"calls": self.review_calls, "delivered": delivered})
+
+    async def _handle_claim_review(self, request: web.Request) -> web.Response:
+        """Make the waiter with this listener id the one presses go to. With if_free, only
+        when no other waiter runs: a session listening from its start takes presses from
+        no one, and a session asked to listen takes them from whoever had them."""
+        try:
+            listener = request.query["listener"]
+        except KeyError as error:
+            raise web.HTTPBadRequest(text="listener is required") from error
+        if "if_free" in request.query and self._review_listener_alive():
+            return web.json_response({"listening": False})
+        self.review_listener, self.review_listener_pid = listener, None
+        self.review_listener_claimed = asyncio.get_running_loop().time()
+        # A waiter parked for the listener before is released to hear that it is not one.
+        self._wake_review_waiters()
+        return web.json_response({"listening": True})
 
     async def _handle_wait_review(self, request: web.Request) -> web.Response:
         # The consumption watermark lives here, not in the waiter: a waiter carrying its
@@ -728,12 +771,27 @@ class TexMcpWebServer:
         # not consume: the response can die on the wire after the watermark moved, and
         # the wake-up died with it. The waiter acks what it printed (the X-Press header
         # names it), and until then the press is offered again.
+        try:
+            listener, pid = request.query["listener"], int(request.query["pid"])
+        except (KeyError, ValueError) as error:
+            raise web.HTTPBadRequest(text="listener and pid are required") from error
+        # A restarted server knows no listener, and the first waiter back is the one.
+        if self.review_listener is None:
+            self.review_listener = listener
         loop = asyncio.get_running_loop()
         deadline = loop.time() + self.REVIEW_POLL_TIMEOUT
         self.review_waiters += 1
         await self.broadcast({"type": "review_waiters", "waiters": self.review_waiters})
         try:
-            while self.review_calls <= self.review_consumed:
+            while True:
+                if self.review_listener != listener:
+                    return web.Response(
+                        text="[moved] another session took over listening for Call agent, so "
+                        "presses no longer come here; listen() takes them back",
+                        headers={"X-Moved": "1"})
+                self.review_listener_pid = pid
+                if self.review_calls > self.review_consumed:
+                    break
                 remaining = deadline - loop.time()
                 if remaining <= 0:
                     return web.Response(status=204)
