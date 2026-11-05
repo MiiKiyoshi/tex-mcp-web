@@ -1805,6 +1805,12 @@ def test_the_more_menu_brings_in_an_overleaf_export(tmp_path: Path) -> None:
         browser.start_session()
         browser.navigate(base)
         wait_until(lambda: browser.execute_script('return document.querySelector("#comments-list") !== null'))
+        # Unconnected, the top bar still offers Overleaf, and its button opens the dialog.
+        top = 'const b = document.querySelector("#overleaf-live-btn"); return [b.hidden, b.textContent];'
+        assert browser.execute_script(top) == [False, "Connect Overleaf"]
+        browser.execute_script('document.querySelector("#overleaf-live-btn").click()')
+        wait_until(lambda: browser.execute_script('return document.querySelector("#overleaf-dialog").open'))
+        browser.execute_script('document.querySelector("#overleaf-dialog").close()')
         browser.execute_script('document.querySelector("#more-btn").click()')
         assert browser.execute_script('return document.querySelector("#more-menu").hidden') is False
         browser.execute_script('document.querySelector("#overleaf-import-btn").click()')

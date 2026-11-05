@@ -1280,15 +1280,18 @@ function renderOverleafLive(snapshot) {
   overleafLive.snapshot = snapshot;
   const { status, users = [], changes = [] } = snapshot;
   const button = $("#overleaf-live-btn");
-  button.hidden = status === "off";
-  if (button.hidden) $("#overleaf-live-panel").hidden = true;
+  // Always in the top bar: unconnected, it opens the dialog that connects the paper.
+  const off = status === "off";
+  button.classList.toggle("off", off);
+  button.title = off ? "Connect this paper to its Overleaf project" : "Who is in the Overleaf project";
+  if (off) $("#overleaf-live-panel").hidden = true;
   const commentsTrouble = status === "live" ? snapshot.comments_trouble : "";
   const files = snapshot.files ?? [];
   const choosing = files.filter((file) => ["differs", "stopped", "held"].includes(file.status));
   button.classList.toggle("trouble", status === "signed_out" || status === "reconnecting" || !!commentsTrouble
     || choosing.length > 0);
   renderOverleafFiles(files, choosing);
-  $("#overleaf-live-label").textContent = (status === "live"
+  $("#overleaf-live-label").textContent = off ? "Connect Overleaf" : (status === "live"
     ? (users.length ? `${users.length} on Overleaf` : "Overleaf")
     : status === "connecting" ? "Overleaf…" : "Overleaf offline")
     + (choosing.length ? ` · ${choosing.length} waiting` : "");
@@ -3303,6 +3306,10 @@ function attachSidebarToggle() {
   $("#overleaf-sync").addEventListener("change", () => switchOverleaf("sync"));
   $("#overleaf-live-btn").addEventListener("click", (event) => {
     event.stopPropagation();
+    if ($("#overleaf-live-btn").classList.contains("off")) {
+      showOverleafDialog();
+      return;
+    }
     const open = $("#overleaf-live-panel").hidden;
     $("#overleaf-live-panel").hidden = !open;
     $("#overleaf-live-btn").setAttribute("aria-expanded", String(open));

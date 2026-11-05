@@ -131,6 +131,7 @@ textarea {
 .overleaf-live-btn { display: inline-flex; align-items: center; gap: 0.35rem; }
 .overleaf-live-btn[hidden] { display: none; }
 .overleaf-live-btn.trouble { color: var(--warn); }
+.overleaf-live-btn.off { color: var(--fg-dim); }
 .overleaf-faces { display: inline-flex; }
 .overleaf-faces:empty { display: none; }
 .overleaf-face { display: inline-grid; place-items: center; width: 1.25rem; height: 1.25rem; margin-left: -0.3rem; border-radius: 50%; border: 2px solid var(--bg-elev); color: white; font-size: 0.6rem; font-weight: 600; }
