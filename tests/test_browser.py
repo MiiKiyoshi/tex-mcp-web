@@ -1939,6 +1939,103 @@ def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path
 
 
 @pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
+def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_changed(
+        tmp_path: Path, monkeypatch) -> None:
+    """With the project named and the cookie kept, an open page sits in the Overleaf project:
+    a face per collaborator in the top bar, their file and line in its list, their cursor
+    drawn in the editor on that file, and a note above a file they changed."""
+    import asyncio
+    import fitz
+    import threading
+    from aiohttp.test_utils import TestServer
+    from tests.test_overleaf_live import PROJECT_ID, FakeRealtime, event
+    from tex_mcp_web import overleaf
+
+    loop = asyncio.new_event_loop()
+    threading.Thread(target=loop.run_forever, daemon=True).start()
+    fake = FakeRealtime()
+    realtime = TestServer(fake.app, loop=loop)
+    asyncio.run_coroutine_threadsafe(realtime.start_server(), loop).result(10)
+    push = lambda frame: asyncio.run_coroutine_threadsafe(fake.push(frame), loop).result(10)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config-home"))
+    monkeypatch.delenv(overleaf.COOKIE_ENV, raising=False)
+    overleaf.save_cookie(fake.cookie)
+    (tmp_path / "tex").mkdir()
+    (tmp_path / "main.tex").write_text(
+        "\\documentclass{article}\n\\begin{document}\nHello world.\n\\input{tex/body}\n\\end{document}\n",
+        encoding="utf-8")
+    (tmp_path / "tex" / "body.tex").write_text("Body text.\nMore body text here.\n", encoding="utf-8")
+    with fitz.open() as pdf:
+        pdf.new_page().insert_text((72, 72), "Hello world.")
+        pdf.save(tmp_path / "main.pdf")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: main.tex\nport: {port}\n"
+                           f"overleaf: http://127.0.0.1:{realtime.port}/project/{PROJECT_ID}\n", encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    profile = tempfile.mkdtemp(prefix="tex_mcp_overleaf_live_")
+    marionette_port = available_port()
+    (Path(profile) / "user.js").write_text(
+        f'user_pref("marionette.port", {marionette_port});\n', encoding="utf-8")
+    browser_process = None
+    browser = None
+    text = lambda selector: browser.execute_script(f'return document.querySelector("{selector}").textContent')
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        browser_process = subprocess.Popen(
+            ["firefox", "-marionette", "-headless", "-no-remote", "-profile", profile, "about:blank"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        browser = marionette.Marionette(host="127.0.0.1", port=marionette_port, startup_timeout=30)
+        browser.start_session()
+        browser.navigate(base)
+        wait_until(lambda: text("#overleaf-live-label") == "1 on Overleaf")
+        assert text("#overleaf-live-faces") == "CA"
+
+        browser.execute_script('document.querySelector("#overleaf-live-btn").click()')
+        assert browser.execute_script('return document.querySelector("#overleaf-live-panel").hidden') is False
+        assert "Co Author" in text("#overleaf-live-users") and "tex/body.tex:2" in text("#overleaf-live-users")
+        browser.execute_script('document.querySelector("#overleaf-live-users button").click()')
+        wait_until(lambda: browser.execute_script(
+            'return document.querySelector(".overleaf-cursor")?.dataset.user || ""') == "Co Author")
+        assert browser.execute_script("return document.querySelector('#source-file').value") == "tex/body.tex"
+        caret_top = lambda: browser.execute_script("return parseFloat(document.querySelector('.overleaf-cursor').style.top)")
+        first_top = caret_top()
+
+        # The cursor moves to another file: gone from this one; back here a line lower, it follows.
+        push(event("clientTracking.clientUpdated", {"id": "co-1", "user_id": "u-co", "name": "Co Author",
+                                                    "doc_id": "d-main", "row": 2, "column": 0}))
+        wait_until(lambda: browser.execute_script("return document.querySelector('.overleaf-cursor') === null"))
+        push(event("clientTracking.clientUpdated", {"id": "co-1", "user_id": "u-co", "name": "Co Author",
+                                                    "doc_id": "d-body", "row": 0, "column": 2}))
+        wait_until(lambda: browser.execute_script("return document.querySelector('.overleaf-cursor') !== null"))
+        assert caret_top() < first_top
+
+        push(event("otUpdateApplied", {"doc": "d-body", "op": [{"p": 0, "i": "x"}], "v": 3,
+                                       "meta": {"source": "co-1", "user_id": "u-co", "ts": 1}}))
+        wait_until(lambda: not browser.execute_script('return document.querySelector("#overleaf-file-notice").hidden'))
+        assert text("#overleaf-file-notice").startswith("Co Author edited this file on Overleaf")
+        assert "tex/body.tex" in text("#overleaf-live-changes")
+    finally:
+        if browser is not None:
+            try:
+                browser.delete_session()
+            except Exception:
+                pass
+        if browser_process is not None:
+            browser_process.terminate()
+            try:
+                browser_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                browser_process.kill()
+        shutil.rmtree(profile, ignore_errors=True)
+        shared.stop()
+        asyncio.run_coroutine_threadsafe(realtime.close(), loop).result(10)
+        loop.call_soon_threadsafe(loop.stop)
+
+
+@pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
 def test_go_to_definition_follows_input_ref_and_cite(tmp_path: Path) -> None:
     """gd with Vim keys, or F12, goes from \\input to the file, from \\ref to the \\label it
     names, and from \\cite to the .bib entry, the name under the cursor in a list; Ctrl+T or

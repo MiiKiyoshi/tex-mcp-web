@@ -116,6 +116,30 @@ textarea {
 #more-btn { display: inline-flex; align-items: center; line-height: 1; }
 #more-btn svg { display: block; }
 .more { position: relative; display: inline-flex; }
+/* Who is in the Overleaf project: a face per person, a list of where they are. */
+.overleaf-live { position: relative; display: inline-flex; }
+.overleaf-live-btn { display: inline-flex; align-items: center; gap: 0.35rem; }
+.overleaf-live-btn[hidden] { display: none; }
+.overleaf-live-btn.trouble { color: var(--warn); }
+.overleaf-faces { display: inline-flex; }
+.overleaf-faces:empty { display: none; }
+.overleaf-face { display: inline-grid; place-items: center; width: 1.25rem; height: 1.25rem; margin-left: -0.3rem; border-radius: 50%; border: 2px solid var(--bg-elev); color: white; font-size: 0.6rem; font-weight: 600; }
+.overleaf-face:first-child { margin-left: 0; }
+.overleaf-live-panel { position: absolute; top: calc(100% + 4px); right: 0; z-index: 50; width: 20rem; max-width: calc(100vw - 2rem); padding: 0.5rem; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-elev); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18); font-size: 0.85rem; }
+.overleaf-live-panel[hidden], .overleaf-live-head[hidden] { display: none; }
+.overleaf-live-status { margin: 0 0 0.4rem; color: var(--fg-dim); overflow-wrap: anywhere; }
+.overleaf-live-head { margin: 0.5rem 0 0.2rem; font-weight: 600; }
+.overleaf-live-list { list-style: none; margin: 0; padding: 0; }
+.overleaf-live-list button { display: flex; align-items: center; gap: 0.4rem; width: 100%; padding: 0.3rem 0.4rem; border: 0; border-radius: 3px; background: transparent; color: inherit; text-align: left; font: inherit; cursor: pointer; }
+.overleaf-live-list button:hover { background: var(--accent-soft); }
+.overleaf-live-list .where { margin-left: auto; color: var(--fg-dim); font-family: var(--mono); font-size: 0.8rem; white-space: nowrap; }
+.overleaf-dot { flex: none; width: 0.6rem; height: 0.6rem; border-radius: 50%; }
+.overleaf-file-notice { margin: 0; padding: 0.3rem 0.6rem; border-bottom: 1px solid var(--border); background: var(--accent-soft); font-size: 0.85rem; }
+.overleaf-file-notice[hidden] { display: none; }
+/* A collaborator's cursor in the source editor, drawn over the text. */
+.overleaf-cursors { position: absolute; inset: 0; z-index: 6; overflow: hidden; pointer-events: none; }
+.overleaf-cursor { position: absolute; width: 2px; }
+.overleaf-cursor-name { position: absolute; bottom: 100%; left: -1px; padding: 0 0.25rem; border-radius: 2px 2px 2px 0; color: white; font: 600 0.65rem/1.3 var(--sans); white-space: nowrap; }
 .more-menu {
   position: absolute;
   top: calc(100% + 4px);

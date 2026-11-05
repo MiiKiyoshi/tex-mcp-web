@@ -71,6 +71,7 @@ from .synctex import (
     source_to_page,
 )
 from . import overleaf
+from .overleaf_live import LivePresence
 from .completion import bib_entries, defined_commands, defined_environments, labels
 from .translate import Translator, TranslationStore, load_glossary, split_paragraphs, store_name
 from .watcher import Watcher, is_watched_source, matches_patterns
@@ -389,6 +390,9 @@ class TexMcpWebServer:
         self.review_listener_claimed = 0.0
         self.closing = False
         self.websockets: set[web.WebSocketResponse] = set()
+        self.overleaf_live: LivePresence | None = None
+        self._overleaf_live_stop: asyncio.TimerHandle | None = None
+        self._overleaf_live_push: asyncio.TimerHandle | None = None
         self.watcher: Watcher | None = None
         self._runner: web.AppRunner | None = None
         self._store_watch: asyncio.Task[None] | None = None
@@ -436,6 +440,8 @@ class TexMcpWebServer:
         app.router.add_post("/overleaf/cookie", self._handle_overleaf_cookie)
         app.router.add_delete("/overleaf/cookie", self._handle_overleaf_cookie)
         app.router.add_post("/overleaf/pull", self._handle_overleaf_pull)
+        app.router.add_get("/overleaf/live", self._handle_overleaf_live)
+        app.on_cleanup.append(lambda _app: self._stop_overleaf_live())
         app.router.add_get("/wait-review", self._handle_wait_review)
         app.router.add_post("/wait-review/listen", self._handle_claim_review)
         app.router.add_post("/wait-review/ack", self._handle_ack_review)
@@ -540,6 +546,7 @@ class TexMcpWebServer:
             self.watcher.update_patterns(config.watch, config.ignore)
             self.watcher.set_roots(self.source_roots())
         await self.broadcast({"type": "config_reloaded"})
+        await self._sync_overleaf_live()
         # A new main file or compiler makes a different PDF, which the page would
         # otherwise go on showing the old one of.
         if rebuild:
@@ -594,6 +601,9 @@ class TexMcpWebServer:
                 "review_waiters": self.review_waiters,
             }
         )
+        if self.overleaf_live is not None:
+            await ws.send_json({"type": "overleaf_live", **self.overleaf_live.snapshot()})
+        await self._sync_overleaf_live()
         try:
             async for _ in ws:
                 # The viewer is read-only; we don't accept any client-sent
@@ -601,7 +611,66 @@ class TexMcpWebServer:
                 pass
         finally:
             self.websockets.discard(ws)
+            await self._sync_overleaf_live()
         return ws
+
+    # ----- Overleaf: who is in the project -----
+
+    # Seconds the connection outlives the last page, so a reload does not drop it.
+    OVERLEAF_LIVE_GRACE = 30
+
+    async def _sync_overleaf_live(self, restart: bool = False) -> None:
+        """Keep the read-only Overleaf session open while a page is: the reviewer looking at
+        the paper is the reviewer in the project. It needs the config's overleaf: and the
+        reviewer's cookie; a new cookie or link starts it again."""
+        wanted = bool(self.websockets) and bool(self.config.overleaf) and overleaf.read_cookie() is not None
+        live = self.overleaf_live
+        if live is not None and (restart or live.link != self.config.overleaf or not self.config.overleaf
+                                 or overleaf.read_cookie() is None):
+            await self._stop_overleaf_live()
+            live = None
+        if wanted:
+            if self._overleaf_live_stop is not None:
+                self._overleaf_live_stop.cancel()
+                self._overleaf_live_stop = None
+            if live is None:
+                self.overleaf_live = LivePresence(self.config.overleaf, overleaf.read_cookie,
+                                                  self._overleaf_live_changed)
+                await self.overleaf_live.start()
+        elif live is not None and self._overleaf_live_stop is None:
+            loop = asyncio.get_running_loop()
+            self._overleaf_live_stop = loop.call_later(
+                self.OVERLEAF_LIVE_GRACE, lambda: asyncio.ensure_future(self._stop_overleaf_live(idle=True)))
+
+    async def _stop_overleaf_live(self, idle: bool = False) -> None:
+        if idle and self.websockets:
+            self._overleaf_live_stop = None
+            return
+        if self._overleaf_live_stop is not None:
+            self._overleaf_live_stop.cancel()
+            self._overleaf_live_stop = None
+        live, self.overleaf_live = self.overleaf_live, None
+        if live is not None:
+            await live.stop()
+            await self.broadcast({"type": "overleaf_live", **live.snapshot()})
+
+    def _overleaf_live_changed(self) -> None:
+        """Changes come in bursts (a typist's cursor); the page hears of them a little later,
+        once."""
+        if self._overleaf_live_push is not None:
+            return
+
+        def push() -> None:
+            self._overleaf_live_push = None
+            if self.overleaf_live is not None:
+                asyncio.ensure_future(self.broadcast({"type": "overleaf_live", **self.overleaf_live.snapshot()}))
+
+        self._overleaf_live_push = asyncio.get_running_loop().call_later(0.2, push)
+
+    async def _handle_overleaf_live(self, request: web.Request) -> web.Response:
+        snapshot = (self.overleaf_live.snapshot() if self.overleaf_live is not None else
+                    {"status": "off", "message": "", "project": self.config.overleaf, "users": [], "changes": []})
+        return web.json_response(snapshot, headers={"Cache-Control": "no-store"})
 
     # ----- API: Call agent -----
 
@@ -661,6 +730,7 @@ class TexMcpWebServer:
                 overleaf.save_cookie(str((body or {}).get("cookie", "")))
             except (ValueError, AttributeError) as error:
                 return web.json_response({"error": str(error) or "paste the cookie's value"}, status=400)
+        await self._sync_overleaf_live(restart=True)
         return web.json_response(self._overleaf_status())
 
     async def _handle_overleaf_pull(self, request: web.Request) -> web.Response:
@@ -1927,6 +1997,7 @@ class TexMcpWebServer:
         # asks again at once and finds the port closed instead of holding it half-alive.
         self.closing = True
         self.review_called.set()
+        await self._stop_overleaf_live()
         # do_compile shields the build, so the build task is cancelled directly.
         # Awaiting the cancellation lets a running compiler subprocess close its
         # transport while the loop is still alive.

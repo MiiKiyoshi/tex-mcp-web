@@ -1061,6 +1061,139 @@ async function importOverleafComments(file) {
   await refreshComments();
 }
 
+// ----- Overleaf: who is in the project -----
+// While a page is open the server sits in the paper's Overleaf project, read-only, and
+// tells the page who is there, where their cursors are, and which files they changed. A
+// face per person in the top bar opens the list; a collaborator's cursor in the open file
+// is drawn in the editor; a file changed on Overleaf says so above the editor.
+const overleafLive = { snapshot: null, layer: null, notice: "" };
+
+function overleafColor(id) {
+  let hash = 0;
+  for (const char of String(id)) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  return `hsl(${hash % 360} 62% 42%)`;
+}
+
+function overleafInitials(name) {
+  const words = String(name || "?").trim().split(/\s+/);
+  return (words[0][0] + (words.length > 1 ? words.at(-1)[0] : "")).toUpperCase();
+}
+
+function overleafWhen(seconds) {
+  const ago = Date.now() / 1000 - seconds;
+  if (ago < 60) return "just now";
+  if (ago < 3600) return `${Math.round(ago / 60)} min ago`;
+  return `at ${new Date(seconds * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+}
+
+function overleafItem(dot, text, where, onClick) {
+  const item = document.createElement("li");
+  const button = document.createElement("button");
+  button.type = "button";
+  if (dot) {
+    const mark = document.createElement("span");
+    mark.className = "overleaf-dot";
+    mark.style.background = dot;
+    button.append(mark);
+  }
+  const label = document.createElement("span");
+  label.textContent = text;
+  const place = document.createElement("span");
+  place.className = "where";
+  place.textContent = where;
+  button.append(label, place);
+  button.addEventListener("click", onClick);
+  item.append(button);
+  return item;
+}
+
+function renderOverleafLive(snapshot) {
+  overleafLive.snapshot = snapshot;
+  const { status, users = [], changes = [] } = snapshot;
+  const button = $("#overleaf-live-btn");
+  button.hidden = status === "off";
+  if (button.hidden) $("#overleaf-live-panel").hidden = true;
+  button.classList.toggle("trouble", status === "signed_out" || status === "reconnecting");
+  $("#overleaf-live-label").textContent = status === "live"
+    ? (users.length ? `${users.length} on Overleaf` : "Overleaf")
+    : status === "connecting" ? "Overleaf…" : "Overleaf offline";
+  const faces = $("#overleaf-live-faces");
+  faces.replaceChildren(...users.slice(0, 4).map((user) => {
+    const face = document.createElement("span");
+    face.className = "overleaf-face";
+    face.style.background = overleafColor(user.user_id || user.id);
+    face.textContent = overleafInitials(user.name);
+    face.title = user.name;
+    return face;
+  }));
+  $("#overleaf-live-status").textContent = {
+    live: users.length ? "In the Overleaf project now:" : "No one else is in the Overleaf project.",
+    connecting: "Joining the Overleaf project…",
+  }[status] ?? (snapshot.message || "Not connected to Overleaf.");
+  $("#overleaf-live-users").replaceChildren(...users.map((user) => overleafItem(
+    overleafColor(user.user_id || user.id), user.name || "Someone",
+    user.file ? `${user.file}:${(user.row ?? 0) + 1}` : "",
+    () => goToOverleafPlace(user.file, user.row))));
+  $("#overleaf-live-changes-head").hidden = !changes.length;
+  $("#overleaf-live-changes").replaceChildren(...changes.map((change) => overleafItem(
+    null, change.file, `${change.by}, ${overleafWhen(change.at)}`, () => goToOverleafPlace(change.file, null))));
+  renderOverleafCursors();
+}
+
+async function goToOverleafPlace(file, row) {
+  if (!file) return;
+  $("#overleaf-live-panel").hidden = true;
+  if (state.view === "pdf") await setWorkspaceView("split");
+  await initializeSourceEditor();
+  showSourceFile(file);
+  await openSource(file, row === null || row === undefined ? null : row + 1).catch((error) => alert(error.message));
+}
+
+// Collaborators' cursors in the open file, drawn over the editor after each render.
+function renderOverleafCursors() {
+  const editor = state.editor;
+  if (!editor) return;
+  const container = editor.container;
+  if (!overleafLive.layer || overleafLive.layer.parentNode !== container) {
+    overleafLive.layer = document.createElement("div");
+    overleafLive.layer.className = "overleaf-cursors";
+    container.append(overleafLive.layer);
+  }
+  const snapshot = overleafLive.snapshot ?? { users: [], changes: [] };
+  const here = snapshot.users.filter((user) => user.file && user.file === state.sourcePath && user.row !== null);
+  const box = container.getBoundingClientRect();
+  const height = editor.renderer.lineHeight;
+  overleafLive.layer.replaceChildren(...here.flatMap((user) => {
+    const row = Math.min(user.row, editor.session.getLength() - 1);
+    const column = Math.min(user.column ?? 0, editor.session.getLine(row).length);
+    const at = editor.renderer.textToScreenCoordinates(row, column);
+    const top = at.pageY - (box.top + window.scrollY);
+    const left = at.pageX - (box.left + window.scrollX);
+    if (top < -height || top > box.height) return [];
+    const color = overleafColor(user.user_id || user.id);
+    const caret = document.createElement("div");
+    caret.className = "overleaf-cursor";
+    caret.dataset.user = user.name;
+    Object.assign(caret.style, { top: `${top}px`, left: `${left}px`, height: `${height}px`, background: color });
+    const name = document.createElement("span");
+    name.className = "overleaf-cursor-name";
+    name.style.background = color;
+    name.textContent = user.name;
+    caret.append(name);
+    return [caret];
+  }));
+  const change = snapshot.changes.find((item) => item.file === state.sourcePath);
+  const notice = change
+    ? `${change.by} edited this file on Overleaf ${overleafWhen(change.at)} (${change.count} ${change.count === 1 ? "edit" : "edits"}). Bring those in before saving here.`
+    : "";
+  if (notice !== overleafLive.notice) {
+    overleafLive.notice = notice;
+    $("#overleaf-file-notice").textContent = notice;
+    $("#overleaf-file-notice").hidden = !notice;
+    requestAnimationFrame(() => editor.resize());
+  }
+}
+
 // The editor's type size, kept for next time. Stepped by a pixel between 10 and 28.
 function sourceFontSize() {
   const stored = Number(localStorage.getItem("texMcpSourceFontSize"));
@@ -1636,6 +1769,7 @@ async function initializeSourceEditor() {
   attachVimInputMethod(state.editor);
   attachDefinitionBack(state.editor);
   attachCompletion(state.editor);
+  state.editor.renderer.on("afterRender", renderOverleafCursors);
   applyVimKeys();
   await refreshSourceFiles();
 }
@@ -2722,6 +2856,9 @@ async function handleWebSocketMessage(message) {
     case "goto":
       showGotoTarget(message);
       break;
+    case "overleaf_live":
+      renderOverleafLive(message);
+      break;
   }
 }
 
@@ -2934,6 +3071,15 @@ function attachSidebarToggle() {
     if (!event.target.closest(".more") || event.target.closest(".more-menu button")) closeMore();
   });
   $("#overleaf-import-btn").addEventListener("click", () => showOverleafDialog());
+  $("#overleaf-live-btn").addEventListener("click", (event) => {
+    event.stopPropagation();
+    const open = $("#overleaf-live-panel").hidden;
+    $("#overleaf-live-panel").hidden = !open;
+    $("#overleaf-live-btn").setAttribute("aria-expanded", String(open));
+  });
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest(".overleaf-live")) $("#overleaf-live-panel").hidden = true;
+  });
   // Ctrl+Enter (Cmd+Enter) compiles from anywhere but a field being written in, where it
   // sends what is written, and an open dialog.
   document.addEventListener("keydown", (event) => {

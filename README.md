@@ -95,6 +95,11 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   alone, or given by `TEX_MCP_WEB_OVERLEAF_COOKIE`, and serves every paper you open.
   Without it, choose the `comments.json` that Overleaf Comments Export writes. Bringing
   them in again adds only new threads and replies.
+- With `overleaf` set and the cookie kept, an open page also sits in the Overleaf project,
+  read-only: the top bar shows a face for each collaborator there, its list says which file
+  and line each is on, their cursors are drawn in the editor on that file, and a file they
+  edit says so above the editor. It sends Overleaf nothing but the question of who is
+  there, so to the others it is one more of your tabs, idle.
 
 ## Suggested edits
 
