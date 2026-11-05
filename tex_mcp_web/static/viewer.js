@@ -28,6 +28,7 @@ const state = {
   // The box a pick last started from, so shift can run from it to the next one.
   pickedFrom: null,
   activeForm: null,
+  overleafThreads: new Set(),
   editingEntry: null,
   focusedCommentId: null,
   annotationCommentById: new Map(),
@@ -1899,9 +1900,11 @@ async function submitCompose(event) {
 async function refreshComments() {
   const status = $("#comment-filter").value;
   const url = status === "all" ? "/comments" : `/comments?status=${status}`;
-  const response = await fetch(url);
+  const [response, overleaf] = await Promise.all([fetch(url), fetch("/overleaf")]);
   if (!response.ok) throw new Error(await responseError(response));
   const data = await response.json();
+  // Which threads can be answered on Overleaf; none when the config does not allow it.
+  state.overleafThreads = new Set(overleaf.ok ? (await overleaf.json()).threads : []);
   // The open view keeps the order the comments were written in, which is the order the
   // paper reads in. The resolved view leads with the comment closed last, the one the
   // reader has just closed and looks for. The mixed view leads with the one written
@@ -2241,14 +2244,26 @@ function actionButtons(comment) {
   // empty summary flips the status without adding an entry. An archived thread still
   // takes replies, and goes back to open or resolved from the same row.
   const buttons = [];
+  const onOverleaf = state.overleafThreads.has(comment.id);
   if (comment.status !== "resolved") {
     buttons.push(actionButton("cmt-reply", "Reply", () => setActiveForm(comment.id, "reply")));
+    if (onOverleaf) {
+      buttons.push(actionButton("cmt-overleaf-reply", "Reply on Overleaf", () => setActiveForm(comment.id, "overleaf")));
+    }
   }
   if (comment.status !== "open") {
     buttons.push(actionButton("cmt-reopen", "Reopen", () => mutateAndRefresh(comment.id, "reopen", {})));
+    if (onOverleaf) {
+      buttons.push(actionButton("cmt-overleaf-reopen", "Reopen on Overleaf",
+        () => mutateAndRefresh(comment.id, "reopen", { overleaf: true })));
+    }
   }
   if (comment.status !== "resolved") {
     buttons.push(actionButton("cmt-resolve", "Resolve", () => closeComment(comment.id, "resolve", "summary")));
+    if (onOverleaf) {
+      buttons.push(actionButton("cmt-overleaf-resolve", "Resolve on Overleaf",
+        () => mutateAndRefresh(comment.id, "resolve", { summary: "", overleaf: true })));
+    }
   }
   if (comment.status !== "archived") {
     buttons.push(actionButton("cmt-archive", "Archive", () => mutateAndRefresh(comment.id, "archive", {})));
@@ -2277,6 +2292,11 @@ async function closeComment(commentId, action, key) {
 
 const FORM_CONFIG = {
   reply: { placeholder: "Reply…", key: "text", label: "Post reply" },
+  // Everyone in the Overleaf project reads this one; a plain reply stays here.
+  overleaf: {
+    placeholder: "Reply on Overleaf, for everyone in the project…", key: "text", label: "Post on Overleaf",
+    action: "reply", extra: { overleaf: true },
+  },
 };
 
 function renderActiveForm(comment) {
@@ -2306,7 +2326,7 @@ function renderActiveForm(comment) {
     textarea.disabled = true;
     submitButton.disabled = true;
     submitButton.textContent = "Saving…";
-    const saved = await doMutation(comment.id, mode, { [config.key]: text });
+    const saved = await doMutation(comment.id, config.action ?? mode, { [config.key]: text, ...config.extra });
     if (saved) {
       state.activeForm = null;
       try {

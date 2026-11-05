@@ -44,6 +44,7 @@ class Config:
             from ``translation: {language: ...}``. Unset means no translation panel.
         translation_instructions: Extra rules the translator follows, such as a field's
             terms to keep in English, from ``translation: {instructions: ...}``.
+        overleaf_write: Let the reviewer send replies and closes to that project.
         overleaf: The paper's Overleaf project, by its link, whose comments the page
             brings in with the reviewer's own session cookie. Unset means none.
         config_path: Path to .tex-mcp-web.yaml file (used to resolve watch_dir).
@@ -59,6 +60,7 @@ class Config:
     translation_language: str | None = None
     translation_instructions: str | None = None
     overleaf: str | None = None
+    overleaf_write: bool = False
     config_path: Path | None = None
 
     @classmethod
@@ -75,6 +77,7 @@ class Config:
             translation_language=_translation(data).get("language"),
             translation_instructions=_translation(data).get("instructions"),
             overleaf=_overleaf(data),
+            overleaf_write=_overleaf_write(data),
             config_path=config_path,
         )
 
@@ -97,6 +100,8 @@ class Config:
                 d["translation"]["instructions"] = self.translation_instructions
         if self.overleaf is not None:
             d["overleaf"] = self.overleaf
+        if self.overleaf_write:
+            d["overleaf_write"] = True
         return d
 
 
@@ -235,3 +240,14 @@ def get_main_file(config: Config) -> Path:
     """Get the absolute path to the main TeX file."""
     watch_dir = get_watch_dir(config)
     return watch_dir / config.main
+
+
+def _overleaf_write(data: dict[str, Any]) -> bool:
+    """``overleaf_write:``, which lets the reviewer send replies and closes to the project.
+    Off unless it says true, since what goes there is read by everyone in the project."""
+    raw = data.get("overleaf_write", False)
+    if not isinstance(raw, bool):
+        raise ValueError(f"overleaf_write must be true or false, not {raw!r}")
+    if raw and _overleaf(data) is None:
+        raise ValueError("overleaf_write needs overleaf: to name the project")
+    return raw

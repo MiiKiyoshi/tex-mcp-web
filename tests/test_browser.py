@@ -1971,7 +1971,8 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
     port = available_port()
     config_path = tmp_path / ".tex-mcp-web.yaml"
     config_path.write_text(f"main: main.tex\nport: {port}\n"
-                           f"overleaf: http://127.0.0.1:{realtime.port}/project/{PROJECT_ID}\n", encoding="utf-8")
+                           f"overleaf: http://127.0.0.1:{realtime.port}/project/{PROJECT_ID}\n"
+                           "overleaf_write: true\n", encoding="utf-8")
     shared = SharedProjectServer(load_config(config_path))
     profile = tempfile.mkdtemp(prefix="tex_mcp_overleaf_live_")
     marionette_port = available_port()
@@ -2024,6 +2025,31 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
         push(event("new-comment", "t1", {}))
         wait_until(lambda: browser.execute_script(
             'return document.body.textContent.includes("Came in by itself.")'), timeout=15)
+
+        # Only the buttons that say Overleaf send anything there.
+        click = lambda selector: browser.execute_script(f'document.querySelector("{selector}").click()')
+        click("[data-comment-id] .cmt-head")
+        wait_until(lambda: browser.execute_script('return document.querySelector(".cmt-overleaf-reply") !== null'))
+        write = lambda words: browser.execute_script(
+            'const box = document.querySelector(".cmt-form-input"); box.value = arguments[0];'
+            'box.dispatchEvent(new Event("input", {bubbles: true}));', [words])
+        click(".cmt-reply")
+        wait_until(lambda: browser.execute_script('return document.querySelector(".cmt-form-input") !== null'))
+        write("Stays here.")
+        click(".cmt-form-submit")
+        wait_until(lambda: browser.execute_script('return document.body.textContent.includes("Stays here.")'), timeout=15)
+        wait_until(lambda: browser.execute_script('return document.querySelector(".cmt-form-input") === null'))
+        assert fake.written == []
+        click(".cmt-overleaf-reply")
+        wait_until(lambda: browser.execute_script('return document.querySelector(".cmt-form-input") !== null'))
+        assert "for everyone in the project" in browser.execute_script(
+            'return document.querySelector(".cmt-form-input").placeholder')
+        write("Goes to everyone.")
+        click(".cmt-form-submit")
+        wait_until(lambda: fake.written == [("reply", "t1", "Goes to everyone.")], timeout=15)
+        wait_until(lambda: browser.execute_script('return document.querySelector(".cmt-overleaf-resolve") !== null'))
+        click(".cmt-overleaf-resolve")
+        wait_until(lambda: fake.written[-1:] == [("resolve", "t1", "d-main")], timeout=15)
 
         # When comments cannot be read, the page says so.
         fake.cookie = "s%3Arotated"

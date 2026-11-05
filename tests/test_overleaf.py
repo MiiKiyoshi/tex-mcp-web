@@ -201,7 +201,7 @@ async def review(tmp_path: Path, config_home: Path, fake_overleaf):
 async def test_the_page_brings_in_overleaf_comments_with_the_reviewers_cookie(review, config_home: Path) -> None:
     client, server, fake, _ = review
     status = await (await client.get("/overleaf")).json()
-    assert status == {"project": fake_link(server), "cookie": None}
+    assert status == {"project": fake_link(server), "cookie": None, "write": False, "threads": []}
 
     response = await client.post("/overleaf/pull")
     assert response.status == 401
@@ -209,7 +209,7 @@ async def test_the_page_brings_in_overleaf_comments_with_the_reviewers_cookie(re
 
     assert (await client.post("/overleaf/cookie", json={"cookie": "no cookie here=1"})).status == 400
     response = await client.post("/overleaf/cookie", json={"cookie": f"overleaf_session2={fake.cookie}"})
-    assert await response.json() == {"project": fake_link(server), "cookie": "file"}
+    assert await response.json() == {"project": fake_link(server), "cookie": "file", "write": False, "threads": []}
     # Saved, never sent back.
     assert fake.cookie not in await (await client.get("/overleaf")).text()
 
@@ -230,7 +230,7 @@ async def test_the_page_brings_in_overleaf_comments_with_the_reviewers_cookie(re
     response = await client.post("/overleaf/pull")
     assert response.status == 401 and "cookie" in (await response.json())["error"]
 
-    assert await (await client.delete("/overleaf/cookie")).json() == {"project": fake_link(server), "cookie": None}
+    assert (await (await client.delete("/overleaf/cookie")).json())["cookie"] is None
     assert overleaf.read_cookie() is None
 
 
@@ -240,7 +240,7 @@ async def test_without_a_project_in_the_config_the_page_says_where_to_name_it(tm
     client = TestClient(TestServer(server.app))
     await client.start_server()
     try:
-        assert await (await client.get("/overleaf")).json() == {"project": None, "cookie": None}
+        assert await (await client.get("/overleaf")).json() == {"project": None, "cookie": None, "write": False, "threads": []}
         response = await client.post("/overleaf/pull")
         assert response.status == 409 and "overleaf:" in (await response.json())["error"]
     finally:

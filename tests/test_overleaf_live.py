@@ -48,6 +48,8 @@ class FakeRealtime:
         self.ranges: list = []             # what /ranges gives, the words each thread is on
         self.ranges_read = 0
         self.ranges_after_first_read: list = []
+        self.hold_next_reading: asyncio.Event | None = None
+        self.reading_held = asyncio.Event()
         app = web.Application()
         app.router.add_get("/socket.io/1/", self._handshake)
         app.router.add_get("/socket.io/1/websocket/{sid}", self._websocket)
@@ -55,7 +57,39 @@ class FakeRealtime:
         app.router.add_get(f"/project/{PROJECT_ID}/ranges", self._ranges)
         app.router.add_get(f"/project/{PROJECT_ID}/entities", self._entities)
         app.router.add_get(f"/Project/{PROJECT_ID}/doc/d-main/download", self._download)
+        app.router.add_get(f"/project/{PROJECT_ID}", self._editor_page)
+        app.router.add_post(f"/project/{PROJECT_ID}/thread/{{thread}}/messages", self._post_message)
+        app.router.add_post(f"/project/{PROJECT_ID}/doc/{{doc}}/thread/{{thread}}/{{what:resolve|reopen}}", self._close)
+        self.written: list = []            # every write Overleaf took
+        self.refuse_writes = False
         self.app = app
+
+    async def _editor_page(self, request: web.Request) -> web.Response:
+        self._refuse(request)
+        return web.Response(text='<html><head><meta name="ol-csrfToken" content="token-1"></head></html>',
+                            content_type="text/html")
+
+    def _check_write(self, request: web.Request) -> None:
+        self._refuse(request)
+        if request.headers.get("X-Csrf-Token") != "token-1":
+            raise web.HTTPForbidden(text="invalid csrf token")
+        if self.refuse_writes:
+            raise web.HTTPInternalServerError()
+
+    async def _post_message(self, request: web.Request) -> web.Response:
+        self._check_write(request)
+        body = await request.json()
+        self.written.append(("reply", request.match_info["thread"], body["content"]))
+        thread = self.threads[request.match_info["thread"]]
+        thread["messages"].append({"id": f"m-{len(self.written)}", "user": {"first_name": "Me"}, "content": body["content"]})
+        return web.Response(status=204)
+
+    async def _close(self, request: web.Request) -> web.Response:
+        self._check_write(request)
+        what, thread = request.match_info["what"], request.match_info["thread"]
+        self.written.append((what, thread, request.match_info["doc"]))
+        self.threads[thread]["resolved"] = what == "resolve"
+        return web.Response(status=204)
 
     def _refuse(self, request: web.Request) -> None:
         if request.cookies.get("overleaf_session2") != self.cookie:
@@ -67,6 +101,10 @@ class FakeRealtime:
 
     async def _ranges(self, request: web.Request) -> web.Response:
         self._refuse(request)
+        if self.hold_next_reading is not None:     # a reading caught halfway, once
+            gate, self.hold_next_reading = self.hold_next_reading, None
+            self.reading_held.set()
+            await gate.wait()
         comments, self.ranges_read = list(self.ranges), self.ranges_read + 1
         self.ranges += self.ranges_after_first_read
         self.ranges_after_first_read = []
@@ -453,3 +491,183 @@ async def test_closing_the_session_while_comments_come_in_does_not_bring_them_in
     monkeypatch.setattr(server, "broadcast", broadcast)
     await client.post("/overleaf/pull")
     assert len(server.comments.list()) == 3
+
+
+# ----- What the reviewer sends to Overleaf -----
+
+async def on_overleaf(client, server, fake, *, write=True):
+    """A thread brought in from Overleaf, with writing to Overleaf on or off."""
+    server.config.overleaf_write = write
+    fake.threads["t1"] = {"messages": [{"id": "m-0", **said("Ann", "Which words?")}]}
+    fake.ranges.append(on_the_words("t1"))
+    page = await opened(client, fake)
+    await wait_for(lambda: server.comments.list())
+    return page, server.comments.list()[0]
+
+
+async def test_nothing_goes_to_overleaf_unless_the_config_says_so(review, tmp_path) -> None:
+    client, server, fake = review
+    assert server.config.overleaf_write is False
+    page, comment = await on_overleaf(client, server, fake, write=False)
+    assert (await (await client.get("/overleaf")).json())["write"] is False
+    for action, body in (("reply", {"text": "Mine.", "overleaf": True}), ("resolve", {"summary": "", "overleaf": True}),
+                         ("reopen", {"overleaf": True})):
+        response = await client.post(f"/comments/{comment.id}/{action}", json=body)
+        assert response.status == 403 and "overleaf_write" in (await response.json())["error"]
+    assert fake.written == []
+    assert len(server.comments.get(comment.id).thread) == 1 and server.comments.get(comment.id).status == "open"
+    await page.close()
+
+
+async def test_the_config_turns_writing_on_and_says_so_when_it_is_not_true_or_false(tmp_path) -> None:
+    config = tmp_path / ".tex-mcp-web.yaml"
+    config.write_text(f"main: main.tex\noverleaf: https://www.overleaf.com/project/{PROJECT_ID}\noverleaf_write: true\n")
+    assert load_config(config).overleaf_write is True and load_config(config).to_dict()["overleaf_write"] is True
+    config.write_text("main: main.tex\noverleaf_write: yes please\n")
+    with pytest.raises(ValueError):
+        load_config(config)
+    config.write_text("main: main.tex\noverleaf_write: true\n")     # to where?
+    with pytest.raises(ValueError):
+        load_config(config)
+
+
+async def test_only_what_is_asked_to_goes_to_overleaf(review) -> None:
+    """A reply on the page may be an instruction to the agent, so it stays here by default."""
+    client, server, fake = review
+    page, comment = await on_overleaf(client, server, fake)
+    status = await (await client.get("/overleaf")).json()
+    assert status["write"] is True and status["threads"] == [comment.id]
+    await client.post(f"/comments/{comment.id}/reply", json={"text": "Claude, fix this."})
+    server.comments.reply(comment.id, "Done.", "agent")
+    await client.post(f"/comments/{comment.id}/resolve", json={"summary": ""})
+    await client.post(f"/comments/{comment.id}/reopen", json={})
+    assert fake.written == []
+    await page.close()
+
+
+async def test_a_reply_goes_to_overleaf_once_and_does_not_come_back_as_another(review) -> None:
+    client, server, fake = review
+    page, comment = await on_overleaf(client, server, fake)
+    response = await client.post(f"/comments/{comment.id}/reply", json={"text": "  Mine.  ", "overleaf": True})
+    assert response.status == 200
+    assert fake.written == [("reply", "t1", "Mine.")]
+    assert texts(server.comments.get(comment.id)) == ["[Overleaf · Ann] Which words?", "Mine."]
+
+    read = fake.ranges_read
+    await fake.push(event("new-comment", "t1", {}))      # Overleaf tells everyone, the sender too
+    await wait_for(lambda: fake.ranges_read >= read + 2)
+    assert len(server.comments.get(comment.id).thread) == 2
+
+    # What others say afterwards still comes in.
+    fake.threads["t1"]["messages"].append({"id": "m-next", **said("Bo", "Good.")})
+    await fake.push(event("new-comment", "t1", {}))
+    await wait_for(lambda: len(server.comments.get(comment.id).thread) == 3)
+    assert texts(server.comments.get(comment.id))[2] == "[Overleaf · Bo] Good."
+    await page.close()
+
+
+async def test_a_reply_someone_else_wrote_in_the_same_moment_is_not_lost(review) -> None:
+    client, server, fake = review
+    page, comment = await on_overleaf(client, server, fake)
+    # Theirs reaches Overleaf first; the page has read neither when ours is sent.
+    fake.threads["t1"]["messages"].append({"id": "m-theirs", **said("Bo", "Theirs.")})
+    await client.post(f"/comments/{comment.id}/reply", json={"text": "Mine.", "overleaf": True})
+    await fake.push(event("new-comment", "t1", {}))
+    await wait_for(lambda: len(server.comments.get(comment.id).thread) == 3)
+    read = fake.ranges_read
+    await wait_for(lambda: fake.ranges_read >= read + 1)
+    assert sorted(texts(server.comments.get(comment.id))[1:]) == ["Mine.", "[Overleaf · Bo] Theirs."]
+    await page.close()
+
+
+async def test_closing_and_opening_goes_to_overleaf_on_the_threads_own_file_and_stays(review) -> None:
+    client, server, fake = review
+    page, comment = await on_overleaf(client, server, fake)
+    await client.post(f"/comments/{comment.id}/resolve", json={"summary": "", "overleaf": True})
+    assert fake.written == [("resolve", "t1", "d-main")]
+    assert server.comments.get(comment.id).status == "resolved"
+    read = fake.ranges_read
+    await fake.push(event("resolve-thread", "t1", {}))
+    await wait_for(lambda: fake.ranges_read >= read + 2)
+    assert server.comments.get(comment.id).status == "resolved"
+
+    await client.post(f"/comments/{comment.id}/reopen", json={"overleaf": True})
+    assert fake.written[-1] == ("reopen", "t1", "d-main")
+    read = fake.ranges_read
+    await fake.push(event("reopen-thread", "t1"))
+    await wait_for(lambda: fake.ranges_read >= read + 2)
+    assert server.comments.get(comment.id).status == "open"
+    await page.close()
+
+
+async def test_a_reading_under_way_does_not_undo_a_close_sent_meanwhile(review, monkeypatch) -> None:
+    client, server, fake = review
+    page, comment = await on_overleaf(client, server, fake)
+    reopened = []
+    reopen = server.comments.reopen
+    monkeypatch.setattr(server.comments, "reopen", lambda *a, **k: (reopened.append(a), reopen(*a, **k))[1])
+    await wait_for(lambda: fake.ranges_read >= 2)
+    await asyncio.sleep(0.05)
+
+    # The reading has Overleaf's old threads in hand when the close goes out.
+    release = fake.hold_next_reading = asyncio.Event()
+    await fake.push(event("new-comment", "t1", {}))
+    await asyncio.wait_for(fake.reading_held.wait(), 5)
+    sending = asyncio.ensure_future(client.post(f"/comments/{comment.id}/resolve", json={"summary": "", "overleaf": True}))
+    await asyncio.sleep(0.2)
+    release.set()
+    assert (await sending).status == 200
+    read = fake.ranges_read
+    await wait_for(lambda: fake.ranges_read >= read + 1)
+    await asyncio.sleep(0.1)
+    # Not even for a moment: a later reading would put it right, but there may be none.
+    assert reopened == [] and server.comments.get(comment.id).status == "resolved"
+    assert [item[0] for item in fake.written] == ["resolve"]
+    await page.close()
+
+
+async def test_what_overleaf_does_not_take_is_not_done_here_and_can_be_sent_again(review) -> None:
+    client, server, fake = review
+    page, comment = await on_overleaf(client, server, fake)
+    fake.refuse_writes = True
+    response = await client.post(f"/comments/{comment.id}/reply", json={"text": "Mine.", "overleaf": True})
+    assert response.status == 502 and "error" in await response.json()
+    response = await client.post(f"/comments/{comment.id}/resolve", json={"summary": "", "overleaf": True})
+    assert response.status == 502
+    assert len(server.comments.get(comment.id).thread) == 1 and server.comments.get(comment.id).status == "open"
+
+    fake.refuse_writes = False
+    good, fake.cookie = fake.cookie, "s%3Arotated"
+    response = await client.post(f"/comments/{comment.id}/reply", json={"text": "Mine.", "overleaf": True})
+    assert response.status == 401 and "cookie" in (await response.json())["error"]
+    assert len(server.comments.get(comment.id).thread) == 1
+
+    fake.cookie = good
+    assert (await client.post(f"/comments/{comment.id}/reply", json={"text": "Mine.", "overleaf": True})).status == 200
+    assert fake.written == [("reply", "t1", "Mine.")]
+    assert len(server.comments.get(comment.id).thread) == 2
+    await page.close()
+
+
+async def test_a_comment_that_did_not_come_from_overleaf_cannot_be_sent_there(review) -> None:
+    client, server, fake = review
+    page, _ = await on_overleaf(client, server, fake)
+    from tex_mcp_web.comments import PaperAnchor
+    own = server.comments.add(anchor=PaperAnchor(), text="A note of mine.", author="human")
+    response = await client.post(f"/comments/{own.id}/reply", json={"text": "More.", "overleaf": True})
+    assert response.status == 409
+    assert fake.written == [] and len(server.comments.get(own.id).thread) == 1
+    await page.close()
+
+
+async def test_a_ledger_from_before_messages_had_ids_adds_nothing_again(review) -> None:
+    client, server, fake = review
+    page, comment = await on_overleaf(client, server, fake)
+    ledger = server.watch_dir / ".tex-mcp-web" / "overleaf-imported.json"
+    await wait_for(lambda: ledger.exists())
+    ledger.write_text(json.dumps({"t1": {"comment": comment.id, "messages": 1, "resolved": False}}))
+    read = fake.ranges_read
+    await fake.push(event("new-comment", "t1", {}))
+    await wait_for(lambda: fake.ranges_read >= read + 2)
+    assert len(server.comments.get(comment.id).thread) == 1
+    await page.close()

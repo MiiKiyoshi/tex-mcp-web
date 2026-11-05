@@ -105,6 +105,11 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   their replies, and they close and open with Overleaf, unless you changed that one here.
   A thread deleted on Overleaf closes here and keeps what was said. A message reworded on
   Overleaf stays as it came in. Opening the page reads what was said in the meantime.
+- With `overleaf_write: true`, a thread from Overleaf also has **Reply on Overleaf**,
+  **Resolve on Overleaf** and **Reopen on Overleaf**. Only these go there, for everyone in
+  the project to read: a plain reply stays here, since it may be an instruction to the
+  agent, and the agent's never go. Overleaf takes it first, so what it refuses is not
+  shown as done here.
 
 ## Suggested edits
 
@@ -183,6 +188,7 @@ overleaf: https://www.overleaf.com/project/0123456789abcdef01234567
 | `references` | Folder holding only the papers yours builds on, converted to Markdown, relative to this file or absolute. Unset means no list of their terms. |
 | `translation` | `language` puts a button for that language beside **+ Note**: it shows each paragraph of the source translated by `claude -p`, with those on the current page marked. `instructions` adds rules for the translator, one per line. A paragraph is translated once per text, and of a figure or table only the caption is. Unset means no translation. |
 | `overleaf` | The paper's Overleaf project, by its link, whose comments an open page follows and **Bring in from Overleaf** reads. Unset means comments come in only from a file. |
+| `overleaf_write` | `true` lets you send replies and closes to that project, each with its own button. Unset means nothing is sent there. |
 
 ## See also
 

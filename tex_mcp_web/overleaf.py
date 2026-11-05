@@ -4,7 +4,8 @@ Overleaf has no public route for comments. Its editor reads them from routes of 
 the same ones Overleaf Comments Export reads: ``/project/<id>/threads`` for what was
 said, ``/project/<id>/ranges`` for the words each thread is on, and a document's
 download for its name and text. They answer to the editor's session cookie, so the
-server sends the reviewer's own.
+server sends the reviewer's own. Replies and closes go by the editor's routes too, with the
+token its page carries.
 
 That cookie signs in as the reviewer, so it is kept like a password: in the reviewer's
 own config folder, readable by them alone, never in the paper's folder and never sent
@@ -18,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+from html import unescape
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlsplit
@@ -166,6 +168,19 @@ class _Reader:
         except (aiohttp.ClientError, asyncio.TimeoutError) as error:
             raise OverleafError(f"could not reach Overleaf: {error or 'no answer'}") from error
 
+    async def post(self, path: str, token: str, body: dict[str, Any]) -> None:
+        headers = {"X-Csrf-Token": token, "Origin": self.server, "Content-Type": "application/json"}
+        try:
+            async with self.session.post(self.server + path, json=body, headers=headers,
+                                         allow_redirects=False) as response:
+                if response.status in (301, 302, 303, 307, 308, 401):
+                    raise SignedOut("Overleaf did not accept the cookie; paste a new one")
+                if response.status >= 300:
+                    raise OverleafError(f"Overleaf refused it ({response.status}); nothing was changed there")
+        except (aiohttp.ClientError, asyncio.TimeoutError) as error:
+            raise OverleafError(f"could not reach Overleaf, so it may or may not have arrived: "
+                                f"{error or 'no answer'}") from error
+
 
 def _place(names: dict[str, str | None], paths: list[str]) -> dict[str, str]:
     """Each document's path: the one path its file name ends, else the bare name."""
@@ -178,18 +193,58 @@ def _place(names: dict[str, str | None], paths: list[str]) -> dict[str, str]:
     return placed
 
 
-async def fetch_export(link: str, cookie: tuple[str, str], *, timeout: float = 30) -> dict[str, Any]:
-    """The project's threads and the words each is on, in the shape of Overleaf Comments
-    Export's comments.json (schema 1), which the import already reads."""
-    server, project = project_of(link)
+def _session(server: str, cookie: tuple[str, str], timeout: float) -> aiohttp.ClientSession:
     headers = {
         "Cookie": f"{cookie[0]}={cookie[1]}",
         "Accept": "application/json, text/plain, */*",
         "Referer": f"{server}/",
         "User-Agent": f"tex-mcp-web/{__version__} (Mozilla/5.0 compatible)",
     }
-    async with aiohttp.ClientSession(headers=headers, timeout=aiohttp.ClientTimeout(total=timeout),
-                                     cookie_jar=aiohttp.DummyCookieJar()) as session:
+    return aiohttp.ClientSession(headers=headers, timeout=aiohttp.ClientTimeout(total=timeout),
+                                 cookie_jar=aiohttp.DummyCookieJar())
+
+
+async def _write_token(read: _Reader, project: str) -> str:
+    """The token Overleaf wants on a write, which it gives in the editor's page."""
+    page, _ = await read.get(f"/project/{project}", json=False)
+    for tag in re.findall(r"<meta\b[^>]*>", page):
+        if re.search(r"""name=["']ol-csrfToken["']""", tag):
+            found = re.search(r"""content=["']([^"']+)["']""", tag)
+            if found:
+                return unescape(found.group(1))
+    raise OverleafError("Overleaf's page no longer gives a token to write with; nothing was changed there")
+
+
+async def post_reply(link: str, cookie: tuple[str, str], thread: str, content: str, *, timeout: float = 30) -> None:
+    """Add a reply to a thread on Overleaf, as the reviewer."""
+    server, project = project_of(link)
+    async with _session(server, cookie, timeout) as session:
+        read = _Reader(session, server)
+        await read.post(f"/project/{project}/thread/{thread}/messages", await _write_token(read, project),
+                        {"content": content})
+
+
+async def set_resolved(link: str, cookie: tuple[str, str], thread: str, resolved: bool, *, timeout: float = 30) -> None:
+    """Close or open a thread on Overleaf, whose route names the file the thread is in."""
+    server, project = project_of(link)
+    async with _session(server, cookie, timeout) as session:
+        read = _Reader(session, server)
+        ranges = await read.get(f"/project/{project}/ranges")
+        docs = ranges.get("docs", []) if isinstance(ranges, dict) else ranges or []
+        doc = next((str(entry.get("id") or entry.get("_id")) for entry in docs if any(
+            str(((comment or {}).get("op") or {}).get("t")) == thread
+            for comment in ((entry or {}).get("ranges") or {}).get("comments") or [])), None)
+        if doc is None:
+            raise OverleafError("Overleaf no longer has this thread's words; nothing was changed there")
+        await read.post(f"/project/{project}/doc/{doc}/thread/{thread}/{'resolve' if resolved else 'reopen'}",
+                        await _write_token(read, project), {})
+
+
+async def fetch_export(link: str, cookie: tuple[str, str], *, timeout: float = 30) -> dict[str, Any]:
+    """The project's threads and the words each is on, in the shape of Overleaf Comments
+    Export's comments.json (schema 1), which the import already reads."""
+    server, project = project_of(link)
+    async with _session(server, cookie, timeout) as session:
         read = _Reader(session, server)
         raw_threads = await read.get(f"/project/{project}/threads")
         resolved = await read.get(f"/project/{project}/resolved-thread-ids", missing_ok=True)
@@ -217,7 +272,8 @@ async def fetch_export(link: str, cookie: tuple[str, str], *, timeout: float = 3
             continue
         threads[str(thread_id)] = {
             "resolved": bool(thread.get("resolved")) or thread_id in resolved_ids,
-            "messages": [{"user": {"name": _user_name(message.get("user"))}, "content": str(message.get("content", ""))}
+            "messages": [{"user": {"name": _user_name(message.get("user"))}, "content": str(message.get("content", "")),
+                          **({"id": str(message["id"])} if message.get("id") else {})}
                          for message in thread.get("messages") or [] if isinstance(message, dict)],
         }
     entries = []

@@ -700,8 +700,8 @@ class TexMcpWebServer:
             return
         trouble = ""
         try:
-            data = await overleaf.fetch_export(live.link, cookie)
             async with self._overleaf_import:
+                data = await overleaf.fetch_export(live.link, cookie)
                 deleted, self._overleaf_deleted = self._overleaf_deleted, set()
                 await self._bring_in_overleaf(data, deleted)
         except overleaf.OverleafError as error:
@@ -758,7 +758,10 @@ class TexMcpWebServer:
     def _overleaf_status(self) -> dict[str, Any]:
         """The paper's Overleaf project and where the reviewer's cookie comes from; never
         the cookie itself."""
-        return {"project": self.config.overleaf, "cookie": overleaf.cookie_source()}
+        return {"project": self.config.overleaf, "cookie": overleaf.cookie_source(),
+                "write": self.config.overleaf_write,
+                "threads": [known["comment"] for known in self._overleaf_ledger().values()]
+                if self.config.overleaf_write else []}
 
     async def _handle_overleaf(self, request: web.Request) -> web.Response:
         return web.json_response(self._overleaf_status(), headers={"Cache-Control": "no-store"})
@@ -787,12 +790,13 @@ class TexMcpWebServer:
         if cookie is None:
             return web.json_response({"error": "paste your Overleaf session cookie first"}, status=401)
         try:
-            data = await overleaf.fetch_export(self.config.overleaf, cookie)
+            async with self._overleaf_import:
+                data = await overleaf.fetch_export(self.config.overleaf, cookie)
+                return web.json_response(await self._bring_in_overleaf(data))
         except overleaf.SignedOut as error:
             return web.json_response({"error": f"{error} (the cookie has expired or is wrong)"}, status=401)
         except overleaf.OverleafError as error:
             return web.json_response({"error": str(error)}, status=502)
-        return await self._import_overleaf(data)
 
     async def _import_overleaf(self, data: Any) -> web.Response:
         if (not isinstance(data, dict) or not str(data.get("schema_version", "")).startswith("1.")
@@ -802,32 +806,87 @@ class TexMcpWebServer:
         async with self._overleaf_import:
             return web.json_response(await self._bring_in_overleaf(data))
 
+    def _overleaf_ledger(self) -> dict[str, dict[str, Any]]:
+        """What came from Overleaf, by thread: the comment here and what it has been told."""
+        try:
+            return json.loads(self._overleaf_ledger_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+
+    def _save_overleaf_ledger(self, ledger: dict[str, dict[str, Any]]) -> None:
+        self._overleaf_ledger_path.parent.mkdir(parents=True, exist_ok=True)
+        self._overleaf_ledger_path.write_text(json.dumps(ledger, indent=1), encoding="utf-8")
+
+    @property
+    def _overleaf_ledger_path(self) -> Path:
+        return self.watch_dir / ".tex-mcp-web" / "overleaf-imported.json"
+
+    async def _send_to_overleaf(self, cid: str, *, reply: str | None = None,
+                                resolved: bool | None = None) -> web.Response | None:
+        """Send the reviewer's reply or close to Overleaf, before anything changes here, so
+        that what Overleaf does not take is not shown as said. Answers a refusal, or None.
+        Readings wait meanwhile: one begun before this would undo what it records."""
+        if not self.config.overleaf_write:
+            return web.json_response({"error": "writing to Overleaf is off; set overleaf_write: true in "
+                                               ".tex-mcp-web.yaml to turn it on"}, status=403)
+        cookie = overleaf.read_cookie()
+        if cookie is None:
+            return web.json_response({"error": "paste your Overleaf session cookie first"}, status=401)
+        async with self._overleaf_import:
+            ledger = self._overleaf_ledger()
+            thread = next((key for key, known in ledger.items() if known["comment"] == cid), None)
+            if thread is None:
+                return web.json_response({"error": "this comment did not come from Overleaf"}, status=409)
+            try:
+                if reply is not None:
+                    await overleaf.post_reply(self.config.overleaf, cookie, thread, reply)
+                    ledger[thread].setdefault("sent", []).append(reply)
+                else:
+                    await overleaf.set_resolved(self.config.overleaf, cookie, thread, bool(resolved))
+                    ledger[thread]["resolved"] = bool(resolved)
+            except overleaf.SignedOut as error:
+                return web.json_response({"error": f"{error} (the cookie has expired or is wrong)"}, status=401)
+            except overleaf.OverleafError as error:
+                return web.json_response({"error": str(error)}, status=502)
+            self._save_overleaf_ledger(ledger)
+        return None
+
     async def _bring_in_overleaf(self, data: dict[str, Any], deleted: Iterable[str] = ()) -> dict[str, int]:
         """What is new in an export. A thread in the ledger gains its new replies and closes
         and opens with Overleaf, but only when it changes there: what the reviewer did here
         stands, and one they deleted stays deleted. A thread deleted on Overleaf closes here,
-        since agents and the reviewer may have said more on it. The ledger is written however
-        this ends, so what did come in does not come in again."""
-        ledger_path = self.watch_dir / ".tex-mcp-web" / "overleaf-imported.json"
-        try:
-            ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            ledger = {}
+        since agents and the reviewer may have said more on it. A reply the reviewer sent from
+        here is known by its words, once, since Overleaf does not say which message it made.
+        The ledger is written however this ends, so what did come in does not come in again."""
+        ledger = self._overleaf_ledger()
         counts = {"added": 0, "replies": 0, "resolved": 0, "unplaced": 0}
 
         def said(message: dict[str, Any]) -> str:
             name = (message.get("user") or {}).get("name") or "someone"
             return f"[Overleaf · {name}] {str(message.get('content', '')).strip()}"
 
+        def keys(messages: list[dict[str, Any]]) -> list[str]:
+            return [str(message.get("id") or f"#{index}") for index, message in enumerate(messages)]
+
         async def update(thread: dict[str, Any], messages: list[dict[str, Any]], known: dict[str, Any]) -> None:
             comment = self.comments.get(known["comment"])
             if comment is None:
                 return
-            new = messages[known["messages"]:]
-            for message in new:
+            current = keys(messages)
+            seen = set(known.get("seen", current[:known["messages"]]))
+            sent = known.get("sent", [])
+            new = 0
+            for key, message in zip(current, messages):
+                words = str(message.get("content", "")).strip()
+                if key in seen:
+                    continue
+                if words in sent:
+                    sent.remove(words)
+                    continue
                 comment = self.comments.reply(comment.id, said(message), "human")
-            counts["replies"] += len(new)
-            known["messages"] = len(messages)
+                new += 1
+            counts["replies"] += new
+            known["seen"], known["messages"] = current, len(messages)
             closed = bool(thread.get("resolved"))
             counts["resolved"] += closed
             moved = closed != bool(known.get("resolved"))
@@ -865,7 +924,7 @@ class TexMcpWebServer:
                                             resolved_source=resolved, source_selector=selector)
                 for message in messages[1:]:
                     comment = self.comments.reply(comment.id, said(message), "human")
-                ledger[thread_id] = {"comment": comment.id, "messages": len(messages)}
+                ledger[thread_id] = {"comment": comment.id, "messages": len(messages), "seen": keys(messages)}
                 counts["added"] += 1
                 await self.broadcast({"type": "comment_added", "comment": _comment_to_dict(comment)})
             for thread_id in deleted:
@@ -874,8 +933,7 @@ class TexMcpWebServer:
                     comment = self.comments.resolve(comment.id, summary="[Overleaf] Deleted there.", author="human")
                     await self.broadcast({"type": "comment_updated", "comment": _comment_to_dict(comment)})
         finally:
-            ledger_path.parent.mkdir(parents=True, exist_ok=True)
-            ledger_path.write_text(json.dumps(ledger, indent=1), encoding="utf-8")
+            self._save_overleaf_ledger(ledger)
         return counts
 
     def _overleaf_anchor(self, entry: dict[str, Any]) -> tuple[Any, Any, Any, str | None]:
@@ -1558,6 +1616,8 @@ class TexMcpWebServer:
         text = (data.get("text") or "").strip()
         if not text:
             return web.json_response({"error": "text is required"}, status=400)
+        if data.get("overleaf") and (refused := await self._send_to_overleaf(cid, reply=text)) is not None:
+            return refused
         return await self._mutate_comment(
             cid,
             lambda: self.comments.reply(
@@ -1574,6 +1634,8 @@ class TexMcpWebServer:
         if err is not None:
             return err
         summary = (data.get("summary") or "").strip()
+        if data.get("overleaf") and (refused := await self._send_to_overleaf(cid, resolved=True)) is not None:
+            return refused
         return await self._mutate_comment(
             cid,
             lambda: self.comments.resolve(
@@ -1587,6 +1649,11 @@ class TexMcpWebServer:
 
     async def _handle_reopen_comment(self, request: web.Request) -> web.Response:
         cid = request.match_info["id"]
+        data, err = await self._read_json(request)
+        if err is not None:
+            return err
+        if data.get("overleaf") and (refused := await self._send_to_overleaf(cid, resolved=False)) is not None:
+            return refused
         return await self._mutate_comment(
             cid,
             lambda: self.comments.reopen(cid, author="human"),
