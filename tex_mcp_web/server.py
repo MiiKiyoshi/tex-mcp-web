@@ -69,8 +69,9 @@ from .synctex import (
     source_lines_to_boxes,
     source_to_page,
 )
+from .completion import bib_entries, defined_commands, defined_environments, labels
 from .translate import Translator, TranslationStore, load_glossary, split_paragraphs, store_name
-from .watcher import Watcher, is_watched_source
+from .watcher import Watcher, is_watched_source, matches_patterns
 
 logger = logging.getLogger(__name__)
 
@@ -414,6 +415,7 @@ class TexMcpWebServer:
         app.router.add_post("/synctex/pdf-to-source", self._handle_synctex_backward)
         app.router.add_post("/synctex/source-to-pdf-words", self._handle_source_to_pdf_words)
         app.router.add_get("/translations", self._handle_translations)
+        app.router.add_get("/completions", self._handle_completions)
         app.router.add_post("/goto", self._handle_goto)
         app.router.add_get("/image", self._handle_image)
         app.router.add_get("/reference-preview", self._handle_reference_preview)
@@ -877,7 +879,8 @@ class TexMcpWebServer:
                 with contextlib.suppress(FileNotFoundError):
                     staging.unlink()
 
-    async def _handle_sources(self, request: web.Request) -> web.Response:
+    def _source_files(self) -> list[str]:
+        """The editable sources, relative to the paper, as the watch rules pick them."""
         files: list[str] = []
         for path in self.watch_dir.rglob("*"):
             try:
@@ -892,7 +895,56 @@ class TexMcpWebServer:
                 self.config.ignore,
             ):
                 files.append(relative)
-        return web.json_response({"main_file": self.config.main, "files": sorted(set(files))})
+        return sorted(set(files))
+
+    async def _handle_sources(self, request: web.Request) -> web.Response:
+        return web.json_response({"main_file": self.config.main, "files": self._source_files()})
+
+    GRAPHICS = (".pdf", ".png", ".jpg", ".jpeg", ".eps", ".svg")
+
+    def _completions(self) -> dict:
+        """What the source editor offers: labels, bib entries, defined commands and
+        environments from the sources, and the files \\input and \\includegraphics take.
+        Picture paths are relative to the main file's folder, as LaTeX reads them."""
+        root = self.watch_dir.resolve()
+        sources = self._source_files()
+        found: dict = {"labels": [], "citations": [], "commands": [], "environments": []}
+        for relative in sources:
+            try:
+                text = (root / relative).read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+            if relative.endswith(".bib"):
+                found["citations"] += bib_entries(text, relative)
+            elif relative.endswith(".tex"):
+                found["labels"] += labels(text, relative)
+                found["commands"] += defined_commands(text)
+                found["environments"] += defined_environments(text)
+        found["commands"] = list({c["name"]: c for c in found["commands"]}.values())
+        found["environments"] = list(dict.fromkeys(found["environments"]))
+        found["tex_files"] = [path for path in sources if path.endswith(".tex")]
+        found["bib_files"] = [path for path in sources if path.endswith(".bib")]
+        base = self.main_file.resolve().parent
+        output = self.main_file.resolve().with_suffix(".pdf")
+        graphics = []
+        for path in sorted(root.rglob("*")):
+            relative = path.relative_to(root)
+            if (path.suffix.lower() not in self.GRAPHICS or path == output or not path.is_file()
+                    or any(part.startswith(".") for part in relative.parts)
+                    or matches_patterns(relative, root, self.config.ignore)):
+                continue
+            try:
+                graphics.append(path.relative_to(base).as_posix())
+            except ValueError:
+                continue
+            if len(graphics) >= 2000:
+                break
+        found["graphics"] = graphics
+        return found
+
+    async def _handle_completions(self, request: web.Request) -> web.Response:
+        found = await asyncio.to_thread(self._completions)
+        return web.json_response(found, headers={"Cache-Control": "no-store"})
 
     async def _handle_source(self, request: web.Request) -> web.Response:
         path = self._resolve_source_path(request.query.get("path"))

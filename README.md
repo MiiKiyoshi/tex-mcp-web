@@ -104,6 +104,13 @@ opens the comment under the cursor. Ctrl+Enter compiles, or sends a comment bein
 and Ctrl+Alt+Enter presses Call agent. On macOS, Cmd takes the place of Ctrl and Option of
 Alt in these. Ctrl+[ drops a comment being written, with Ctrl on macOS too.
 
+As you type, the editor offers what fits there: the paper's labels after `\ref` and its
+kin, its `.bib` entries after `\cite` and its kin (a title's words find an entry too),
+environments after `\begin` (which then gets its `\end`) and the open one after `\end`,
+`.tex` files after `\input`, pictures after `\includegraphics`, and commands after a
+backslash, those the paper defines among them. Enter or Tab takes the choice; Enter after a
+command typed out in full starts the next line. Ctrl+Space opens the list by hand.
+
 A browser extension that drives pages with Vim keys takes Escape and Ctrl+[ before the
 editor does and moves the focus out of it, which leaves the editor in Insert mode. Turn the
 extension off for the review page's address.
@@ -155,4 +162,4 @@ translation:
 
 ## Acknowledgements
 
-tex-mcp-web is a hard fork of [queelius/scholia at commit `e6c7454`](https://github.com/queelius/scholia/commit/e6c745400d2ad70fb43eca053e31183d48765f89) (version 0.6.1), independently developed since under the MIT license. See [`LICENSE`](LICENSE). PDF viewing uses [EmbedPDF](https://github.com/embedpdf/embed-pdf-viewer) and its PDFium WebAssembly engine, whose notices are in [`tex_mcp_web/static/embedpdf/LICENSE`](tex_mcp_web/static/embedpdf/LICENSE) and [`tex_mcp_web/static/embedpdf/LICENSE.pdfium`](tex_mcp_web/static/embedpdf/LICENSE.pdfium). The bundled viewer differs from its release in its zoom gesture alone: a wheel or pinch inside a column keeps that column, the half of the page it is on, whole in the pane while the pane holds it and filling the pane once it is wider; on the middle of the page it zooms about the pointer; and a mouse notch steps by a quarter. Source highlighting uses [Ace Editor builds 1.44.0](https://github.com/ajaxorg/ace-builds/tree/v1.44.0) under the BSD-3-Clause license, and its notice is in [`tex_mcp_web/static/ace/LICENSE`](tex_mcp_web/static/ace/LICENSE).
+tex-mcp-web is a hard fork of [queelius/scholia at commit `e6c7454`](https://github.com/queelius/scholia/commit/e6c745400d2ad70fb43eca053e31183d48765f89) (version 0.6.1), independently developed since under the MIT license. See [`LICENSE`](LICENSE). PDF viewing uses [EmbedPDF](https://github.com/embedpdf/embed-pdf-viewer) and its PDFium WebAssembly engine, whose notices are in [`tex_mcp_web/static/embedpdf/LICENSE`](tex_mcp_web/static/embedpdf/LICENSE) and [`tex_mcp_web/static/embedpdf/LICENSE.pdfium`](tex_mcp_web/static/embedpdf/LICENSE.pdfium). The bundled viewer differs from its release in its zoom gesture alone: a wheel or pinch inside a column keeps that column, the half of the page it is on, whole in the pane while the pane holds it and filling the pane once it is wider; on the middle of the page it zooms about the pointer; and a mouse notch steps by a quarter. Source highlighting and completion use [Ace Editor builds 1.44.0](https://github.com/ajaxorg/ace-builds/tree/v1.44.0) under the BSD-3-Clause license, and its notice is in [`tex_mcp_web/static/ace/LICENSE`](tex_mcp_web/static/ace/LICENSE).

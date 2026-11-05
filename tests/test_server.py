@@ -2540,3 +2540,40 @@ async def test_an_overleaf_export_becomes_comments_on_its_words(client) -> None:
     assert len(server.comments.list()) == 2
     for wrong in ({"schema_version": "2.0", "threads": {}, "comments": []}, {"threads": {}, "comments": []}, [1]):
         assert (await test_client.post("/overleaf-import", json=wrong)).status == 400
+
+
+# --- Completion lists for the source editor ---
+
+@pytest.mark.asyncio
+async def test_completions_list_what_the_paper_defines(client, project):
+    tc, server = client
+    (project / "sec").mkdir()
+    (project / "sec" / "a.tex").write_text(
+        "\\label{fig:a} % \\label{fig:hidden}\n\\newcommand{\\cpp}[1]{#1 CPP}\n"
+        "\\newenvironment{sketch}{}{}\n")
+    (project / "refs.bib").write_text(
+        "@IEEEtranBSTCTL{BSTcontrol, CTLuse_forced_etal = \"yes\"}\n"
+        "@article{kim23, title = {Fusion Cells}, author = {Kim, A. and Lee, B.}, year = 2023}\n")
+    (project / "fig").mkdir()
+    (project / "fig" / "flow.pdf").write_bytes(b"%PDF")
+    (project / "fig" / "notes.txt").write_text("not a picture")
+    (project / ".tex-mcp-web").mkdir(exist_ok=True)
+    (project / ".tex-mcp-web" / "cached.png").write_bytes(b"x")
+    server.config.ignore = ["*.pre-*"]
+    (project / "fig" / "flow.pdf.pre-old").write_bytes(b"%PDF")
+
+    data = await (await tc.get("/completions")).json()
+
+    assert data["labels"] == [
+        {"name": "sec:intro", "file": "paper.tex", "line": 4},
+        {"name": "sec:methods", "file": "paper.tex", "line": 7},
+        {"name": "fig:a", "file": "sec/a.tex", "line": 1},
+    ]
+    assert data["citations"] == [{"key": "kim23", "title": "Fusion Cells", "author": "Kim et al.",
+                                  "year": "2023", "file": "refs.bib", "line": 2}]
+    assert data["commands"] == [{"name": "cpp", "args": 1}]
+    assert data["environments"] == ["sketch"]
+    assert data["tex_files"] == ["paper.tex", "sec/a.tex"]
+    assert data["bib_files"] == ["refs.bib"]
+    assert data["graphics"] == ["fig/flow.pdf"]
+

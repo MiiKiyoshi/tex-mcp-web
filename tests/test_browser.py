@@ -2031,3 +2031,161 @@ def test_translation_numbers_its_source_lines_and_follows_the_editor(tmp_path: P
                 browser_process.kill()
         shutil.rmtree(profile, ignore_errors=True)
         shared.stop()
+
+
+@pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
+def test_the_editor_completes_labels_citations_environments_files_and_commands(tmp_path: Path) -> None:
+    """Typing in the editor opens what fits there: labels after \\ref, bib entries after
+    \\cite (a title's words find them), environments after \\begin and \\end, files after
+    \\input and \\includegraphics, commands after a backslash, the paper's own among them.
+    Enter takes the choice, but after a command typed whole it starts the next line."""
+    import fitz
+
+    (tmp_path / "paper.tex").write_text(
+        "\\documentclass{article}\n\\newcommand{\\cpp}[1]{#1 CPP}\n\\begin{document}\n"
+        "\\input{sec/a}\n\n\\end{document}\n", encoding="utf-8")
+    (tmp_path / "sec").mkdir()
+    (tmp_path / "sec" / "a.tex").write_text("\\section{A}\\label{sec:a}\nWords.\\label{fig:flow}\n", encoding="utf-8")
+    (tmp_path / "refs.bib").write_text(
+        "@article{kim23, title = {Fusion Cells for Placement}, author = {Kim, A. and Lee, B.}, year = 2023}\n"
+        "@article{zed19, title = {Another Study}, author = {Zed, C.}, year = 2019}\n", encoding="utf-8")
+    (tmp_path / "fig").mkdir()
+    (tmp_path / "fig" / "flow.pdf").write_bytes(b"%PDF-1.4")
+    with fitz.open() as pdf:
+        pdf.new_page().insert_text((72, 72), "Hello world.")
+        pdf.save(tmp_path / "paper.pdf")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    profile = tempfile.mkdtemp(prefix="tex_mcp_complete_")
+    marionette_port = available_port()
+    (Path(profile) / "user.js").write_text(
+        f'user_pref("marionette.port", {marionette_port});\n', encoding="utf-8")
+    browser_process = None
+    browser = None
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        browser_process = subprocess.Popen(
+            ["firefox", "-marionette", "-headless", "-no-remote", "-profile", profile, "about:blank"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        browser = marionette.Marionette(host="127.0.0.1", port=marionette_port, startup_timeout=30)
+        browser.start_session()
+        browser.set_window_rect(x=0, y=0, width=1400, height=900)
+        browser.navigate(base)
+        browser.execute_script('document.querySelector(".view-tab[data-view=source]").click();')
+        editor = '(window.wrappedJSObject || window).ace.edit("source-editor")'
+        wait_until(lambda: browser.execute_script(
+            f'return Boolean((window.wrappedJSObject || window).ace) && {editor}.getValue().includes("input{{sec/a}}")'))
+
+        def type_at_end_of(row, text):
+            browser.execute_script(f"""
+              const editor = {editor};
+              editor.focus();
+              editor.navigateTo({row}, editor.session.getLine({row}).length);
+              for (const ch of arguments[0]) editor.execCommand("insertstring", ch);
+            """, script_args=[text])
+
+        def type_here(text):
+            browser.execute_script(f"""
+              const editor = {editor};
+              for (const ch of arguments[0]) editor.execCommand("insertstring", ch);
+            """, script_args=[text])
+
+        def shown():
+            return browser.execute_script(f"""
+              const completer = {editor}.completer;
+              if (!completer || !completer.popup || !completer.popup.isOpen) return null;
+              return completer.completions.filtered.map((item) => item.caption);
+            """)
+
+        def line(row):
+            return browser.execute_script(f"return {editor}.session.getLine({row});")
+
+        def enter():
+            ActionSequence(browser, "key", "keyboard").key_down("\ue007").key_up("\ue007").perform()
+
+        def new_line_after(row):
+            browser.execute_script(f"""
+              const editor = {editor};
+              editor.navigateTo({row}, editor.session.getLine({row}).length);
+              editor.insert("\\n");
+            """)
+            return row + 1
+
+        row = new_line_after(3)                                         # under \\input{sec/a}
+        type_at_end_of(row, "Here \\label{sec:typed} see \\ref{")
+        listed = wait_until(shown)
+        assert {"sec:a", "fig:flow", "sec:typed"} <= set(listed)
+        type_here("flo")
+        assert wait_until(lambda: (now := shown()) and now[0] == "fig:flow" and now)
+        enter()
+        assert wait_until(lambda: line(row).endswith("\\ref{fig:flow}") and line(row))
+
+        row = new_line_after(row)
+        type_at_end_of(row, "\\cite{Placement")
+        assert wait_until(lambda: (now := shown()) and now[0].startswith("kim23") and now)
+        enter()
+        assert wait_until(lambda: line(row) == "\\cite{kim23}" and line(row))
+
+        row = new_line_after(row)
+        type_at_end_of(row, "\\begin{itemi")
+        assert wait_until(lambda: (now := shown()) and now[0] == "itemize" and now)
+        enter()
+        wait_until(lambda: line(row + 2) == "\\end{itemize}")
+        assert line(row) == "\\begin{itemize}"
+        assert browser.execute_script(f"return {editor}.getCursorPosition().row;") == row + 1
+
+        type_at_end_of(row + 1, "\\item")
+        enter()                                                         # a command typed whole
+        wait_until(lambda: browser.execute_script(f"return {editor}.getCursorPosition().row;") == row + 2)
+        assert line(row + 1).strip() == "\\item"
+        type_at_end_of(row + 2, "\\end{")
+        assert wait_until(lambda: (now := shown()) and now[0] == "itemize" and now)
+        browser.execute_script(f"{editor}.completer.detach();")
+
+        row = new_line_after(row + 4)
+        type_at_end_of(row, "\\textb")
+        assert wait_until(lambda: (now := shown()) and now[0] == "\\textbf" and now)
+        enter()
+        assert wait_until(lambda: line(row) == "\\textbf{}" and line(row))
+        assert browser.execute_script(f"return {editor}.getCursorPosition().column;") == len("\\textbf{")
+
+        row = new_line_after(row)
+        type_at_end_of(row, "\\cp")
+        assert wait_until(lambda: (now := shown()) and now[0] == "\\cpp" and now)
+        enter()
+        assert wait_until(lambda: line(row) == "\\cpp{}" and line(row))
+
+        row = new_line_after(row)
+        type_at_end_of(row, "\\includegraphics{")
+        assert wait_until(lambda: (now := shown()) and now == ["fig/flow.pdf"] and now)
+        enter()
+        assert wait_until(lambda: line(row) == "\\includegraphics{fig/flow.pdf}" and line(row))
+
+        row = new_line_after(row)
+        type_at_end_of(row, "\\input{")
+        assert wait_until(lambda: (now := shown()) and set(now) == {"paper", "sec/a"} and now)
+        browser.execute_script(f"{editor}.completer.detach();")
+
+        row = new_line_after(row)
+        type_at_end_of(row, "Plain words, more")                       # prose opens nothing
+        time.sleep(0.5)
+        assert shown() is None
+    finally:
+        if browser is not None:
+            try:
+                browser.delete_session()
+            except Exception:
+                pass
+        if browser_process is not None:
+            browser_process.terminate()
+            try:
+                browser_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                browser_process.kill()
+        shutil.rmtree(profile, ignore_errors=True)
+        shared.stop()
+
