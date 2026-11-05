@@ -1869,7 +1869,10 @@ def test_go_to_definition_follows_input_ref_and_cite(tmp_path: Path) -> None:
               const page = window.wrappedJSObject || window;
               page.document.querySelector("#source-file").value = arguments[0];
               page.document.querySelector("#source-file").dispatchEvent(new Event("change"));''', script_args=[file])
-            wait_until(lambda: browser.execute_script(where)[0] == file)
+            # The menu shows the file at once, and the editor gets its text when the fetch
+            # returns, which puts the cursor at the top: a cursor placed before that is lost.
+            text = (tmp_path / file).read_text(encoding="utf-8")
+            wait_until(lambda: browser.execute_script(f"return {editor}.getValue();") == text)
             browser.execute_script(f"{editor}.focus(); {editor}.gotoLine({row}, {column});")
             ActionSequence(browser, "key", "keyboard").key_down("\ue03c").key_up("\ue03c").perform()
 
