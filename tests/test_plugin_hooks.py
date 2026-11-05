@@ -84,6 +84,10 @@ def test_tex_mcp_tools_wait_for_the_listed_files_and_wait_again_after_a_compacti
     root, terms = paper(tmp_path / "paper")
     started = run("session-start", {"session_id": "s1", "cwd": str(root), "source": "startup"})
     assert "call guide() and read every file in its read list in full" in started["hookSpecificOutput"]["additionalContext"]
+    # A session that listens from its start never sees listen()'s how, and the server's
+    # instructions saying a press is a request left it a notice to ask about. Context a hook
+    # adds is the user's own, and an agent told so here handled the press.
+    assert "the user's request to handle the review now" in started["hookSpecificOutput"]["additionalContext"]
     # Before guide() the tools are refused, and the reason says to call it. guide() itself,
     # and setup_info() for setting a project up, are open.
     for tool in TOOLS:
