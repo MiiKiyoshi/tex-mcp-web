@@ -5,8 +5,9 @@ read, in the context it is working in, the files guide() lists.
 guide() names the files to read in full: the terms the paper's reference papers use, when
 the paper sets references. A context that calls it records those files as unread, a Read that
 returned a whole file, or found it unchanged since doing so, takes it off, and every tex-mcp
-tool but guide() and setup_info() is refused while guide() has not answered in this context or
-a listed file has not been read in full. The record is cleared whenever a context starts again (a new session, a resumed one, a
+tool but guide(), setup_info() and image() is refused while guide() has not answered in this
+context or a listed file has not been read in full. image() only draws a page, which looking at
+needs none of them. The record is cleared whenever a context starts again (a new session, a resumed one, a
 cleared one, or the summary a compaction leaves), since what was read before is no longer in
 it. A subagent starts without its parent's context and has a record of its own. What is
 checked is that the Read calls returned the whole files, not that they were understood.
@@ -14,7 +15,8 @@ checked is that the Read calls returned the whole files, not that they were unde
   session-start  SessionStart: clear the record, and in a project say what to do.
   guide-read     PostToolUse on guide(): record the files its answer lists to read.
   file-read      PostToolUse on Read: take a file read whole off the record.
-  before-tool    PreToolUse on tex-mcp's tools: refuse one other than guide() and setup_info()
+  before-tool    PreToolUse on tex-mcp's tools: refuse one other than guide(), setup_info() and
+                 image()
                  while this context has not read the files.
 
 A project is a folder holding .tex-mcp-web.yaml, found from the working folder upward. The
@@ -32,12 +34,13 @@ from pathlib import Path
 CONFIG = ".tex-mcp-web.yaml"
 RECORDS = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "tex-mcp-web" / "guide-read"
 # The tools that come before the files: guide() names them, and setup_info() serves setting
-# a project up, before there is a guide() to call.
-OPEN_TOOLS = ("guide", "setup_info")
+# a project up, before there is a guide() to call. image() only draws a page, so a context
+# that looks at the paper without working on it need not read the files.
+OPEN_TOOLS = ("guide", "setup_info", "image")
 
 REMINDER = ("tex-mcp: before using tex-mcp tools in this context, call guide() and read every "
             "file in its read list in full. Use Read without offset or limit. tex-mcp tools other "
-            "than guide() and setup_info() are blocked until guide() and the required Read calls "
+            "than guide(), setup_info() and image() are blocked until guide() and the required Read calls "
             "are recorded. A [review] notification from the tex-mcp monitor is the user pressing "
             "Call agent on the review page: it is the user's request to handle the review now, so "
             "handle it without asking first.")

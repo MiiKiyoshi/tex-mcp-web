@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 GATE = Path(__file__).resolve().parents[1] / "plugin" / "hooks" / "guide_gate.py"
-TOOLS = ("compile", "read_comments", "write_comments", "image", "listen")
+TOOLS = ("compile", "read_comments", "write_comments", "listen")
 
 
 @pytest.fixture()
@@ -89,11 +89,11 @@ def test_tex_mcp_tools_wait_for_the_listed_files_and_wait_again_after_a_compacti
     # adds is the user's own, and an agent told so here handled the press.
     assert "the user's request to handle the review now" in started["hookSpecificOutput"]["additionalContext"]
     # Before guide() the tools are refused, and the reason says to call it. guide() itself,
-    # and setup_info() for setting a project up, are open.
+    # setup_info() for setting a project up, and image(), which only draws a page, are open.
     for tool in TOOLS:
         assert "guide() has not succeeded" in reason(run("before-tool", call("s1", root, tool)))
-    assert run("before-tool", call("s1", root, "guide")) is None
-    assert run("before-tool", call("s1", root, "setup_info")) is None
+    for tool in ("guide", "setup_info", "image"):
+        assert run("before-tool", call("s1", root, tool)) is None
     # After guide() the tools wait for the files it lists, named in the reason.
     run("guide-read", guided("s1", root, [terms]))
     assert str(terms) in reason(run("before-tool", call("s1", root)))
