@@ -1811,6 +1811,13 @@ def test_the_more_menu_brings_in_an_overleaf_export(tmp_path: Path) -> None:
         browser.execute_script('document.querySelector("#overleaf-live-btn").click()')
         wait_until(lambda: browser.execute_script('return document.querySelector("#overleaf-dialog").open'))
         browser.execute_script('document.querySelector("#overleaf-dialog").close()')
+        # On a phone the row has no room for it, and the ⋯ menu below offers the same.
+        size = browser.window_rect
+        drawn = 'return getComputedStyle(document.querySelector("#overleaf-live-btn")).display'
+        browser.set_window_rect(width=480, height=800)
+        wait_until(lambda: browser.execute_script(drawn) == "none")
+        browser.set_window_rect(width=size["width"], height=size["height"])
+        wait_until(lambda: browser.execute_script(drawn) != "none")
         browser.execute_script('document.querySelector("#more-btn").click()')
         assert browser.execute_script('return document.querySelector("#more-menu").hidden') is False
         browser.execute_script('document.querySelector("#overleaf-import-btn").click()')

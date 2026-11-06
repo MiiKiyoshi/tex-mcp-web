@@ -470,6 +470,8 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
   .topbar button { padding: 0.1rem 0.35rem; }
   .topbar .wide-label { display: none; }
   .topbar .narrow-icon { display: block; }
+  /* Connect to Overleaf… is in the ⋯ menu too, so an unconnected paper leaves the row. */
+  .topbar .overleaf-live-btn.off { display: none; }
   .view-tabs { order: 1; }
   .topbar .compile-status { order: 2; }
   .topbar .actions { order: 3; flex: none; margin-left: auto; }
