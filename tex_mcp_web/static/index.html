@@ -131,13 +131,6 @@
             <option value="archived">archived</option>
             <option value="all">all</option>
           </select></span>
-          <!-- Shown once comments have come in from Overleaf: leaves them out of the list,
-               the editor and the PDF on this page, or brings them back. Nothing is changed. -->
-          <button id="overleaf-comments-btn" class="icon-btn overleaf-comments-btn" type="button" hidden aria-pressed="true" aria-label="Hide comments from Overleaf" title="Hide comments from Overleaf">
-            <svg class="icon-shown" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8 12.1 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg>
-            <svg class="icon-hidden hidden" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 8s2.4-4.5 6.5-4.5c1.3 0 2.4.4 3.4 1M14.5 8s-2.4 4.5-6.5 4.5c-1.3 0-2.4-.4-3.4-1"/><path d="M2.5 13.5l11-11"/></svg>
-            <svg class="leaf-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 13C3 7 7 3 13 3c0 6-4 10-10 10z"/><path d="M3 13l6-6"/></svg>
-          </button>
           <!-- Shown while the paper is connected to Overleaf: brings its comments here as Overleaf
                has them, with how many new threads wait. -->
           <button id="overleaf-sync-comments-btn" class="icon-btn" type="button" hidden aria-label="Sync comments from Overleaf" title="Sync comments from Overleaf">
@@ -148,10 +141,6 @@
           <!-- Icons, with the words as title and aria-label. Each button shows the one drawing
                that fits its state; a count rides beside the drawing where the action has one.
                A button with nothing to do is greyed out, not taken away: the row keeps one shape. -->
-          <button id="fold-all-btn" class="icon-btn" type="button" aria-label="Expand all" title="Expand all">
-            <svg class="icon-expand" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4-4 4 4M4 10l4 4 4-4"/></svg>
-            <svg class="icon-collapse hidden" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 2l4 4 4-4M4 14l4-4 4 4"/></svg>
-          </button>
           <button id="pick-all-btn" class="icon-btn" type="button" aria-label="Select all" title="Select all">
             <svg class="icon-select" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="2"/><path d="M5 8.5l2 2 4-4"/></svg>
             <svg class="icon-clear hidden" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="2"/><path d="M5 8h6"/></svg>
@@ -159,12 +148,39 @@
           <button id="resolve-picked-btn" class="icon-btn" type="button" disabled aria-label="Resolve" title="Resolve the picked comments">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M5 8l2 2 4-4"/></svg><span class="count"></span>
           </button>
-          <button id="archive-picked-btn" class="icon-btn" type="button" disabled aria-label="Archive" title="Archive the picked comments">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 3h12v3H2z"/><path d="M3 6v7h10V6M6 9h4"/></svg><span class="count"></span>
+          <!-- Shown while the paper is connected to Overleaf: each picked thread from Overleaf
+               sends what its reply box holds to its own thread there. -->
+          <button id="send-picked-btn" class="icon-btn" type="button" hidden disabled aria-label="Send to Overleaf" title="Send the picked replies to Overleaf">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2L7 9"/><path d="M14 2l-4.5 12L7 9 2 6.5z"/></svg>
+            <svg class="leaf-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 13C3 7 7 3 13 3c0 6-4 10-10 10z"/><path d="M3 13l6-6"/></svg>
+            <span class="count"></span>
           </button>
-          <button id="reopen-picked-btn" class="icon-btn" type="button" disabled aria-label="Reopen" title="Reopen the picked comments">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.5-3.5"/><path d="M13 3v3h-3"/></svg><span class="count"></span>
-          </button>
+          <!-- The buttons pressed less often stay together at the end. When the row is too narrow
+               for all of them, they wait behind the dots, each with its words. -->
+          <span id="comment-rare" class="comment-rare">
+            <button id="comment-rare-btn" class="icon-btn" type="button" aria-haspopup="true" aria-expanded="false" aria-label="More" title="More">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="3.5" cy="8" r="1.3"/><circle cx="8" cy="8" r="1.3"/><circle cx="12.5" cy="8" r="1.3"/></svg>
+            </button>
+            <span class="comment-rare-group">
+              <button id="fold-all-btn" class="icon-btn" type="button" aria-label="Expand all" title="Expand all">
+                <svg class="icon-expand" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4-4 4 4M4 10l4 4 4-4"/></svg>
+                <svg class="icon-collapse hidden" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 2l4 4 4-4M4 14l4-4 4 4"/></svg>
+              </button>
+              <!-- Shown once comments have come in from Overleaf: leaves them out of the list,
+                   the editor and the PDF on this page, or brings them back. Nothing is changed. -->
+              <button id="overleaf-comments-btn" class="icon-btn overleaf-comments-btn" type="button" hidden aria-pressed="true" aria-label="Hide comments from Overleaf" title="Hide comments from Overleaf">
+                <svg class="icon-shown" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8 12.1 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg>
+                <svg class="icon-hidden hidden" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 8s2.4-4.5 6.5-4.5c1.3 0 2.4.4 3.4 1M14.5 8s-2.4 4.5-6.5 4.5c-1.3 0-2.4-.4-3.4-1"/><path d="M2.5 13.5l11-11"/></svg>
+                <svg class="leaf-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 13C3 7 7 3 13 3c0 6-4 10-10 10z"/><path d="M3 13l6-6"/></svg>
+              </button>
+              <button id="archive-picked-btn" class="icon-btn" type="button" disabled aria-label="Archive" title="Archive the picked comments">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 3h12v3H2z"/><path d="M3 6v7h10V6M6 9h4"/></svg><span class="count"></span>
+              </button>
+              <button id="reopen-picked-btn" class="icon-btn" type="button" disabled aria-label="Reopen" title="Reopen the picked comments">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.5-3.5"/><path d="M13 3v3h-3"/></svg><span class="count"></span>
+              </button>
+            </span>
+          </span>
           <button id="call-agent-btn" class="icon-btn agent-offline" type="button" aria-label="Queue call for agent" title="Agent is not waiting; queue this call until it reconnects (Ctrl+Alt+Enter)">
             <span id="agent-waiting-dot" class="agent-dot"></span>
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11V7a4 4 0 0 1 8 0v4l1.5 1.5h-11z"/><path d="M6.5 14a1.5 1.5 0 0 0 3 0"/></svg>

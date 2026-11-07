@@ -646,13 +646,29 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 .icon-btn:hover:not(:disabled) { background: var(--accent-soft); }
 /* The select at the left edge, the buttons at the right: the first button takes the room
    between, so the buttons keep their places whatever the row's width. */
-#fold-all-btn { margin-left: auto; }
+#pick-all-btn { margin-left: auto; }
 .icon-btn svg { display: block; }
 .icon-btn .count:empty { display: none; }
 .icon-btn:disabled { opacity: .45; }
-/* Beside the status filter, since it filters too: the eye says whether Overleaf's comments
-   are in view, and the button stands out while they are not, so a short list is explained. */
-.overleaf-comments-btn[hidden] { display: none; }
+.filter-row .icon-btn[hidden] { display: none; }
+/* The less pressed buttons sit in the row while it has room for them, and otherwise behind
+   the dots, each named by its label. */
+.comment-rare, .comment-rare-group { position: relative; display: flex; align-items: center; gap: inherit; }
+#comment-rare-btn { display: none; }
+.filter-row.narrow #comment-rare-btn { display: inline-flex; }
+.filter-row.narrow .comment-rare-group {
+  position: absolute; top: calc(100% + 4px); right: 0; z-index: 50;
+  flex-direction: column; align-items: stretch; gap: 0; min-width: 12rem; padding: 0.25rem;
+  border: 1px solid var(--border); border-radius: 4px; background: var(--bg-elev);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+}
+.filter-row.narrow .comment-rare:not(.open) .comment-rare-group { display: none; }
+.filter-row.narrow .comment-rare-group .icon-btn { border: 0; background: transparent; padding: 0.35rem 0.6rem; gap: 6px; }
+.filter-row.narrow .comment-rare-group .icon-btn:hover:not(:disabled) { background: var(--accent-soft); }
+.filter-row.narrow .comment-rare-group .icon-btn::after { content: attr(aria-label); }
+.filter-row.narrow .comment-rare-group .count { display: none; }
+/* The eye says whether Overleaf's comments are in view, and the button stands out while
+   they are not, so a short list is explained. */
 .overleaf-comments-btn.off { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
 .overleaf-hidden-note { margin: 4px 8px 8px; font-size: 12px; color: var(--fg-dim); }
 .overleaf-hidden-note .link-btn {

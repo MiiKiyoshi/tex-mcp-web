@@ -1092,6 +1092,7 @@ function renderOverleafStatus({ project, cookie, sync = false, settable = true, 
     : "Signed in with your saved cookie.";
   $("#overleaf-cookie-forget").hidden = cookie !== "file";
   renderOverleafThreadSync();
+  renderPickedActions();
 }
 
 // Comments sync at the commit Overleaf is at: a thread is on words, and only the same text
@@ -1123,6 +1124,10 @@ async function loadOverleafStatus() {
 
 function commits(count) {
   return `${count} commit${count === 1 ? "" : "s"}`;
+}
+
+function replies(count) {
+  return `${count} repl${count === 1 ? "y" : "ies"}`;
 }
 
 // Where the folder stands against Overleaf's branch: said in the dialog, and Pull and Push
@@ -2265,6 +2270,7 @@ function renderOverleafCommentsButton() {
   button.setAttribute("aria-label", words);
   button.querySelector(".icon-shown").classList.toggle("hidden", !shown);
   button.querySelector(".icon-hidden").classList.toggle("hidden", shown);
+  fitCommentRow();
 }
 
 function setShowOverleafComments(shown) {
@@ -2332,7 +2338,7 @@ function renderPickedActions() {
   const shown = state.comments.length;
   const all = $("#pick-all-btn");
   all.disabled = shown === 0;
-  const clearing = picked.length === shown && shown > 0;
+  const clearing = shown > 0 && state.comments.every((comment) => state.picked.has(comment.id));
   all.querySelector(".icon-select").classList.toggle("hidden", clearing);
   all.querySelector(".icon-clear").classList.toggle("hidden", !clearing);
   all.setAttribute("aria-label", clearing ? "Clear" : "Select all");
@@ -2354,6 +2360,34 @@ function renderPickedActions() {
   reopen.querySelector(".count").textContent = closed.length > 0 ? String(closed.length) : "";
   reopen.setAttribute("aria-label", closed.length > 0 ? `Reopen ${closed.length}` : "Reopen");
   reopen.dataset.ids = closed.join(" ");
+  // A picked thread from Overleaf sends what its reply box holds, each to its own thread there.
+  const sendable = state.comments.filter((comment) => state.picked.has(comment.id)
+    && state.overleafImported.has(comment.id) && comment.status === "open"
+    && overleafReplyText(comment).trim()).map((comment) => comment.id);
+  const send = $("#send-picked-btn");
+  send.hidden = !state.overleafProject;
+  send.disabled = !state.overleafSignedIn || sendable.length === 0;
+  send.querySelector(".count").textContent = sendable.length > 0 ? String(sendable.length) : "";
+  send.setAttribute("aria-label", sendable.length > 0 ? `Send ${replies(sendable.length)} to Overleaf` : "Send to Overleaf");
+  send.title = state.overleafSignedIn ? "Send the picked replies to Overleaf, for everyone in the project"
+    : "Save your Overleaf cookie first";
+  send.dataset.ids = sendable.join(" ");
+  fitCommentRow();
+}
+
+// The less pressed buttons stay in the row while it has room for every button, and go
+// behind the dots once the row would spill over.
+function fitCommentRow() {
+  const row = $(".filter-row");
+  row.classList.remove("narrow");
+  const narrow = row.scrollWidth > row.clientWidth;
+  row.classList.toggle("narrow", narrow);
+  if (!narrow) closeCommentRare();
+}
+
+function closeCommentRare() {
+  $("#comment-rare").classList.remove("open");
+  $("#comment-rare-btn").setAttribute("aria-expanded", "false");
 }
 
 // Every card in the view opened, or every one closed: which of the two the button does
@@ -2400,6 +2434,29 @@ async function setPickedStatus(ids, status) {
     });
     if (!response.ok) throw new Error(await responseError(response));
     state.picked.delete(id);
+  }
+  await refreshComments();
+}
+
+// Each picked reply goes to its own thread on Overleaf, one after another. One that is
+// refused keeps its words and says why on its card, opened, and the rest still go.
+async function sendPickedToOverleaf(ids) {
+  for (const id of ids) {
+    const comment = state.comments.find((item) => item.id === id);
+    const text = comment ? overleafReplyText(comment) : "";
+    if (!text.trim()) continue;
+    const response = await fetch(`/comments/${id}/reply`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: text.trim(), overleaf: true }),
+    });
+    if (response.ok) {
+      state.overleafReplies.delete(id);
+      state.picked.delete(id);
+      continue;
+    }
+    state.overleafReplies.set(id, { text, from: comment.overleaf_draft?.text, error: await responseError(response) });
+    state.expanded.add(id);
   }
   await refreshComments();
 }
@@ -2540,21 +2597,25 @@ function renderSuggestion(comment) {
 
 // The thread's Overleaf reply: the agent's draft, which the reviewer edits and sends. The
 // server sends it only once the words its draft describes are on Overleaf, and says why not.
+// What a thread's reply box for Overleaf holds: what the reviewer typed over the agent's draft,
+// else the draft. A new draft from the agent replaces what was typed over the one before.
+function overleafReplyText(comment) {
+  const kept = state.overleafReplies.get(comment.id);
+  if (kept && kept.from !== comment.overleaf_draft?.text) state.overleafReplies.delete(comment.id);
+  return state.overleafReplies.get(comment.id)?.text ?? comment.overleaf_draft?.text ?? "";
+}
+
 function renderOverleafReply(comment) {
   const draft = comment.overleaf_draft;
-  let kept = state.overleafReplies.get(comment.id);
-  // A new draft from the agent replaces what was typed over the one before.
-  if (kept && kept.from !== draft?.text) {
-    state.overleafReplies.delete(comment.id);
-    kept = undefined;
-  }
   const textarea = h("textarea", {
     class: "cmt-form-input overleaf-reply-input", rows: 3,
     placeholder: "Reply on Overleaf, for everyone in the project…",
   });
-  textarea.value = kept?.text ?? draft?.text ?? "";
+  textarea.value = overleafReplyText(comment);
+  const kept = state.overleafReplies.get(comment.id);
   textarea.addEventListener("input", () => {
     state.overleafReplies.set(comment.id, { text: textarea.value, from: draft?.text });
+    renderPickedActions();
   });
   const note = h("div", { class: "overleaf-reply-note", role: "status", text: kept?.error ?? "" });
   const send = h("button", {
@@ -4056,6 +4117,34 @@ async function init() {
   $("#overleaf-comments-btn").addEventListener("click", () => setShowOverleafComments(!state.showOverleafComments));
   $("#fold-all-btn").addEventListener("click", foldAll);
   $("#pick-all-btn").addEventListener("click", pickAll);
+  $("#send-picked-btn").addEventListener("click", async () => {
+    const button = $("#send-picked-btn");
+    const ids = button.dataset.ids ? button.dataset.ids.split(" ") : [];
+    if (ids.length === 0 || !confirm(`Send ${replies(ids.length)} to Overleaf, for everyone in the project?`)) return;
+    button.disabled = true;
+    try {
+      await sendPickedToOverleaf(ids);
+    } catch (error) {
+      alert(`Could not send: ${error.message}`);
+    } finally {
+      renderPickedActions();
+    }
+  });
+  // The row is fitted again whenever it, or a button that is always in it, changes width.
+  const row = $(".filter-row");
+  const refit = new ResizeObserver(() => fitCommentRow());
+  refit.observe(row);
+  for (const node of row.children) if (node.id !== "comment-rare") refit.observe(node);
+  $("#comment-rare-btn").addEventListener("click", (event) => {
+    event.stopPropagation();
+    const open = !$("#comment-rare").classList.contains("open");
+    $("#comment-rare").classList.toggle("open", open);
+    $("#comment-rare-btn").setAttribute("aria-expanded", String(open));
+  });
+  // A choice behind the dots closes them, and so does a click anywhere else.
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest("#comment-rare") || event.target.closest(".comment-rare-group button")) closeCommentRare();
+  });
   // The buttons carry the ids they were drawn with, so a press acts on what its label counted.
   for (const [id, status] of [["#resolve-picked-btn", "resolved"], ["#archive-picked-btn", "archived"], ["#reopen-picked-btn", "open"]]) {
     $(id).addEventListener("click", async () => {

@@ -80,6 +80,10 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   listen, ask the agent in chat to handle the tex comments.
 - **Resolve** a thread whose edit satisfies you, or **Reply** in it when it does not.
   **Archive** sets a thread aside, and it still takes replies.
+- The row above the comments acts on the threads picked by their boxes. The buttons
+  pressed less often, **Expand all**, **Archive**, **Reopen** and the eye for Overleaf's
+  comments, sit together at the row's end, and behind **⋯** with their names when the
+  panel is too narrow for the whole row.
 - Edits in the Source tab are saved when you press **Save**.
 - The top bar's menu picks the page's look: **Light**, **Dark**, or **Warm**, a softer paper
   tone for long writing, as a screen looks with its blue light turned down. The PDF's pages
@@ -121,8 +125,8 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   no Resolve, Reopen, Archive or Delete on it. A message reworded or deleted there is
   reworded or deleted here, a thread deleted there is deleted here, and one deleted here
   comes back. Replies written here stay in their thread.
-- Once comments have come in from Overleaf, the eye button with the leaf beside the comment
-  filter hides them from the list, the editor and the PDF, and shows them again. It changes
+- Once comments have come in from Overleaf, the eye button with the leaf above the comments
+  hides them from the list, the editor and the PDF, and shows them again. It changes
   no comment and is kept per browser. While they are hidden, the list says how many.
 - With `overleaf` set and the cookie kept, an open page also sits in the Overleaf project,
   read-only. The top bar shows a face for each collaborator there, which goes to the file
@@ -138,9 +142,11 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
 - A thread from Overleaf has a box under it for a reply on Overleaf, which everyone in the
   project reads. The agent can put its draft there (`write_comments` with
   `action="overleaf"`), one per thread, and you edit it and send it with **Send to** and
-  the leaf. The agent cannot send. A plain reply stays here, since it may be an instruction
-  to the agent, and each entry on such a thread says whether it went to Overleaf or stayed
-  here. A draft naming the source ranges it describes goes only once Overleaf has what
+  the leaf. The send button with the leaf above the comments sends the reply of every
+  picked thread from Overleaf, one thread after another, and a refused one keeps its words
+  and says why on its card while the rest go. The agent cannot send. A plain reply stays
+  here, since it may be an instruction to the agent, and each entry on such a thread says
+  whether it went to Overleaf or stayed here. A draft naming the source ranges it describes goes only once Overleaf has what
   those ranges held, read from Overleaf's branch in a git clone and from the files kept in
   step otherwise, and the refusal says whether to commit or to push first. Overleaf takes
   the reply first, so what it refuses is not shown as said here.

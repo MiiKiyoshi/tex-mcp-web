@@ -1509,6 +1509,23 @@ def test_shift_picks_the_run_between_two_boxes(tmp_path: Path) -> None:
         click(ids[0], shift=False)
         click(ids[3], shift=False)
         assert picked() == [ids[0], ids[3]]
+
+        # A narrow panel keeps the less pressed buttons behind the dots, each with its words,
+        # and a wide one has them back in the row.
+        rare = '''const button = document.querySelector("#archive-picked-btn");
+          return [document.querySelector(".filter-row").classList.contains("narrow"),
+                  button.getBoundingClientRect().width > 0, getComputedStyle(button, "::after").content];'''
+        width = lambda pixels: browser.execute_script(
+            f'document.querySelector(".layout").style.setProperty("--tex-mcp-sidebar-width", "{pixels}px")')
+        assert browser.execute_script(rare) == [False, True, "none"]
+        width(240)
+        wait_until(lambda: browser.execute_script(rare) == [True, False, '"Archive 2"'])
+        browser.find_element("css selector", "#comment-rare-btn").click()
+        assert browser.execute_script(rare) == [True, True, '"Archive 2"']
+        browser.find_element("css selector", "#comments-list").click()
+        assert browser.execute_script(rare)[1] is False
+        width(700)
+        wait_until(lambda: browser.execute_script(rare) == [False, True, "none"])
     finally:
         if browser is not None:
             browser.delete_session()
@@ -2247,6 +2264,39 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
         wait_until(lambda: fake.written == [("reply", "t1", "Drafted for Ann, and checked.")], timeout=15)
         wait_until(lambda: "sent" in text("[data-comment-id] .cmt-thread .entry-overleaf.sent"), timeout=15)
         assert browser.execute_script('return document.querySelector(".overleaf-reply-input").value') == ""
+
+        # Picked threads send their replies together. One whose edit Overleaf does not hold is
+        # refused on its card and stays picked, while the other goes.
+        fake.threads["t2"] = {"messages": [{"user": {"first_name": "Ann"}, "content": "A second one."}]}
+        fake.ranges.append({"id": "c2", "op": {"c": "Hello", "p": (tmp_path / "main.tex").read_text().index("Hello"),
+                                               "t": "t2"}})
+        push(event("new-comment", "t2", {}))
+        wait_until(lambda: text("#overleaf-sync-comments-btn .count") == "1", timeout=15)
+        wait_until(lambda: not browser.execute_script('return document.querySelector("#overleaf-sync-comments-btn").disabled'))
+        click("#overleaf-sync-comments-btn")
+        wait_until(lambda: browser.execute_script(
+            'return document.body.textContent.includes("A second one.")'), timeout=15)
+        second = next(c for c in store.list() if "A second one." in c.thread[0].text)
+        store.draft_overleaf(brought.id, store.get(brought.id).updated, OverleafDraft("Both go, the first.", [], []))
+        store.draft_overleaf(second.id, second.updated, OverleafDraft(
+            "Both go, the second.", ["main.tex:3-3"], [{"file": "main.tex", "text": "Hello world."}]))
+        wait_until(lambda: browser.execute_script(
+            'return [...document.querySelectorAll(".overleaf-reply-input")].map((box) => box.value).sort().join("|")')
+            == "Both go, the first.|Both go, the second.", timeout=15)
+        assert browser.execute_script('return document.querySelector("#send-picked-btn").disabled') is True
+        for cid in (brought.id, second.id):
+            click(f"[data-comment-id='{cid}'] .comment-pick")
+        assert text("#send-picked-btn .count") == "2"
+        browser.execute_script("(window.wrappedJSObject || window).confirm = () => true;", sandbox=None)
+        click("#send-picked-btn")
+        wait_until(lambda: browser.execute_script(
+            f'return document.querySelector("[data-comment-id=\'{second.id}\'] .overleaf-reply-note")?.textContent || ""')
+            .startswith("The edit to main.tex this reply describes is not on Overleaf"), timeout=15)
+        assert fake.written[1:] == [("reply", "t1", "Both go, the first.")]
+        assert text("#send-picked-btn .count") == "1"
+        assert browser.execute_script(
+            f'return document.querySelector("[data-comment-id=\'{second.id}\'] .overleaf-reply-input").value') \
+            == "Both go, the second."
 
         # When comments cannot be read, the page says so.
         fake.cookie = "s%3Arotated"
