@@ -189,7 +189,6 @@
         <button id="overleaf-connect-btn" type="button">Connect</button>
       </div>
       <p id="overleaf-connected" hidden>Connected to <a id="overleaf-project" target="_blank" rel="noopener"></a> <button id="overleaf-disconnect-btn" type="button" class="overleaf-forget">Disconnect</button></p>
-      <label id="overleaf-write-row" class="overleaf-switch" hidden><input id="overleaf-write" type="checkbox"> Send replies and closes to Overleaf <span>(Reply / Resolve / Reopen on Overleaf)</span></label>
       <label id="overleaf-sync-row" class="overleaf-switch" hidden><input id="overleaf-sync" type="checkbox"> Keep the files and Overleaf the same, both ways <span>(while a page is open)</span></label>
       <p id="overleaf-settable" class="overleaf-unset" hidden>This paper has no <code>.tex-mcp-web.yaml</code>, so the project is named there by hand.</p>
     </section>
@@ -206,6 +205,7 @@
     </section>
     <!-- A folder cloned from the project by git: where it stands against Overleaf's branch. -->
     <section id="overleaf-git" class="overleaf-direct" hidden>
+      <p>This folder follows Overleaf by git.</p>
       <p id="overleaf-git-state" role="status"></p>
       <p id="overleaf-git-uncommitted" class="overleaf-unset" hidden></p>
       <div class="overleaf-git-actions">

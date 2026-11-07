@@ -1161,7 +1161,7 @@ async def test_mcp_contract_is_typed_and_nonduplicative(tmp_path: Path):
 
     comment_schema = tools["write_comments"].inputSchema
     assert comment_schema["properties"]["action"]["enum"] == [
-        "add", "reply", "suggest", "withdraw", "edit", "delete"
+        "add", "reply", "suggest", "withdraw", "overleaf", "edit", "delete"
     ]
     # A suggestion names the text it replaces by quoting it, so nothing in its schema
     # asks the agent for a line or a column.
@@ -1296,6 +1296,45 @@ async def test_binding_serves_the_viewer(bound_project, project):
             assert response.status == 200
             served = await response.json()
     assert Path(served["watch_dir"]).resolve() == project.resolve()
+
+
+@pytest.mark.asyncio
+async def test_mcp_drafts_an_overleaf_reply_only_on_a_thread_from_overleaf(bound_project, project):
+    """The agent drafts the reply the reviewer may send to Overleaf. A thread holds one draft,
+    which a second replaces; nothing is said in the thread until the reviewer sends it. The
+    draft keeps what the ranges it names held, words Overleaf must have before it goes."""
+    pytest.importorskip("mcp")
+    from tex_mcp_web import overleaf
+    from tex_mcp_web.comments import CommentStore, PaperAnchor
+    from tex_mcp_web.mcp_server import create_server, revision_of
+
+    mcp = create_server(bound_project)
+
+    async def call(tool_name, **arguments):
+        return json.loads((await mcp.call_tool(tool_name, arguments))[0].text)
+
+    store = CommentStore(project / ".tex-mcp-web" / "comments.json")
+    brought = store.add(PaperAnchor(), "[Overleaf · Ann] Which words?")
+    own = store.add(PaperAnchor(), "A note of mine.")
+    overleaf.ledger_path(project).write_text(json.dumps({"t1": {"comment": brought.id, "messages": 1}}))
+
+    refused = await call("write_comments", action="overleaf", id=own.id, text="Fixed.", rev=revision_of(own.updated))
+    assert "did not come from Overleaf" in refused["error"]
+    receipt = await call("write_comments", action="overleaf", id=brought.id, text="Fixed it.",
+                         edits=["paper.tex:5-5"], rev=revision_of(brought.updated))
+    draft = store.get(brought.id).overleaf_draft
+    assert (draft.text, draft.edits, draft.checks) == (
+        "Fixed it.", ["paper.tex:5-5"], [{"file": "paper.tex", "text": "Some prose with \\cite{ref1}."}])
+    assert len(store.get(brought.id).thread) == 1
+    told = (await call("read_comments", ids=[brought.id]))["comments"][0]
+    assert told["on_overleaf"] is True and told["overleaf_draft"] == "Fixed it."
+    assert "on_overleaf" not in (await call("read_comments", ids=[own.id]))["comments"][0]
+
+    receipt = await call("write_comments", action="overleaf", id=brought.id, text="Fixed it better.", rev=receipt["rev"])
+    assert store.get(brought.id).overleaf_draft.text == "Fixed it better."
+    outside = await call("write_comments", action="overleaf", id=brought.id, text="Again.",
+                         edits=["paper.tex:99-99"], rev=receipt["rev"])
+    assert "outside paper.tex" in outside["error"]
 
 
 @pytest.mark.asyncio

@@ -28,7 +28,9 @@ const state = {
   // The box a pick last started from, so shift can run from it to the next one.
   pickedFrom: null,
   activeForm: null,
-  overleafThreads: new Set(),
+  // What the reviewer has typed into a thread's Overleaf reply, kept across renders, with
+  // the draft it started from and the reason a send was refused.
+  overleafReplies: new Map(),
   // The cookie is kept, how many open threads on Overleaf wait to be downloaded, and where
   // a folder cloned by git stands against Overleaf's branch (null until read, or no git).
   overleafSignedIn: false,
@@ -81,6 +83,17 @@ function h(tag, props = {}, ...children) {
 
 function clear(node) {
   node.replaceChildren();
+}
+
+// Overleaf is marked by a leaf wherever the page speaks of it.
+const LEAF_ICON = '<svg class="leaf-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" '
+  + 'stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+  + '<path d="M3 13C3 7 7 3 13 3c0 6-4 10-10 10z"/><path d="M3 13l6-6"/></svg>';
+
+function leafIcon() {
+  const template = document.createElement("template");
+  template.innerHTML = LEAF_ICON;
+  return template.content.firstChild;
 }
 
 function placeholder(text) {
@@ -1040,17 +1053,16 @@ function showOverleafDialog(status = "") {
   }
 }
 
-function renderOverleafStatus({ project, cookie, write = false, sync = false, settable = true, git = null,
-  waiting = 0 }) {
+function renderOverleafStatus({ project, cookie, sync = false, settable = true, git = null, waiting = 0 }) {
   $("#overleaf-link-row").hidden = Boolean(project) || !settable;
   $("#overleaf-connected").hidden = !project;
   $("#overleaf-disconnect-btn").hidden = !settable;
   $("#overleaf-settable").hidden = settable || Boolean(project);
-  $("#overleaf-write-row").hidden = !project;
-  $("#overleaf-sync-row").hidden = !project;
-  $("#overleaf-write").checked = write;
+  // A folder cloned by git follows Overleaf by pull and push. Keeping the files the same as
+  // well would bring Overleaf's edits in a second way, beside git.
+  $("#overleaf-sync-row").hidden = !project || Boolean(git);
   $("#overleaf-sync").checked = sync;
-  $("#overleaf-write").disabled = $("#overleaf-sync").disabled = !settable;
+  $("#overleaf-sync").disabled = !settable;
   $("#overleaf-import-btn").textContent = project ? "Overleaf…" : "Connect to Overleaf…";
   $("#overleaf-direct").hidden = !project;
   $("#overleaf-download").hidden = !project;
@@ -1128,15 +1140,11 @@ async function overleafGitAction(action) {
 }
 
 // Connecting names the project in the paper's config, as a line written there by hand
-// would; sending replies and keeping the files the same each ask once before they start,
-// since both change what everyone in the project sees.
-const OVERLEAF_SWITCHES = {
-  write: "Replies, resolves and reopens made with the Overleaf buttons will be posted to the "
-    + "Overleaf project, for everyone in it to read. Turn this on?",
-  sync: "The paper's files and the Overleaf project will be kept the same both ways while a "
-    + "page is open: edits here are sent to Overleaf, and edits there are written into the files. "
-    + "A file that differs at the start waits for your choice. Turn this on?",
-};
+// would. Keeping the files the same asks once before it starts, since it changes what
+// everyone in the project sees.
+const OVERLEAF_SYNC_QUESTION = "The paper's files and the Overleaf project will be kept the same both ways while a "
+  + "page is open: edits here are sent to Overleaf, and edits there are written into the files. "
+  + "A file that differs at the start waits for your choice. Turn this on?";
 
 async function connectOverleaf(change, done) {
   const response = await fetch("/overleaf/connect", {
@@ -1154,14 +1162,13 @@ async function connectOverleaf(change, done) {
   return true;
 }
 
-async function switchOverleaf(key) {
-  const box = $(`#overleaf-${key}`);
-  if (box.checked && !confirm(OVERLEAF_SWITCHES[key])) {
+async function switchOverleafSync() {
+  const box = $("#overleaf-sync");
+  if (box.checked && !confirm(OVERLEAF_SYNC_QUESTION)) {
     box.checked = false;
     return;
   }
-  const name = key === "write" ? "Sending to Overleaf" : "Keeping the files the same";
-  await connectOverleaf({ [key]: box.checked }, `${name} is ${box.checked ? "on" : "off"}.`);
+  await connectOverleaf({ sync: box.checked }, `Keeping the files the same is ${box.checked ? "on" : "off"}.`);
 }
 
 async function saveOverleafCookie() {
@@ -2149,10 +2156,10 @@ async function refreshComments() {
   const [response, overleaf] = await Promise.all([fetch(url), fetch("/overleaf")]);
   if (!response.ok) throw new Error(await responseError(response));
   const data = await response.json();
-  // Which threads can be answered on Overleaf; none when the config does not allow it.
+  // Which threads came from Overleaf, and so can be answered there.
   const linked = overleaf.ok ? await overleaf.json() : {};
-  state.overleafThreads = new Set(linked.threads ?? []);
   state.overleafImported = new Set(linked.imported ?? []);
+  state.overleafSignedIn = Boolean(linked.cookie);
   // Hidden comments are left out here, once, so the list, the editor's marks, the PDF's
   // highlights and the count all agree without each asking.
   const shown = state.showOverleafComments ? data.comments
@@ -2392,15 +2399,20 @@ function renderCommentItem(comment) {
                                text: `${latest.author}  ${latest.text}` }));
     }
   }
+  const onOverleaf = state.overleafImported.has(comment.id);
   if (expanded) {
     // The thread reads downward, oldest first, the way it was written.
     children.push(
       h("div", { class: "cmt-thread" },
-        ...comment.thread.map((entry, index) => renderThreadEntry(entry, comment.id, index))));
+        ...comment.thread.map((entry, index) => renderThreadEntry(entry, comment.id, index, onOverleaf))));
   }
   // The proposal sits under the conversation, where the card ends. A thread carries one,
   // so this is never a list.
   if (comment.suggestion) children.push(renderSuggestion(comment));
+  // So does the reply drafted for Overleaf, shown closed or open while it waits to be sent.
+  if (onOverleaf && comment.status === "open" && (expanded || comment.overleaf_draft)) {
+    children.push(renderOverleafReply(comment));
+  }
   if (expanded) {
     children.push(h("div", { class: "cmt-actions" }, ...actionButtons(comment)));
     const form = renderActiveForm(comment);
@@ -2449,12 +2461,81 @@ function renderSuggestion(comment) {
   );
 }
 
-function renderThreadEntry(entry, commentId, index) {
+// The thread's Overleaf reply: the agent's draft, which the reviewer edits and sends. The
+// server sends it only once the words its draft describes are on Overleaf, and says why not.
+function renderOverleafReply(comment) {
+  const draft = comment.overleaf_draft;
+  let kept = state.overleafReplies.get(comment.id);
+  // A new draft from the agent replaces what was typed over the one before.
+  if (kept && kept.from !== draft?.text) {
+    state.overleafReplies.delete(comment.id);
+    kept = undefined;
+  }
+  const textarea = h("textarea", {
+    class: "cmt-form-input overleaf-reply-input", rows: 3,
+    placeholder: "Reply on Overleaf, for everyone in the project…",
+  });
+  textarea.value = kept?.text ?? draft?.text ?? "";
+  textarea.addEventListener("input", () => {
+    state.overleafReplies.set(comment.id, { text: textarea.value, from: draft?.text });
+  });
+  const note = h("div", { class: "overleaf-reply-note", role: "status", text: kept?.error ?? "" });
+  const send = h("button", {
+    class: "overleaf-send", type: "button",
+    title: state.overleafSignedIn ? "Send to Overleaf, for everyone in the project" : "Save your Overleaf cookie first",
+  }, "Send to ", leafIcon());
+  send.disabled = !state.overleafSignedIn;
+  send.addEventListener("click", async () => {
+    const text = textarea.value.trim();
+    if (!text) return;
+    send.disabled = textarea.disabled = true;
+    note.textContent = "Sending…";
+    const response = await fetch(`/comments/${comment.id}/reply`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, overleaf: true }),
+    });
+    if (response.ok) {
+      state.overleafReplies.delete(comment.id);
+      await refreshComments();
+      return;
+    }
+    const error = await responseError(response);
+    state.overleafReplies.set(comment.id, { text: textarea.value, from: draft?.text, error });
+    note.textContent = error;
+    send.disabled = textarea.disabled = false;
+  });
+  return h("div", { class: "cmt-overleaf" },
+    h("div", { class: "cmt-overleaf-head" }, leafIcon(),
+      h("span", { text: draft ? "Draft for Overleaf" : "Reply on Overleaf" })),
+    textarea,
+    draft?.edits?.length
+      ? h("div", { class: "thread-edits" }, ...draft.edits.map((edit) => h("span", { class: "edit", text: edit })))
+      : null,
+    note,
+    h("div", { class: "cmt-form-actions" }, send));
+}
+
+// On a thread from Overleaf, each entry says whether Overleaf has it: one written there, one
+// sent there, or one that stays on this page.
+function overleafMark(entry) {
+  if (entry.overleaf !== undefined) {
+    return h("span", {
+      class: "entry-overleaf sent",
+      title: entry.overleaf ? `Sent to Overleaf at commit ${entry.overleaf}` : "Sent to Overleaf",
+    }, leafIcon(), "sent");
+  }
+  if (entry.text.startsWith("[Overleaf ·")) return null;
+  return h("span", { class: "entry-overleaf here", text: "here only", title: "Not sent to Overleaf" });
+}
+
+function renderThreadEntry(entry, commentId, index, onOverleaf) {
   const editing = state.editingEntry?.commentId === commentId
     && state.editingEntry.index === index;
   const children = [
     h("div", { class: "thread-meta" },
       h("span", { text: `${entry.author} · ${entry.at}` }),
+      onOverleaf ? overleafMark(entry) : null,
       entry.author === "human" && !editing
         ? actionButton("cmt-edit", "Edit", () => startEntryEdit(commentId, index, entry.text))
         : null),
@@ -2526,26 +2607,14 @@ function actionButtons(comment) {
   // empty summary flips the status without adding an entry. An archived thread still
   // takes replies, and goes back to open or resolved from the same row.
   const buttons = [];
-  const onOverleaf = state.overleafThreads.has(comment.id);
   if (comment.status !== "resolved") {
     buttons.push(actionButton("cmt-reply", "Reply", () => setActiveForm(comment.id, "reply")));
-    if (onOverleaf) {
-      buttons.push(actionButton("cmt-overleaf-reply", "Reply on Overleaf", () => setActiveForm(comment.id, "overleaf")));
-    }
   }
   if (comment.status !== "open") {
     buttons.push(actionButton("cmt-reopen", "Reopen", () => mutateAndRefresh(comment.id, "reopen", {})));
-    if (onOverleaf) {
-      buttons.push(actionButton("cmt-overleaf-reopen", "Reopen on Overleaf",
-        () => mutateAndRefresh(comment.id, "reopen", { overleaf: true })));
-    }
   }
   if (comment.status !== "resolved") {
     buttons.push(actionButton("cmt-resolve", "Resolve", () => closeComment(comment.id, "resolve", "summary")));
-    if (onOverleaf) {
-      buttons.push(actionButton("cmt-overleaf-resolve", "Resolve on Overleaf",
-        () => mutateAndRefresh(comment.id, "resolve", { summary: "", overleaf: true })));
-    }
   }
   if (comment.status !== "archived") {
     buttons.push(actionButton("cmt-archive", "Archive", () => mutateAndRefresh(comment.id, "archive", {})));
@@ -2574,11 +2643,6 @@ async function closeComment(commentId, action, key) {
 
 const FORM_CONFIG = {
   reply: { placeholder: "Reply…", key: "text", label: "Post reply" },
-  // Everyone in the Overleaf project reads this one; a plain reply stays here.
-  overleaf: {
-    placeholder: "Reply on Overleaf, for everyone in the project…", key: "text", label: "Post on Overleaf",
-    action: "reply", extra: { overleaf: true },
-  },
 };
 
 function renderActiveForm(comment) {
@@ -2608,7 +2672,7 @@ function renderActiveForm(comment) {
     textarea.disabled = true;
     submitButton.disabled = true;
     submitButton.textContent = "Saving…";
-    const saved = await doMutation(comment.id, config.action ?? mode, { [config.key]: text, ...config.extra });
+    const saved = await doMutation(comment.id, mode, { [config.key]: text });
     if (saved) {
       state.activeForm = null;
       try {
@@ -3393,8 +3457,7 @@ function attachSidebarToggle() {
       connectOverleaf({ project: null }, "Disconnected.");
     }
   });
-  $("#overleaf-write").addEventListener("change", () => switchOverleaf("write"));
-  $("#overleaf-sync").addEventListener("change", () => switchOverleaf("sync"));
+  $("#overleaf-sync").addEventListener("change", () => switchOverleafSync());
   $("#overleaf-live-btn").addEventListener("click", (event) => {
     event.stopPropagation();
     if ($("#overleaf-live-btn").classList.contains("off")) {

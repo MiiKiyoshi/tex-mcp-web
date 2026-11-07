@@ -3,8 +3,8 @@
 Overleaf has no public route for comments. Its editor reads them from routes of its own:
 ``/project/<id>/threads`` for what was said, ``/project/<id>/ranges`` for the words each thread is on, and a document's
 download for its name and text. They answer to the editor's session cookie, so the
-server sends the reviewer's own. Replies and closes go by the editor's routes too, with the
-token its page carries.
+server sends the reviewer's own. A reply goes by the editor's route too, with the token its
+page carries.
 
 That cookie signs in as the reviewer, so it is kept like a password: in the reviewer's
 own config folder, readable by them alone, never in the paper's folder and never sent
@@ -16,6 +16,7 @@ file, for a machine set up by script.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import re
 from html import unescape
@@ -43,6 +44,18 @@ class SignedOut(OverleafError):
 
 
 # ----- The cookie -----
+
+def ledger_path(watch_dir: Path) -> Path:
+    """What came in from Overleaf, by thread: the comment here and what it has been told."""
+    return watch_dir / ".tex-mcp-web" / "overleaf-imported.json"
+
+
+def ledger(watch_dir: Path) -> dict[str, dict[str, Any]]:
+    try:
+        return json.loads(ledger_path(watch_dir).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
 
 def cookie_path() -> Path:
     """Where the reviewer's cookie is kept: their config folder, one for every paper."""
@@ -221,22 +234,6 @@ async def post_reply(link: str, cookie: tuple[str, str], thread: str, content: s
         read = _Reader(session, server)
         await read.post(f"/project/{project}/thread/{thread}/messages", await _write_token(read, project),
                         {"content": content})
-
-
-async def set_resolved(link: str, cookie: tuple[str, str], thread: str, resolved: bool, *, timeout: float = 30) -> None:
-    """Close or open a thread on Overleaf, whose route names the file the thread is in."""
-    server, project = project_of(link)
-    async with _session(server, cookie, timeout) as session:
-        read = _Reader(session, server)
-        ranges = await read.get(f"/project/{project}/ranges")
-        docs = ranges.get("docs", []) if isinstance(ranges, dict) else ranges or []
-        doc = next((str(entry.get("id") or entry.get("_id")) for entry in docs if any(
-            str(((comment or {}).get("op") or {}).get("t")) == thread
-            for comment in ((entry or {}).get("ranges") or {}).get("comments") or [])), None)
-        if doc is None:
-            raise OverleafError("Overleaf no longer has this thread's words; nothing was changed there")
-        await read.post(f"/project/{project}/doc/{doc}/thread/{thread}/{'resolve' if resolved else 'reopen'}",
-                        await _write_token(read, project), {})
 
 
 async def fetch_export(link: str, cookie: tuple[str, str], *, timeout: float = 30) -> dict[str, Any]:

@@ -1973,11 +1973,10 @@ def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path
         # Comments are downloaded with the cookie, so the button waits for it.
         assert browser.execute_script('return document.querySelector("#overleaf-download").disabled') is True
         assert browser.execute_script('return document.querySelector("#overleaf-project").textContent').endswith(project)
-        # Named in the config, the project shows as connected, with both switches off.
+        # Named in the config, the project shows as connected.
         assert shown("#overleaf-connected") and not shown("#overleaf-link-row")
-        assert shown("#overleaf-write-row") and shown("#overleaf-sync-row")
-        assert browser.execute_script(
-            'return [document.querySelector("#overleaf-write").checked, document.querySelector("#overleaf-sync").checked]') == [False, False]
+        # A git clone of the project follows it by pull and push, so the sync switch is not offered.
+        assert not shown("#overleaf-sync-row")
 
         field = browser.find_element("css selector", "#overleaf-cookie")
         field.send_keys(cookie)
@@ -2150,8 +2149,7 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
     port = available_port()
     config_path = tmp_path / ".tex-mcp-web.yaml"
     config_path.write_text(f"main: main.tex\nport: {port}\n"
-                           f"overleaf: http://127.0.0.1:{realtime.port}/project/{PROJECT_ID}\n"
-                           "overleaf_write: true\n", encoding="utf-8")
+                           f"overleaf: http://127.0.0.1:{realtime.port}/project/{PROJECT_ID}\n", encoding="utf-8")
     shared = SharedProjectServer(load_config(config_path))
     profile = tempfile.mkdtemp(prefix="tex_mcp_overleaf_live_")
     marionette_port = available_port()
@@ -2198,37 +2196,47 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
         assert text("#overleaf-file-notice").startswith("Co Author edited this file on Overleaf")
         assert "tex/body.tex" in text("#overleaf-live-changes")
 
-        # A comment written on Overleaf comes in with no button pressed.
-        fake.threads["t1"] = {"messages": [{"user": {"first_name": "Ann"}, "content": "Came in by itself."}]}
+        # A comment written on Overleaf is counted on Download comments, and comes in from it.
+        fake.threads["t1"] = {"messages": [{"user": {"first_name": "Ann"}, "content": "Came in when asked."}]}
         fake.ranges.append({"id": "c1", "op": {"c": "documentclass", "p": 1, "t": "t1"}})
         push(event("new-comment", "t1", {}))
-        wait_until(lambda: browser.execute_script(
-            'return document.body.textContent.includes("Came in by itself.")'), timeout=15)
-
-        # Only the buttons that say Overleaf send anything there.
+        wait_until(lambda: text("#overleaf-download") == "Download comments (1)", timeout=15)
+        assert not browser.execute_script('return document.body.textContent.includes("Came in when asked.")')
         click = lambda selector: browser.execute_script(f'document.querySelector("{selector}").click()')
+        click("#overleaf-import-btn")
+        wait_until(lambda: not browser.execute_script('return document.querySelector("#overleaf-download").disabled'))
+        click("#overleaf-download")
+        wait_until(lambda: browser.execute_script(
+            'return document.body.textContent.includes("Came in when asked.")'), timeout=15)
+        browser.execute_script('document.querySelector("#overleaf-dialog").close()')
+
+        # The agent's draft waits under the thread, even folded; a plain reply stays here.
+        from tex_mcp_web.comments import CommentStore, OverleafDraft
+
+        store = CommentStore(tmp_path / ".tex-mcp-web" / "comments.json")
+        brought = store.list()[0]
+        store.draft_overleaf(brought.id, brought.updated, OverleafDraft("Drafted for Ann.", [], []))
+        wait_until(lambda: browser.execute_script(
+            'const box = document.querySelector(".overleaf-reply-input"); return box ? box.value : ""')
+            == "Drafted for Ann.", timeout=15)
         click("[data-comment-id] .cmt-head")
-        wait_until(lambda: browser.execute_script('return document.querySelector(".cmt-overleaf-reply") !== null'))
-        write = lambda words: browser.execute_script(
-            'const box = document.querySelector(".cmt-form-input"); box.value = arguments[0];'
+        write = lambda selector, words: browser.execute_script(
+            f'const box = document.querySelector("{selector}"); box.value = arguments[0];'
             'box.dispatchEvent(new Event("input", {bubbles: true}));', [words])
+        wait_until(lambda: browser.execute_script('return document.querySelector(".cmt-reply") !== null'))
         click(".cmt-reply")
-        wait_until(lambda: browser.execute_script('return document.querySelector(".cmt-form-input") !== null'))
-        write("Stays here.")
+        wait_until(lambda: browser.execute_script('return document.querySelector(".cmt-form-input:not(.overleaf-reply-input)") !== null'))
+        write(".cmt-form-input:not(.overleaf-reply-input)", "Stays here.")
         click(".cmt-form-submit")
         wait_until(lambda: browser.execute_script('return document.body.textContent.includes("Stays here.")'), timeout=15)
-        wait_until(lambda: browser.execute_script('return document.querySelector(".cmt-form-input") === null'))
         assert fake.written == []
-        click(".cmt-overleaf-reply")
-        wait_until(lambda: browser.execute_script('return document.querySelector(".cmt-form-input") !== null'))
-        assert "for everyone in the project" in browser.execute_script(
-            'return document.querySelector(".cmt-form-input").placeholder')
-        write("Goes to everyone.")
-        click(".cmt-form-submit")
-        wait_until(lambda: fake.written == [("reply", "t1", "Goes to everyone.")], timeout=15)
-        wait_until(lambda: browser.execute_script('return document.querySelector(".cmt-overleaf-resolve") !== null'))
-        click(".cmt-overleaf-resolve")
-        wait_until(lambda: fake.written[-1:] == [("resolve", "t1", "d-main")], timeout=15)
+        assert "here only" in text("[data-comment-id] .cmt-thread")
+        # The reviewer edits the draft and sends it, to everyone in the project.
+        write(".overleaf-reply-input", "Drafted for Ann, and checked.")
+        click(".overleaf-send")
+        wait_until(lambda: fake.written == [("reply", "t1", "Drafted for Ann, and checked.")], timeout=15)
+        wait_until(lambda: "sent" in text("[data-comment-id] .cmt-thread .entry-overleaf.sent"), timeout=15)
+        assert browser.execute_script('return document.querySelector(".overleaf-reply-input").value') == ""
 
         # When comments cannot be read, the page says so.
         fake.cookie = "s%3Arotated"

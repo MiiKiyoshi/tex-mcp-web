@@ -866,6 +866,24 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
   color: var(--ok);
   border-color: var(--ok);
 }
+.leaf-icon { flex-shrink: 0; vertical-align: -2px; color: var(--ok); }
+/* A thread's reply for Overleaf: the agent's draft, edited and sent by the reviewer. */
+.cmt-overleaf {
+  margin: 0.4rem 0;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--ok);
+  border-radius: 3px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.cmt-overleaf-head { display: flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; font-weight: 600; }
+.overleaf-reply-note { font-size: 0.8rem; color: var(--warn); overflow-wrap: anywhere; }
+.overleaf-reply-note:empty { display: none; }
+.cmt-form-actions .overleaf-send { display: inline-flex; align-items: center; gap: 0.25rem; }
+.thread-meta .entry-overleaf { margin-right: auto; display: inline-flex; align-items: center; gap: 0.2rem; }
+.entry-overleaf.here { color: var(--fg-dim); font-style: italic; }
 
 /* ----- compose-dialog suggestion section (collapsible) ----- */
 .compose-suggestion {

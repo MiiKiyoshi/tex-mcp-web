@@ -293,6 +293,30 @@ def _agent_entry(entry) -> dict[str, Any]:
     return written
 
 
+def _on_overleaf(watch_dir: Path) -> set[str]:
+    """The comments brought in from Overleaf threads."""
+    from . import overleaf
+
+    return {known["comment"] for known in overleaf.ledger(watch_dir).values()}
+
+
+def _range_text(watch_dir: Path, spec: str) -> dict[str, str]:
+    """What a "file:first-last" range of the source holds now."""
+    from .server import _parse_source_range
+
+    name, first, last = _parse_source_range(spec)
+    file = (watch_dir / name).resolve()
+    if not file.is_relative_to(watch_dir.resolve()):
+        raise ValueError(f"{name} is not in the paper's folder")
+    try:
+        lines = file.read_text(encoding="utf-8").split("\n")
+    except (OSError, UnicodeError) as error:
+        raise ValueError(f"{name} cannot be read") from error
+    if not 1 <= first <= last <= len(lines):
+        raise ValueError(f"{spec} is outside {name}, which has {len(lines)} lines")
+    return {"file": name, "text": "\n".join(lines[first - 1:last])}
+
+
 def _agent_comment_to_dict(comment, watch_dir: Path) -> dict[str, Any]:
     """Return only the comment information an agent can act on."""
     from .comments import AreaAnchor, SectionAnchor, SourceRangeAnchor, TextSelectionAnchor
@@ -342,6 +366,11 @@ def _agent_comment_to_dict(comment, watch_dir: Path) -> dict[str, Any]:
         payload["suggestion"] = [
             {"old": old, "new": new} for old, new in comment.suggestion.changes
         ]
+    if comment.id in _on_overleaf(watch_dir):
+        payload["on_overleaf"] = True
+    if comment.overleaf_draft is not None:
+        # The reply drafted for Overleaf, which the reviewer has not sent yet.
+        payload["overleaf_draft"] = comment.overleaf_draft.text
     if comment.stale:
         payload["stale"] = True
     return payload
@@ -598,6 +627,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                 if edge.tzinfo is None:
                     edge = edge.replace(tzinfo=timezone.utc)
             fresh, latest = [], previous
+            brought = _on_overleaf(watch_dir)
             # Open threads only. A resolved or archived one is not where a new request
             # arrives; the reviewer reopens it first, and it comes back open.
             for comment in store.list(status="open"):
@@ -614,6 +644,8 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                 told = {"id": comment.id, "rev": revision_of(comment.updated),
                         "status": comment.status,
                         "entries": [_agent_entry(entry) for entry in said]}
+                if comment.id in brought:
+                    told["on_overleaf"] = True
                 if comment.resolved_source is not None:
                     source = comment.resolved_source
                     told["source"] = f"{source.file}:{source.line_start}-{source.line_end}"
@@ -738,7 +770,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
 
     @mcp.tool(structured_output=False)
     async def write_comments(
-        action: Literal["add", "reply", "suggest", "withdraw", "edit", "delete"],
+        action: Literal["add", "reply", "suggest", "withdraw", "overleaf", "edit", "delete"],
         id: str | None = None,
         text: str | None = None,
         anchor: CommentAnchorInput | None = None,
@@ -756,7 +788,11 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         column. It replaces the thread's one live proposal and adds text as a reply, so
         the conversation stays whole, and it is refused on a thread the reviewer has not
         written in: propose on theirs rather than opening your own. withdraw: id, text,
-        rev. edit: id, entry, text, rev, rewriting an entry you wrote. delete: id,
+        rev. overleaf: id, text, rev, and edits naming the source ranges the reply
+        describes. On a thread that came from Overleaf (on_overleaf), it puts the reply the
+        reviewer may send there: a thread holds one draft, which this replaces, and only
+        the reviewer sends it, once what those ranges now hold is on Overleaf. edit: id,
+        entry, text, rev, rewriting an entry you wrote. delete: id,
         refused once the reviewer has written in the thread.
 
         rev is the thread's token from read_comments; a thread that moved on refuses the
@@ -805,6 +841,16 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                 if not id or not text or not rev:
                     return _err("withdraw requires id, text and rev")
                 return receipt(store.withdraw_suggestion(id, stamp_for(id), text))
+            if action == "overleaf":
+                if not id or not text or not rev:
+                    return _err("overleaf requires id, text and rev")
+                if id not in _on_overleaf(watch_dir):
+                    return _err("this comment did not come from Overleaf")
+                checks = [check for check in (_range_text(watch_dir, edit) for edit in edits or [])
+                          if check["text"].strip()]
+                from .comments import OverleafDraft
+
+                return receipt(store.draft_overleaf(id, stamp_for(id), OverleafDraft(text, edits or [], checks)))
             if action == "edit":
                 if not id or not entry or not text or not rev:
                     return _err("edit requires id, entry, text and rev")

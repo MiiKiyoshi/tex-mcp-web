@@ -443,6 +443,9 @@ class ThreadEntry:
     # its text was rewritten after it was written.
     id: str = field(default_factory=_new_entry_id)
     updated_at: str | None = None
+    # Set when the entry was sent to the Overleaf thread: the commit Overleaf's branch was
+    # at, or "" for a folder that does not follow Overleaf by git.
+    overleaf: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {"id": self.id, "author": self.author, "at": self.at, "text": self.text}
@@ -450,6 +453,8 @@ class ThreadEntry:
             d["edits"] = list(self.edits)
         if self.updated_at is not None:
             d["updated_at"] = self.updated_at
+        if self.overleaf is not None:
+            d["overleaf"] = self.overleaf
         return d
 
     @classmethod
@@ -461,7 +466,26 @@ class ThreadEntry:
             edits=list(d["edits"]) if "edits" in d else [],
             id=str(d["id"]) if "id" in d else _new_entry_id(),
             updated_at=str(d["updated_at"]) if "updated_at" in d else None,
+            overleaf=str(d["overleaf"]) if "overleaf" in d else None,
         )
+
+
+@dataclass
+class OverleafDraft:
+    """The reply the agent drafted for the Overleaf thread a comment came from, which the
+    reviewer edits and sends. *edits* names the source ranges it describes, and *checks* holds
+    what each range read when it was drafted: words that must be on Overleaf before it goes."""
+    text: str
+    edits: list[str] = field(default_factory=list)
+    checks: list[dict[str, str]] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"text": self.text, "edits": list(self.edits), "checks": [dict(check) for check in self.checks]}
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "OverleafDraft":
+        return cls(text=str(d["text"]), edits=list(d["edits"]),
+                   checks=[{"file": str(check["file"]), "text": str(check["text"])} for check in d["checks"]])
 
 
 @dataclass
@@ -473,6 +497,7 @@ class Comment:
     resolved_source: ResolvedSource | None = None
     source_selector: SourceSelector | None = None
     suggestion: SuggestedEdit | None = None
+    overleaf_draft: OverleafDraft | None = None
     created: str = field(default_factory=_now)
     updated: str = field(default_factory=_now)
     # When the comment was last closed; None while it is open.
@@ -504,6 +529,8 @@ class Comment:
             d["source_selector"] = self.source_selector.to_dict()
         if self.suggestion is not None:
             d["suggestion"] = self.suggestion.to_dict()
+        if self.overleaf_draft is not None:
+            d["overleaf_draft"] = self.overleaf_draft.to_dict()
         if self.stale:
             d["stale"] = True
         if self.reanchored:
@@ -530,6 +557,11 @@ class Comment:
             suggestion=(
                 SuggestedEdit.from_dict(d["suggestion"])
                 if "suggestion" in d
+                else None
+            ),
+            overleaf_draft=(
+                OverleafDraft.from_dict(d["overleaf_draft"])
+                if "overleaf_draft" in d
                 else None
             ),
             created=str(d["created"]),
@@ -1307,6 +1339,48 @@ class CommentStore:
                 now = _now()
                 comment.thread.append(ThreadEntry(author="agent", at=now, text=text.strip()))
                 comment.suggestion = suggestion
+                comment.updated = now
+                comments[position] = comment
+                self._save(comments)
+                return comment
+        raise KeyError(f"comment {comment_id!r} not found")
+
+    def draft_overleaf(
+        self, comment_id: str, expected_updated: str, draft: OverleafDraft
+    ) -> Comment:
+        """Put the agent's draft of an Overleaf reply on an open thread. A thread holds one,
+        which this replaces; it adds no entry, since nothing has been said until it is sent."""
+        if not draft.text.strip():
+            raise ValueError("a draft must not be empty")
+        with self._locked():
+            comments = self._all()
+            for position, comment in enumerate(comments):
+                if comment.id != comment_id:
+                    continue
+                if comment.updated != expected_updated:
+                    raise ValueError("stale thread: comment changed since it was read")
+                if comment.status != "open":
+                    raise ValueError("a draft belongs to a comment that is open")
+                comment.overleaf_draft = OverleafDraft(draft.text.strip(), draft.edits, draft.checks)
+                comment.updated = _now()
+                comments[position] = comment
+                self._save(comments)
+                return comment
+        raise KeyError(f"comment {comment_id!r} not found")
+
+    def sent_to_overleaf(self, comment_id: str, text: str, commit: str) -> Comment:
+        """Record the reviewer's reply as sent to Overleaf at *commit*, taking the draft it
+        came from off the thread, with the ranges that draft named."""
+        with self._locked():
+            comments = self._all()
+            for position, comment in enumerate(comments):
+                if comment.id != comment_id:
+                    continue
+                now = _now()
+                edits = comment.overleaf_draft.edits if comment.overleaf_draft is not None else []
+                comment.thread.append(ThreadEntry(author="human", at=now, text=text, edits=list(edits),
+                                                  overleaf=commit))
+                comment.overleaf_draft = None
                 comment.updated = now
                 comments[position] = comment
                 self._save(comments)

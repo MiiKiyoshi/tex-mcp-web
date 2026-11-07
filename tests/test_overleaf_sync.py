@@ -548,13 +548,9 @@ async def test_the_page_connects_a_project_and_turns_each_switch_in_the_config(p
         await wait_for(lambda: fake.sockets)            # the open page now sits in the project
         assert server.overleaf_sync is None
 
-        status = await (await client.post("/overleaf/connect", json={"sync": True, "write": True})).json()
-        assert status["sync"] is True and status["write"] is True
-        assert "overleaf_sync: true\n" in config.read_text() and "overleaf_write: true\n" in config.read_text()
+        status = await (await client.post("/overleaf/connect", json={"sync": True})).json()
+        assert status["sync"] is True and "overleaf_sync: true\n" in config.read_text()
         await wait_for(lambda: server.overleaf_sync is not None and len(server.overleaf_sync.docs) == 2)
-
-        await client.post("/overleaf/connect", json={"write": False})
-        assert "overleaf_write" not in config.read_text() and server.config.overleaf_write is False
 
         status = await (await client.post("/overleaf/connect", json={"project": None})).json()
         assert status["project"] is None and status["sync"] is False

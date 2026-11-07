@@ -163,5 +163,8 @@ async def test_the_page_pulls_pushes_and_downloads_comments_only_with_every_over
         assert now["state"] == "same" and (paper / "paper.tex").read_text() == "ONE\ntwo\nthree\n"
         # Past the gate, the comments are read from Overleaf, which is not there in this test.
         assert (await client.post("/overleaf/comments")).status == 502
+        # A git clone follows Overleaf by pull and push, never by keeping the files the same too.
+        refused = await client.post("/overleaf/connect", json={"sync": True})
+        assert refused.status == 400 and "by git" in (await refused.json())["error"]
     finally:
         await client.close()

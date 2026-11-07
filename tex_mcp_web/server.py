@@ -440,6 +440,9 @@ class TexMcpWebServer:
         self.overleaf_live: LivePresence | None = None
         self._overleaf_live_stop: asyncio.TimerHandle | None = None
         self._overleaf_live_push: asyncio.TimerHandle | None = None
+        # One look at a time at whether the session should be open: two at once would each
+        # find none open and open one.
+        self._overleaf_live_turn = asyncio.Lock()
         self._overleaf_import = asyncio.Lock()
         # One git command at a time on the paper's folder: a fetch under a merge would
         # report a state that is about to change.
@@ -679,7 +682,8 @@ class TexMcpWebServer:
                 pass
         finally:
             self.websockets.discard(ws)
-            await self._sync_overleaf_live()
+            # A handler cancelled as its page goes must still schedule the session's stop.
+            await asyncio.shield(self._sync_overleaf_live())
         return ws
 
     # ----- Overleaf: who is in the project -----
@@ -694,11 +698,18 @@ class TexMcpWebServer:
         """Keep the read-only Overleaf session open while a page is: the reviewer looking at
         the paper is the reviewer in the project. It needs the config's overleaf: and the
         reviewer's cookie; a new cookie or link starts it again."""
+        async with self._overleaf_live_turn:
+            await self._sync_overleaf_live_now(restart)
+
+    async def _sync_overleaf_live_now(self, restart: bool) -> None:
         wanted = bool(self.websockets) and bool(self.config.overleaf) and overleaf.read_cookie() is not None
+        # A folder cloned by git follows Overleaf by pull and push, never by both ways at once.
+        # Asked only while a page is open: the last page closing schedules the stop at once.
+        syncing = wanted and self.config.overleaf_sync and await self._overleaf_git_link() is None
         live = self.overleaf_live
         if live is not None and (restart or live.link != self.config.overleaf or not self.config.overleaf
                                  or overleaf.read_cookie() is None
-                                 or (live.sync is not None) != self.config.overleaf_sync):
+                                 or (wanted and (live.sync is not None) != syncing)):
             await self._stop_overleaf_live()
             live = None
         if wanted:
@@ -706,7 +717,7 @@ class TexMcpWebServer:
                 self._overleaf_live_stop.cancel()
                 self._overleaf_live_stop = None
             if live is None:
-                if self.config.overleaf_sync:
+                if syncing:
                     self.overleaf_sync = ProjectSync(self.watch_dir, self._overleaf_live_changed,
                                                      written=self._overleaf_written)
                     await self.overleaf_sync.start()
@@ -849,14 +860,14 @@ class TexMcpWebServer:
         brought = [known["comment"] for known in self._overleaf_ledger().values()]
         link = await self._overleaf_git_link()
         return {"project": self.config.overleaf, "cookie": overleaf.cookie_source(),
-                "write": self.config.overleaf_write, "sync": self.config.overleaf_sync,
+                "sync": self.config.overleaf_sync,
                 "settable": self.config.config_path is not None,
                 # The git remote the paper's folder follows Overleaf by, or None.
                 "git": link.remote if link is not None else None,
                 "waiting": self._overleaf_waiting,
-                # Every comment brought in from Overleaf, which the page may leave out of view.
-                "imported": brought,
-                "threads": brought if self.config.overleaf_write else []}
+                # Every comment brought in from Overleaf, which the page may leave out of view
+                # and offers to reply to there.
+                "imported": brought}
 
     async def _handle_overleaf(self, request: web.Request) -> web.Response:
         return web.json_response(await self._overleaf_status(), headers={"Cache-Control": "no-store"})
@@ -886,9 +897,9 @@ class TexMcpWebServer:
         return web.json_response(now)
 
     async def _handle_overleaf_connect(self, request: web.Request) -> web.Response:
-        """Name the paper's Overleaf project from the page, or forget it, and turn sending
-        replies and keeping the files the same on or off. Each is written into
-        .tex-mcp-web.yaml, so the file stays the one place that says them. A project named
+        """Name the paper's Overleaf project from the page, or forget it, and turn keeping
+        the files the same on or off. Each is written into .tex-mcp-web.yaml, so the file
+        stays the one place that says them. A project named
         here must be on overleaf.com (or this machine): the reviewer's cookie goes to it."""
         path = self.config.config_path
         if path is None:
@@ -896,20 +907,21 @@ class TexMcpWebServer:
         try:
             body = await request.json()
             if not isinstance(body, dict):
-                raise ValueError("send {project, write, sync}")
+                raise ValueError("send {project, sync}")
             changes: dict[str, Any] = {}
             if "project" in body:
                 changes["overleaf"] = _overleaf_link(body["project"]) if body["project"] else None
             project = changes["overleaf"] if "overleaf" in changes else self.config.overleaf
-            for key in ("write", "sync"):
-                if key in body:
-                    if not isinstance(body[key], bool):
-                        raise ValueError(f"{key} must be true or false")
-                    if body[key] and project is None:
-                        raise ValueError("connect a project first")
-                    changes[f"overleaf_{key}"] = body[key] or None
+            if "sync" in body:
+                if not isinstance(body["sync"], bool):
+                    raise ValueError("sync must be true or false")
+                if body["sync"] and project is None:
+                    raise ValueError("connect a project first")
+                if body["sync"] and await self._overleaf_git_link() is not None:
+                    raise ValueError("this folder follows Overleaf by git, with Pull and Push")
+                changes["overleaf_sync"] = body["sync"] or None
             if project is None:          # no project: nothing may send to one
-                changes.update(overleaf=None, overleaf_write=None, overleaf_sync=None)
+                changes.update(overleaf=None, overleaf_sync=None)
         except ValueError as error:
             return web.json_response({"error": str(error)}, status=400)
         try:
@@ -965,49 +977,71 @@ class TexMcpWebServer:
             return web.json_response({"error": str(error)}, status=502)
 
     def _overleaf_ledger(self) -> dict[str, dict[str, Any]]:
-        """What came from Overleaf, by thread: the comment here and what it has been told."""
-        try:
-            return json.loads(self._overleaf_ledger_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return {}
+        return overleaf.ledger(self.watch_dir)
 
     def _save_overleaf_ledger(self, ledger: dict[str, dict[str, Any]]) -> None:
-        self._overleaf_ledger_path.parent.mkdir(parents=True, exist_ok=True)
-        self._overleaf_ledger_path.write_text(json.dumps(ledger, indent=1), encoding="utf-8")
+        path = overleaf.ledger_path(self.watch_dir)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(ledger, indent=1), encoding="utf-8")
 
-    @property
-    def _overleaf_ledger_path(self) -> Path:
-        return self.watch_dir / ".tex-mcp-web" / "overleaf-imported.json"
+    async def _overleaf_lacks(self, checks: list[dict[str, str]]) -> tuple[str | None, str]:
+        """Whether the words a reply describes are on Overleaf: why not, or None with the
+        commit Overleaf's branch is at ("" for a folder that does not follow it by git). A
+        git clone reads Overleaf's branch afresh; otherwise only files kept the same with
+        Overleaf say what it holds."""
+        link = await self._overleaf_git_link()
+        if link is not None:
+            async with self._overleaf_git:
+                try:
+                    await overleaf_git.fetch(link)
+                    now = await overleaf_git.state(link)
+                    for check in checks:
+                        if not await overleaf_git.holds(link, now["branch"], check["file"], check["text"]):
+                            committed = await overleaf_git.holds(link, "HEAD", check["file"], check["text"])
+                            return (f"The edit to {check['file']} this reply describes is "
+                                    + ("committed but not on Overleaf. Push first." if committed
+                                       else "not committed. Commit it, then Push."), "")
+                except overleaf_git.GitError as error:
+                    return f"Overleaf's branch could not be read: {error}", ""
+            return None, now["there"]
+        for check in checks:
+            doc = next((doc for doc in self.overleaf_sync.docs.values() if doc.path == check["file"]), None) \
+                if self.overleaf_sync is not None else None
+            if doc is None or doc.status != "synced" or check["text"] not in doc.server:
+                return (f"The edit to {check['file']} this reply describes is not on Overleaf"
+                        + ("." if self.overleaf_sync is not None else ", and nothing here follows Overleaf: "
+                           "this folder is not a git clone of the project, and keeping the files the same is off."),
+                        "")
+        return None, ""
 
-    async def _send_to_overleaf(self, cid: str, *, reply: str | None = None,
-                                resolved: bool | None = None) -> web.Response | None:
-        """Send the reviewer's reply or close to Overleaf, before anything changes here, so
-        that what Overleaf does not take is not shown as said. Answers a refusal, or None.
-        Readings wait meanwhile: one begun before this would undo what it records."""
-        if not self.config.overleaf_write:
-            return web.json_response({"error": "writing to Overleaf is off; set overleaf_write: true in "
-                                               ".tex-mcp-web.yaml to turn it on"}, status=403)
+    async def _send_to_overleaf(self, cid: str, reply: str) -> tuple[web.Response | None, str]:
+        """Send the reviewer's reply to the Overleaf thread a comment came from, once the
+        words its draft describes are on Overleaf, and before anything changes here, so that
+        what Overleaf does not take is not shown as said. Answers a refusal, or None with the
+        commit Overleaf's branch was at. Readings wait meanwhile: one begun before this
+        would bring the reply in again as someone else's."""
         cookie = overleaf.read_cookie()
         if cookie is None:
-            return web.json_response({"error": "paste your Overleaf session cookie first"}, status=401)
+            return web.json_response({"error": "paste your Overleaf session cookie first"}, status=401), ""
+        comment = self.comments.get(cid)
+        checks = comment.overleaf_draft.checks if comment is not None and comment.overleaf_draft is not None else []
         async with self._overleaf_import:
             ledger = self._overleaf_ledger()
             thread = next((key for key, known in ledger.items() if known["comment"] == cid), None)
             if thread is None:
-                return web.json_response({"error": "this comment did not come from Overleaf"}, status=409)
+                return web.json_response({"error": "this comment did not come from Overleaf"}, status=409), ""
+            lacking, commit = await self._overleaf_lacks(checks)
+            if lacking is not None:
+                return web.json_response({"error": lacking}, status=409), ""
             try:
-                if reply is not None:
-                    await overleaf.post_reply(self.config.overleaf, cookie, thread, reply)
-                    ledger[thread].setdefault("sent", []).append(reply)
-                else:
-                    await overleaf.set_resolved(self.config.overleaf, cookie, thread, bool(resolved))
-                    ledger[thread]["resolved"] = bool(resolved)
+                await overleaf.post_reply(self.config.overleaf, cookie, thread, reply)
             except overleaf.SignedOut as error:
-                return web.json_response({"error": f"{error} (the cookie has expired or is wrong)"}, status=401)
+                return web.json_response({"error": f"{error} (the cookie has expired or is wrong)"}, status=401), ""
             except overleaf.OverleafError as error:
-                return web.json_response({"error": str(error)}, status=502)
+                return web.json_response({"error": str(error)}, status=502), ""
+            ledger[thread].setdefault("sent", []).append(reply)
             self._save_overleaf_ledger(ledger)
-        return None
+        return None, commit
 
     async def _bring_in_overleaf(self, data: dict[str, Any], deleted: Iterable[str] = (), *,
                                  new: bool) -> dict[str, int]:
@@ -1799,8 +1833,11 @@ class TexMcpWebServer:
         text = (data.get("text") or "").strip()
         if not text:
             return web.json_response({"error": "text is required"}, status=400)
-        if data.get("overleaf") and (refused := await self._send_to_overleaf(cid, reply=text)) is not None:
-            return refused
+        if data.get("overleaf"):
+            refused, commit = await self._send_to_overleaf(cid, text)
+            if refused is not None:
+                return refused
+            return await self._mutate_comment(cid, lambda: self.comments.sent_to_overleaf(cid, text, commit))
         return await self._mutate_comment(
             cid,
             lambda: self.comments.reply(
@@ -1817,8 +1854,6 @@ class TexMcpWebServer:
         if err is not None:
             return err
         summary = (data.get("summary") or "").strip()
-        if data.get("overleaf") and (refused := await self._send_to_overleaf(cid, resolved=True)) is not None:
-            return refused
         return await self._mutate_comment(
             cid,
             lambda: self.comments.resolve(
@@ -1835,8 +1870,6 @@ class TexMcpWebServer:
         data, err = await self._read_json(request)
         if err is not None:
             return err
-        if data.get("overleaf") and (refused := await self._send_to_overleaf(cid, resolved=False)) is not None:
-            return refused
         return await self._mutate_comment(
             cid,
             lambda: self.comments.reopen(cid, author="human"),
