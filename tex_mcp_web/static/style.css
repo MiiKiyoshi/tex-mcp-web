@@ -633,6 +633,11 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
   border-radius: 3px;
   background: var(--bg);
 }
+/* A phone's width holds the whole row once the gaps and paddings narrow. */
+@media (max-width: 560px) {
+  .filter-row { gap: 3px; }
+  .filter-row .icon-btn { padding: 4px 4px; }
+}
 .icon-btn {
   flex: none; display: inline-flex; align-items: center; gap: 4px;
   padding: 4px 6px; font-size: 12px; line-height: 1; white-space: nowrap;

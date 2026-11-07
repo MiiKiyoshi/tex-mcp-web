@@ -138,6 +138,13 @@
             <svg class="icon-hidden hidden" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 8s2.4-4.5 6.5-4.5c1.3 0 2.4.4 3.4 1M14.5 8s-2.4 4.5-6.5 4.5c-1.3 0-2.4-.4-3.4-1"/><path d="M2.5 13.5l11-11"/></svg>
             <svg class="leaf-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 13C3 7 7 3 13 3c0 6-4 10-10 10z"/><path d="M3 13l6-6"/></svg>
           </button>
+          <!-- Shown while the paper is connected to Overleaf: brings its comments here as Overleaf
+               has them, with how many new threads wait. -->
+          <button id="overleaf-sync-comments-btn" class="icon-btn" type="button" hidden aria-label="Sync comments from Overleaf" title="Sync comments from Overleaf">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 6.5A5 5 0 0 0 3.6 4.4"/><path d="M3 2v3h3"/><path d="M3 9.5a5 5 0 0 0 9.4 2.1"/><path d="M13 14v-3h-3"/></svg>
+            <svg class="leaf-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 13C3 7 7 3 13 3c0 6-4 10-10 10z"/><path d="M3 13l6-6"/></svg>
+            <span class="count"></span>
+          </button>
           <!-- Icons, with the words as title and aria-label. Each button shows the one drawing
                that fits its state; a count rides beside the drawing where the action has one.
                A button with nothing to do is greyed out, not taken away: the row keeps one shape. -->

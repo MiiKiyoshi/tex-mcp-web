@@ -36,6 +36,7 @@ const state = {
   // The cookie is kept, how many open threads on Overleaf wait to be synced, and where
   // a folder cloned by git stands against Overleaf's branch (null until read, or no git).
   overleafSignedIn: false,
+  overleafProject: null,
   overleafWaiting: 0,
   overleafGit: null,
   overleafGitRead: 0,
@@ -1077,6 +1078,7 @@ function renderOverleafStatus({ project, cookie, sync = false, settable = true, 
     renderGitButtons();
   }
   state.overleafSignedIn = Boolean(cookie);
+  state.overleafProject = project ?? null;
   state.overleafWaiting = waiting;
   if (project) {
     $("#overleaf-project").href = project;
@@ -1094,13 +1096,20 @@ function renderOverleafStatus({ project, cookie, sync = false, settable = true, 
 
 // Comments sync at the commit Overleaf is at: a thread is on words, and only the same text
 // puts it exactly where Overleaf has it.
+// Sync comments, in the dialog and atop the comment list.
 function renderOverleafThreadSync() {
   const button = $("#overleaf-thread-sync");
+  const side = $("#overleaf-sync-comments-btn");
   const waiting = state.overleafWaiting;
   button.textContent = waiting ? `Sync comments (${waiting})` : "Sync comments";
+  side.hidden = !state.overleafProject;
+  side.querySelector(".count").textContent = waiting ? String(waiting) : "";
+  const words = waiting ? `Sync comments from Overleaf (${waiting} new)` : "Sync comments from Overleaf";
+  side.title = words;
+  side.setAttribute("aria-label", words);
   // Files kept the same both ways stand in for the commit: every one in step first.
   const apart = (overleafLive.snapshot?.files ?? []).some((file) => !["synced", "unsupported"].includes(file.status));
-  button.disabled = !state.overleafSignedIn || apart
+  button.disabled = side.disabled = !state.overleafSignedIn || apart
     || (state.overleafGit !== null && state.overleafGit.state !== "same");
 }
 
@@ -1242,18 +1251,20 @@ function overleafBroughtIn(done) {
   return `Synced: ${parts.join(", ")}.`;
 }
 
-async function syncOverleafComments() {
-  showOverleafDialog("Reading Overleaf…");
-  $("#overleaf-thread-sync").disabled = true;
+// From the comment list it works quietly, and only what did not go through opens the dialog.
+async function syncOverleafComments(quiet = false) {
+  if (!quiet) showOverleafDialog("Reading Overleaf…");
+  $("#overleaf-thread-sync").disabled = $("#overleaf-sync-comments-btn").disabled = true;
   try {
     const response = await fetch("/overleaf/comments", { method: "POST" });
     if (!response.ok) {
       // A cookie Overleaf turned away is asked for again.
       if (response.status === 401) $("#overleaf-cookie-row").hidden = false;
-      showOverleafDialog(`Could not bring them in: ${await responseError(response)}`);
+      showOverleafDialog(`Could not sync them: ${await responseError(response)}`);
       return;
     }
-    showOverleafDialog(overleafBroughtIn(await response.json()));
+    const done = overleafBroughtIn(await response.json());
+    if (!quiet || $("#overleaf-dialog").open) showOverleafDialog(done);
     await refreshComments();
   } finally {
     await loadOverleafStatus();
@@ -2214,6 +2225,9 @@ async function refreshComments() {
   state.overleafImported = new Set(linked.imported ?? []);
   state.overleafUnplaced = linked.unplaced ?? {};
   state.overleafSignedIn = Boolean(linked.cookie);
+  state.overleafProject = linked.project ?? null;
+  state.overleafWaiting = linked.waiting ?? 0;
+  renderOverleafThreadSync();
   // Hidden comments are left out here, once, so the list, the editor's marks, the PDF's
   // highlights and the count all agree without each asking.
   const shown = state.showOverleafComments ? data.comments
@@ -3560,6 +3574,7 @@ function attachSidebarToggle() {
   });
   $("#overleaf-cookie-forget").addEventListener("click", () => forgetOverleafCookie().catch(overleafFailed));
   $("#overleaf-thread-sync").addEventListener("click", () => syncOverleafComments().catch(overleafFailed));
+  $("#overleaf-sync-comments-btn").addEventListener("click", () => syncOverleafComments(true).catch(overleafFailed));
   $("#git-pull-btn").addEventListener("click", () => overleafGitAction("pull").catch(overleafFailed));
   $("#git-push-btn").addEventListener("click", () => overleafGitAction("push").catch(overleafFailed));
   window.addEventListener("focus", () => {

@@ -2209,14 +2209,16 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
         fake.ranges.append({"id": "c1", "op": {"c": "documentclass", "p": 1, "t": "t1"}})
         push(event("new-comment", "t1", {}))
         wait_until(lambda: text("#overleaf-thread-sync") == "Sync comments (1)", timeout=15)
+        assert text("#overleaf-sync-comments-btn .count") == "1"
         assert not browser.execute_script('return document.body.textContent.includes("Came in when asked.")')
+        # The button atop the comment list syncs them in place, with no dialog.
         click = lambda selector: browser.execute_script(f'document.querySelector("{selector}").click()')
-        click("#overleaf-import-btn")
-        wait_until(lambda: not browser.execute_script('return document.querySelector("#overleaf-thread-sync").disabled'))
-        click("#overleaf-thread-sync")
+        wait_until(lambda: not browser.execute_script('return document.querySelector("#overleaf-sync-comments-btn").disabled'))
+        click("#overleaf-sync-comments-btn")
         wait_until(lambda: browser.execute_script(
             'return document.body.textContent.includes("Came in when asked.")'), timeout=15)
-        browser.execute_script('document.querySelector("#overleaf-dialog").close()')
+        assert browser.execute_script('return document.querySelector("#overleaf-dialog").open') is False
+        assert text("#overleaf-sync-comments-btn .count") == ""
 
         # The agent's draft waits under the thread, even folded; a plain reply stays here.
         from tex_mcp_web.comments import CommentStore, OverleafDraft
