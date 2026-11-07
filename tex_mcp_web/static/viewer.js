@@ -1074,11 +1074,11 @@ function renderOverleafStatus({ project, cookie, sync = false, live = false, set
     box.disabled = !settable;
   }
   $("#overleaf-mode-hand-note").textContent = git
-    ? "Files change only when you press Pull or Push, which show in the top bar when there are commits to move. Overleaf gets nothing until you push."
-    : "Nothing changes the files: this folder is not a git clone of the project. Comments from Overleaf and who is there still show here.";
+    ? "Files change only when you press Pull or Push, which show in the top bar when there are commits to move. Overleaf gets nothing until you push. A new comment thread on Overleaf comes in when you press Sync comments."
+    : "Nothing changes the files: this folder is not a git clone of the project. Who is on Overleaf still shows here, and a new comment thread there comes in when you press Sync comments.";
   $("#overleaf-mode-live-note").textContent = git
-    ? "While this review page is open, text files change both ways within a second. Pull and Push still move commits, figures and other files."
-    : "While this review page is open, text files change both ways within a second. Figures and other uploaded files are not copied: a git clone of the project brings those.";
+    ? "While this review page is open, text files such as .tex change both ways within a second, and a new comment thread on Overleaf comes in by itself. Figures and other uploaded files go by git: one you commit here goes with Push, and one added on Overleaf comes in by itself, or with Pull when the top bar shows it."
+    : "While this review page is open, text files such as .tex change both ways within a second, and a new comment thread on Overleaf comes in by itself. Figures and other uploaded files are not copied: a git clone of the project brings those.";
   $("#overleaf-direct").hidden = !project;
   $("#overleaf-git").hidden = !git;
   if (!git) {
@@ -1212,8 +1212,8 @@ function readOverleafGitSoon(delay) {
 const OVERLEAF_SYNC_QUESTION = "The paper's files and the Overleaf project will be kept the same both ways while a "
   + "page is open: edits here are sent to Overleaf, and edits there are written into the files. "
   + "A file that differs at the start waits for your choice. New comment threads on Overleaf come in "
-  + "by themselves whenever every file is the same. In a folder cloned by git, Pull and Push go on "
-  + "for the commits and for files such as figures, and take these files' text as Overleaf has it. Turn this on?";
+  + "by themselves whenever every file is the same. In a folder cloned by git, figures and other "
+  + "uploaded files go by Pull and Push as before, and those never put older text over Overleaf's. Turn this on?";
 
 async function connectOverleaf(change, done) {
   const response = await fetch("/overleaf/connect", {

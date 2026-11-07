@@ -2000,7 +2000,8 @@ def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path
         # says Pull and Push move the commits.
         assert shown("#overleaf-mode")
         assert browser.execute_script('return document.querySelector(\'#overleaf-mode input[value="hand"]\').checked') is True
-        assert "Pull or Push" in browser.execute_script('return document.querySelector("#overleaf-mode-hand-note").textContent')
+        hand_note = browser.execute_script('return document.querySelector("#overleaf-mode-hand-note").textContent')
+        assert "Pull or Push" in hand_note and "press Sync comments" in hand_note
 
         field = browser.find_element("css selector", "#overleaf-cookie")
         field.send_keys(cookie)
@@ -2053,8 +2054,8 @@ def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path
         choose("live")
         wait_until(lambda: status() == "The files now follow Overleaf live.")
         assert "overleaf_sync: true" in config_path.read_text(encoding="utf-8")
-        assert "Pull and Push still move" in browser.execute_script(
-            'return document.querySelector("#overleaf-mode-live-note").textContent')
+        live_note = browser.execute_script('return document.querySelector("#overleaf-mode-live-note").textContent')
+        assert "comes in by itself" in live_note and "goes with Push" in live_note
         choose("hand")
         wait_until(lambda: status() == "The files now follow Overleaf by hand.")
         assert "overleaf_sync" not in config_path.read_text(encoding="utf-8")
