@@ -4063,7 +4063,35 @@ function attachWorkspaceLayout() {
   applyLayout();
 }
 
+// An iPhone zooms the page into a field whose text is under 16px the moment it takes the
+// cursor, and leaves it zoomed. A viewport that may not grow past 1, from a finger landing
+// on a field until just after it has the cursor, keeps that from happening, and pinching
+// zooms the page as before at any other moment. A page already zoomed in is left as it is.
+function holdZoomOnFields() {
+  const agent = navigator.userAgent;
+  if (!/iP(hone|ad|od)/.test(agent) && !(/Macintosh/.test(agent) && navigator.maxTouchPoints > 1)) return;
+  const viewport = document.querySelector('meta[name="viewport"]');
+  const free = viewport.content;
+  let timer = 0;
+  const release = (after) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => { viewport.content = free; }, after);
+  };
+  document.addEventListener("touchstart", (event) => {
+    if (event.touches.length === 1 && event.target.closest?.("textarea, input, select")
+      && (window.visualViewport?.scale ?? 1) < 1.01) {
+      clearTimeout(timer);
+      viewport.content = `${free}, maximum-scale=1`;
+    } else {
+      release(0);
+    }
+  }, { capture: true, passive: true });
+  document.addEventListener("touchend", () => release(500), { capture: true, passive: true });
+  document.addEventListener("focusin", () => release(500), true);
+}
+
 async function init() {
+  holdZoomOnFields();
   attachKeyboardNavigation();
   attachSidebarToggle();
   attachSidebarResize();

@@ -493,12 +493,12 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
   .source-toolbar select { width: 100%; min-width: 0; max-width: none; height: 24px; padding: 0 0.2rem; }
 }
 
-/* A phone zooms the whole page into a field smaller than 16px the moment it takes the
-   cursor: writing a comment or a suggested wording left the page zoomed, the source
-   editor's hidden input among them. At 16px nothing zooms, and the text is easier to
-   read as it is typed. */
+/* An iPhone zooms the whole page into a field smaller than 16px the moment it takes the
+   cursor. The fields keep the size of the text around them, held from zooming as a finger
+   lands on one (holdZoomOnFields in viewer.js). The source editor takes the cursor in a
+   hidden input the finger never lands on, which is 16px instead: it shows nothing. */
 @media (pointer: coarse) {
-  textarea, select, input {
+  .ace_text-input {
     font-size: 16px !important;
   }
 }
