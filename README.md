@@ -106,11 +106,11 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
 - When the paper's folder is a git clone of the project (a remote whose address ends in
   the project's id, as `https://git.overleaf.com/<id>` does), opening Settings fetches
   Overleaf's branch and says where the folder stands: at Overleaf's commit, with commits
-  Overleaf lacks, lacking commits Overleaf has, or both. **Pull** takes Overleaf's commits
-  in, as a fast-forward or as a merge git makes without conflicts, and changes nothing when
-  the merge would conflict or write over a change not committed. **Push** sends the
-  folder's commits, never forced, and leaves changes not committed where they are. A token
-  in the remote's address never reaches the page.
+  Overleaf lacks, lacking commits Overleaf has, or both. **git pull** in the top bar takes
+  Overleaf's commits in, as a fast-forward or as a merge git makes without conflicts, and
+  changes nothing when the merge would conflict or write over a change not committed.
+  **git push** sends the folder's commits, never forced, and leaves changes not committed
+  where they are. A token in the remote's address never reaches the page.
 - Comments from Overleaf are kept as Overleaf has them. The sync button with the leaf
   above the comments brings its open threads in as comments on the words they were
   written about, with their replies. In a git clone it waits until the folder is at
@@ -151,10 +151,10 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   whether it went to Overleaf or stayed here. A draft naming the source ranges it
   describes goes only once Overleaf has what those ranges held, read from the files when
   they follow Overleaf live and from Overleaf's branch in a git clone otherwise, and the
-  refusal says whether to commit or to push first. Overleaf takes the reply first, so what
+  refusal says whether to commit or to git push first. Overleaf takes the reply first, so what
   it refuses is not shown as said here.
 - Settings chooses how the files follow Overleaf. **By hand**, the default, changes them
-  only when you ask: by Pull and Push in a git clone, and not at all otherwise. **Live**
+  only when you ask: by git pull and git push in a git clone, and not at all otherwise. **Live**
   (`overleaf_sync: true`) keeps the paper's files and the project's the same both ways
   while a page is open: an edit on Overleaf is written into the file within a second,
   and what changes in a file here, from the page, an editor or the agent, is sent as the
@@ -170,15 +170,16 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   some other way, agrees with it. Only Overleaf's older kind of document
   (`sharejs-text-ot`) is followed, and only text documents: figures and other uploaded
   files, and files added, renamed or deleted on Overleaf, come by git.
-- In a git clone, Pull and Push go on beside Live. The files Live keeps hold Overleaf's
-  text already when its commit arrives, so a pull takes them as they are and brings in
-  the rest, such as a figure added on Overleaf, and reading Overleaf's branch takes its
-  commits in by itself when it only moves forward. Push first merges Overleaf's commits,
-  keeping Overleaf's text for those files and the folder's own changes to the others, so
-  it sends figures and new files and never older text, and a commit that holds other text
-  for one of those files is not pushed. A file edited since Overleaf's commit was read
-  stops a pull until the next read, and while a file waits for a choice, Pull and Push wait
-  too. Live needs the paper's folder to be the top of the clone, where Overleaf's files are.
+- In a git clone, git pull and git push go on beside Live. The files Live keeps hold
+  Overleaf's text already when its commit arrives, so a git pull takes them as they are
+  and brings in the rest, such as a figure added on Overleaf, and reading Overleaf's
+  branch takes its commits in by itself when it only moves forward. git push first merges
+  Overleaf's commits, keeping Overleaf's text for those files and the folder's own changes
+  to the others, so it sends figures and new files and never older text, and a commit that
+  holds other text for one of those files is not pushed. A file edited since Overleaf's
+  commit was read stops a git pull until the next read, and while a file waits for a
+  choice, git pull and git push wait too. Live needs the paper's folder to be the top of
+  the clone, where Overleaf's files are.
 
 ## Suggested edits
 
@@ -257,7 +258,7 @@ overleaf: https://www.overleaf.com/project/0123456789abcdef01234567
 | `references` | Folder holding only the papers yours builds on, converted to Markdown, relative to this file or absolute. Unset means no list of their terms. |
 | `translation` | `language` puts a button for that language beside **+ Note**: it shows each paragraph of the source translated by `claude -p`, with those on the current page marked. `instructions` adds rules for the translator, one per line. A paragraph is translated once per text, and of a figure or table only the caption is. Unset means no translation. |
 | `overleaf` | The paper's Overleaf project, by its link, which an open page follows and the sync button reads. Unset means none. |
-| `overleaf_sync` | `true` is **Live** in Settings: it keeps the paper's files and that project's the same both ways while a page is open, and brings new threads in by themselves. Unset is **By hand**: files change only by Pull and Push, and no edit is sent. |
+| `overleaf_sync` | `true` is **Live** in Settings: it keeps the paper's files and that project's the same both ways while a page is open, and brings new threads in by themselves. Unset is **By hand**: files change only by git pull and git push, and no edit is sent. |
 
 ## See also
 

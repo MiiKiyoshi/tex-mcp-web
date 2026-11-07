@@ -178,7 +178,7 @@ async def _take(link: Link, target: str, followed: Collection[str]) -> None:
         else:
             later.append(path)
     if later:
-        raise GitError(f"{', '.join(later)} changed after Overleaf's commit was read. Pull again in a moment.")
+        raise GitError(f"{', '.join(later)} changed after Overleaf's commit was read. Press git pull again in a moment.")
     if not taken:
         await _git(link.folder, "merge", "--ff-only", "--quiet", target)
         return
@@ -314,12 +314,12 @@ async def push(link: Link, followed: Collection[str] | None = None) -> dict:
         if attempt and now["state"] == "same":      # the first push went through after all
             break
         if now["state"] in ("behind", "diverged"):
-            raise GitError("Overleaf has commits this folder lacks. Pull first.")
+            raise GitError("Overleaf has commits this folder lacks. Press git pull first.")
         if now["state"] == "same":
             raise GitError("this folder has no commit Overleaf lacks")
         if followed is not None and (older := await _not_overleafs(link, now["branch"], followed)):
             raise GitError(f"The commits hold text for {', '.join(older)} that is not Overleaf's now. "
-                           "Commit those files as they are, then push.")
+                           "Commit those files as they are, then press git push.")
         code, _ = await _git(link.folder, "push", "--quiet", link.remote,
                              f"HEAD:{now['branch'].removeprefix(link.remote + '/')}", check=attempt > 0 or followed is None)
         if code == 0:

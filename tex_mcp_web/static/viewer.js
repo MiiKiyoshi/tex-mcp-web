@@ -1076,11 +1076,11 @@ function renderOverleafStatus({ project, cookie, sync = false, live = false, set
   // The sync button atop the comment list shows only its drawing, so the note shows it too.
   const syncDrawing = [...$("#overleaf-sync-comments-btn").querySelectorAll("svg")].map((svg) => svg.cloneNode(true));
   $("#overleaf-mode-hand-note").replaceChildren(git
-    ? "Files change only when you press Pull or Push, which show in the top bar when there are commits to move. Overleaf gets nothing until you push. A new comment thread on Overleaf comes in when you press "
+    ? "Files change only when you press git pull or git push, which show in the top bar when there are commits to move. Overleaf gets nothing until you git push. A new comment thread on Overleaf comes in when you press "
     : "Nothing changes the files: this folder is not a git clone of the project. Who is on Overleaf still shows here, and a new comment thread there comes in when you press ",
   ...syncDrawing, " atop the comments.");
   $("#overleaf-mode-live-note").textContent = git
-    ? "While this review page is open, text files such as .tex change both ways within a second, and a new comment thread on Overleaf comes in by itself. Figures and other uploaded files go by git: one you commit here goes with Push, and one added on Overleaf comes in by itself, or with Pull when the top bar shows it."
+    ? "While this review page is open, text files such as .tex change both ways within a second, and a new comment thread on Overleaf comes in by itself. Figures and other uploaded files go by git: one you commit here goes with git push, and one added on Overleaf comes in by itself, or with git pull when the top bar shows it."
     : "While this review page is open, text files such as .tex change both ways within a second, and a new comment thread on Overleaf comes in by itself. Figures and other uploaded files are not copied: a git clone of the project brings those.";
   $("#overleaf-direct").hidden = !project;
   $("#overleaf-git").hidden = !git;
@@ -1147,13 +1147,13 @@ function renderOverleafGit(now) {
   const then = state.overleafFullSync ? "" : ", and comments sync after that";
   $("#overleaf-git-state").textContent = {
     same: `This folder is at Overleaf's commit (${now.there}).`,
-    ahead: `This folder has ${commits(now.ahead)} Overleaf lacks. Push in the top bar sends them${then}.`,
-    behind: `Overleaf has ${commits(now.behind)} this folder lacks. Pull in the top bar brings them in${then}.`,
+    ahead: `This folder has ${commits(now.ahead)} Overleaf lacks. git push in the top bar sends them${then}.`,
+    behind: `Overleaf has ${commits(now.behind)} this folder lacks. git pull in the top bar brings them in${then}.`,
     diverged: `Overleaf and this folder each have commits the other lacks (${now.ahead} here, ${now.behind} on Overleaf). `
-      + `Pull in the top bar merges them, Push sends the result${then}.`,
+      + `git pull in the top bar merges them, git push sends the result${then}.`,
   }[now.state];
   $("#overleaf-git-uncommitted").hidden = !now.uncommitted.length;
-  $("#overleaf-git-uncommitted").textContent = `Not committed, so not pushed: ${now.uncommitted.join(", ")}`;
+  $("#overleaf-git-uncommitted").textContent = `Not committed, so git push does not send them: ${now.uncommitted.join(", ")}`;
   renderGitButtons();
   renderOverleafThreadSync();
 }
@@ -1169,23 +1169,23 @@ function renderGitButtons() {
   if (!now) return;
   pull.querySelector(".git-count").textContent = now.behind ? String(now.behind) : "";
   push.querySelector(".git-count").textContent = now.ahead ? String(now.ahead) : "";
-  pull.title = `Pull ${commits(now.behind)} from Overleaf`;
-  push.title = `Push ${commits(now.ahead)} to Overleaf`;
+  pull.title = `git pull ${commits(now.behind)} from Overleaf`;
+  push.title = `git push ${commits(now.ahead)} to Overleaf`;
 }
 
 // Reading Overleaf's branch, or pulling from it or pushing to it, as the reviewer asked.
 // A pull or push that does not go through says why in Settings.
 async function overleafGitAction(action) {
-  if (action === "push" && !confirm(`Push ${commits(state.overleafGit?.ahead ?? 0)} to Overleaf, `
+  if (action === "push" && !confirm(`git push ${commits(state.overleafGit?.ahead ?? 0)} to Overleaf, `
     + "for everyone in the project?")) return;
   for (const id of ["#git-pull-btn", "#git-push-btn", "#overleaf-sync-comments-btn"]) $(id).disabled = true;
-  if (action !== "fetch") $("#overleaf-git-state").textContent = action === "pull" ? "Pulling from Overleaf…" : "Pushing to Overleaf…";
+  if (action !== "fetch") $("#overleaf-git-state").textContent = action === "pull" ? "Running git pull from Overleaf…" : "Running git push to Overleaf…";
   state.overleafGitRead = Date.now();
   const response = await fetch(`/overleaf/git/${action}`, { method: "POST" });
   if (response.ok) {
     renderOverleafGit(await response.json());
     if (action !== "fetch" && $("#settings-dialog").open) {
-      $("#overleaf-status").textContent = action === "pull" ? "Pulled." : "Pushed.";
+      $("#overleaf-status").textContent = action === "pull" ? "git pull done." : "git push done.";
     }
     return;
   }
@@ -1214,7 +1214,7 @@ const OVERLEAF_SYNC_QUESTION = "The paper's files and the Overleaf project will 
   + "page is open: edits here are sent to Overleaf, and edits there are written into the files. "
   + "A file that differs at the start waits for your choice. New comment threads on Overleaf come in "
   + "by themselves whenever every file is the same. In a folder cloned by git, figures and other "
-  + "uploaded files go by Pull and Push as before, and those never put older text over Overleaf's. Turn this on?";
+  + "uploaded files go by git pull and git push as before, and those never put older text over Overleaf's. Turn this on?";
 
 async function connectOverleaf(change, done) {
   const response = await fetch("/overleaf/connect", {

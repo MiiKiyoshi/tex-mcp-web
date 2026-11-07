@@ -120,7 +120,7 @@ async def test_push_sends_commits_only_when_overleaf_has_nothing_this_lacks(side
     git(coauthor, "push", "-q", "origin", "HEAD:main")
     (paper / "paper.tex").write_text("one\ntwo\nthree!\n", encoding="utf-8")
     commit(paper, "notes.tex", "here\n", "here again")
-    with pytest.raises(overleaf_git.GitError, match="Pull first"):
+    with pytest.raises(overleaf_git.GitError, match="git pull first"):
         await overleaf_git.push(link)
 
 
@@ -374,9 +374,9 @@ async def test_the_page_pulls_pushes_and_downloads_comments_only_with_every_over
         assert (now["state"], now["behind"]) == ("behind", 1)
         # Words Overleaf has and this folder lacks are nowhere to put a thread.
         refused = await client.post("/overleaf/comments")
-        assert refused.status == 409 and "Pull first" in (await refused.json())["error"]
+        assert refused.status == 409 and "git pull first" in (await refused.json())["error"]
         refused = await client.post("/overleaf/git/push")
-        assert refused.status == 409 and "Pull first" in (await refused.json())["error"]
+        assert refused.status == 409 and "git pull first" in (await refused.json())["error"]
         now = await (await client.post("/overleaf/git/pull")).json()
         assert now["state"] == "same" and (paper / "paper.tex").read_text() == "ONE\ntwo\nthree\n"
         # Past the gate, the comments are read from Overleaf, which is not there in this test.

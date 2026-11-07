@@ -2001,7 +2001,7 @@ def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path
         assert shown("#overleaf-mode")
         assert browser.execute_script('return document.querySelector(\'#overleaf-mode input[value="hand"]\').checked') is True
         hand_note = browser.execute_script('return document.querySelector("#overleaf-mode-hand-note").textContent')
-        assert "Pull or Push" in hand_note and "atop the comments" in hand_note
+        assert "git pull or git push" in hand_note and "atop the comments" in hand_note
         # The note shows the sync button's drawing, the only thing that button shows.
         assert browser.execute_script('return document.querySelectorAll("#overleaf-mode-hand-note svg").length') == 2
 
@@ -2024,10 +2024,10 @@ def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path
         hidden = lambda selector: browser.execute_script(f'return document.querySelector("{selector}").hidden')
         wait_until(lambda: said().startswith("Overleaf has 1 commit this folder lacks"))
         assert disabled("#overleaf-sync-comments-btn") and hidden("#git-push-btn") and not hidden("#git-pull-btn")
-        assert text("#git-pull-btn") == "Pull1"
+        assert text("#git-pull-btn") == "git pull1"
         browser.execute_script('document.querySelector("#git-pull-btn").click()')
         wait_until(lambda: said().startswith("This folder is at Overleaf's commit"))
-        assert (paper / "notes.tex").exists() and status() == "Pulled."
+        assert (paper / "notes.tex").exists() and status() == "git pull done."
         assert not disabled("#overleaf-sync-comments-btn") and hidden("#git-pull-btn") and hidden("#git-push-btn")
 
         browser.execute_script('document.querySelector("#overleaf-sync-comments-btn").click()')
@@ -2042,12 +2042,12 @@ def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path
         browser.execute_script('document.querySelector("#settings-dialog").close()')
         browser.execute_script('document.querySelector("#settings-btn").click()')
         wait_until(lambda: said().startswith("This folder has 1 commit Overleaf lacks"))
-        assert not hidden("#git-push-btn") and text("#git-push-btn") == "Push1"
+        assert not hidden("#git-push-btn") and text("#git-push-btn") == "git push1"
         browser.execute_script("(window.wrappedJSObject || window).confirm = () => true;", sandbox=None)
         browser.execute_script('document.querySelector("#git-push-btn").click()')
         wait_until(lambda: said().startswith("This folder is at Overleaf's commit"))
         assert hidden("#git-push-btn")
-        assert status() == "Pushed."
+        assert status() == "git push done."
 
         # Live may be chosen here too, asked once, and By hand chosen back: each is kept in
         # the config.
@@ -2057,7 +2057,7 @@ def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path
         wait_until(lambda: status() == "The files now follow Overleaf live.")
         assert "overleaf_sync: true" in config_path.read_text(encoding="utf-8")
         live_note = browser.execute_script('return document.querySelector("#overleaf-mode-live-note").textContent')
-        assert "comes in by itself" in live_note and "goes with Push" in live_note
+        assert "comes in by itself" in live_note and "goes with git push" in live_note
         choose("hand")
         wait_until(lambda: status() == "The files now follow Overleaf by hand.")
         assert "overleaf_sync" not in config_path.read_text(encoding="utf-8")

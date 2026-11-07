@@ -631,8 +631,8 @@ async def test_the_agents_draft_is_sent_by_the_reviewer_once_its_edit_is_on_over
     (tmp_path / "main.tex").write_text(MAIN.replace("Hi there.", "Hello there."))
     server.comments.draft_overleaf(comment.id, server.comments.get(comment.id).updated, OverleafDraft(
         "Reworded it.", ["main.tex:3-3"], [{"file": "main.tex", "text": "Hello there."}]))
-    for said_back, then in (("not committed. Commit it, then Push.", ("commit", "-q", "-am", "reworded")),
-                            ("committed but not on Overleaf. Push first.", ("push", "-q", "overleaf", "main"))):
+    for said_back, then in (("not committed. Commit it, then press git push.", ("commit", "-q", "-am", "reworded")),
+                            ("committed but not on Overleaf. Press git push first.", ("push", "-q", "overleaf", "main"))):
         response = await client.post(f"/comments/{comment.id}/reply", json={"text": "Reworded it, see L3.", "overleaf": True})
         assert response.status == 409 and (await response.json())["error"].endswith(said_back)
         run(*then)

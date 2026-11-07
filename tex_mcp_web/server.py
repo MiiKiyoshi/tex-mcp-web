@@ -1035,9 +1035,9 @@ class TexMcpWebServer:
             if now["state"] != "same":
                 count = now["behind"] or now["ahead"]
                 commits = f"{count} commit{'' if count == 1 else 's'}"
-                return web.json_response({"error": f"Overleaf has {commits} this folder lacks. Pull first."
+                return web.json_response({"error": f"Overleaf has {commits} this folder lacks. Press git pull first."
                                           if now["behind"] else f"This folder has {commits} Overleaf lacks. "
-                                          "Push first, so the comments sit on the text Overleaf has."}, status=409)
+                                          "Press git push first, so the comments sit on the text Overleaf has."}, status=409)
         elif self.overleaf_sync is not None:
             # Files kept the same both ways stand in for the commit: every one in step first.
             apart = self._overleaf_apart()
@@ -1076,8 +1076,8 @@ class TexMcpWebServer:
                         if not await overleaf_git.holds(link, now["branch"], check["file"], check["text"]):
                             committed = await overleaf_git.holds(link, "HEAD", check["file"], check["text"])
                             return (f"The edit to {check['file']} this reply describes is "
-                                    + ("committed but not on Overleaf. Push first." if committed
-                                       else "not committed. Commit it, then Push."), "")
+                                    + ("committed but not on Overleaf. Press git push first." if committed
+                                       else "not committed. Commit it, then press git push."), "")
                 except overleaf_git.GitError as error:
                     return f"Overleaf's branch could not be read: {error}", ""
             return None, now["there"]
