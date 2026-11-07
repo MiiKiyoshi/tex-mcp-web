@@ -200,6 +200,7 @@ textarea {
 .overleaf-mode legend { padding: 0 0.25rem; font-size: 0.85rem; }
 .overleaf-mode label { display: flex; align-items: baseline; gap: 0.4rem; }
 .overleaf-mode-note { color: var(--fg-dim); font-size: 0.85em; }
+.overleaf-mode-note svg { width: 1.15em; height: 1.15em; vertical-align: -0.25em; }
 .overleaf-direct[hidden], .overleaf-cookie[hidden], .overleaf-signed[hidden], .overleaf-unset[hidden] { display: none; }
 .overleaf-direct p, .overleaf-unset { margin: 0; overflow-wrap: anywhere; }
 .overleaf-cookie { display: flex; gap: 0.4rem; }
@@ -209,10 +210,6 @@ textarea {
 .overleaf-help summary { cursor: pointer; color: var(--accent); }
 .overleaf-help p { margin: 0.3rem 0 0; line-height: 1.5; }
 .overleaf-signed { font-size: 0.9rem; }
-.overleaf-thread-row:has(> [hidden]) { display: none; }
-.overleaf-thread-sync { display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.35rem 0.7rem; border: 1px solid var(--border); border-radius: 3px; background: var(--bg); color: inherit; }
-.overleaf-thread-sync[hidden] { display: none; }
-.overleaf-thread-sync:disabled { opacity: 0.55; cursor: default; }
 #overleaf-git, #overleaf-live { padding-top: 0.5rem; border-top: 1px solid var(--border); }
 #overleaf-git p { margin: 0; overflow-wrap: anywhere; }
 .topbar .git-btn { display: inline-flex; align-items: center; gap: 0.25rem; }

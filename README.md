@@ -98,8 +98,7 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   writes it into `.tex-mcp-web.yaml` as `overleaf:`. **Disconnect** there takes it out. A
   project on another Overleaf server is named in the file by hand. Once connected,
   Settings holds everything Overleaf: the cookie, how the files follow Overleaf (below),
-  who is in the project, where the folder stands against Overleaf's git branch, and
-  **Sync comments** unless the files follow Overleaf live.
+  who is in the project, and where the folder stands against Overleaf's git branch.
 - Overleaf is read with your Overleaf session cookie (`overleaf_session2`, copied once
   from the browser's developer tools). The cookie is kept in
   `~/.config/tex-mcp-web/overleaf-cookie`, readable by you alone, or given by
@@ -112,10 +111,11 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   the merge would conflict or write over a change not committed. **Push** sends the
   folder's commits, never forced, and leaves changes not committed where they are. A token
   in the remote's address never reaches the page.
-- Comments from Overleaf are kept as Overleaf has them. **Sync comments** brings its open
-  threads in as comments on the words they were written about, with their replies. In a
-  git clone it waits until the folder is at Overleaf's commit, since a thread is on words.
-  With the files following Overleaf live there is no **Sync comments**: a new thread comes
+- Comments from Overleaf are kept as Overleaf has them. The sync button with the leaf
+  above the comments brings its open threads in as comments on the words they were
+  written about, with their replies. In a git clone it waits until the folder is at
+  Overleaf's commit, since a thread is on words.
+  With the files following Overleaf live there is no sync button: a new thread comes
   in by itself whenever every file is in step.
   A file whose text has the hash of Overleaf's text holds the same text, and there each
   comment sits exactly where Overleaf has it and moves when Overleaf moves it. In a file
@@ -138,7 +138,7 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   The page sends Overleaf no edit unless the files follow it live (below). It opens the main
   file and puts one cursor at its top, which is what makes the others' editors send their
   cursors at once, so to them it is one more of your tabs, idle.
-- While a page is open that way, a new thread on Overleaf is counted on **Sync comments**
+- While a page is open that way, a new thread on Overleaf is counted on the sync button
   within seconds, or comes in by itself when the files follow Overleaf live, and threads
   already here follow theirs by themselves.
 - A thread from Overleaf has a box under it for a reply on Overleaf, which everyone in the
@@ -256,7 +256,7 @@ overleaf: https://www.overleaf.com/project/0123456789abcdef01234567
 | `port` | This paper's review page port. Any free port works. Init picks the first free one from 8765, so each paper can have its own. |
 | `references` | Folder holding only the papers yours builds on, converted to Markdown, relative to this file or absolute. Unset means no list of their terms. |
 | `translation` | `language` puts a button for that language beside **+ Note**: it shows each paragraph of the source translated by `claude -p`, with those on the current page marked. `instructions` adds rules for the translator, one per line. A paragraph is translated once per text, and of a figure or table only the caption is. Unset means no translation. |
-| `overleaf` | The paper's Overleaf project, by its link, which an open page follows and **Sync comments** reads. Unset means none. |
+| `overleaf` | The paper's Overleaf project, by its link, which an open page follows and the sync button reads. Unset means none. |
 | `overleaf_sync` | `true` is **Live** in Settings: it keeps the paper's files and that project's the same both ways while a page is open, and brings new threads in by themselves. Unset is **By hand**: files change only by Pull and Push, and no edit is sent. |
 
 ## See also

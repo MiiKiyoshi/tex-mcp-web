@@ -1073,9 +1073,12 @@ function renderOverleafStatus({ project, cookie, sync = false, live = false, set
     box.checked = box.value === (sync ? "live" : "hand");
     box.disabled = !settable;
   }
-  $("#overleaf-mode-hand-note").textContent = git
-    ? "Files change only when you press Pull or Push, which show in the top bar when there are commits to move. Overleaf gets nothing until you push. A new comment thread on Overleaf comes in when you press Sync comments."
-    : "Nothing changes the files: this folder is not a git clone of the project. Who is on Overleaf still shows here, and a new comment thread there comes in when you press Sync comments.";
+  // The sync button atop the comment list shows only its drawing, so the note shows it too.
+  const syncDrawing = [...$("#overleaf-sync-comments-btn").querySelectorAll("svg")].map((svg) => svg.cloneNode(true));
+  $("#overleaf-mode-hand-note").replaceChildren(git
+    ? "Files change only when you press Pull or Push, which show in the top bar when there are commits to move. Overleaf gets nothing until you push. A new comment thread on Overleaf comes in when you press "
+    : "Nothing changes the files: this folder is not a git clone of the project. Who is on Overleaf still shows here, and a new comment thread there comes in when you press ",
+  ...syncDrawing, " atop the comments.");
   $("#overleaf-mode-live-note").textContent = git
     ? "While this review page is open, text files such as .tex change both ways within a second, and a new comment thread on Overleaf comes in by itself. Figures and other uploaded files go by git: one you commit here goes with Push, and one added on Overleaf comes in by itself, or with Pull when the top bar shows it."
     : "While this review page is open, text files such as .tex change both ways within a second, and a new comment thread on Overleaf comes in by itself. Figures and other uploaded files are not copied: a git clone of the project brings those.";
@@ -1106,19 +1109,17 @@ function renderOverleafStatus({ project, cookie, sync = false, live = false, set
 
 // Comments sync at the commit Overleaf is at: a thread is on words, and only the same text
 // puts it exactly where Overleaf has it.
-// Sync comments, in the dialog and atop the comment list.
+// Sync comments, atop the comment list.
 function renderOverleafThreadSync() {
-  const button = $("#overleaf-thread-sync");
   const side = $("#overleaf-sync-comments-btn");
   const waiting = state.overleafWaiting;
-  button.querySelector(".label").textContent = waiting ? `Sync comments (${waiting})` : "Sync comments";
   // Files kept the same both ways bring new threads in by themselves: nothing to press.
-  button.hidden = side.hidden = !state.overleafProject || state.overleafFullSync;
+  side.hidden = !state.overleafProject || state.overleafFullSync;
   side.querySelector(".count").textContent = waiting ? String(waiting) : "";
   const words = waiting ? `Sync comments from Overleaf (${waiting} new)` : "Sync comments from Overleaf";
   side.title = words;
   side.setAttribute("aria-label", words);
-  button.disabled = side.disabled = !state.overleafSignedIn
+  side.disabled = !state.overleafSignedIn
     || (state.overleafGit !== null && state.overleafGit.state !== "same");
 }
 
@@ -1177,7 +1178,7 @@ function renderGitButtons() {
 async function overleafGitAction(action) {
   if (action === "push" && !confirm(`Push ${commits(state.overleafGit?.ahead ?? 0)} to Overleaf, `
     + "for everyone in the project?")) return;
-  for (const id of ["#git-pull-btn", "#git-push-btn", "#overleaf-thread-sync"]) $(id).disabled = true;
+  for (const id of ["#git-pull-btn", "#git-push-btn", "#overleaf-sync-comments-btn"]) $(id).disabled = true;
   if (action !== "fetch") $("#overleaf-git-state").textContent = action === "pull" ? "Pulling from Overleaf…" : "Pushing to Overleaf…";
   state.overleafGitRead = Date.now();
   const response = await fetch(`/overleaf/git/${action}`, { method: "POST" });
@@ -1269,9 +1270,8 @@ function overleafBroughtIn(done) {
 }
 
 // From the comment list it works quietly, and only what did not go through opens the dialog.
-async function syncOverleafComments(quiet = false) {
-  if (!quiet) showSettings("Reading Overleaf…");
-  $("#overleaf-thread-sync").disabled = $("#overleaf-sync-comments-btn").disabled = true;
+async function syncOverleafComments() {
+  $("#overleaf-sync-comments-btn").disabled = true;
   try {
     const response = await fetch("/overleaf/comments", { method: "POST" });
     if (!response.ok) {
@@ -1281,7 +1281,7 @@ async function syncOverleafComments(quiet = false) {
       return;
     }
     const done = overleafBroughtIn(await response.json());
-    if (!quiet || $("#settings-dialog").open) showSettings(done);
+    if ($("#settings-dialog").open) showSettings(done);
     await refreshComments();
   } finally {
     await loadOverleafStatus();
@@ -3655,8 +3655,7 @@ function attachSidebarToggle() {
     saveOverleafCookie().catch(overleafFailed);
   });
   $("#overleaf-cookie-forget").addEventListener("click", () => forgetOverleafCookie().catch(overleafFailed));
-  $("#overleaf-thread-sync").addEventListener("click", () => syncOverleafComments().catch(overleafFailed));
-  $("#overleaf-sync-comments-btn").addEventListener("click", () => syncOverleafComments(true).catch(overleafFailed));
+  $("#overleaf-sync-comments-btn").addEventListener("click", () => syncOverleafComments().catch(overleafFailed));
   $("#git-pull-btn").addEventListener("click", () => overleafGitAction("pull").catch(overleafFailed));
   $("#git-push-btn").addEventListener("click", () => overleafGitAction("push").catch(overleafFailed));
   window.addEventListener("focus", () => {

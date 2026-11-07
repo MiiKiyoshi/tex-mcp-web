@@ -1992,7 +1992,7 @@ def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path
         wait_until(lambda: shown("#overleaf-direct"))
         assert shown("#overleaf-cookie-row") and not shown("#overleaf-signed")
         # Comments are synced with the cookie, so the button waits for it.
-        assert browser.execute_script('return document.querySelector("#overleaf-thread-sync").disabled') is True
+        assert browser.execute_script('return document.querySelector("#overleaf-sync-comments-btn").disabled') is True
         assert browser.execute_script('return document.querySelector("#overleaf-project").textContent').endswith(project)
         # Named in the config, the project shows as connected.
         assert shown("#overleaf-connected") and not shown("#overleaf-link-row")
@@ -2001,7 +2001,9 @@ def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path
         assert shown("#overleaf-mode")
         assert browser.execute_script('return document.querySelector(\'#overleaf-mode input[value="hand"]\').checked') is True
         hand_note = browser.execute_script('return document.querySelector("#overleaf-mode-hand-note").textContent')
-        assert "Pull or Push" in hand_note and "press Sync comments" in hand_note
+        assert "Pull or Push" in hand_note and "atop the comments" in hand_note
+        # The note shows the sync button's drawing, the only thing that button shows.
+        assert browser.execute_script('return document.querySelectorAll("#overleaf-mode-hand-note svg").length') == 2
 
         field = browser.find_element("css selector", "#overleaf-cookie")
         field.send_keys(cookie)
@@ -2021,14 +2023,14 @@ def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path
         disabled = lambda selector: browser.execute_script(f'return document.querySelector("{selector}").disabled')
         hidden = lambda selector: browser.execute_script(f'return document.querySelector("{selector}").hidden')
         wait_until(lambda: said().startswith("Overleaf has 1 commit this folder lacks"))
-        assert disabled("#overleaf-thread-sync") and hidden("#git-push-btn") and not hidden("#git-pull-btn")
+        assert disabled("#overleaf-sync-comments-btn") and hidden("#git-push-btn") and not hidden("#git-pull-btn")
         assert text("#git-pull-btn") == "Pull1"
         browser.execute_script('document.querySelector("#git-pull-btn").click()')
         wait_until(lambda: said().startswith("This folder is at Overleaf's commit"))
         assert (paper / "notes.tex").exists() and status() == "Pulled."
-        assert not disabled("#overleaf-thread-sync") and hidden("#git-pull-btn") and hidden("#git-push-btn")
+        assert not disabled("#overleaf-sync-comments-btn") and hidden("#git-pull-btn") and hidden("#git-push-btn")
 
-        browser.execute_script('document.querySelector("#overleaf-thread-sync").click()')
+        browser.execute_script('document.querySelector("#overleaf-sync-comments-btn").click()')
         wait_until(lambda: status().startswith("Synced: 1 new comments"))
         wait_until(lambda: browser.execute_script(
             'return document.querySelector("#comments-list").textContent.includes("Say hello properly.")'))
@@ -2123,8 +2125,7 @@ def test_a_file_that_differs_from_overleaf_waits_for_a_choice_on_the_page(tmp_pa
             'return document.querySelector(\'#overleaf-sync-files [data-path="main.tex"]\') !== null'), timeout=20)
         assert "wait for your choice" in text("#overleaf-sync-head")
         # Files kept the same both ways bring new threads in by themselves: nothing to press.
-        assert browser.execute_script('return [document.querySelector("#overleaf-sync-comments-btn").hidden,'
-                                      ' document.querySelector("#overleaf-thread-sync").hidden]') == [True, True]
+        assert browser.execute_script('return document.querySelector("#overleaf-sync-comments-btn").hidden') is True
         assert browser.execute_script(
             'return document.querySelector("#overleaf-live-btn").classList.contains("trouble")') is True
         assert "1 waiting" in text("#overleaf-live-label")
@@ -2244,11 +2245,12 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
         assert text("#overleaf-file-notice").startswith("Co Author edited this file on Overleaf")
         assert "tex/body.tex" in text("#overleaf-live-changes")
 
-        # A comment written on Overleaf is counted on Sync comments, and comes in from it.
+        # A comment written on Overleaf is counted on the sync button, and comes in from it.
         fake.threads["t1"] = {"messages": [{"user": {"first_name": "Ann"}, "content": "Came in when asked."}]}
         fake.ranges.append({"id": "c1", "op": {"c": "documentclass", "p": 1, "t": "t1"}})
         push(event("new-comment", "t1", {}))
-        wait_until(lambda: text("#overleaf-thread-sync") == "Sync comments (1)", timeout=15)
+        wait_until(lambda: browser.execute_script(
+            'return document.querySelector("#overleaf-sync-comments-btn").title') == "Sync comments from Overleaf (1 new)", timeout=15)
         assert text("#overleaf-sync-comments-btn .count") == "1"
         assert not browser.execute_script('return document.body.textContent.includes("Came in when asked.")')
         # The button atop the comment list syncs them in place, with no dialog.
