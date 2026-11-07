@@ -201,9 +201,14 @@ textarea {
 .overleaf-help summary { cursor: pointer; color: var(--accent); }
 .overleaf-help p { margin: 0.3rem 0 0; line-height: 1.5; }
 .overleaf-signed { font-size: 0.9rem; }
-.dialog-actions .overleaf-pull { background: var(--accent); color: white; border: none; }
-.dialog-actions .overleaf-pull[hidden] { display: none; }
-.dialog-actions .overleaf-pull:disabled { opacity: 0.55; cursor: default; }
+.dialog-actions .overleaf-download { background: var(--accent); color: white; border: none; }
+.dialog-actions .overleaf-download[hidden] { display: none; }
+.dialog-actions .overleaf-download:disabled { opacity: 0.55; cursor: default; }
+#overleaf-git { padding-top: 0.5rem; border-top: 1px solid var(--border); }
+#overleaf-git p { margin: 0; overflow-wrap: anywhere; }
+.overleaf-git-actions { display: flex; gap: 0.4rem; }
+.overleaf-git-actions button { padding: 0.35rem 0.9rem; border: 1px solid var(--border); border-radius: 3px; background: var(--bg); color: inherit; }
+.overleaf-git-actions button:disabled { opacity: 0.5; cursor: default; }
 .overleaf-status:empty { display: none; }
 .overleaf-status { margin: 0; padding: 0.4rem 0.6rem; border-left: 3px solid var(--accent); background: var(--accent-soft); font-size: 0.85rem; }
 #compile-btn:disabled { cursor: wait; }

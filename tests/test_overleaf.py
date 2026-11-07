@@ -200,19 +200,19 @@ async def review(tmp_path: Path, config_home: Path, fake_overleaf):
 async def test_the_page_brings_in_overleaf_comments_with_the_reviewers_cookie(review, config_home: Path) -> None:
     client, server, fake, _ = review
     status = await (await client.get("/overleaf")).json()
-    assert status == {"project": fake_link(server), "cookie": None, "write": False, "sync": False, "settable": True, "imported": [], "threads": []}
+    assert status == {"project": fake_link(server), "cookie": None, "write": False, "sync": False, "settable": True, "git": None, "waiting": 0, "imported": [], "threads": []}
 
-    response = await client.post("/overleaf/pull")
+    response = await client.post("/overleaf/comments")
     assert response.status == 401
     assert "cookie" in (await response.json())["error"]
 
     assert (await client.post("/overleaf/cookie", json={"cookie": "no cookie here=1"})).status == 400
     response = await client.post("/overleaf/cookie", json={"cookie": f"overleaf_session2={fake.cookie}"})
-    assert await response.json() == {"project": fake_link(server), "cookie": "file", "write": False, "sync": False, "settable": True, "imported": [], "threads": []}
+    assert await response.json() == {"project": fake_link(server), "cookie": "file", "write": False, "sync": False, "settable": True, "git": None, "waiting": 0, "imported": [], "threads": []}
     # Saved, never sent back.
     assert fake.cookie not in await (await client.get("/overleaf")).text()
 
-    counts = await (await client.post("/overleaf/pull")).json()
+    counts = await (await client.post("/overleaf/comments")).json()
     assert counts == {"added": 3, "replies": 0, "resolved": 1, "unplaced": 1}
     comments = {c.thread[0].text.split("] ", 1)[1].split("\n")[0]: c for c in server.comments.list()}
     assert comments["Which prose?"].anchor.to_dict()["file"] == "paper.tex"
@@ -222,11 +222,11 @@ async def test_the_page_brings_in_overleaf_comments_with_the_reviewers_cookie(re
     assert comments["No longer here."].anchor.kind == "paper"
 
     fake.threads["t1"]["messages"].append({"user": {"first_name": "A.", "last_name": "Reviewer"}, "content": "Thanks."})
-    counts = await (await client.post("/overleaf/pull")).json()
+    counts = await (await client.post("/overleaf/comments")).json()
     assert counts == {"added": 0, "replies": 1, "resolved": 1, "unplaced": 0}
 
     fake.cookie = "s%3Arotated"
-    response = await client.post("/overleaf/pull")
+    response = await client.post("/overleaf/comments")
     assert response.status == 401 and "cookie" in (await response.json())["error"]
 
     assert (await (await client.delete("/overleaf/cookie")).json())["cookie"] is None
@@ -239,8 +239,8 @@ async def test_without_a_project_in_the_config_the_page_says_where_to_name_it(tm
     client = TestClient(TestServer(server.app))
     await client.start_server()
     try:
-        assert await (await client.get("/overleaf")).json() == {"project": None, "cookie": None, "write": False, "sync": False, "settable": True, "imported": [], "threads": []}
-        response = await client.post("/overleaf/pull")
+        assert await (await client.get("/overleaf")).json() == {"project": None, "cookie": None, "write": False, "sync": False, "settable": True, "git": None, "waiting": 0, "imported": [], "threads": []}
+        response = await client.post("/overleaf/comments")
         assert response.status == 409 and "overleaf:" in (await response.json())["error"]
     finally:
         await client.close()

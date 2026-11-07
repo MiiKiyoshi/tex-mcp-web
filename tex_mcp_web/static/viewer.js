@@ -29,6 +29,11 @@ const state = {
   pickedFrom: null,
   activeForm: null,
   overleafThreads: new Set(),
+  // The cookie is kept, how many open threads on Overleaf wait to be downloaded, and where
+  // a folder cloned by git stands against Overleaf's branch (null until read, or no git).
+  overleafSignedIn: false,
+  overleafWaiting: 0,
+  overleafGit: null,
   // Comments brought in from Overleaf, and whether this page shows them (kept per viewer).
   overleafImported: new Set(),
   showOverleafComments: true,
@@ -1028,11 +1033,15 @@ function showOverleafDialog(status = "") {
   $("#overleaf-status").textContent = status;
   if (!$("#overleaf-dialog").open) {
     $("#overleaf-dialog").showModal();
-    loadOverleafStatus().catch((error) => console.error(error));
+    // Opening reads Overleaf's branch afresh, so what the dialog says is what is there now.
+    loadOverleafStatus()
+      .then((linked) => (linked?.git ? overleafGitAction("fetch") : null))
+      .catch((error) => console.error(error));
   }
 }
 
-function renderOverleafStatus({ project, cookie, write = false, sync = false, settable = true }) {
+function renderOverleafStatus({ project, cookie, write = false, sync = false, settable = true, git = null,
+  waiting = 0 }) {
   $("#overleaf-link-row").hidden = Boolean(project) || !settable;
   $("#overleaf-connected").hidden = !project;
   $("#overleaf-disconnect-btn").hidden = !settable;
@@ -1044,7 +1053,11 @@ function renderOverleafStatus({ project, cookie, write = false, sync = false, se
   $("#overleaf-write").disabled = $("#overleaf-sync").disabled = !settable;
   $("#overleaf-import-btn").textContent = project ? "Overleaf…" : "Connect to Overleaf…";
   $("#overleaf-direct").hidden = !project;
-  $("#overleaf-pull").hidden = !project;
+  $("#overleaf-download").hidden = !project;
+  $("#overleaf-git").hidden = !git;
+  if (!git) state.overleafGit = null;
+  state.overleafSignedIn = Boolean(cookie);
+  state.overleafWaiting = waiting;
   if (project) {
     $("#overleaf-project").href = project;
     $("#overleaf-project").textContent = project.replace(/^https?:\/\//, "");
@@ -1055,12 +1068,63 @@ function renderOverleafStatus({ project, cookie, write = false, sync = false, se
     ? "Signed in with the cookie TEX_MCP_WEB_OVERLEAF_COOKIE gives."
     : "Signed in with your saved cookie.";
   $("#overleaf-cookie-forget").hidden = cookie !== "file";
-  $("#overleaf-pull").disabled = !cookie;
+  renderOverleafDownload();
+}
+
+// Comments wait for every commit Overleaf has: a thread is on words, and words this folder
+// lacks are nowhere to put it.
+function renderOverleafDownload() {
+  const button = $("#overleaf-download");
+  const waiting = state.overleafWaiting;
+  button.textContent = waiting ? `Download comments (${waiting})` : "Download comments";
+  button.disabled = !state.overleafSignedIn || Boolean(state.overleafGit?.behind);
 }
 
 async function loadOverleafStatus() {
   const response = await fetch("/overleaf", { cache: "no-store" });
-  if (response.ok) renderOverleafStatus(await response.json());
+  if (!response.ok) return null;
+  const linked = await response.json();
+  renderOverleafStatus(linked);
+  return linked;
+}
+
+function commits(count) {
+  return `${count} commit${count === 1 ? "" : "s"}`;
+}
+
+function renderOverleafGit(now) {
+  state.overleafGit = now;
+  $("#overleaf-git-state").textContent = {
+    same: `This folder is at Overleaf's commit (${now.there}).`,
+    ahead: `This folder has ${commits(now.ahead)} Overleaf lacks. Push sends them.`,
+    behind: `Overleaf has ${commits(now.behind)} this folder lacks. Pull brings them in, and comments download after that.`,
+    diverged: `Overleaf and this folder each have commits the other lacks (${now.ahead} here, ${now.behind} on Overleaf). `
+      + "Pull merges them, and comments download after that.",
+  }[now.state];
+  $("#overleaf-git-uncommitted").hidden = !now.uncommitted.length;
+  $("#overleaf-git-uncommitted").textContent = `Not committed, so not pushed: ${now.uncommitted.join(", ")}`;
+  $("#overleaf-git-pull").disabled = !now.behind;
+  $("#overleaf-git-push").disabled = !now.ahead || Boolean(now.behind);
+  renderOverleafDownload();
+}
+
+// Reading Overleaf's branch, or pulling from it or pushing to it, as the reviewer asked.
+async function overleafGitAction(action) {
+  const buttons = ["#overleaf-git-pull", "#overleaf-git-push", "#overleaf-download"].map((id) => $(id));
+  for (const button of buttons) button.disabled = true;
+  $("#overleaf-git-state").textContent = {
+    fetch: "Reading Overleaf's branch…", pull: "Pulling from Overleaf…", push: "Pushing to Overleaf…",
+  }[action];
+  const response = await fetch(`/overleaf/git/${action}`, { method: "POST" });
+  if (response.ok) {
+    renderOverleafGit(await response.json());
+    if (action !== "fetch") $("#overleaf-status").textContent = action === "pull" ? "Pulled." : "Pushed.";
+    return;
+  }
+  $("#overleaf-status").textContent = `Could not ${action === "fetch" ? "read Overleaf's branch" : action}: `
+    + await responseError(response);
+  if (action !== "fetch") await overleafGitAction("fetch");
+  else $("#overleaf-git-state").textContent = "";
 }
 
 // Connecting names the project in the paper's config, as a line written there by hand
@@ -1129,11 +1193,11 @@ function overleafBroughtIn(done) {
   return `Brought in ${parts.join(", ")}.`;
 }
 
-async function pullOverleafComments() {
+async function downloadOverleafComments() {
   showOverleafDialog("Reading Overleaf…");
-  $("#overleaf-pull").disabled = true;
+  $("#overleaf-download").disabled = true;
   try {
-    const response = await fetch("/overleaf/pull", { method: "POST" });
+    const response = await fetch("/overleaf/comments", { method: "POST" });
     if (!response.ok) {
       // A cookie Overleaf turned away is asked for again.
       if (response.status === 401) $("#overleaf-cookie-row").hidden = false;
@@ -1143,7 +1207,7 @@ async function pullOverleafComments() {
     showOverleafDialog(overleafBroughtIn(await response.json()));
     await refreshComments();
   } finally {
-    $("#overleaf-pull").disabled = $("#overleaf-signed").hidden;
+    await loadOverleafStatus();
   }
 }
 
@@ -3098,6 +3162,10 @@ async function handleWebSocketMessage(message) {
     case "overleaf_live":
       renderOverleafLive(message);
       break;
+    case "overleaf_waiting":
+      state.overleafWaiting = message.count;
+      renderOverleafDownload();
+      break;
   }
 }
 
@@ -3373,7 +3441,9 @@ function attachSidebarToggle() {
     saveOverleafCookie().catch(overleafFailed);
   });
   $("#overleaf-cookie-forget").addEventListener("click", () => forgetOverleafCookie().catch(overleafFailed));
-  $("#overleaf-pull").addEventListener("click", () => pullOverleafComments().catch(overleafFailed));
+  $("#overleaf-download").addEventListener("click", () => downloadOverleafComments().catch(overleafFailed));
+  $("#overleaf-git-pull").addEventListener("click", () => overleafGitAction("pull").catch(overleafFailed));
+  $("#overleaf-git-push").addEventListener("click", () => overleafGitAction("push").catch(overleafFailed));
   for (const button of document.querySelectorAll("[data-theme-choice]")) {
     button.addEventListener("click", () => {
       const theme = button.dataset.themeChoice;

@@ -2684,7 +2684,7 @@ async def test_overleaf_threads_become_comments_on_their_words(client) -> None:
             {"thread_id": "t3", "pathname": "/paper.tex", "line": 2, "col": 0, "anchored_text": "not in the paper"},
         ],
     }
-    reply = await server._bring_in_overleaf(export)
+    reply = await server._bring_in_overleaf(export, new=True)
     assert reply == {"added": 2, "replies": 0, "resolved": 1, "unplaced": 1}
     comments = {c.thread[0].text.split("] ", 1)[1].split("\n")[0]: c for c in server.comments.list()}
     placed = comments["Which prose?"]
@@ -2695,7 +2695,7 @@ async def test_overleaf_threads_become_comments_on_their_words(client) -> None:
     assert "On Overleaf at paper.tex:2" in comments["Gone from here."].thread[0].text
 
     export["threads"]["t1"]["messages"].append(message("A. Reviewer", "Thanks."))
-    reply = await server._bring_in_overleaf(export)
+    reply = await server._bring_in_overleaf(export, new=True)
     assert reply == {"added": 0, "replies": 1, "resolved": 1, "unplaced": 0}
     assert server.comments.get(placed.id).thread[-1].text == "[Overleaf · A. Reviewer] Thanks."
     assert len(server.comments.list()) == 2

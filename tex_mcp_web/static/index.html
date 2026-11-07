@@ -204,10 +204,19 @@
       </details>
       <p id="overleaf-signed" class="overleaf-signed" hidden><span id="overleaf-signed-text"></span> <button id="overleaf-cookie-forget" type="button" class="overleaf-forget">Forget it</button></p>
     </section>
+    <!-- A folder cloned from the project by git: where it stands against Overleaf's branch. -->
+    <section id="overleaf-git" class="overleaf-direct" hidden>
+      <p id="overleaf-git-state" role="status"></p>
+      <p id="overleaf-git-uncommitted" class="overleaf-unset" hidden></p>
+      <div class="overleaf-git-actions">
+        <button id="overleaf-git-pull" type="button" disabled>Pull</button>
+        <button id="overleaf-git-push" type="button" disabled>Push</button>
+      </div>
+    </section>
     <p id="overleaf-status" class="overleaf-status" role="status"></p>
     <div class="dialog-actions">
       <button value="close" autofocus>Close</button>
-      <button id="overleaf-pull" type="button" class="overleaf-pull" hidden>Bring in from Overleaf</button>
+      <button id="overleaf-download" type="button" class="overleaf-download" hidden>Download comments</button>
     </div>
   </form>
 </dialog>

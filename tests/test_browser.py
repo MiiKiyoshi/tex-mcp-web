@@ -1874,7 +1874,9 @@ def test_the_more_menu_opens_overleaf_and_its_comments_can_be_left_out_of_view(t
 def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path: Path, monkeypatch) -> None:
     """With the project named in the config, the dialog takes the reviewer's session cookie
     once, keeps it in their own config folder for them alone, never shows it again, and
-    brings the project's comments in from Overleaf with one button."""
+    brings the project's comments in from Overleaf with one button. The paper's folder is a
+    git clone of the project: the dialog says where it stands against Overleaf's branch,
+    pulls and pushes, and downloads comments only once the folder has Overleaf's commits."""
     import fitz
     import http.server
     import stat
@@ -1917,12 +1919,31 @@ def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path
     config_home = tmp_path / "config-home"
     monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
     monkeypatch.delenv("TEX_MCP_WEB_OVERLEAF_COOKIE", raising=False)
-    (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
+
+    def git(folder, *args):
+        subprocess.run(["git", "-C", str(folder), "-c", "user.name=Someone", "-c", "user.email=someone@example.com",
+                        *args], check=True, capture_output=True)
+
+    # Overleaf's repository, a co-author's clone with one commit more, and the paper's folder.
+    remote = tmp_path / "git" / project
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(remote)], check=True)
+    coauthor = tmp_path / "coauthor"
+    subprocess.run(["git", "clone", "-q", str(remote), str(coauthor)], check=True, capture_output=True)
+    (coauthor / "paper.tex").write_text(PAPER, encoding="utf-8")
+    git(coauthor, "add", "paper.tex")
+    git(coauthor, "commit", "-q", "-m", "first")
+    git(coauthor, "push", "-q", "origin", "HEAD:main")
+    paper = tmp_path / "paper"
+    subprocess.run(["git", "clone", "-q", "-o", "overleaf", str(remote), str(paper)], check=True)
+    (coauthor / "notes.tex").write_text("A note.\n", encoding="utf-8")
+    git(coauthor, "add", "notes.tex")
+    git(coauthor, "commit", "-q", "-m", "there")
+    git(coauthor, "push", "-q", "origin", "HEAD:main")
     with fitz.open() as pdf:
         pdf.new_page().insert_text((72, 72), "Hello world.")
-        pdf.save(tmp_path / "paper.pdf")
+        pdf.save(paper / "paper.pdf")
     port = available_port()
-    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path = paper / ".tex-mcp-web.yaml"
     config_path.write_text(f"main: paper.tex\nport: {port}\n"
                            f"overleaf: http://127.0.0.1:{overleaf_server.server_port}/project/{project}\n",
                            encoding="utf-8")
@@ -1949,8 +1970,8 @@ def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path
         browser.execute_script('document.querySelector("#overleaf-import-btn").click()')
         wait_until(lambda: shown("#overleaf-direct"))
         assert shown("#overleaf-cookie-row") and not shown("#overleaf-signed")
-        # Once connected, the cookie is the way in, and bringing comments from a file waits folded.
-        assert browser.execute_script('return document.querySelector("#overleaf-pull").disabled') is True
+        # Comments are downloaded with the cookie, so the button waits for it.
+        assert browser.execute_script('return document.querySelector("#overleaf-download").disabled') is True
         assert browser.execute_script('return document.querySelector("#overleaf-project").textContent').endswith(project)
         # Named in the config, the project shows as connected, with both switches off.
         assert shown("#overleaf-connected") and not shown("#overleaf-link-row")
@@ -1970,10 +1991,30 @@ def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path
         assert kept.read_text(encoding="utf-8").strip() == f"overleaf_session2={cookie}"
         assert stat.S_IMODE(kept.stat().st_mode) == 0o600
 
-        browser.execute_script('document.querySelector("#overleaf-pull").click()')
+        # Overleaf has a commit the folder lacks, so comments wait for a pull.
+        said = lambda: browser.execute_script('return document.querySelector("#overleaf-git-state").textContent')
+        disabled = lambda selector: browser.execute_script(f'return document.querySelector("{selector}").disabled')
+        wait_until(lambda: said().startswith("Overleaf has 1 commit this folder lacks"))
+        assert disabled("#overleaf-download") and disabled("#overleaf-git-push") and not disabled("#overleaf-git-pull")
+        browser.execute_script('document.querySelector("#overleaf-git-pull").click()')
+        wait_until(lambda: said().startswith("This folder is at Overleaf's commit"))
+        assert (paper / "notes.tex").exists() and status() == "Pulled."
+        assert not disabled("#overleaf-download") and disabled("#overleaf-git-pull")
+
+        browser.execute_script('document.querySelector("#overleaf-download").click()')
         wait_until(lambda: status().startswith("Brought in 1 new comments"))
         wait_until(lambda: browser.execute_script(
             'return document.querySelector("#comments-list").textContent.includes("Say hello properly.")'))
+
+        # A commit made here: opening the dialog again finds it, and Push sends it.
+        (paper / "paper.tex").write_text(PAPER + "% more\n", encoding="utf-8")
+        git(paper, "commit", "-q", "-am", "here")
+        browser.execute_script('document.querySelector("#overleaf-dialog").close()')
+        browser.execute_script('document.querySelector("#overleaf-import-btn").click()')
+        wait_until(lambda: said().startswith("This folder has 1 commit Overleaf lacks"))
+        browser.execute_script('document.querySelector("#overleaf-git-push").click()')
+        wait_until(lambda: said().startswith("This folder is at Overleaf's commit"))
+        assert status() == "Pushed."
     finally:
         overleaf_server.shutdown()
         if browser is not None:
