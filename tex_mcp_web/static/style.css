@@ -123,8 +123,8 @@ textarea {
 }
 .topbar button:hover { background: var(--accent-soft); }
 .narrow-icon { display: none; }
-#more-btn { display: inline-flex; align-items: center; line-height: 1; }
-#more-btn svg { display: block; }
+#more-btn, #settings-btn { display: inline-flex; align-items: center; line-height: 1; }
+#more-btn svg, #settings-btn svg { display: block; }
 .more { position: relative; display: inline-flex; }
 /* Who is in the Overleaf project: a face per person, a list of where they are. */
 .overleaf-live { position: relative; display: inline-flex; }
@@ -142,6 +142,7 @@ textarea {
 .overleaf-live-status { margin: 0 0 0.4rem; color: var(--fg-dim); overflow-wrap: anywhere; }
 .overleaf-live-head { margin: 0.5rem 0 0.2rem; font-weight: 600; }
 .overleaf-live-list { list-style: none; margin: 0; padding: 0; }
+.overleaf-live-list:empty { display: none; }
 .overleaf-live-list button { display: flex; align-items: center; gap: 0.4rem; width: 100%; padding: 0.3rem 0.4rem; border: 0; border-radius: 3px; background: transparent; color: inherit; text-align: left; font: inherit; cursor: pointer; }
 .overleaf-live-list button:hover { background: var(--accent-soft); }
 .overleaf-live-list .where { margin-left: auto; color: var(--fg-dim); font-family: var(--mono); font-size: 0.8rem; white-space: nowrap; }
@@ -181,18 +182,24 @@ textarea {
 .more-menu[hidden] { display: none; }
 .topbar .more-menu button { border: 0; border-radius: 3px; background: transparent; text-align: left; white-space: nowrap; padding: 0.35rem 0.6rem; }
 .topbar .more-menu button:hover { background: var(--accent-soft); }
-.theme-choice { display: flex; gap: 2px; padding: 0.2rem 0.35rem; }
-.topbar .theme-choice button { flex: 1; text-align: center; padding: 0.3rem 0.4rem; border: 1px solid var(--border); }
-.topbar .theme-choice button[aria-checked="true"] { background: var(--accent-soft); border-color: var(--accent); font-weight: 600; }
-#overleaf-dialog { max-width: 30rem; }
-#overleaf-form { display: flex; flex-direction: column; gap: 0.6rem; }
-#overleaf-form h3 { margin: 0; font-size: 1rem; }
-#overleaf-form a { color: var(--accent); }
+.theme-choice { display: flex; gap: 2px; }
+.theme-choice button { flex: 1; text-align: center; padding: 0.3rem 0.4rem; border: 1px solid var(--border); border-radius: 3px; background: var(--bg); color: inherit; }
+.theme-choice button[aria-checked="true"] { background: var(--accent-soft); border-color: var(--accent); font-weight: 600; }
+/* The ⋯ menu offers Settings only on a phone, where the top bar has no room for its button. */
+.more-menu #settings-menu-btn { display: none; }
+#settings-dialog { max-width: 30rem; }
+#settings-form { display: flex; flex-direction: column; gap: 0.6rem; }
+#settings-form h3 { margin: 0; font-size: 1rem; }
+#settings-form h4 { margin: 0.4rem 0 0; font-size: 0.75rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--fg-dim); }
+#settings-form a { color: inherit; text-decoration-color: var(--accent); }
+#settings-form input[type="radio"] { accent-color: var(--accent); }
 .overleaf-direct { display: flex; flex-direction: column; gap: 0.4rem; }
-.overleaf-direct[hidden], #overleaf-dialog [hidden] { display: none; }
+.overleaf-direct[hidden], #settings-dialog [hidden] { display: none; }
 #overleaf-connect { padding-bottom: 0.5rem; border-bottom: 1px solid var(--border); }
-.overleaf-switch { display: flex; align-items: baseline; gap: 0.4rem; flex-wrap: wrap; }
-.overleaf-switch span { color: var(--fg-dim); font-size: 0.85em; }
+.overleaf-mode { display: flex; flex-direction: column; gap: 0.35rem; margin: 0; padding: 0.4rem 0.6rem; border: 1px solid var(--border); border-radius: 4px; }
+.overleaf-mode legend { padding: 0 0.25rem; font-size: 0.85rem; }
+.overleaf-mode label { display: flex; align-items: baseline; gap: 0.4rem; }
+.overleaf-mode-note { color: var(--fg-dim); font-size: 0.85em; }
 .overleaf-direct[hidden], .overleaf-cookie[hidden], .overleaf-signed[hidden], .overleaf-unset[hidden] { display: none; }
 .overleaf-direct p, .overleaf-unset { margin: 0; overflow-wrap: anywhere; }
 .overleaf-cookie { display: flex; gap: 0.4rem; }
@@ -202,9 +209,9 @@ textarea {
 .overleaf-help summary { cursor: pointer; color: var(--accent); }
 .overleaf-help p { margin: 0.3rem 0 0; line-height: 1.5; }
 .overleaf-signed { font-size: 0.9rem; }
-.dialog-actions .overleaf-thread-sync { background: var(--accent); color: white; border: none; }
-.dialog-actions .overleaf-thread-sync[hidden] { display: none; }
-.dialog-actions .overleaf-thread-sync:disabled { opacity: 0.55; cursor: default; }
+.overleaf-thread-row:has(> [hidden]) { display: none; }
+.overleaf-thread-sync { padding: 0.35rem 0.7rem; border: 1px solid var(--border); border-radius: 3px; background: var(--bg); color: inherit; }
+.overleaf-thread-sync:disabled { opacity: 0.55; cursor: default; }
 #overleaf-git, #overleaf-live { padding-top: 0.5rem; border-top: 1px solid var(--border); }
 #overleaf-git p { margin: 0; overflow-wrap: anywhere; }
 .topbar .git-btn { display: inline-flex; align-items: center; gap: 0.25rem; }
@@ -464,9 +471,11 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
   .topbar button { padding: 0.1rem 0.35rem; }
   .topbar .wide-label { display: none; }
   .topbar .narrow-icon { display: block; }
-  /* Connect to Overleaf… is in the ⋯ menu too, so an unconnected paper leaves the row. */
-  .topbar .overleaf-live-btn.off { display: none; }
-  /* Trouble shows as the leaf alone; the dialog it opens says what it is. */
+  /* Settings… is in the ⋯ menu instead, and connects a paper to Overleaf, so the gear and
+     the leaf of an unconnected paper leave the row. */
+  .topbar #settings-btn, .topbar .overleaf-live-btn.off { display: none; }
+  .more-menu #settings-menu-btn { display: block; }
+  /* Trouble shows as the leaf alone; Settings, which it opens, says what it is. */
   .topbar #overleaf-live-label { display: none; }
   .view-tabs { order: 1; }
   .topbar .compile-status { order: 2; }

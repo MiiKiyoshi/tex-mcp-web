@@ -47,16 +47,13 @@
       <!-- A folder cloned from the Overleaf project by git: each shows only when it has commits to move. -->
       <button id="git-pull-btn" class="git-btn" type="button" hidden><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v14M6 12l6 6 6-6"/></svg><span class="wide-label">Pull</span><span class="git-count"></span></button>
       <button id="git-push-btn" class="git-btn" type="button" hidden><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V6M6 12l6-6 6 6"/></svg><span class="wide-label">Push</span><span class="git-count"></span></button>
+      <!-- Settings: Overleaf and the page's look. On a phone the ⋯ menu offers it instead. -->
+      <button id="settings-btn" type="button" title="Settings" aria-label="Settings"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
       <span class="more">
         <button id="more-btn" type="button" title="More" aria-label="More" aria-haspopup="menu" aria-expanded="false"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg></button>
         <div id="more-menu" class="more-menu" role="menu" hidden>
           <button id="paper-comment-btn" type="button" role="menuitem">Add a paper note…</button>
-          <div class="theme-choice" role="group" aria-label="Theme">
-            <button type="button" role="menuitemradio" data-theme-choice="light" aria-checked="false">Light</button>
-            <button type="button" role="menuitemradio" data-theme-choice="dark" aria-checked="false">Dark</button>
-            <button type="button" role="menuitemradio" data-theme-choice="warm" aria-checked="false">Warm</button>
-          </div>
-          <button id="overleaf-import-btn" type="button" role="menuitem">Connect to Overleaf…</button>
+          <button id="settings-menu-btn" type="button" role="menuitem">Settings…</button>
         </div>
       </span>
       <button id="sidebar-toggle-btn" type="button" title="Toggle sidebar (\)">⇥</button>
@@ -201,16 +198,16 @@
   </main>
 </div>
 
-<dialog id="overleaf-dialog">
-  <form method="dialog" id="overleaf-form">
-    <h3>Overleaf</h3>
+<dialog id="settings-dialog">
+  <form method="dialog" id="settings-form">
+    <h3>Settings</h3>
+    <h4>Overleaf</h4>
     <section id="overleaf-connect" class="overleaf-direct">
       <div id="overleaf-link-row" class="overleaf-cookie">
         <input id="overleaf-link" type="url" autocomplete="off" spellcheck="false" aria-label="Overleaf project link" placeholder="https://www.overleaf.com/project/…">
         <button id="overleaf-connect-btn" type="button">Connect</button>
       </div>
       <p id="overleaf-connected" hidden>Connected to <a id="overleaf-project" target="_blank" rel="noopener"></a> <button id="overleaf-disconnect-btn" type="button" class="overleaf-forget">Disconnect</button></p>
-      <label id="overleaf-sync-row" class="overleaf-switch" hidden><input id="overleaf-sync" type="checkbox"> Keep the files and Overleaf the same, both ways <span>(while a page is open)</span></label>
       <p id="overleaf-settable" class="overleaf-unset" hidden>This paper has no <code>.tex-mcp-web.yaml</code>, so the project is named there by hand.</p>
     </section>
     <section id="overleaf-direct" class="overleaf-direct" hidden>
@@ -224,6 +221,13 @@
       </details>
       <p id="overleaf-signed" class="overleaf-signed" hidden><span id="overleaf-signed-text"></span> <button id="overleaf-cookie-forget" type="button" class="overleaf-forget">Forget it</button></p>
     </section>
+    <!-- How the files follow Overleaf: by hand unless the live way is chosen. Each choice
+         says what it changes in this folder, which depends on whether it is a git clone. -->
+    <fieldset id="overleaf-mode" class="overleaf-mode" hidden>
+      <legend>How the files follow Overleaf</legend>
+      <label><input type="radio" name="overleaf-mode" value="hand"><span><b>By hand</b> <span id="overleaf-mode-hand-note" class="overleaf-mode-note"></span></span></label>
+      <label><input type="radio" name="overleaf-mode" value="live"><span><b>Live</b> <span id="overleaf-mode-live-note" class="overleaf-mode-note"></span></span></label>
+    </fieldset>
     <!-- Who is in the project and what they changed while this page was open. -->
     <section id="overleaf-live" class="overleaf-direct" hidden>
       <p id="overleaf-live-status" class="overleaf-live-status"></p>
@@ -239,10 +243,18 @@
       <p id="overleaf-git-state" role="status"></p>
       <p id="overleaf-git-uncommitted" class="overleaf-unset" hidden></p>
     </section>
+    <!-- Comments from Overleaf that are not here yet: brought in on asking, unless the
+         files follow Overleaf live and they come by themselves. -->
+    <div class="overleaf-thread-row"><button id="overleaf-thread-sync" type="button" class="overleaf-thread-sync" hidden>Sync comments</button></div>
+    <h4>Look</h4>
+    <div class="theme-choice" role="radiogroup" aria-label="Theme">
+      <button type="button" role="radio" data-theme-choice="light" aria-checked="false">Light</button>
+      <button type="button" role="radio" data-theme-choice="dark" aria-checked="false">Dark</button>
+      <button type="button" role="radio" data-theme-choice="warm" aria-checked="false">Warm</button>
+    </div>
     <p id="overleaf-status" class="overleaf-status" role="status"></p>
     <div class="dialog-actions">
       <button value="close" autofocus>Close</button>
-      <button id="overleaf-thread-sync" type="button" class="overleaf-thread-sync" hidden>Sync comments</button>
     </div>
   </form>
 </dialog>

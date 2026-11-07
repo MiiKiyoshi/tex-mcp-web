@@ -716,9 +716,7 @@ class TexMcpWebServer:
 
     async def _sync_overleaf_live_now(self, restart: bool) -> None:
         wanted = bool(self.websockets) and bool(self.config.overleaf) and overleaf.read_cookie() is not None
-        # A folder cloned by git follows Overleaf by pull and push, never by both ways at once.
-        # Asked only while a page is open: the last page closing schedules the stop at once.
-        syncing = wanted and self.config.overleaf_sync and await self._overleaf_git_link() is None
+        syncing = wanted and self.config.overleaf_sync and await self._overleaf_live_misplaced() is None
         live = self.overleaf_live
         if live is not None and (restart or live.link != self.config.overleaf or not self.config.overleaf
                                  or overleaf.read_cookie() is None
@@ -888,6 +886,10 @@ class TexMcpWebServer:
         link = await self._overleaf_git_link()
         return {"project": self.config.overleaf, "cookie": overleaf.cookie_source(),
                 "sync": self.config.overleaf_sync,
+                # Whether the files follow Overleaf live while a page is open: chosen, signed
+                # in, and the folder is where Overleaf's files are.
+                "live": bool(self.config.overleaf and self.config.overleaf_sync and overleaf.cookie_source()
+                             and await self._overleaf_live_misplaced() is None),
                 "settable": self.config.config_path is not None,
                 # The git remote the paper's folder follows Overleaf by, or None.
                 "git": link.remote if link is not None else None,
@@ -907,21 +909,45 @@ class TexMcpWebServer:
             return None
         return await overleaf_git.link_of(self.watch_dir, overleaf.project_of(self.config.overleaf)[1])
 
+    async def _overleaf_live_misplaced(self) -> str | None:
+        """Why the files cannot follow Overleaf live here, or None. In a git clone of the
+        project, Overleaf's files are the clone's from its top, so the paper's folder must be
+        that top for the two to name a file alike."""
+        link = await self._overleaf_git_link()
+        where = await overleaf_git.prefix(link) if link is not None else ""
+        return (f"this folder is {where.rstrip('/')} inside a git clone of the project, so its files and "
+                "Overleaf's are not named alike. Open the clone's top folder to follow Overleaf live."
+                if where else None)
+
     async def _handle_overleaf_git(self, request: web.Request) -> web.Response:
         """Where the paper's folder stands against Overleaf's branch, read afresh, or the
-        same after a pull or a push the reviewer asked for."""
+        same after a pull or a push the reviewer asked for. While the files are also kept
+        the same with Overleaf, git takes them as Overleaf has them (see overleaf_git), a
+        read takes Overleaf's commits in when it only has to move forward, and a pull or a
+        push waits until every file is in step."""
         link = await self._overleaf_git_link()
         if link is None:
             return web.json_response({"error": "this folder is not a git clone of the Overleaf project"},
                                      status=409)
         action = request.match_info["action"]
+        followed = None
+        if self.overleaf_sync is not None:
+            if self._overleaf_in_step():
+                followed = [doc.path for doc in self.overleaf_sync.docs.values() if doc.status == "synced"]
+            elif action != "fetch":
+                apart = self._overleaf_apart()
+                return web.json_response({"error": f"Not yet the same as on Overleaf: {', '.join(apart)}. Settle it first."
+                                          if apart else "The files are still being read from Overleaf. Try again in a moment."},
+                                         status=409)
         async with self._overleaf_git:
             try:
-                if action == "fetch":
+                if action == "fetch" and followed is not None:
+                    now = await overleaf_git.follow(link, followed)
+                elif action == "fetch":
                     await overleaf_git.fetch(link)
                     now = await overleaf_git.state(link)
                 else:
-                    now = await (overleaf_git.pull if action == "pull" else overleaf_git.push)(link)
+                    now = await (overleaf_git.pull if action == "pull" else overleaf_git.push)(link, followed)
             except overleaf_git.GitError as error:
                 return web.json_response({"error": str(error)}, status=409)
         return web.json_response(now)
@@ -947,8 +973,8 @@ class TexMcpWebServer:
                     raise ValueError("sync must be true or false")
                 if body["sync"] and project is None:
                     raise ValueError("connect a project first")
-                if body["sync"] and await self._overleaf_git_link() is not None:
-                    raise ValueError("this folder follows Overleaf by git, with Pull and Push")
+                if body["sync"] and (misplaced := await self._overleaf_live_misplaced()):
+                    raise ValueError(misplaced)
                 changes["overleaf_sync"] = body["sync"] or None
             if project is None:          # no project: nothing may send to one
                 changes.update(overleaf=None, overleaf_sync=None)
@@ -988,17 +1014,17 @@ class TexMcpWebServer:
 
     async def _handle_overleaf_comments(self, request: web.Request) -> web.Response:
         """Bring in the comments of the project the config names, read from Overleaf with
-        the reviewer's cookie. A folder that follows Overleaf by git takes them only at the
-        commit Overleaf is at, and one whose files are kept the same both ways only with every
-        file in step: a thread is on words, and only the same text puts it exactly where
-        Overleaf has it."""
+        the reviewer's cookie. A folder whose files are kept the same both ways takes them
+        only with every file in step, and otherwise a git clone only at the commit Overleaf
+        is at: a thread is on words, and only the same text puts it exactly where Overleaf
+        has it."""
         if not self.config.overleaf:
             return web.json_response(
                 {"error": "name the project in .tex-mcp-web.yaml as overleaf: <its link>"}, status=409)
         cookie = overleaf.read_cookie()
         if cookie is None:
             return web.json_response({"error": "paste your Overleaf session cookie first"}, status=401)
-        link = await self._overleaf_git_link()
+        link = await self._overleaf_git_link() if self.overleaf_sync is None else None
         if link is not None:
             async with self._overleaf_git:
                 try:
@@ -1037,10 +1063,10 @@ class TexMcpWebServer:
 
     async def _overleaf_lacks(self, checks: list[dict[str, str]]) -> tuple[str | None, str]:
         """Whether the words a reply describes are on Overleaf: why not, or None with the
-        commit Overleaf's branch is at ("" for a folder that does not follow it by git). A
-        git clone reads Overleaf's branch afresh; otherwise only files kept the same with
-        Overleaf say what it holds."""
-        link = await self._overleaf_git_link()
+        commit Overleaf's branch is at ("" for a folder that does not follow it by git). Files
+        kept the same with Overleaf say what it holds; otherwise a git clone reads Overleaf's
+        branch afresh."""
+        link = await self._overleaf_git_link() if self.overleaf_sync is None else None
         if link is not None:
             async with self._overleaf_git:
                 try:

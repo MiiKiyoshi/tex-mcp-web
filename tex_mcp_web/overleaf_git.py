@@ -11,6 +11,15 @@ merge git can make without conflicts. Push sends the folder's commits when Overl
 none the folder lacks, and never forces. Neither touches a change that is not committed:
 git refuses a pull that would write over one, and its message says which file.
 
+While the files are also kept the same with Overleaf as they change (``followed``), those
+files already hold Overleaf's text when its commit arrives. Pull then stages each one
+rather than writing it, and the merge of a folder with its own commits takes Overleaf's
+text for them, the folder's commits adding what else they changed, such as figures and new
+files. Push first takes Overleaf's commits in that way, so what it sends holds Overleaf's
+text for those files, and sends no commit whose text for one of them is not Overleaf's
+now: Overleaf's git server applies the files that differ from its last commit, and turns a
+push away once the project has moved past it.
+
 Remote addresses can carry a token, and git repeats them in its messages, so every message
 is passed on with the credentials taken out.
 """
@@ -20,6 +29,8 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import tempfile
+from collections.abc import Collection
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -41,12 +52,12 @@ def _scrub(text: str) -> str:
     return re.sub(r"(\w+://)[^@/\s]+@", r"\1", text)
 
 
-async def _git(folder: Path, *args: str, check: bool = True) -> tuple[int, str]:
+async def _git(folder: Path, *args: str, check: bool = True, env: dict[str, str] | None = None) -> tuple[int, str]:
     """Run git in *folder* with no prompt for credentials; its output, or GitError."""
     process = await asyncio.create_subprocess_exec(
-        "git", "-C", str(folder), *args,
+        "git", "-C", str(folder), "-c", "core.quotepath=off", *args,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-        env={**os.environ, "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"})
+        env={**os.environ, "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C", **(env or {})})
     try:
         out, err = await asyncio.wait_for(process.communicate(), TIMEOUT)
     except asyncio.TimeoutError:
@@ -91,27 +102,189 @@ async def _tracking(link: Link) -> str:
     return branches[0]
 
 
-async def state(link: Link) -> dict:
+async def state(link: Link, followed: Collection[str] = ()) -> dict:
     """Where the folder stands against Overleaf's branch as last fetched: the two commits,
-    how many each has that the other lacks, and the files with changes not committed."""
+    how many each has that the other lacks, and the files with changes not committed,
+    leaving out the *followed* ones, which are on Overleaf as they are here."""
     branch = await _tracking(link)
     _, here = await _git(link.folder, "rev-parse", "--short", "HEAD")
     _, there = await _git(link.folder, "rev-parse", "--short", branch)
     _, counts = await _git(link.folder, "rev-list", "--left-right", "--count", f"HEAD...{branch}")
     ahead, behind = (int(count) for count in counts.split())
-    _, porcelain = await _git(link.folder, "status", "--porcelain", "--untracked-files=no", "--", ".")
+    _, porcelain = await _git(link.folder, "status", "--porcelain", "-z", "--untracked-files=no", "--", ".")
+    uncommitted, records = [], iter(_paths(porcelain))
+    for record in records:
+        if {"R", "C"} & set(record[:2]):     # a rename or copy names where it came from next
+            next(records, None)
+        if record[3:] not in followed:
+            uncommitted.append(record[3:])
     return {"remote": link.remote, "branch": branch, "here": here.strip(), "there": there.strip(),
             "ahead": ahead, "behind": behind,
             "state": "same" if not ahead and not behind else "ahead" if not behind
             else "behind" if not ahead else "diverged",
-            "uncommitted": [line[3:] for line in porcelain.splitlines()]}
+            "uncommitted": uncommitted}
 
 
-async def pull(link: Link) -> dict:
-    """Take Overleaf's commits in; the state after, or GitError saying why not."""
+async def prefix(link: Link) -> str:
+    """Where the folder is in its repository: "" at the top, else like ``paper/``."""
+    _, out = await _git(link.folder, "rev-parse", "--show-prefix")
+    return out.strip()
+
+
+# The functions below take the folder as the top of its repository, which is where Overleaf's
+# files are, and name files from there, as git and Overleaf both do.
+
+def _paths(out: str) -> list[str]:
+    """The names a git command printed one after another with ``-z``."""
+    return [path for path in out.split("\0") if path]
+
+
+async def _blob(link: Link, revision: str, path: str) -> str | None:
+    """The object *path* has at *revision*, or None."""
+    code, out = await _git(link.folder, "rev-parse", "--verify", "--quiet", f"{revision}:{path}", check=False)
+    return out.strip() if code == 0 else None
+
+
+async def _in_folder(link: Link, path: str) -> str | None:
+    """The object the file at *path* in the folder would be, or None."""
+    if not (link.folder / path).is_file():
+        return None
+    _, out = await _git(link.folder, "hash-object", "--", path)
+    return out.strip()
+
+
+async def _modes(link: Link, revision: str, paths: Collection[str]) -> dict[str, str]:
+    _, out = await _git(link.folder, "ls-tree", "-z", revision, "--", *paths)
+    return {record.partition("\t")[2]: record.split()[0] for record in _paths(out)}
+
+
+async def _take(link: Link, target: str, followed: Collection[str]) -> None:
+    """Move HEAD forward to *target*. A *followed* file target changes is already in the
+    folder as target has it, so target's copy is put in the index rather than written, and
+    one that is not, an edit made since Overleaf's commit was read, stops the move. Every
+    other file moves as a fast-forward moves it: git refuses to write over a change not
+    committed, and then the index is put back as it was."""
+    _, unmerged = await _git(link.folder, "ls-files", "-u")
+    if unmerged:
+        raise GitError("A merge in this folder is not finished. Finish it with git first.")
+    _, out = await _git(link.folder, "diff", "--name-only", "-z", "--no-renames", "HEAD", target)
+    taken, later = {}, []
+    for path in _paths(out):
+        wanted = await _blob(link, target, path) if path in followed else None
+        if wanted is None:
+            continue
+        if await _in_folder(link, path) == wanted:
+            taken[path] = wanted
+        else:
+            later.append(path)
+    if later:
+        raise GitError(f"{', '.join(later)} changed after Overleaf's commit was read. Pull again in a moment.")
+    if not taken:
+        await _git(link.folder, "merge", "--ff-only", "--quiet", target)
+        return
+    _, listed = await _git(link.folder, "ls-files", "-s", "-z", "--", *taken)
+    before = {}
+    for record in _paths(listed):
+        info, _, path = record.partition("\t")
+        mode, blob, stage = info.split()
+        if stage == "0":
+            before[path] = f"{mode},{blob},{path}"
+    modes = await _modes(link, target, taken)
+    await _git(link.folder, "update-index", "--add",
+               *[arg for path, blob in taken.items() for arg in ("--cacheinfo", f"{modes[path]},{blob},{path}")])
+    try:
+        await _git(link.folder, "merge", "--ff-only", "--quiet", target)
+    except GitError:
+        if before:
+            await _git(link.folder, "update-index", *[arg for entry in before.values() for arg in ("--cacheinfo", entry)])
+        if new := [path for path in taken if path not in before]:
+            await _git(link.folder, "update-index", "--force-remove", "--", *new)
+        raise
+
+
+async def _merge_followed(link: Link, branch: str, followed: Collection[str]) -> str:
+    """A merge commit of HEAD and Overleaf's *branch*, made without touching the folder or
+    its index: every *followed* file as Overleaf has it, and every other file the folder's
+    own commits changed as they left it. A file both sides changed differently stops it."""
+    _, base = await _git(link.folder, "merge-base", "HEAD", branch)
+    base = base.strip()
+    _, changed = await _git(link.folder, "diff", "--name-only", "-z", "--no-renames", base, "HEAD")
+    scratch = tempfile.TemporaryDirectory(prefix="tex-mcp-web-index-")
+    env = {"GIT_INDEX_FILE": str(Path(scratch.name) / "index")}
+    try:
+        await _git(link.folder, "read-tree", branch, env=env)
+        clashes = []
+        for path in _paths(changed):
+            if path in followed:
+                continue
+            ours, theirs = await _blob(link, "HEAD", path), await _blob(link, branch, path)
+            if theirs != await _blob(link, base, path) and theirs != ours:
+                clashes.append(path)
+            elif ours is None:
+                await _git(link.folder, "update-index", "--force-remove", "--", path, env=env)
+            else:
+                mode = (await _modes(link, "HEAD", [path]))[path]
+                await _git(link.folder, "update-index", "--add", "--cacheinfo", f"{mode},{ours},{path}", env=env)
+        if clashes:
+            raise GitError(f"Overleaf and this folder changed {', '.join(clashes)} differently. "
+                           "Merge them by hand with git.")
+        _, tree = await _git(link.folder, "write-tree", env=env)
+    finally:
+        scratch.cleanup()
+    _, commit = await _git(link.folder, "commit-tree", tree.strip(), "-p", "HEAD", "-p", branch,
+                           "-m", f"Merge remote-tracking branch '{branch}'")
+    return commit.strip()
+
+
+async def _take_in(link: Link, now: dict, followed: Collection[str]) -> None:
+    """Take Overleaf's commits in while *followed* files are kept the same with Overleaf."""
+    target = now["branch"] if now["state"] == "behind" else await _merge_followed(link, now["branch"], followed)
+    await _take(link, target, followed)
+
+
+async def _replaces(link: Link, target: str, followed: Collection[str]) -> bool:
+    """Whether taking *target* in would write over a file here that git does not track,
+    such as one it ignores, with other content: only a pull asked for does that."""
+    _, out = await _git(link.folder, "diff", "--name-only", "-z", "--no-renames", "--diff-filter=A", "HEAD", target)
+    for path in _paths(out):
+        here = None if path in followed else await _in_folder(link, path)
+        if here is not None and here != await _blob(link, target, path):
+            return True
+    return False
+
+
+async def follow(link: Link, followed: Collection[str]) -> dict:
+    """Read Overleaf's branch, and when it is only ahead, take its commits in: they hold
+    the *followed* files as they are here already, and what else they change, such as a
+    figure added on Overleaf, comes with them. The state after; a pull git refuses, or one
+    that would write over a file git does not track, waits for Pull, which says why."""
     await fetch(link)
-    now = await state(link)
-    if now["state"] == "behind":
+    now = await state(link, followed)
+    if now["state"] == "behind" and not await _replaces(link, now["branch"], followed):
+        try:
+            await _take_in(link, now, followed)
+        except GitError:
+            return now
+        now = await state(link, followed)
+    return now
+
+
+async def _not_overleafs(link: Link, branch: str, followed: Collection[str]) -> list[str]:
+    """The *followed* files a push would send whose committed text is not the folder's,
+    which is Overleaf's text now: sending one would put older text over Overleaf's."""
+    _, out = await _git(link.folder, "diff", "--name-only", "-z", "--no-renames", branch, "HEAD")
+    return [path for path in _paths(out)
+            if path in followed and await _blob(link, "HEAD", path) != await _in_folder(link, path)]
+
+
+async def pull(link: Link, followed: Collection[str] | None = None) -> dict:
+    """Take Overleaf's commits in; the state after, or GitError saying why not. With
+    *followed* files kept the same with Overleaf, see _take_in."""
+    await fetch(link)
+    now = await state(link, followed or ())
+    if followed is not None and now["state"] in ("behind", "diverged"):
+        await _take_in(link, now, followed)
+    elif now["state"] == "behind":
         await _git(link.folder, "merge", "--ff-only", "--quiet", now["branch"])
     elif now["state"] == "diverged":
         code, out = await _git(link.folder, "merge-tree", "--write-tree", "--name-only", "HEAD", now["branch"],
@@ -124,20 +297,35 @@ async def pull(link: Link) -> dict:
         await _git(link.folder, "merge", "--no-edit", "--quiet", now["branch"])
     else:
         raise GitError("Overleaf has no commit this folder lacks")
-    return await state(link)
+    return await state(link, followed or ())
 
 
-async def push(link: Link) -> dict:
-    """Send the folder's commits to Overleaf; the state after, or GitError saying why not."""
+async def push(link: Link, followed: Collection[str] | None = None) -> dict:
+    """Send the folder's commits to Overleaf; the state after, or GitError saying why not.
+    With *followed* files kept the same with Overleaf, Overleaf's commits are taken in
+    first (see _take_in), and once more if Overleaf moved on while the push was made, and
+    a commit whose text for one of them is not Overleaf's now is not sent."""
+    for attempt in range(2 if followed is not None else 1):
+        await fetch(link)
+        now = await state(link, followed or ())
+        if followed is not None and now["state"] in ("behind", "diverged"):
+            await _take_in(link, now, followed)
+            now = await state(link, followed)
+        if attempt and now["state"] == "same":      # the first push went through after all
+            break
+        if now["state"] in ("behind", "diverged"):
+            raise GitError("Overleaf has commits this folder lacks. Pull first.")
+        if now["state"] == "same":
+            raise GitError("this folder has no commit Overleaf lacks")
+        if followed is not None and (older := await _not_overleafs(link, now["branch"], followed)):
+            raise GitError(f"The commits hold text for {', '.join(older)} that is not Overleaf's now. "
+                           "Commit those files as they are, then push.")
+        code, _ = await _git(link.folder, "push", "--quiet", link.remote,
+                             f"HEAD:{now['branch'].removeprefix(link.remote + '/')}", check=attempt > 0 or followed is None)
+        if code == 0:
+            break
     await fetch(link)
-    now = await state(link)
-    if now["state"] in ("behind", "diverged"):
-        raise GitError("Overleaf has commits this folder lacks. Pull first.")
-    if now["state"] == "same":
-        raise GitError("this folder has no commit Overleaf lacks")
-    await _git(link.folder, "push", "--quiet", link.remote, f"HEAD:{now['branch'].removeprefix(link.remote + '/')}")
-    await fetch(link)
-    return await state(link)
+    return await state(link, followed or ())
 
 
 async def holds(link: Link, revision: str, path: str, text: str) -> bool:

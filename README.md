@@ -85,8 +85,8 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   comments, sit together at the row's end, and behind **⋯** with their names when the
   panel is too narrow for the whole row.
 - Edits in the Source tab are saved when you press **Save**.
-- The top bar's menu picks the page's look: **Light**, **Dark**, or **Warm**, a softer paper
-  tone for long writing, as a screen looks with its blue light turned down. The PDF's pages
+- **Settings**, the gear in the top bar (in the ⋯ menu on a phone), picks the page's look:
+  **Light**, **Dark**, or **Warm**, a softer paper tone for long writing, as a screen looks with its blue light turned down. The PDF's pages
   stay as compiled in each. The page remembers the choice.
 - With `translation` set, the language's button shows the source translated under the
   Preview or the editor. In Split, the menu beside the view tabs puts it under the Preview,
@@ -94,18 +94,18 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   share the room, each place keeps its own share, and the page remembers both. Each
   paragraph shows its source lines, and the one under the editor's cursor is marked and
   brought into view. The **A−** and **A+** buttons step the type size.
-- **Connect to Overleaf…** in the top bar's menu takes the project's link
-  (`https://www.overleaf.com/project/…`) and writes it into `.tex-mcp-web.yaml` as
-  `overleaf:`. **Disconnect** there takes it out. A project on another Overleaf server is
-  named in the file by hand. Once connected, the same dialog holds everything Overleaf:
-  the cookie, who is in the project, where the folder stands against Overleaf's git
-  branch, and **Sync comments** unless the files are kept the same both ways.
+- **Settings** takes the Overleaf project's link (`https://www.overleaf.com/project/…`) and
+  writes it into `.tex-mcp-web.yaml` as `overleaf:`. **Disconnect** there takes it out. A
+  project on another Overleaf server is named in the file by hand. Once connected,
+  Settings holds everything Overleaf: the cookie, how the files follow Overleaf (below),
+  who is in the project, where the folder stands against Overleaf's git branch, and
+  **Sync comments** unless the files follow Overleaf live.
 - Overleaf is read with your Overleaf session cookie (`overleaf_session2`, copied once
   from the browser's developer tools). The cookie is kept in
   `~/.config/tex-mcp-web/overleaf-cookie`, readable by you alone, or given by
   `TEX_MCP_WEB_OVERLEAF_COOKIE`, and serves every paper you open.
 - When the paper's folder is a git clone of the project (a remote whose address ends in
-  the project's id, as `https://git.overleaf.com/<id>` does), opening the dialog fetches
+  the project's id, as `https://git.overleaf.com/<id>` does), opening Settings fetches
   Overleaf's branch and says where the folder stands: at Overleaf's commit, with commits
   Overleaf lacks, lacking commits Overleaf has, or both. **Pull** takes Overleaf's commits
   in, as a fast-forward or as a merge git makes without conflicts, and changes nothing when
@@ -115,8 +115,8 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
 - Comments from Overleaf are kept as Overleaf has them. **Sync comments** brings its open
   threads in as comments on the words they were written about, with their replies. In a
   git clone it waits until the folder is at Overleaf's commit, since a thread is on words.
-  With `overleaf_sync` on there is no **Sync comments**: a new thread comes in by itself
-  whenever every file is in step.
+  With the files following Overleaf live there is no **Sync comments**: a new thread comes
+  in by itself whenever every file is in step.
   A file whose text has the hash of Overleaf's text holds the same text, and there each
   comment sits exactly where Overleaf has it and moves when Overleaf moves it. In a file
   that differs, a comment goes on its words, and this file's own edits keep it there. A
@@ -132,15 +132,15 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
 - With `overleaf` set and the cookie kept, an open page also sits in the Overleaf project,
   read-only. The top bar shows a face for each collaborator there, which goes to the file
   and line they are on, their cursors are drawn in the editor on that file, and a file
-  they edit says so above the editor. The dialog lists who is where and what was edited
+  they edit says so above the editor. Settings lists who is where and what was edited
   while the page was open. A leaf button shows in the top bar only when something needs a
   look: signed out, reconnecting, comments not coming in, or files waiting for a choice.
-  The page sends Overleaf no edit unless `overleaf_sync` is on (below). It opens the main
+  The page sends Overleaf no edit unless the files follow it live (below). It opens the main
   file and puts one cursor at its top, which is what makes the others' editors send their
   cursors at once, so to them it is one more of your tabs, idle.
 - While a page is open that way, a new thread on Overleaf is counted on **Sync comments**
-  within seconds, or comes in by itself with `overleaf_sync` on, and threads already here
-  follow theirs by themselves.
+  within seconds, or comes in by itself when the files follow Overleaf live, and threads
+  already here follow theirs by themselves.
 - A thread from Overleaf has a box under it for a reply on Overleaf, which everyone in the
   project reads. The agent can put its draft there (`write_comments` with
   `action="overleaf"`), one per thread, and you edit it and send it with **Send to** and
@@ -149,12 +149,14 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   and says why on its card while the rest go. The agent cannot send. A plain reply stays
   here, since it may be an instruction to the agent, and each entry on such a thread says
   whether it went to Overleaf or stayed here. A draft naming the source ranges it
-  describes goes only once Overleaf has what those ranges held, read from Overleaf's
-  branch in a git clone and from the files kept in step otherwise, and the refusal says
-  whether to commit or to push first. Overleaf takes
-  the reply first, so what it refuses is not shown as said here.
-- With `overleaf_sync: true`, the paper's files and the project's are kept the same both
-  ways while a page is open: an edit on Overleaf is written into the file within a second,
+  describes goes only once Overleaf has what those ranges held, read from the files when
+  they follow Overleaf live and from Overleaf's branch in a git clone otherwise, and the
+  refusal says whether to commit or to push first. Overleaf takes the reply first, so what
+  it refuses is not shown as said here.
+- Settings chooses how the files follow Overleaf. **By hand**, the default, changes them
+  only when you ask: by Pull and Push in a git clone, and not at all otherwise. **Live**
+  (`overleaf_sync: true`) keeps the paper's files and the project's the same both ways
+  while a page is open: an edit on Overleaf is written into the file within a second,
   and what changes in a file here, from the page, an editor or the agent, is sent as the
   smallest edit that makes it, so comments on words left alone keep them, and words
   written over commented words take the comment, as if typed inside it. A save from
@@ -166,9 +168,17 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   edits to the file stay here until then. The text that gives way is kept in
   `.tex-mcp-web/overleaf-sync/kept/`. A file that already holds Overleaf's text, brought
   some other way, agrees with it. Only Overleaf's older kind of document
-  (`sharejs-text-ot`) is followed, and files added, renamed or deleted on Overleaf are not
-  mirrored beyond taking up a document's text. A git clone of the project follows Overleaf
-  by pull and push instead, and is not offered this.
+  (`sharejs-text-ot`) is followed, and only text documents: figures and other uploaded
+  files, and files added, renamed or deleted on Overleaf, come by git.
+- In a git clone, Pull and Push go on beside Live. The files Live keeps hold Overleaf's
+  text already when its commit arrives, so a pull takes them as they are and brings in
+  the rest, such as a figure added on Overleaf, and reading Overleaf's branch takes its
+  commits in by itself when it only moves forward. Push first merges Overleaf's commits,
+  keeping Overleaf's text for those files and the folder's own changes to the others, so
+  it sends figures and new files and never older text, and a commit that holds other text
+  for one of those files is not pushed. A file edited since Overleaf's commit was read
+  stops a pull until the next read, and while a file waits for a choice, Pull and Push wait
+  too. Live needs the paper's folder to be the top of the clone, where Overleaf's files are.
 
 ## Suggested edits
 
@@ -247,7 +257,7 @@ overleaf: https://www.overleaf.com/project/0123456789abcdef01234567
 | `references` | Folder holding only the papers yours builds on, converted to Markdown, relative to this file or absolute. Unset means no list of their terms. |
 | `translation` | `language` puts a button for that language beside **+ Note**: it shows each paragraph of the source translated by `claude -p`, with those on the current page marked. `instructions` adds rules for the translator, one per line. A paragraph is translated once per text, and of a figure or table only the caption is. Unset means no translation. |
 | `overleaf` | The paper's Overleaf project, by its link, which an open page follows and **Sync comments** reads. Unset means none. |
-| `overleaf_sync` | `true` keeps the paper's files and that project's the same both ways while a page is open, and brings new threads in by themselves, unless the folder is a git clone of the project. Unset means files are not touched and no edit is sent. |
+| `overleaf_sync` | `true` is **Live** in Settings: it keeps the paper's files and that project's the same both ways while a page is open, and brings new threads in by themselves. Unset is **By hand**: files change only by Pull and Push, and no edit is sent. |
 
 ## See also
 

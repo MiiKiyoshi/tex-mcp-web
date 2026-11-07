@@ -1047,13 +1047,13 @@ function applyTheme(theme) {
   state.viewer?.setAttribute("data-tex-theme", theme);
 }
 
-// Comments from Overleaf: each open thread becomes a comment. The server reads the project
-// the paper's config names, signed in with the reviewer's own session cookie, which the
-// page hands over once and is never shown again.
-function showOverleafDialog(status = "") {
+// Settings: the paper's Overleaf project, the cookie that signs in to it, how the files
+// follow it, where they stand, and the page's look. The cookie is handed over once and is
+// never shown again.
+function showSettings(status = "") {
   $("#overleaf-status").textContent = status;
-  if (!$("#overleaf-dialog").open) {
-    $("#overleaf-dialog").showModal();
+  if (!$("#settings-dialog").open) {
+    $("#settings-dialog").showModal();
     // Opening reads Overleaf's branch afresh, so what the dialog says is what is there now.
     loadOverleafStatus()
       .then((linked) => (linked?.git ? overleafGitAction("fetch") : null))
@@ -1061,17 +1061,24 @@ function showOverleafDialog(status = "") {
   }
 }
 
-function renderOverleafStatus({ project, cookie, sync = false, settable = true, git = null, waiting = 0 }) {
+function renderOverleafStatus({ project, cookie, sync = false, live = false, settable = true, git = null, waiting = 0 }) {
   $("#overleaf-link-row").hidden = Boolean(project) || !settable;
   $("#overleaf-connected").hidden = !project;
   $("#overleaf-disconnect-btn").hidden = !settable;
   $("#overleaf-settable").hidden = settable || Boolean(project);
-  // A folder cloned by git follows Overleaf by pull and push. Keeping the files the same as
-  // well would bring Overleaf's edits in a second way, beside git.
-  $("#overleaf-sync-row").hidden = !project || Boolean(git);
-  $("#overleaf-sync").checked = sync;
-  $("#overleaf-sync").disabled = !settable;
-  $("#overleaf-import-btn").textContent = project ? "Overleaf…" : "Connect to Overleaf…";
+  // How the files follow Overleaf is a choice in every connected folder, by hand unless
+  // live is chosen. What each changes depends on whether the folder is a git clone.
+  $("#overleaf-mode").hidden = !project;
+  for (const box of $$('#overleaf-mode input[name="overleaf-mode"]')) {
+    box.checked = box.value === (sync ? "live" : "hand");
+    box.disabled = !settable;
+  }
+  $("#overleaf-mode-hand-note").textContent = git
+    ? "Files change only when you press Pull or Push, which show in the top bar when there are commits to move. Overleaf gets nothing until you push."
+    : "Nothing changes the files: this folder is not a git clone of the project. Comments from Overleaf and who is there still show here.";
+  $("#overleaf-mode-live-note").textContent = git
+    ? "While this review page is open, text files change both ways within a second. Pull and Push still move commits, figures and other files."
+    : "While this review page is open, text files change both ways within a second. Figures and other uploaded files are not copied: a git clone of the project brings those.";
   $("#overleaf-direct").hidden = !project;
   $("#overleaf-git").hidden = !git;
   if (!git) {
@@ -1080,7 +1087,7 @@ function renderOverleafStatus({ project, cookie, sync = false, settable = true, 
   }
   state.overleafSignedIn = Boolean(cookie);
   state.overleafProject = project ?? null;
-  state.overleafFullSync = Boolean(project && sync && !git);
+  state.overleafFullSync = live;
   state.overleafWaiting = waiting;
   if (project) {
     $("#overleaf-project").href = project;
@@ -1090,7 +1097,7 @@ function renderOverleafStatus({ project, cookie, sync = false, settable = true, 
   $("#overleaf-cookie-help").hidden = Boolean(cookie);
   $("#overleaf-signed").hidden = !cookie;
   $("#overleaf-signed-text").textContent = cookie === "environment"
-    ? "Signed in with the cookie TEX_MCP_WEB_OVERLEAF_COOKIE gives."
+    ? "Signed in with the cookie in the environment variable TEX_MCP_WEB_OVERLEAF_COOKIE."
     : "Signed in with your saved cookie.";
   $("#overleaf-cookie-forget").hidden = cookie !== "file";
   renderOverleafThreadSync();
@@ -1135,12 +1142,14 @@ function replies(count) {
 // in the top bar, each shown only when it has commits to move.
 function renderOverleafGit(now) {
   state.overleafGit = now;
+  // With the files kept the same, comments come in by themselves, not after a commit.
+  const then = state.overleafFullSync ? "" : ", and comments sync after that";
   $("#overleaf-git-state").textContent = {
     same: `This folder is at Overleaf's commit (${now.there}).`,
-    ahead: `This folder has ${commits(now.ahead)} Overleaf lacks. Push in the top bar sends them, and comments sync after that.`,
-    behind: `Overleaf has ${commits(now.behind)} this folder lacks. Pull in the top bar brings them in, and comments sync after that.`,
+    ahead: `This folder has ${commits(now.ahead)} Overleaf lacks. Push in the top bar sends them${then}.`,
+    behind: `Overleaf has ${commits(now.behind)} this folder lacks. Pull in the top bar brings them in${then}.`,
     diverged: `Overleaf and this folder each have commits the other lacks (${now.ahead} here, ${now.behind} on Overleaf). `
-      + "Pull in the top bar merges them, Push sends the result, and comments sync after that.",
+      + `Pull in the top bar merges them, Push sends the result${then}.`,
   }[now.state];
   $("#overleaf-git-uncommitted").hidden = !now.uncommitted.length;
   $("#overleaf-git-uncommitted").textContent = `Not committed, so not pushed: ${now.uncommitted.join(", ")}`;
@@ -1153,7 +1162,8 @@ function renderGitButtons() {
   const pull = $("#git-pull-btn");
   const push = $("#git-push-btn");
   pull.hidden = !now?.behind;
-  push.hidden = !now?.ahead || Boolean(now?.behind);
+  // With the files kept the same, Push takes Overleaf's commits in first by itself.
+  push.hidden = !now?.ahead || (Boolean(now?.behind) && !state.overleafFullSync);
   pull.disabled = push.disabled = false;
   if (!now) return;
   pull.querySelector(".git-count").textContent = now.behind ? String(now.behind) : "";
@@ -1163,7 +1173,7 @@ function renderGitButtons() {
 }
 
 // Reading Overleaf's branch, or pulling from it or pushing to it, as the reviewer asked.
-// A pull or push that does not go through says why in the Overleaf dialog.
+// A pull or push that does not go through says why in Settings.
 async function overleafGitAction(action) {
   if (action === "push" && !confirm(`Push ${commits(state.overleafGit?.ahead ?? 0)} to Overleaf, `
     + "for everyone in the project?")) return;
@@ -1173,7 +1183,7 @@ async function overleafGitAction(action) {
   const response = await fetch(`/overleaf/git/${action}`, { method: "POST" });
   if (response.ok) {
     renderOverleafGit(await response.json());
-    if (action !== "fetch" && $("#overleaf-dialog").open) {
+    if (action !== "fetch" && $("#settings-dialog").open) {
       $("#overleaf-status").textContent = action === "pull" ? "Pulled." : "Pushed.";
     }
     return;
@@ -1184,7 +1194,7 @@ async function overleafGitAction(action) {
     renderGitButtons();
     return;
   }
-  showOverleafDialog(`Could not ${action}: ${why}`);
+  showSettings(`Could not ${action}: ${why}`);
   await overleafGitAction("fetch");
 }
 
@@ -1202,7 +1212,8 @@ function readOverleafGitSoon(delay) {
 const OVERLEAF_SYNC_QUESTION = "The paper's files and the Overleaf project will be kept the same both ways while a "
   + "page is open: edits here are sent to Overleaf, and edits there are written into the files. "
   + "A file that differs at the start waits for your choice. New comment threads on Overleaf come in "
-  + "by themselves whenever every file is the same. Turn this on?";
+  + "by themselves whenever every file is the same. In a folder cloned by git, Pull and Push go on "
+  + "for the commits and for files such as figures, and take these files' text as Overleaf has it. Turn this on?";
 
 async function connectOverleaf(change, done) {
   const response = await fetch("/overleaf/connect", {
@@ -1211,22 +1222,21 @@ async function connectOverleaf(change, done) {
     body: JSON.stringify(change),
   });
   if (!response.ok) {
-    showOverleafDialog(`Could not change it: ${await responseError(response)}`);
+    showSettings(`Could not change it: ${await responseError(response)}`);
     await loadOverleafStatus();
     return false;
   }
   renderOverleafStatus(await response.json());
-  showOverleafDialog(done);
+  showSettings(done);
   return true;
 }
 
-async function switchOverleafSync() {
-  const box = $("#overleaf-sync");
-  if (box.checked && !confirm(OVERLEAF_SYNC_QUESTION)) {
-    box.checked = false;
+async function switchOverleafMode(live) {
+  if (live && !confirm(OVERLEAF_SYNC_QUESTION)) {
+    $('#overleaf-mode input[value="hand"]').checked = true;
     return;
   }
-  await connectOverleaf({ sync: box.checked }, `Keeping the files the same is ${box.checked ? "on" : "off"}.`);
+  await connectOverleaf({ sync: live }, live ? "The files now follow Overleaf live." : "The files now follow Overleaf by hand.");
 }
 
 async function saveOverleafCookie() {
@@ -1237,18 +1247,18 @@ async function saveOverleafCookie() {
     body: JSON.stringify({ cookie: input.value }),
   });
   if (!response.ok) {
-    showOverleafDialog(`Could not keep it: ${await responseError(response)}`);
+    showSettings(`Could not keep it: ${await responseError(response)}`);
     return;
   }
   input.value = "";
   renderOverleafStatus(await response.json());
-  showOverleafDialog("Cookie saved.");
+  showSettings("Cookie saved.");
 }
 
 async function forgetOverleafCookie() {
   const response = await fetch("/overleaf/cookie", { method: "DELETE" });
   if (response.ok) renderOverleafStatus(await response.json());
-  showOverleafDialog(response.ok ? "Cookie forgotten." : `Could not forget it: ${await responseError(response)}`);
+  showSettings(response.ok ? "Cookie forgotten." : `Could not forget it: ${await responseError(response)}`);
 }
 
 function overleafBroughtIn(done) {
@@ -1260,18 +1270,18 @@ function overleafBroughtIn(done) {
 
 // From the comment list it works quietly, and only what did not go through opens the dialog.
 async function syncOverleafComments(quiet = false) {
-  if (!quiet) showOverleafDialog("Reading Overleaf…");
+  if (!quiet) showSettings("Reading Overleaf…");
   $("#overleaf-thread-sync").disabled = $("#overleaf-sync-comments-btn").disabled = true;
   try {
     const response = await fetch("/overleaf/comments", { method: "POST" });
     if (!response.ok) {
       // A cookie Overleaf turned away is asked for again.
       if (response.status === 401) $("#overleaf-cookie-row").hidden = false;
-      showOverleafDialog(`Could not sync them: ${await responseError(response)}`);
+      showSettings(`Could not sync them: ${await responseError(response)}`);
       return;
     }
     const done = overleafBroughtIn(await response.json());
-    if (!quiet || $("#overleaf-dialog").open) showOverleafDialog(done);
+    if (!quiet || $("#settings-dialog").open) showSettings(done);
     await refreshComments();
   } finally {
     await loadOverleafStatus();
@@ -1283,8 +1293,8 @@ async function syncOverleafComments(quiet = false) {
 // tells the page who is there, where their cursors are, and which files they changed. A
 // face per person in the top bar goes to where they are; a collaborator's cursor in the
 // open file is drawn in the editor; a file changed on Overleaf says so above the editor;
-// the Overleaf dialog lists all of it.
-const overleafLive = { snapshot: null, layer: null, notice: "" };
+// Settings lists all of it.
+const overleafLive = { snapshot: null, layer: null, notice: "", settled: false };
 
 function overleafColor(id) {
   let hash = 0;
@@ -1424,6 +1434,11 @@ function renderOverleafLive(snapshot) {
     state.overleafEdits = edited;
     if (edited) readOverleafGitSoon(15000);
   }
+  // The session begins again when files are added, renamed or deleted on Overleaf, and the
+  // files kept the same come into step after a choice: the branch is read again then too.
+  const settled = status === "live" && files.every((file) => ["synced", "unsupported"].includes(file.status));
+  if (settled && !overleafLive.settled) readOverleafGitSoon(2000);
+  overleafLive.settled = settled;
   $("#overleaf-live-faces").replaceChildren(...users.slice(0, 4).map((user) => {
     const where = user.file ? `${user.file}:${(user.row ?? 0) + 1}` : "";
     const said = `${user.name || "Someone"} on Overleaf${where ? `, at ${where}` : ""}`;
@@ -1449,7 +1464,7 @@ function renderOverleafLive(snapshot) {
 
 async function goToOverleafPlace(file, row) {
   if (!file) return;
-  if ($("#overleaf-dialog").open) $("#overleaf-dialog").close();
+  if ($("#settings-dialog").open) $("#settings-dialog").close();
   if (state.view === "pdf") await setWorkspaceView("split");
   await initializeSourceEditor();
   showSourceFile(file);
@@ -2233,7 +2248,7 @@ async function refreshComments() {
   state.overleafUnplaced = linked.unplaced ?? {};
   state.overleafSignedIn = Boolean(linked.cookie);
   state.overleafProject = linked.project ?? null;
-  state.overleafFullSync = Boolean(linked.project && linked.sync && !linked.git);
+  state.overleafFullSync = Boolean(linked.live);
   state.overleafWaiting = linked.waiting ?? 0;
   renderOverleafThreadSync();
   // Hidden comments are left out here, once, so the list, the editor's marks, the PDF's
@@ -3586,7 +3601,8 @@ function attachSidebarToggle() {
   document.addEventListener("click", (event) => {
     if (!event.target.closest(".more") || event.target.closest(".more-menu button")) closeMore();
   });
-  $("#overleaf-import-btn").addEventListener("click", () => showOverleafDialog());
+  $("#settings-btn").addEventListener("click", () => showSettings());
+  $("#settings-menu-btn").addEventListener("click", () => showSettings());
   $("#overleaf-connect-btn").addEventListener("click", async () => {
     const link = $("#overleaf-link").value.trim();
     if (!link) return;
@@ -3602,8 +3618,10 @@ function attachSidebarToggle() {
       connectOverleaf({ project: null }, "Disconnected.");
     }
   });
-  $("#overleaf-sync").addEventListener("change", () => switchOverleafSync());
-  $("#overleaf-live-btn").addEventListener("click", () => showOverleafDialog());
+  for (const box of $$('#overleaf-mode input[name="overleaf-mode"]')) {
+    box.addEventListener("change", () => switchOverleafMode(box.value === "live"));
+  }
+  $("#overleaf-live-btn").addEventListener("click", () => showSettings());
   // Ctrl+Enter (Cmd+Enter) compiles from anywhere but a field being written in, where it
   // sends what is written, and an open dialog.
   document.addEventListener("keydown", (event) => {
@@ -3629,7 +3647,7 @@ function attachSidebarToggle() {
       dialog.close();
     }
   }, true);
-  const overleafFailed = (error) => showOverleafDialog(`Could not reach the server: ${error.message}`);
+  const overleafFailed = (error) => showSettings(`Could not reach the server: ${error.message}`);
   $("#overleaf-cookie-save").addEventListener("click", () => saveOverleafCookie().catch(overleafFailed));
   $("#overleaf-cookie").addEventListener("keydown", (event) => {
     if (event.key !== "Enter") return;

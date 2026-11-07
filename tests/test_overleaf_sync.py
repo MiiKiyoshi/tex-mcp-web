@@ -467,6 +467,72 @@ async def test_a_new_thread_comes_in_by_itself_once_every_file_is_in_step(paper,
         await opened.close()
 
 
+async def test_live_files_and_git_go_on_together_in_a_git_clone(paper, overleaf_site, tmp_path_factory,
+                                                                 monkeypatch) -> None:
+    """In a git clone with the files kept the same live, an edit on Overleaf comes into its
+    file at once, and Overleaf's next commit is taken in by a read of its branch, with
+    nothing left uncommitted. A figure committed here goes out by Push while Overleaf's text
+    stays as Overleaf has it, though Overleaf moved on meanwhile."""
+    import subprocess
+
+    fake, link = overleaf_site
+    for key, value in (("GIT_AUTHOR_NAME", "Someone"), ("GIT_COMMITTER_NAME", "Someone"),
+                       ("GIT_AUTHOR_EMAIL", "someone@example.com"), ("GIT_COMMITTER_EMAIL", "someone@example.com")):
+        monkeypatch.setenv(key, value)
+    git = lambda folder, *args: subprocess.run(["git", "-C", str(folder), *args], check=True,
+                                               capture_output=True, text=True).stdout
+    bare = tmp_path_factory.mktemp("overleaf-git") / PROJECT_ID
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(bare)], check=True)
+    git(paper, "init", "-q", "-b", "main")
+    git(paper, "add", "main.tex", "tex/body.tex")
+    git(paper, "commit", "-q", "-m", "first")
+    git(paper, "remote", "add", "overleaf", str(bare))
+    git(paper, "push", "-q", "-u", "overleaf", "main")
+    bridge = tmp_path_factory.mktemp("bridge") / "clone"
+    subprocess.run(["git", "clone", "-q", str(bare), str(bridge)], check=True, capture_output=True)
+
+    def snapshot() -> None:
+        """Overleaf's git server, read: a commit of the project as it is now."""
+        git(bridge, "pull", "-q", "--ff-only", "origin", "main")
+        for doc in fake.docs.values():
+            (bridge / ("tex/" if doc["name"] == "body.tex" else "") / doc["name"]).write_text(doc["text"], encoding="utf-8")
+        git(bridge, "commit", "-q", "-am", "Update on Overleaf.")
+        git(bridge, "push", "-q", "origin", "HEAD:main")
+
+    opened = await Review(paper, fake, link).open()
+    try:
+        await opened.settled()
+        await fake.coauthor("d-body", [{"p": 0, "i": "New. "}])
+        await wait_for(lambda: opened.read("tex/body.tex").startswith("New. "))
+        snapshot()
+        now = await (await opened.client.post("/overleaf/git/fetch")).json()
+        assert (now["state"], now["uncommitted"]) == ("same", [])
+        assert git(paper, "status", "--porcelain", "--untracked-files=no") == ""
+
+        (paper / "fig.png").write_bytes(b"figure")
+        git(paper, "add", "fig.png")
+        git(paper, "commit", "-q", "-m", "figure")
+        await fake.coauthor("d-main", [{"p": len(MAIN), "i": "\n% theirs"}])
+        await wait_for(lambda: opened.read("main.tex").endswith("% theirs"))
+        await opened.settled()
+        snapshot()
+        pushed = await opened.client.post("/overleaf/git/push")
+        assert pushed.status == 200 and (await pushed.json())["state"] == "same"
+        git(bridge, "pull", "-q", "--ff-only", "origin", "main")
+        assert (bridge / "fig.png").read_bytes() == b"figure"
+        assert (bridge / "main.tex").read_text(encoding="utf-8") == fake.docs["d-main"]["text"] == opened.read("main.tex")
+        assert git(paper, "status", "--porcelain", "--untracked-files=no") == ""
+
+        # While a file waits for a choice, Pull and Push wait too.
+        fake.refuse_next = True
+        opened.write("main.tex", opened.read("main.tex") + "\n% refused")
+        await wait_for(lambda: opened.files()["main.tex"] == "stopped")
+        refused = await opened.client.post("/overleaf/git/pull")
+        assert refused.status == 409 and "main.tex" in (await refused.json())["error"]
+    finally:
+        await opened.close()
+
+
 async def test_edits_made_on_both_sides_while_apart_come_together(paper, overleaf_site) -> None:
     fake, link = overleaf_site
     opened = await Review(paper, fake, link).open()
@@ -644,11 +710,11 @@ async def test_the_page_connects_a_project_and_turns_each_switch_in_the_config(p
         assert server.overleaf_sync is None
 
         status = await (await client.post("/overleaf/connect", json={"sync": True})).json()
-        assert status["sync"] is True and "overleaf_sync: true\n" in config.read_text()
+        assert status["sync"] is True and status["live"] is True and "overleaf_sync: true\n" in config.read_text()
         await wait_for(lambda: server.overleaf_sync is not None and len(server.overleaf_sync.docs) == 2)
 
         status = await (await client.post("/overleaf/connect", json={"project": None})).json()
-        assert status["project"] is None and status["sync"] is False
+        assert status["project"] is None and status["sync"] is False and status["live"] is False
         assert config.read_text() == "main: main.tex\n# the reviewer's note stays\n"
         await wait_for(lambda: server.overleaf_sync is None)
     finally:

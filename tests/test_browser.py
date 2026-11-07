@@ -1826,32 +1826,35 @@ def test_the_more_menu_opens_overleaf_and_its_comments_can_be_left_out_of_view(t
         top = 'const b = document.querySelector("#overleaf-live-btn"); return [b.hidden, b.textContent];'
         assert browser.execute_script(top) == [False, "Connect Overleaf"]
         browser.execute_script('document.querySelector("#overleaf-live-btn").click()')
-        wait_until(lambda: browser.execute_script('return document.querySelector("#overleaf-dialog").open'))
-        browser.execute_script('document.querySelector("#overleaf-dialog").close()')
-        # On a phone the row has no room for it, and the ⋯ menu below offers the same.
+        wait_until(lambda: browser.execute_script('return document.querySelector("#settings-dialog").open'))
+        browser.execute_script('document.querySelector("#settings-dialog").close()')
+        # On a phone the row has no room for it or for the gear, and the ⋯ menu offers Settings.
         size = browser.window_rect
-        drawn = 'return getComputedStyle(document.querySelector("#overleaf-live-btn")).display'
+        drawn = lambda selector: browser.execute_script(f'return getComputedStyle(document.querySelector("{selector}")).display')
+        assert drawn("#settings-btn") != "none" and drawn("#settings-menu-btn") == "none"
         browser.set_window_rect(width=480, height=800)
-        wait_until(lambda: browser.execute_script(drawn) == "none")
-        browser.set_window_rect(width=size["width"], height=size["height"])
-        wait_until(lambda: browser.execute_script(drawn) != "none")
+        wait_until(lambda: drawn("#overleaf-live-btn") == "none" and drawn("#settings-btn") == "none")
         browser.execute_script('document.querySelector("#more-btn").click()')
         assert browser.execute_script('return document.querySelector("#more-menu").hidden') is False
-        browser.execute_script('document.querySelector("#overleaf-import-btn").click()')
-        wait_until(lambda: browser.execute_script('return document.querySelector("#overleaf-dialog").open'))
+        assert drawn("#settings-menu-btn") != "none"
+        browser.execute_script('document.querySelector("#settings-menu-btn").click()')
+        wait_until(lambda: browser.execute_script('return document.querySelector("#settings-dialog").open'))
         assert browser.execute_script('return document.querySelector("#more-menu").hidden') is True
-        # With no project named, the dialog asks for its link before anything else.
+        browser.execute_script('document.querySelector("#settings-dialog").close()')
+        browser.set_window_rect(width=size["width"], height=size["height"])
+        wait_until(lambda: drawn("#overleaf-live-btn") != "none" and drawn("#settings-btn") != "none")
+        browser.execute_script('document.querySelector("#settings-btn").click()')
+        wait_until(lambda: browser.execute_script('return document.querySelector("#settings-dialog").open'))
+        # With no project named, Settings asks for its link before anything else.
         wait_until(lambda: browser.execute_script(
             'return !document.querySelector("#overleaf-link-row").hidden'
             ' && document.querySelector("#overleaf-connected").hidden'
-            ' && document.querySelector("#overleaf-sync-row").hidden'))
-        assert browser.execute_script(
-            'return document.querySelector("#overleaf-import-btn").textContent') == "Connect to Overleaf…"
+            ' && document.querySelector("#overleaf-mode").hidden'))
         wait_until(lambda: browser.execute_script(
             'return document.querySelector("#comments-list").textContent.includes("Say hello properly.")'))
         # Comments from Overleaf can be left out of view and brought back; one written here stays.
         post_json(f"{base}/comments", {"anchor": {"kind": "paper"}, "text": "Written here."})
-        browser.execute_script('document.querySelector("#overleaf-dialog").close()')
+        browser.execute_script('document.querySelector("#settings-dialog").close()')
         listed = 'return document.querySelector("#comments-list").textContent'
         wait_until(lambda: "Written here." in browser.execute_script(listed))
         toggle = ('const b = document.querySelector("#overleaf-comments-btn");'
@@ -1985,7 +1988,7 @@ def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path
         browser.start_session()
         browser.navigate(base)
         wait_until(lambda: browser.execute_script('return document.querySelector("#comments-list") !== null'))
-        browser.execute_script('document.querySelector("#overleaf-import-btn").click()')
+        browser.execute_script('document.querySelector("#settings-btn").click()')
         wait_until(lambda: shown("#overleaf-direct"))
         assert shown("#overleaf-cookie-row") and not shown("#overleaf-signed")
         # Comments are synced with the cookie, so the button waits for it.
@@ -1993,14 +1996,17 @@ def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path
         assert browser.execute_script('return document.querySelector("#overleaf-project").textContent').endswith(project)
         # Named in the config, the project shows as connected.
         assert shown("#overleaf-connected") and not shown("#overleaf-link-row")
-        # A git clone of the project follows it by pull and push, so the sync switch is not offered.
-        assert not shown("#overleaf-sync-row")
+        # By hand is the way a paper follows Overleaf until live is chosen, and in a git clone it
+        # says Pull and Push move the commits.
+        assert shown("#overleaf-mode")
+        assert browser.execute_script('return document.querySelector(\'#overleaf-mode input[value="hand"]\').checked') is True
+        assert "Pull or Push" in browser.execute_script('return document.querySelector("#overleaf-mode-hand-note").textContent')
 
         field = browser.find_element("css selector", "#overleaf-cookie")
         field.send_keys(cookie)
         type_keys(browser, ["<Enter>"])
         wait_until(lambda: status() == "Cookie saved.")
-        assert browser.execute_script('return document.querySelector("#overleaf-dialog").open') is True
+        assert browser.execute_script('return document.querySelector("#settings-dialog").open') is True
         assert not shown("#overleaf-cookie-row") and shown("#overleaf-signed")
         assert browser.execute_script('return document.querySelector("#overleaf-cookie").value') == ""
         assert cookie not in browser.execute_script("return document.documentElement.outerHTML")
@@ -2030,8 +2036,8 @@ def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path
         # and it asks once before sending to everyone in the project.
         (paper / "paper.tex").write_text(PAPER + "% more\n", encoding="utf-8")
         git(paper, "commit", "-q", "-am", "here")
-        browser.execute_script('document.querySelector("#overleaf-dialog").close()')
-        browser.execute_script('document.querySelector("#overleaf-import-btn").click()')
+        browser.execute_script('document.querySelector("#settings-dialog").close()')
+        browser.execute_script('document.querySelector("#settings-btn").click()')
         wait_until(lambda: said().startswith("This folder has 1 commit Overleaf lacks"))
         assert not hidden("#git-push-btn") and text("#git-push-btn") == "Push1"
         browser.execute_script("(window.wrappedJSObject || window).confirm = () => true;", sandbox=None)
@@ -2039,6 +2045,19 @@ def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path
         wait_until(lambda: said().startswith("This folder is at Overleaf's commit"))
         assert hidden("#git-push-btn")
         assert status() == "Pushed."
+
+        # Live may be chosen here too, asked once, and By hand chosen back: each is kept in
+        # the config.
+        choose = lambda mode: browser.execute_script(
+            f'document.querySelector(\'#overleaf-mode input[value="{mode}"]\').click()')
+        choose("live")
+        wait_until(lambda: status() == "The files now follow Overleaf live.")
+        assert "overleaf_sync: true" in config_path.read_text(encoding="utf-8")
+        assert "Pull and Push still move" in browser.execute_script(
+            'return document.querySelector("#overleaf-mode-live-note").textContent')
+        choose("hand")
+        wait_until(lambda: status() == "The files now follow Overleaf by hand.")
+        assert "overleaf_sync" not in config_path.read_text(encoding="utf-8")
     finally:
         overleaf_server.shutdown()
         if browser is not None:
@@ -2237,7 +2256,7 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
         click("#overleaf-sync-comments-btn")
         wait_until(lambda: browser.execute_script(
             'return document.body.textContent.includes("Came in when asked.")'), timeout=15)
-        assert browser.execute_script('return document.querySelector("#overleaf-dialog").open') is False
+        assert browser.execute_script('return document.querySelector("#settings-dialog").open') is False
         assert text("#overleaf-sync-comments-btn .count") == ""
 
         # The agent's draft waits under the thread, even folded; a plain reply stays here.
