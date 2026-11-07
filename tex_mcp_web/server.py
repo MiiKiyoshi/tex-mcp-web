@@ -980,8 +980,9 @@ class TexMcpWebServer:
                 except overleaf_git.GitError as error:
                     return web.json_response({"error": str(error)}, status=409)
             if now["behind"]:
-                return web.json_response({"error": f"Overleaf has {now['behind']} commits this folder lacks. "
-                                                   "Pull first."}, status=409)
+                lacking = f"{now['behind']} commit{'' if now['behind'] == 1 else 's'}"
+                return web.json_response({"error": f"Overleaf has {lacking} this folder lacks. Pull first."},
+                                         status=409)
         try:
             async with self._overleaf_import:
                 data = await overleaf.fetch_export(self.config.overleaf, cookie)
