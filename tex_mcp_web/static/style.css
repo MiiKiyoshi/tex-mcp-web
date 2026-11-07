@@ -207,9 +207,10 @@ textarea {
 .dialog-actions .overleaf-thread-sync:disabled { opacity: 0.55; cursor: default; }
 #overleaf-git, #overleaf-live { padding-top: 0.5rem; border-top: 1px solid var(--border); }
 #overleaf-git p { margin: 0; overflow-wrap: anywhere; }
-.overleaf-git-actions { display: flex; gap: 0.4rem; }
-.overleaf-git-actions button { padding: 0.35rem 0.9rem; border: 1px solid var(--border); border-radius: 3px; background: var(--bg); color: inherit; }
-.overleaf-git-actions button:disabled { opacity: 0.5; cursor: default; }
+.topbar .git-btn { display: inline-flex; align-items: center; gap: 0.25rem; }
+.topbar .git-btn[hidden] { display: none; }
+.topbar .git-btn:disabled { opacity: 0.55; cursor: wait; }
+.git-count { font-variant-numeric: tabular-nums; font-weight: 600; }
 .overleaf-status:empty { display: none; }
 .overleaf-status { margin: 0; padding: 0.4rem 0.6rem; border-left: 3px solid var(--accent); background: var(--accent-soft); font-size: 0.85rem; }
 #compile-btn:disabled { cursor: wait; }
@@ -465,6 +466,8 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
   .topbar .narrow-icon { display: block; }
   /* Connect to Overleaf… is in the ⋯ menu too, so an unconnected paper leaves the row. */
   .topbar .overleaf-live-btn.off { display: none; }
+  /* Trouble shows as the leaf alone; the dialog it opens says what it is. */
+  .topbar #overleaf-live-label { display: none; }
   .view-tabs { order: 1; }
   .topbar .compile-status { order: 2; }
   .topbar .actions { order: 3; flex: none; margin-left: auto; }

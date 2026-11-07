@@ -1956,6 +1956,7 @@ def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path
     browser = None
     shown = lambda selector: browser.execute_script(f'return !document.querySelector("{selector}").hidden')
     status = lambda: browser.execute_script('return document.querySelector("#overleaf-status").textContent')
+    text = lambda selector: browser.execute_script(f'return document.querySelector("{selector}").textContent')
     try:
         shared.ensure()
         base = f"http://127.0.0.1:{port}"
@@ -1990,29 +1991,36 @@ def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path
         assert kept.read_text(encoding="utf-8").strip() == f"overleaf_session2={cookie}"
         assert stat.S_IMODE(kept.stat().st_mode) == 0o600
 
-        # Overleaf has a commit the folder lacks, so comments wait for a pull.
+        # Overleaf has a commit the folder lacks: Pull shows in the top bar with the count, and
+        # comments wait for it.
         said = lambda: browser.execute_script('return document.querySelector("#overleaf-git-state").textContent')
         disabled = lambda selector: browser.execute_script(f'return document.querySelector("{selector}").disabled')
+        hidden = lambda selector: browser.execute_script(f'return document.querySelector("{selector}").hidden')
         wait_until(lambda: said().startswith("Overleaf has 1 commit this folder lacks"))
-        assert disabled("#overleaf-thread-sync") and disabled("#overleaf-git-push") and not disabled("#overleaf-git-pull")
-        browser.execute_script('document.querySelector("#overleaf-git-pull").click()')
+        assert disabled("#overleaf-thread-sync") and hidden("#git-push-btn") and not hidden("#git-pull-btn")
+        assert text("#git-pull-btn") == "Pull1"
+        browser.execute_script('document.querySelector("#git-pull-btn").click()')
         wait_until(lambda: said().startswith("This folder is at Overleaf's commit"))
         assert (paper / "notes.tex").exists() and status() == "Pulled."
-        assert not disabled("#overleaf-thread-sync") and disabled("#overleaf-git-pull")
+        assert not disabled("#overleaf-thread-sync") and hidden("#git-pull-btn") and hidden("#git-push-btn")
 
         browser.execute_script('document.querySelector("#overleaf-thread-sync").click()')
         wait_until(lambda: status().startswith("Synced: 1 new comments"))
         wait_until(lambda: browser.execute_script(
             'return document.querySelector("#comments-list").textContent.includes("Say hello properly.")'))
 
-        # A commit made here: opening the dialog again finds it, and Push sends it.
+        # A commit made here: opening the dialog again finds it, Push shows in the top bar,
+        # and it asks once before sending to everyone in the project.
         (paper / "paper.tex").write_text(PAPER + "% more\n", encoding="utf-8")
         git(paper, "commit", "-q", "-am", "here")
         browser.execute_script('document.querySelector("#overleaf-dialog").close()')
         browser.execute_script('document.querySelector("#overleaf-import-btn").click()')
         wait_until(lambda: said().startswith("This folder has 1 commit Overleaf lacks"))
-        browser.execute_script('document.querySelector("#overleaf-git-push").click()')
+        assert not hidden("#git-push-btn") and text("#git-push-btn") == "Push1"
+        browser.execute_script("(window.wrappedJSObject || window).confirm = () => true;", sandbox=None)
+        browser.execute_script('document.querySelector("#git-push-btn").click()')
         wait_until(lambda: said().startswith("This folder is at Overleaf's commit"))
+        assert hidden("#git-push-btn")
         assert status() == "Pushed."
     finally:
         overleaf_server.shutdown()

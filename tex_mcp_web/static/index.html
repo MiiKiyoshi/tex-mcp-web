@@ -44,6 +44,9 @@
         <span id="overleaf-live-faces" class="overleaf-faces"></span>
         <button id="overleaf-live-btn" class="overleaf-live-btn off" type="button" title="Connect this paper to its Overleaf project"><svg class="leaf-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 13C3 7 7 3 13 3c0 6-4 10-10 10z"/><path d="M3 13l6-6"/></svg><span id="overleaf-live-label">Connect Overleaf</span></button>
       </span>
+      <!-- A folder cloned from the Overleaf project by git: each shows only when it has commits to move. -->
+      <button id="git-pull-btn" class="git-btn" type="button" hidden><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v14M6 12l6 6 6-6"/></svg><span class="wide-label">Pull</span><span class="git-count"></span></button>
+      <button id="git-push-btn" class="git-btn" type="button" hidden><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V6M6 12l6-6 6 6"/></svg><span class="wide-label">Push</span><span class="git-count"></span></button>
       <span class="more">
         <button id="more-btn" type="button" title="More" aria-label="More" aria-haspopup="menu" aria-expanded="false"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg></button>
         <div id="more-menu" class="more-menu" role="menu" hidden>
@@ -212,10 +215,6 @@
       <p>This folder follows Overleaf by git.</p>
       <p id="overleaf-git-state" role="status"></p>
       <p id="overleaf-git-uncommitted" class="overleaf-unset" hidden></p>
-      <div class="overleaf-git-actions">
-        <button id="overleaf-git-pull" type="button" disabled>Pull</button>
-        <button id="overleaf-git-push" type="button" disabled>Push</button>
-      </div>
     </section>
     <p id="overleaf-status" class="overleaf-status" role="status"></p>
     <div class="dialog-actions">

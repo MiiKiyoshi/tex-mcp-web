@@ -38,6 +38,9 @@ const state = {
   overleafSignedIn: false,
   overleafWaiting: 0,
   overleafGit: null,
+  overleafGitRead: 0,
+  overleafGitTimer: null,
+  overleafEdits: "",
   // Comments brought in from Overleaf, and whether this page shows them (kept per viewer).
   overleafImported: new Set(),
   showOverleafComments: true,
@@ -1069,7 +1072,10 @@ function renderOverleafStatus({ project, cookie, sync = false, settable = true, 
   $("#overleaf-direct").hidden = !project;
   $("#overleaf-thread-sync").hidden = !project;
   $("#overleaf-git").hidden = !git;
-  if (!git) state.overleafGit = null;
+  if (!git) {
+    state.overleafGit = null;
+    renderGitButtons();
+  }
   state.overleafSignedIn = Boolean(cookie);
   state.overleafWaiting = waiting;
   if (project) {
@@ -1107,39 +1113,69 @@ function commits(count) {
   return `${count} commit${count === 1 ? "" : "s"}`;
 }
 
+// Where the folder stands against Overleaf's branch: said in the dialog, and Pull and Push
+// in the top bar, each shown only when it has commits to move.
 function renderOverleafGit(now) {
   state.overleafGit = now;
   $("#overleaf-git-state").textContent = {
     same: `This folder is at Overleaf's commit (${now.there}).`,
-    ahead: `This folder has ${commits(now.ahead)} Overleaf lacks. Push sends them, and comments sync after that.`,
-    behind: `Overleaf has ${commits(now.behind)} this folder lacks. Pull brings them in, and comments sync after that.`,
+    ahead: `This folder has ${commits(now.ahead)} Overleaf lacks. Push in the top bar sends them, and comments sync after that.`,
+    behind: `Overleaf has ${commits(now.behind)} this folder lacks. Pull in the top bar brings them in, and comments sync after that.`,
     diverged: `Overleaf and this folder each have commits the other lacks (${now.ahead} here, ${now.behind} on Overleaf). `
-      + "Pull merges them, Push sends the result, and comments sync after that.",
+      + "Pull in the top bar merges them, Push sends the result, and comments sync after that.",
   }[now.state];
   $("#overleaf-git-uncommitted").hidden = !now.uncommitted.length;
   $("#overleaf-git-uncommitted").textContent = `Not committed, so not pushed: ${now.uncommitted.join(", ")}`;
-  $("#overleaf-git-pull").disabled = !now.behind;
-  $("#overleaf-git-push").disabled = !now.ahead || Boolean(now.behind);
+  renderGitButtons();
   renderOverleafThreadSync();
 }
 
+function renderGitButtons() {
+  const now = state.overleafGit;
+  const pull = $("#git-pull-btn");
+  const push = $("#git-push-btn");
+  pull.hidden = !now?.behind;
+  push.hidden = !now?.ahead || Boolean(now?.behind);
+  pull.disabled = push.disabled = false;
+  if (!now) return;
+  pull.querySelector(".git-count").textContent = now.behind ? String(now.behind) : "";
+  push.querySelector(".git-count").textContent = now.ahead ? String(now.ahead) : "";
+  pull.title = `Pull ${commits(now.behind)} from Overleaf`;
+  push.title = `Push ${commits(now.ahead)} to Overleaf`;
+}
+
 // Reading Overleaf's branch, or pulling from it or pushing to it, as the reviewer asked.
+// A pull or push that does not go through says why in the Overleaf dialog.
 async function overleafGitAction(action) {
-  const buttons = ["#overleaf-git-pull", "#overleaf-git-push", "#overleaf-thread-sync"].map((id) => $(id));
-  for (const button of buttons) button.disabled = true;
-  $("#overleaf-git-state").textContent = {
-    fetch: "Reading Overleaf's branch…", pull: "Pulling from Overleaf…", push: "Pushing to Overleaf…",
-  }[action];
+  if (action === "push" && !confirm(`Push ${commits(state.overleafGit?.ahead ?? 0)} to Overleaf, `
+    + "for everyone in the project?")) return;
+  for (const id of ["#git-pull-btn", "#git-push-btn", "#overleaf-thread-sync"]) $(id).disabled = true;
+  if (action !== "fetch") $("#overleaf-git-state").textContent = action === "pull" ? "Pulling from Overleaf…" : "Pushing to Overleaf…";
+  state.overleafGitRead = Date.now();
   const response = await fetch(`/overleaf/git/${action}`, { method: "POST" });
   if (response.ok) {
     renderOverleafGit(await response.json());
-    if (action !== "fetch") $("#overleaf-status").textContent = action === "pull" ? "Pulled." : "Pushed.";
+    if (action !== "fetch" && $("#overleaf-dialog").open) {
+      $("#overleaf-status").textContent = action === "pull" ? "Pulled." : "Pushed.";
+    }
     return;
   }
-  $("#overleaf-status").textContent = `Could not ${action === "fetch" ? "read Overleaf's branch" : action}: `
-    + await responseError(response);
-  if (action !== "fetch") await overleafGitAction("fetch");
-  else $("#overleaf-git-state").textContent = "";
+  const why = await responseError(response);
+  if (action === "fetch") {
+    $("#overleaf-git-state").textContent = `Could not read Overleaf's branch: ${why}`;
+    renderGitButtons();
+    return;
+  }
+  showOverleafDialog(`Could not ${action}: ${why}`);
+  await overleafGitAction("fetch");
+}
+
+// Overleaf's branch is read again when the page opens, a little after someone edits on
+// Overleaf, and when the reviewer comes back to the page, at most once a minute.
+function readOverleafGitSoon(delay) {
+  if (!state.overleafGit) return;
+  clearTimeout(state.overleafGitTimer);
+  state.overleafGitTimer = setTimeout(() => overleafGitAction("fetch").catch((error) => console.error(error)), delay);
 }
 
 // Connecting names the project in the paper's config, as a line written there by hand
@@ -1360,6 +1396,12 @@ function renderOverleafLive(snapshot) {
     : commentsTrouble ? "Comments not coming in"
     : { signed_out: "Signed out", reconnecting: "Reconnecting" }[status] ?? "";
   $("#overleaf-live").hidden = off;
+  // Someone edited on Overleaf: its branch is read again once the typing settles.
+  const edited = changes.map((change) => `${change.file}@${change.at}`).join("|");
+  if (edited !== state.overleafEdits) {
+    state.overleafEdits = edited;
+    if (edited) readOverleafGitSoon(15000);
+  }
   $("#overleaf-live-faces").replaceChildren(...users.slice(0, 4).map((user) => {
     const where = user.file ? `${user.file}:${(user.row ?? 0) + 1}` : "";
     const said = `${user.name || "Someone"} on Overleaf${where ? `, at ${where}` : ""}`;
@@ -3514,8 +3556,11 @@ function attachSidebarToggle() {
   });
   $("#overleaf-cookie-forget").addEventListener("click", () => forgetOverleafCookie().catch(overleafFailed));
   $("#overleaf-thread-sync").addEventListener("click", () => syncOverleafComments().catch(overleafFailed));
-  $("#overleaf-git-pull").addEventListener("click", () => overleafGitAction("pull").catch(overleafFailed));
-  $("#overleaf-git-push").addEventListener("click", () => overleafGitAction("push").catch(overleafFailed));
+  $("#git-pull-btn").addEventListener("click", () => overleafGitAction("pull").catch(overleafFailed));
+  $("#git-push-btn").addEventListener("click", () => overleafGitAction("push").catch(overleafFailed));
+  window.addEventListener("focus", () => {
+    if (Date.now() - state.overleafGitRead > 60000) readOverleafGitSoon(0);
+  });
   for (const button of document.querySelectorAll("[data-theme-choice]")) {
     button.addEventListener("click", () => {
       const theme = button.dataset.themeChoice;
@@ -4031,6 +4076,10 @@ async function init() {
 
   await refreshPaper();
   await refreshComments();
+  // A git clone of the Overleaf project: where it stands shows in the top bar from the start.
+  loadOverleafStatus()
+    .then((linked) => (linked?.git ? overleafGitAction("fetch") : null))
+    .catch((error) => console.error(error));
   if (state.pdfDigest) await initializePdfViewer(null);
   const savedView = localStorage.getItem("workspaceView");
   if (["source", "split"].includes(savedView)) await setWorkspaceView(savedView);
