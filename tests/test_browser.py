@@ -1767,23 +1767,23 @@ def test_split_puts_the_translation_where_the_layout_menu_says(tmp_path: Path, m
 
 
 @pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
-def test_the_more_menu_brings_in_an_overleaf_export(tmp_path: Path) -> None:
-    """Overleaf comments come in as the comments.json Overleaf Comments Export writes. The
-    more menu opens the steps and a file picker; the chosen file's open threads become
-    comments here, and the page says how many."""
+def test_the_more_menu_opens_overleaf_and_its_comments_can_be_left_out_of_view(tmp_path: Path) -> None:
+    """The top bar and the more menu open the Overleaf dialog, which asks for the
+    project's link first. Comments brought in from Overleaf can be hidden and shown
+    again, and the choice outlasts a reload."""
     import fitz
+
+    from tex_mcp_web.comments import CommentStore, PaperAnchor
 
     (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
     with fitz.open() as pdf:
         pdf.new_page().insert_text((72, 72), "Hello world.")
         pdf.save(tmp_path / "paper.pdf")
-    export = tmp_path / "comments.json"
-    export.write_text(json.dumps({
-        "schema_version": "1.3",
-        "threads": {"t1": {"resolved": False, "messages": [
-            {"user": {"name": "A. Reviewer"}, "content": "Say hello properly.", "timestamp": "2026-11-04T00:00:00Z"}]}},
-        "comments": [{"thread_id": "t1", "pathname": "/paper.tex", "line": 1, "col": 0, "anchored_text": "Hello world."}],
-    }), encoding="utf-8")
+    # A thread brought in from Overleaf earlier: its comment here, and the ledger naming it.
+    brought = CommentStore(tmp_path / ".tex-mcp-web" / "comments.json").add(
+        PaperAnchor(), "[Overleaf · A. Reviewer] Say hello properly.")
+    (tmp_path / ".tex-mcp-web" / "overleaf-imported.json").write_text(json.dumps(
+        {"t1": {"comment": brought.id, "messages": 1, "seen": ["#0"]}}), encoding="utf-8")
     port = available_port()
     config_path = tmp_path / ".tex-mcp-web.yaml"
     config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
@@ -1830,11 +1830,6 @@ def test_the_more_menu_brings_in_an_overleaf_export(tmp_path: Path) -> None:
             ' && document.querySelector("#overleaf-sync-row").hidden'))
         assert browser.execute_script(
             'return document.querySelector("#overleaf-import-btn").textContent') == "Connect to Overleaf…"
-        # Unconnected, bringing comments from a file lies open beside it.
-        assert browser.execute_script('return document.querySelector("#overleaf-file-way").open') is True
-        browser.find_element("css selector", "#overleaf-file").send_keys(str(export))
-        wait_until(lambda: browser.execute_script(
-            'return document.querySelector("#overleaf-status").textContent').startswith("Brought in 1 new comments"))
         wait_until(lambda: browser.execute_script(
             'return document.querySelector("#comments-list").textContent.includes("Say hello properly.")'))
         # Comments from Overleaf can be left out of view and brought back; one written here stays.
@@ -1955,7 +1950,6 @@ def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path
         wait_until(lambda: shown("#overleaf-direct"))
         assert shown("#overleaf-cookie-row") and not shown("#overleaf-signed")
         # Once connected, the cookie is the way in, and bringing comments from a file waits folded.
-        assert browser.execute_script('return document.querySelector("#overleaf-file-way").open') is False
         assert browser.execute_script('return document.querySelector("#overleaf-pull").disabled') is True
         assert browser.execute_script('return document.querySelector("#overleaf-project").textContent').endswith(project)
         # Named in the config, the project shows as connected, with both switches off.

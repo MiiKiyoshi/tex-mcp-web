@@ -187,7 +187,6 @@ textarea {
 #overleaf-form { display: flex; flex-direction: column; gap: 0.6rem; }
 #overleaf-form h3 { margin: 0; font-size: 1rem; }
 #overleaf-form a { color: var(--accent); }
-.overleaf-steps { margin: 0; padding-left: 1.3rem; line-height: 1.6; }
 .overleaf-direct { display: flex; flex-direction: column; gap: 0.4rem; }
 .overleaf-direct[hidden], #overleaf-dialog [hidden] { display: none; }
 #overleaf-connect { padding-bottom: 0.5rem; border-bottom: 1px solid var(--border); }
@@ -195,9 +194,6 @@ textarea {
 .overleaf-switch span { color: var(--fg-dim); font-size: 0.85em; }
 .overleaf-direct[hidden], .overleaf-cookie[hidden], .overleaf-signed[hidden], .overleaf-unset[hidden] { display: none; }
 .overleaf-direct p, .overleaf-unset { margin: 0; overflow-wrap: anywhere; }
-.overleaf-file-way summary { cursor: pointer; color: var(--accent); }
-.overleaf-file-way .overleaf-steps { margin: 0.3rem 0 0.5rem; }
-.overleaf-file-way .file-button { display: inline-block; }
 .overleaf-cookie { display: flex; gap: 0.4rem; }
 .overleaf-cookie input { flex: 1; min-width: 0; padding: 0.35rem 0.5rem; border: 1px solid var(--border); border-radius: 3px; background: var(--bg); color: inherit; font: inherit; }
 .overleaf-cookie button, .overleaf-forget { padding: 0.35rem 0.7rem; border: 1px solid var(--border); border-radius: 3px; background: var(--bg); color: inherit; }
@@ -210,18 +206,6 @@ textarea {
 .dialog-actions .overleaf-pull:disabled { opacity: 0.55; cursor: default; }
 .overleaf-status:empty { display: none; }
 .overleaf-status { margin: 0; padding: 0.4rem 0.6rem; border-left: 3px solid var(--accent); background: var(--accent-soft); font-size: 0.85rem; }
-.file-button {
-  padding: 0.4rem 0.8rem;
-  border-radius: 3px;
-  background: var(--accent);
-  color: white;
-  cursor: pointer;
-}
-.file-button:hover { filter: brightness(1.08); }
-/* The picker stays reachable by keyboard and to a file sent to it, drawn as the button. */
-.file-button { position: relative; }
-.file-button input { position: absolute; width: 1px; height: 1px; opacity: 0; }
-.file-button:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
 #compile-btn:disabled { cursor: wait; }
 /* Green reaches a parked waiter now; red queues the call for the next waiter. */
 .agent-dot { width: 8px; height: 8px; border-radius: 50%; }
@@ -1145,7 +1129,6 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
   .ace_entity.ace_other.ace_attribute-name, .ace_string.ace_regexp) { color: #f2a0a7; }
 :root[data-theme="dark"] .ace-one-dark .ace_cursor { color: #9cbcff; }
 
-:root[data-theme="dark"] .file-button { color: #1f2328; }
 #source-editor.steady-cursor .ace_cursor { animation: none !important; }
 .overleaf-sync-file { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.5rem; padding: 0.35rem 0.4rem; border-top: 1px solid var(--border, #ddd); }
 .overleaf-sync-file strong { font-weight: 600; }

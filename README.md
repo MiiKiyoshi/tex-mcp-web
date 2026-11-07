@@ -102,8 +102,8 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   Overleaf session cookie (`overleaf_session2`, copied once from the browser's developer
   tools). The cookie is kept in `~/.config/tex-mcp-web/overleaf-cookie`, readable by you
   alone, or given by `TEX_MCP_WEB_OVERLEAF_COOKIE`, and serves every paper you open.
-  Without it, choose the `comments.json` that Overleaf Comments Export writes. Bringing
-  them in again adds only new threads and replies; a comment you deleted here stays deleted.
+  Bringing them in again adds only new threads and replies; a comment you deleted here
+  stays deleted.
 - Once comments have come in from Overleaf, the eye button (**OL**) beside the comment filter
   hides them from the list, the editor and the PDF, and shows them again. It changes no
   comment and is kept per browser; while they are hidden, the list says how many.

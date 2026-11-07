@@ -2660,19 +2660,18 @@ async def test_each_language_keeps_its_own_translations(client, project):
 
 
 
-async def test_an_overleaf_export_becomes_comments_on_its_words(client) -> None:
-    """A comments.json from Overleaf Comments Export brings each open thread in as a
-    comment on the words it was written about, the occurrence nearest the line Overleaf
-    gives, with its replies after it and every entry marked with its Overleaf author. A
+async def test_overleaf_threads_become_comments_on_their_words(client) -> None:
+    """Each open Overleaf thread comes in as a comment on the words it was written about,
+    the occurrence nearest the line Overleaf gives, with its replies after it and every
+    entry marked with its Overleaf author. A
     resolved thread stays out, words not in the source put the comment on the paper, and
-    the same export again adds only what is new."""
-    test_client, server = client
+    the same threads again add only what is new."""
+    _, server = client
 
     def message(name, content):
         return {"user": {"name": name}, "content": content, "timestamp": "2026-11-04T00:00:00Z"}
 
     export = {
-        "schema_version": "1.3",
         "threads": {
             "t1": {"resolved": False, "messages": [message("A. Reviewer", "Which prose?"),
                                                    message("Co Author", "The intro.")]},
@@ -2685,7 +2684,7 @@ async def test_an_overleaf_export_becomes_comments_on_its_words(client) -> None:
             {"thread_id": "t3", "pathname": "/paper.tex", "line": 2, "col": 0, "anchored_text": "not in the paper"},
         ],
     }
-    reply = await (await test_client.post("/overleaf-import", json=export)).json()
+    reply = await server._bring_in_overleaf(export)
     assert reply == {"added": 2, "replies": 0, "resolved": 1, "unplaced": 1}
     comments = {c.thread[0].text.split("] ", 1)[1].split("\n")[0]: c for c in server.comments.list()}
     placed = comments["Which prose?"]
@@ -2696,12 +2695,10 @@ async def test_an_overleaf_export_becomes_comments_on_its_words(client) -> None:
     assert "On Overleaf at paper.tex:2" in comments["Gone from here."].thread[0].text
 
     export["threads"]["t1"]["messages"].append(message("A. Reviewer", "Thanks."))
-    reply = await (await test_client.post("/overleaf-import", json=export)).json()
+    reply = await server._bring_in_overleaf(export)
     assert reply == {"added": 0, "replies": 1, "resolved": 1, "unplaced": 0}
     assert server.comments.get(placed.id).thread[-1].text == "[Overleaf · A. Reviewer] Thanks."
     assert len(server.comments.list()) == 2
-    for wrong in ({"schema_version": "2.0", "threads": {}, "comments": []}, {"threads": {}, "comments": []}, [1]):
-        assert (await test_client.post("/overleaf-import", json=wrong)).status == 400
 
 
 # --- Completion lists for the source editor ---

@@ -489,7 +489,6 @@ class TexMcpWebServer:
         app.router.add_get("/image", self._handle_image)
         app.router.add_get("/reference-preview", self._handle_reference_preview)
         app.router.add_post("/review-request", self._handle_review_request)
-        app.router.add_post("/overleaf-import", self._handle_overleaf_import)
         app.router.add_get("/overleaf", self._handle_overleaf)
         app.router.add_post("/overleaf/cookie", self._handle_overleaf_cookie)
         app.router.add_delete("/overleaf/cookie", self._handle_overleaf_cookie)
@@ -836,18 +835,6 @@ class TexMcpWebServer:
                 + (f"{waiting} unanswered comments" if waiting else "no unanswered comments")
                 + " -- read them with read_comments(new=True)")
 
-    async def _handle_overleaf_import(self, request: web.Request) -> web.Response:
-        """Comments exported from Overleaf by Overleaf Comments Export, its comments.json
-        (schema 1). Each open thread becomes a comment on the words it was written about,
-        and its replies the comment's later entries, every one marked with its Overleaf
-        author. Threads brought in before gain only their new replies, so the same
-        project's export can come in again as the review goes on."""
-        try:
-            data = await request.json()
-        except ValueError:
-            return web.json_response({"error": "the file is not JSON"}, status=400)
-        return await self._import_overleaf(data)
-
     def _overleaf_status(self) -> dict[str, Any]:
         """The paper's Overleaf project and where the reviewer's cookie comes from; never
         the cookie itself."""
@@ -912,7 +899,7 @@ class TexMcpWebServer:
 
     async def _handle_overleaf_pull(self, request: web.Request) -> web.Response:
         """Bring in the comments of the project the config names, read from Overleaf with
-        the reviewer's cookie, as an export file of them would come in."""
+        the reviewer's cookie."""
         if not self.config.overleaf:
             return web.json_response(
                 {"error": "name the project in .tex-mcp-web.yaml as overleaf: <its link>"}, status=409)
@@ -927,14 +914,6 @@ class TexMcpWebServer:
             return web.json_response({"error": f"{error} (the cookie has expired or is wrong)"}, status=401)
         except overleaf.OverleafError as error:
             return web.json_response({"error": str(error)}, status=502)
-
-    async def _import_overleaf(self, data: Any) -> web.Response:
-        if (not isinstance(data, dict) or not str(data.get("schema_version", "")).startswith("1.")
-                or not isinstance(data.get("comments"), list) or not isinstance(data.get("threads"), dict)):
-            return web.json_response(
-                {"error": "this is not a comments.json from Overleaf Comments Export"}, status=400)
-        async with self._overleaf_import:
-            return web.json_response(await self._bring_in_overleaf(data))
 
     def _overleaf_ledger(self) -> dict[str, dict[str, Any]]:
         """What came from Overleaf, by thread: the comment here and what it has been told."""

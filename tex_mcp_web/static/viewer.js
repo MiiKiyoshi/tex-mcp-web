@@ -1021,10 +1021,9 @@ function applyTheme(theme) {
   state.viewer?.setAttribute("data-tex-theme", theme);
 }
 
-// Comments from Overleaf, as the server reads them itself or from the comments.json that
-// Overleaf Comments Export writes; either way each open thread becomes a comment. The
-// server reads the project the paper's config names, signed in with the reviewer's own
-// session cookie, which the page hands over once and is never shown again.
+// Comments from Overleaf: each open thread becomes a comment. The server reads the project
+// the paper's config names, signed in with the reviewer's own session cookie, which the
+// page hands over once and is never shown again.
 function showOverleafDialog(status = "") {
   $("#overleaf-status").textContent = status;
   if (!$("#overleaf-dialog").open) {
@@ -1045,7 +1044,6 @@ function renderOverleafStatus({ project, cookie, write = false, sync = false, se
   $("#overleaf-write").disabled = $("#overleaf-sync").disabled = !settable;
   $("#overleaf-import-btn").textContent = project ? "Overleaf…" : "Connect to Overleaf…";
   $("#overleaf-direct").hidden = !project;
-  $("#overleaf-file-way").open = !project;
   $("#overleaf-pull").hidden = !project;
   if (project) {
     $("#overleaf-project").href = project;
@@ -1147,21 +1145,6 @@ async function pullOverleafComments() {
   } finally {
     $("#overleaf-pull").disabled = $("#overleaf-signed").hidden;
   }
-}
-
-async function importOverleafComments(file) {
-  showOverleafDialog(`Reading ${file.name}…`);
-  const response = await fetch("/overleaf-import", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: await file.text(),
-  });
-  if (!response.ok) {
-    showOverleafDialog(`Could not bring them in: ${await responseError(response)}`);
-    return;
-  }
-  showOverleafDialog(overleafBroughtIn(await response.json()));
-  await refreshComments();
 }
 
 // ----- Overleaf: who is in the project -----
@@ -3391,11 +3374,6 @@ function attachSidebarToggle() {
   });
   $("#overleaf-cookie-forget").addEventListener("click", () => forgetOverleafCookie().catch(overleafFailed));
   $("#overleaf-pull").addEventListener("click", () => pullOverleafComments().catch(overleafFailed));
-  $("#overleaf-file").addEventListener("change", (event) => {
-    const [file] = event.target.files;
-    event.target.value = "";
-    if (file) importOverleafComments(file).catch((error) => showOverleafDialog(`Could not bring them in: ${error.message}`));
-  });
   for (const button of document.querySelectorAll("[data-theme-choice]")) {
     button.addEventListener("click", () => {
       const theme = button.dataset.themeChoice;

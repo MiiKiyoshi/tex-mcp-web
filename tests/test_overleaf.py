@@ -161,7 +161,6 @@ async def fake_overleaf():
 async def test_the_export_is_built_from_overleafs_own_routes(fake_overleaf) -> None:
     fake, link = fake_overleaf
     export = await overleaf.fetch_export(link, ("overleaf_session2", fake.cookie))
-    assert export["schema_version"].startswith("1.")
     assert export["threads"]["t1"]["messages"][0] == {"user": {"name": "A. Reviewer"}, "content": "Which prose?"}
     assert export["threads"]["t2"]["resolved"] is True
     by_thread = {entry["thread_id"]: entry for entry in export["comments"]}

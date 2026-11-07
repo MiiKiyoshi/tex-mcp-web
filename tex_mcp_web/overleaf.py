@@ -1,8 +1,7 @@
 """Overleaf comments the server fetches itself, signed in as the reviewer.
 
-Overleaf has no public route for comments. Its editor reads them from routes of its own,
-the same ones Overleaf Comments Export reads: ``/project/<id>/threads`` for what was
-said, ``/project/<id>/ranges`` for the words each thread is on, and a document's
+Overleaf has no public route for comments. Its editor reads them from routes of its own:
+``/project/<id>/threads`` for what was said, ``/project/<id>/ranges`` for the words each thread is on, and a document's
 download for its name and text. They answer to the editor's session cookie, so the
 server sends the reviewer's own. Replies and closes go by the editor's routes too, with the
 token its page carries.
@@ -241,8 +240,9 @@ async def set_resolved(link: str, cookie: tuple[str, str], thread: str, resolved
 
 
 async def fetch_export(link: str, cookie: tuple[str, str], *, timeout: float = 30) -> dict[str, Any]:
-    """The project's threads and the words each is on, in the shape of Overleaf Comments
-    Export's comments.json (schema 1), which the import already reads."""
+    """The project's threads and the words each is on: ``threads`` by id, with their
+    messages and whether each is resolved, and ``comments``, one per place a thread is on,
+    with its file, line and words."""
     server, project = project_of(link)
     async with _session(server, cookie, timeout) as session:
         read = _Reader(session, server)
@@ -292,4 +292,4 @@ async def fetch_export(link: str, cookie: tuple[str, str], *, timeout: float = 3
                 "col": len(before.rsplit("\n", 1)[-1]),
                 "anchored_text": str(op.get("c") or ""),
             })
-    return {"schema_version": "1.0", "source": "tex-mcp-web", "threads": threads, "comments": entries}
+    return {"threads": threads, "comments": entries}
