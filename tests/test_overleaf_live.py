@@ -566,7 +566,9 @@ async def test_a_reply_someone_else_wrote_in_the_same_moment_is_not_lost(review)
     await client.post(f"/comments/{comment.id}/reply", json={"text": "Mine.", "overleaf": True})
     await fake.push(event("new-comment", "t1", {}))
     await wait_for(lambda: len(server.comments.get(comment.id).thread) == 3)
+    # One more reading, begun once both are here: ours does not come back as another.
     read = fake.ranges_read
+    await fake.push(event("new-comment", "t1", {}))
     await wait_for(lambda: fake.ranges_read >= read + 1)
     assert sorted(texts(server.comments.get(comment.id))[1:]) == ["Mine.", "[Overleaf · Bo] Theirs."]
     await page.close()
