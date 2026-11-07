@@ -1175,11 +1175,16 @@ class TexMcpWebServer:
         await self.broadcast({"type": "comment_updated", "comment": _comment_to_dict(placed)})
 
     async def _place_overleaf_comments_in(self, relative: str) -> None:
-        """A file changed: comments from Overleaf waiting for words in it look again."""
+        """A file changed: comments from Overleaf waiting for words in it look again. Most
+        changes have none waiting, and those do not wait for a reading or a send to finish."""
+        def waits(known: dict[str, Any]) -> bool:
+            return str((known.get("place") or {}).get("pathname", "")).lstrip("/") == relative
+
+        if not any(waits(known) for known in self._overleaf_ledger().values()):
+            return
         async with self._overleaf_import:
             ledger = self._overleaf_ledger()
-            waiting = [known for known in ledger.values()
-                       if str((known.get("place") or {}).get("pathname", "")).lstrip("/") == relative]
+            waiting = [known for known in ledger.values() if waits(known)]
             if not waiting:
                 return
             for known in waiting:
