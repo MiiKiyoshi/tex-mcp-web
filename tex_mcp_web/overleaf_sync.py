@@ -7,7 +7,8 @@ smallest edit that makes it, so a comment on words that were not changed keeps t
 
 Nothing is overwritten on a guess. Each file keeps, beside the paper, the text both sides
 last agreed on and its version, so a file edited while no page was open, or while the
-connection was down, is brought together with what changed on Overleaf meanwhile. When
+connection was down, is brought together with what changed on Overleaf meanwhile, and a
+file that already holds Overleaf's text agrees with it. When
 that cannot be done for certain, when an edit would delete every word of an open comment,
 or when Overleaf turns an edit away, the file stops and the reviewer chooses which text
 stands. The text that gives way is kept in ``.tex-mcp-web/overleaf-sync/kept/`` first.
@@ -400,9 +401,24 @@ class ProjectSync:
     async def _catch_up(self, doc: Doc, ops: list, theirs: str, version: int, comments: list,
                         disk: str | None) -> None:
         """Edits made on Overleaf since both last agreed, and edits made here."""
+        # A file that already holds Overleaf's text agrees with it, whatever brought the
+        # text there (a git pull does): taken as an edit here, Overleaf's edit would be made
+        # a second time on both sides.
+        if disk is not None and disk == theirs:
+            self._set_first(doc, theirs, version, comments)
+            doc.local = disk
+            self._save(doc)
+            self._set(doc, "synced")
+            return
         # A file holding what it held before the last write here stopped between the
         # record and the write: that is not an edit, and the write is made below.
         if disk is not None and disk != doc.local and _sha(disk) != doc.local_before:
+            if ops and _overlap(doc.server, theirs, disk):
+                doc.local = disk
+                self._set_first(doc, theirs, version, comments)
+                self._set(doc, "differs", "This file and Overleaf changed the same place while apart. "
+                                          "Choose which stands.")
+                return
             doc.pending = doc.pending + ot.diff(doc.local, disk)
             doc.local = disk
         for update in ops:

@@ -424,6 +424,41 @@ async def test_edits_made_on_both_sides_while_apart_come_together(paper, overlea
         await opened.close()
 
 
+async def test_an_edit_that_reached_the_file_another_way_is_not_made_twice(paper, overleaf_site) -> None:
+    """While no page was open, Overleaf's edit came into the file some other way, as a git
+    pull brings it. The file already holds Overleaf's text: that is agreement, not an edit of
+    its own to send back."""
+    fake, link = overleaf_site
+    opened = await Review(paper, fake, link).open()
+    await opened.settled()
+    await opened.close()
+    await fake.coauthor("d-main", [{"p": MAIN.index("The placer"), "d": "The"}, {"p": MAIN.index("The placer"), "i": "Our"}])
+    opened.write("main.tex", MAIN.replace("The placer", "Our placer"))
+    opened = await Review(paper, fake, link).open()
+    try:
+        await opened.settled()
+        assert opened.read("main.tex") == MAIN.replace("The placer", "Our placer") == fake.docs["d-main"]["text"]
+        assert not [e for e in fake.sent if e["name"] == "applyOtUpdate"]
+    finally:
+        await opened.close()
+
+
+async def test_edits_on_both_sides_to_one_place_while_apart_wait_for_a_choice(paper, overleaf_site) -> None:
+    fake, link = overleaf_site
+    opened = await Review(paper, fake, link).open()
+    await opened.settled()
+    await opened.close()
+    await fake.coauthor("d-main", [{"p": MAIN.index("The placer"), "d": "The"}, {"p": MAIN.index("The placer"), "i": "Their"}])
+    opened.write("main.tex", MAIN.replace("The placer", "Our placer"))
+    opened = await Review(paper, fake, link).open()
+    try:
+        await wait_for(lambda: opened.files().get("main.tex") == "differs")
+        assert opened.read("main.tex") == MAIN.replace("The placer", "Our placer")
+        assert fake.docs["d-main"]["text"] == MAIN.replace("The placer", "Their placer")
+    finally:
+        await opened.close()
+
+
 async def test_when_overleaf_no_longer_has_the_edits_apart_ones_come_together_only_far_apart(
         paper, overleaf_site) -> None:
     fake, link = overleaf_site
