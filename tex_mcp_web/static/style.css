@@ -134,10 +134,11 @@ textarea {
 .overleaf-live-btn.off { color: var(--fg-dim); }
 .overleaf-faces { display: inline-flex; }
 .overleaf-faces:empty { display: none; }
-.overleaf-face { display: inline-grid; place-items: center; width: 1.25rem; height: 1.25rem; margin-left: -0.3rem; border-radius: 50%; border: 2px solid var(--bg-elev); color: white; font-size: 0.6rem; font-weight: 600; }
-.overleaf-face:first-child { margin-left: 0; }
-.overleaf-live-panel { position: absolute; top: calc(100% + 4px); right: 0; z-index: 50; width: 20rem; max-width: calc(100vw - 2rem); padding: 0.5rem; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-elev); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18); font-size: 0.85rem; }
-.overleaf-live-panel[hidden], .overleaf-live-head[hidden] { display: none; }
+.topbar .overleaf-face { display: inline-grid; place-items: center; width: 1.5rem; height: 1.5rem; padding: 0; margin-left: -0.3rem; border-radius: 50%; border: 2px solid var(--bg-elev); color: white; font-size: 0.65rem; font-weight: 600; cursor: pointer; }
+.topbar .overleaf-face:first-child { margin-left: 0; }
+.topbar .overleaf-face:hover { filter: brightness(1.12); }
+.overleaf-faces:not(:empty) + .overleaf-live-btn:not([hidden]) { margin-left: 0.35rem; }
+.overleaf-live-head[hidden] { display: none; }
 .overleaf-live-status { margin: 0 0 0.4rem; color: var(--fg-dim); overflow-wrap: anywhere; }
 .overleaf-live-head { margin: 0.5rem 0 0.2rem; font-weight: 600; }
 .overleaf-live-list { list-style: none; margin: 0; padding: 0; }
@@ -204,7 +205,7 @@ textarea {
 .dialog-actions .overleaf-download { background: var(--accent); color: white; border: none; }
 .dialog-actions .overleaf-download[hidden] { display: none; }
 .dialog-actions .overleaf-download:disabled { opacity: 0.55; cursor: default; }
-#overleaf-git { padding-top: 0.5rem; border-top: 1px solid var(--border); }
+#overleaf-git, #overleaf-live { padding-top: 0.5rem; border-top: 1px solid var(--border); }
 #overleaf-git p { margin: 0; overflow-wrap: anywhere; }
 .overleaf-git-actions { display: flex; gap: 0.4rem; }
 .overleaf-git-actions button { padding: 0.35rem 0.9rem; border: 1px solid var(--border); border-radius: 3px; background: var(--bg); color: inherit; }
@@ -644,7 +645,6 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 /* Beside the status filter, since it filters too: the eye says whether Overleaf's comments
    are in view, and the button stands out while they are not, so a short list is explained. */
 .overleaf-comments-btn[hidden] { display: none; }
-.overleaf-comments-word { font-size: 10px; font-weight: 600; letter-spacing: .02em; }
 .overleaf-comments-btn.off { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
 .overleaf-hidden-note { margin: 4px 8px 8px; font-size: 12px; color: var(--fg-dim); }
 .overleaf-hidden-note .link-btn {
@@ -882,7 +882,7 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 .overleaf-reply-note { font-size: 0.8rem; color: var(--warn); overflow-wrap: anywhere; }
 .overleaf-reply-note:empty { display: none; }
 .cmt-form-actions .overleaf-send { display: inline-flex; align-items: center; gap: 0.25rem; }
-.thread-meta .entry-overleaf { margin-right: auto; display: inline-flex; align-items: center; gap: 0.2rem; }
+.thread-meta .entry-overleaf { margin-right: auto; display: inline-flex; align-items: center; gap: 0.2rem; white-space: nowrap; }
 .entry-overleaf.here { color: var(--fg-dim); font-style: italic; }
 .cmt-unplaced { display: flex; align-items: baseline; gap: 0.3rem; margin: 0.25rem 0; font-size: 0.8rem; color: var(--fg-dim); }
 

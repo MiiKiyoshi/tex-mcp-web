@@ -2168,13 +2168,13 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
         browser = marionette.Marionette(host="127.0.0.1", port=marionette_port, startup_timeout=30)
         browser.start_session()
         browser.navigate(base)
-        wait_until(lambda: text("#overleaf-live-label") == "1 on Overleaf")
-        assert text("#overleaf-live-faces") == "CA"
-
-        browser.execute_script('document.querySelector("#overleaf-live-btn").click()')
-        assert browser.execute_script('return document.querySelector("#overleaf-live-panel").hidden') is False
+        # A face in the top bar, with no button around it; the dialog lists where each one is.
+        wait_until(lambda: text("#overleaf-live-faces") == "CA")
+        assert browser.execute_script('return document.querySelector("#overleaf-live-btn").hidden') is True
+        assert browser.execute_script('return document.querySelector(".overleaf-face").title') == \
+            "Co Author on Overleaf, at tex/body.tex:2"
         assert "Co Author" in text("#overleaf-live-users") and "tex/body.tex:2" in text("#overleaf-live-users")
-        browser.execute_script('document.querySelector("#overleaf-live-users button").click()')
+        browser.execute_script('document.querySelector(".overleaf-face").click()')
         wait_until(lambda: browser.execute_script(
             'return document.querySelector(".overleaf-cursor")?.dataset.user || ""') == "Co Author")
         assert browser.execute_script("return document.querySelector('#source-file').value") == "tex/body.tex"
@@ -2244,6 +2244,8 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
         wait_until(lambda: "not coming in" in text("#overleaf-live-status"), timeout=15)
         assert browser.execute_script(
             'return document.querySelector("#overleaf-live-btn").classList.contains("trouble")') is True
+        assert browser.execute_script('return document.querySelector("#overleaf-live-btn").hidden') is False
+        assert text("#overleaf-live-label") == "Comments not coming in"
     finally:
         if browser is not None:
             try:

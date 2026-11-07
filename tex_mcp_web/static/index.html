@@ -38,16 +38,11 @@
     <div class="actions">
       <button id="compile-btn" type="button" title="Compile (Ctrl+Enter, :make with Vim keys)" aria-label="Compile"><svg class="narrow-icon" viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v16l13-8z"/></svg><span class="wide-label">Compile</span></button>
       <button id="translation-btn" class="hidden" type="button" title="The source translated, beside the Preview or the editor">Translation</button>
+      <!-- A face for each collaborator in the Overleaf project, which goes to where they are.
+           The leaf button shows only to connect the paper, or when something needs a look. -->
       <span class="overleaf-live">
-        <button id="overleaf-live-btn" class="overleaf-live-btn off" type="button" aria-haspopup="true" aria-expanded="false" title="Connect this paper to its Overleaf project"><span id="overleaf-live-faces" class="overleaf-faces" aria-hidden="true"></span><span id="overleaf-live-label">Connect Overleaf</span></button>
-        <div id="overleaf-live-panel" class="overleaf-live-panel" hidden>
-          <p id="overleaf-live-status" class="overleaf-live-status"></p>
-          <ul id="overleaf-live-users" class="overleaf-live-list"></ul>
-          <p id="overleaf-live-changes-head" class="overleaf-live-head" hidden>Edited on Overleaf while this page was open</p>
-          <ul id="overleaf-live-changes" class="overleaf-live-list"></ul>
-          <p id="overleaf-sync-head" class="overleaf-live-head" hidden></p>
-          <ul id="overleaf-sync-files" class="overleaf-live-list"></ul>
-        </div>
+        <span id="overleaf-live-faces" class="overleaf-faces"></span>
+        <button id="overleaf-live-btn" class="overleaf-live-btn off" type="button" title="Connect this paper to its Overleaf project"><svg class="leaf-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 13C3 7 7 3 13 3c0 6-4 10-10 10z"/><path d="M3 13l6-6"/></svg><span id="overleaf-live-label">Connect Overleaf</span></button>
       </span>
       <span class="more">
         <button id="more-btn" type="button" title="More" aria-label="More" aria-haspopup="menu" aria-expanded="false"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg></button>
@@ -138,7 +133,7 @@
           <button id="overleaf-comments-btn" class="icon-btn overleaf-comments-btn" type="button" hidden aria-pressed="true" aria-label="Hide comments from Overleaf" title="Hide comments from Overleaf">
             <svg class="icon-shown" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8 12.1 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg>
             <svg class="icon-hidden hidden" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 8s2.4-4.5 6.5-4.5c1.3 0 2.4.4 3.4 1M14.5 8s-2.4 4.5-6.5 4.5c-1.3 0-2.4-.4-3.4-1"/><path d="M2.5 13.5l11-11"/></svg>
-            <span class="overleaf-comments-word">OL</span>
+            <svg class="leaf-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 13C3 7 7 3 13 3c0 6-4 10-10 10z"/><path d="M3 13l6-6"/></svg>
           </button>
           <!-- Icons, with the words as title and aria-label. Each button shows the one drawing
                that fits its state; a count rides beside the drawing where the action has one.
@@ -202,6 +197,15 @@
         <p>On Overleaf, signed in, open the browser's developer tools: Application (Chrome, Edge) or Storage (Safari, Firefox), then Cookies, then overleaf.com. Copy the value of <code>overleaf_session2</code>. It signs in as you, so it is kept in your own config folder, readable by you alone, and is not shown here again.</p>
       </details>
       <p id="overleaf-signed" class="overleaf-signed" hidden><span id="overleaf-signed-text"></span> <button id="overleaf-cookie-forget" type="button" class="overleaf-forget">Forget it</button></p>
+    </section>
+    <!-- Who is in the project and what they changed while this page was open. -->
+    <section id="overleaf-live" class="overleaf-direct" hidden>
+      <p id="overleaf-live-status" class="overleaf-live-status"></p>
+      <ul id="overleaf-live-users" class="overleaf-live-list"></ul>
+      <p id="overleaf-live-changes-head" class="overleaf-live-head" hidden>Edited on Overleaf while this page was open</p>
+      <ul id="overleaf-live-changes" class="overleaf-live-list"></ul>
+      <p id="overleaf-sync-head" class="overleaf-live-head" hidden></p>
+      <ul id="overleaf-sync-files" class="overleaf-live-list"></ul>
     </section>
     <!-- A folder cloned from the project by git: where it stands against Overleaf's branch. -->
     <section id="overleaf-git" class="overleaf-direct" hidden>

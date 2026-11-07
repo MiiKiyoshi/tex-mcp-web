@@ -1077,6 +1077,7 @@ function renderOverleafStatus({ project, cookie, sync = false, settable = true, 
     $("#overleaf-project").textContent = project.replace(/^https?:\/\//, "");
   }
   $("#overleaf-cookie-row").hidden = Boolean(cookie);
+  $("#overleaf-cookie-help").hidden = Boolean(cookie);
   $("#overleaf-signed").hidden = !cookie;
   $("#overleaf-signed-text").textContent = cookie === "environment"
     ? "Signed in with the cookie TEX_MCP_WEB_OVERLEAF_COOKIE gives."
@@ -1223,8 +1224,9 @@ async function downloadOverleafComments() {
 // ----- Overleaf: who is in the project -----
 // While a page is open the server sits in the paper's Overleaf project, read-only, and
 // tells the page who is there, where their cursors are, and which files they changed. A
-// face per person in the top bar opens the list; a collaborator's cursor in the open file
-// is drawn in the editor; a file changed on Overleaf says so above the editor.
+// face per person in the top bar goes to where they are; a collaborator's cursor in the
+// open file is drawn in the editor; a file changed on Overleaf says so above the editor;
+// the Overleaf dialog lists all of it.
 const overleafLive = { snapshot: null, layer: null, notice: "" };
 
 function overleafColor(id) {
@@ -1340,29 +1342,32 @@ function renderOverleafLive(snapshot) {
   overleafLive.snapshot = snapshot;
   const { status, users = [], changes = [] } = snapshot;
   const button = $("#overleaf-live-btn");
-  // Always in the top bar: unconnected, it opens the dialog that connects the paper.
   const off = status === "off";
-  button.classList.toggle("off", off);
-  button.title = off ? "Connect this paper to its Overleaf project" : "Who is in the Overleaf project";
-  if (off) $("#overleaf-live-panel").hidden = true;
   const commentsTrouble = status === "live" ? snapshot.comments_trouble : "";
   const files = snapshot.files ?? [];
   const choosing = files.filter((file) => ["differs", "stopped", "held"].includes(file.status));
-  button.classList.toggle("trouble", status === "signed_out" || status === "reconnecting" || !!commentsTrouble
+  // The leaf button connects an unconnected paper, and otherwise shows only when something
+  // needs a look in the dialog; a session that is up shows faces alone.
+  const trouble = !off && (status === "signed_out" || status === "reconnecting" || !!commentsTrouble
     || choosing.length > 0);
+  button.classList.toggle("off", off);
+  button.classList.toggle("trouble", trouble);
+  button.hidden = !off && !trouble;
+  button.title = off ? "Connect this paper to its Overleaf project" : "Overleaf: something needs a look";
   renderOverleafFiles(files, choosing);
-  $("#overleaf-live-label").textContent = off ? "Connect Overleaf" : (status === "live"
-    ? (users.length ? `${users.length} on Overleaf` : "Overleaf")
-    : status === "connecting" ? "Overleaf…" : "Overleaf offline")
-    + (choosing.length ? ` · ${choosing.length} waiting` : "");
-  const faces = $("#overleaf-live-faces");
-  faces.replaceChildren(...users.slice(0, 4).map((user) => {
-    const face = document.createElement("span");
-    face.className = "overleaf-face";
-    face.style.background = overleafColor(user.user_id || user.id);
-    face.textContent = overleafInitials(user.name);
-    face.title = user.name;
-    return face;
+  $("#overleaf-live-label").textContent = off ? "Connect Overleaf"
+    : choosing.length ? `${choosing.length} waiting`
+    : commentsTrouble ? "Comments not coming in"
+    : { signed_out: "Signed out", reconnecting: "Reconnecting" }[status] ?? "";
+  $("#overleaf-live").hidden = off;
+  $("#overleaf-live-faces").replaceChildren(...users.slice(0, 4).map((user) => {
+    const where = user.file ? `${user.file}:${(user.row ?? 0) + 1}` : "";
+    const said = `${user.name || "Someone"} on Overleaf${where ? `, at ${where}` : ""}`;
+    return h("button", {
+      class: "overleaf-face", type: "button", title: said, "aria-label": said,
+      style: { background: overleafColor(user.user_id || user.id) },
+      onclick: () => goToOverleafPlace(user.file, user.row).catch((error) => alert(error.message)),
+    }, overleafInitials(user.name));
   }));
   $("#overleaf-live-status").textContent = commentsTrouble ? `Overleaf comments are not coming in: ${commentsTrouble}` : {
     live: users.length ? "In the Overleaf project now:" : "No one else is in the Overleaf project.",
@@ -1380,7 +1385,7 @@ function renderOverleafLive(snapshot) {
 
 async function goToOverleafPlace(file, row) {
   if (!file) return;
-  $("#overleaf-live-panel").hidden = true;
+  if ($("#overleaf-dialog").open) $("#overleaf-dialog").close();
   if (state.view === "pdf") await setWorkspaceView("split");
   await initializeSourceEditor();
   showSourceFile(file);
@@ -3467,19 +3472,7 @@ function attachSidebarToggle() {
     }
   });
   $("#overleaf-sync").addEventListener("change", () => switchOverleafSync());
-  $("#overleaf-live-btn").addEventListener("click", (event) => {
-    event.stopPropagation();
-    if ($("#overleaf-live-btn").classList.contains("off")) {
-      showOverleafDialog();
-      return;
-    }
-    const open = $("#overleaf-live-panel").hidden;
-    $("#overleaf-live-panel").hidden = !open;
-    $("#overleaf-live-btn").setAttribute("aria-expanded", String(open));
-  });
-  document.addEventListener("click", (event) => {
-    if (!event.target.closest(".overleaf-live")) $("#overleaf-live-panel").hidden = true;
-  });
+  $("#overleaf-live-btn").addEventListener("click", () => showOverleafDialog());
   // Ctrl+Enter (Cmd+Enter) compiles from anywhere but a field being written in, where it
   // sends what is written, and an open dialog.
   document.addEventListener("keydown", (event) => {
