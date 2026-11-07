@@ -99,7 +99,7 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   `overleaf:`. **Disconnect** there takes it out. A project on another Overleaf server is
   named in the file by hand. Once connected, the same dialog holds everything Overleaf:
   the cookie, who is in the project, where the folder stands against Overleaf's git
-  branch, and **Sync comments**.
+  branch, and **Sync comments** unless the files are kept the same both ways.
 - Overleaf is read with your Overleaf session cookie (`overleaf_session2`, copied once
   from the browser's developer tools). The cookie is kept in
   `~/.config/tex-mcp-web/overleaf-cookie`, readable by you alone, or given by
@@ -114,8 +114,9 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   in the remote's address never reaches the page.
 - Comments from Overleaf are kept as Overleaf has them. **Sync comments** brings its open
   threads in as comments on the words they were written about, with their replies. In a
-  git clone it waits until the folder is at Overleaf's commit, and with `overleaf_sync` on
-  until every file is in step, since a thread is on words.
+  git clone it waits until the folder is at Overleaf's commit, since a thread is on words.
+  With `overleaf_sync` on there is no **Sync comments**: a new thread comes in by itself
+  whenever every file is in step.
   A file whose text has the hash of Overleaf's text holds the same text, and there each
   comment sits exactly where Overleaf has it and moves when Overleaf moves it. In a file
   that differs, a comment goes on its words, and this file's own edits keep it there. A
@@ -138,7 +139,8 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   file and puts one cursor at its top, which is what makes the others' editors send their
   cursors at once, so to them it is one more of your tabs, idle.
 - While a page is open that way, a new thread on Overleaf is counted on **Sync comments**
-  within seconds, and threads already here follow theirs by themselves.
+  within seconds, or comes in by itself with `overleaf_sync` on, and threads already here
+  follow theirs by themselves.
 - A thread from Overleaf has a box under it for a reply on Overleaf, which everyone in the
   project reads. The agent can put its draft there (`write_comments` with
   `action="overleaf"`), one per thread, and you edit it and send it with **Send to** and
@@ -146,9 +148,10 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   picked thread from Overleaf, one thread after another, and a refused one keeps its words
   and says why on its card while the rest go. The agent cannot send. A plain reply stays
   here, since it may be an instruction to the agent, and each entry on such a thread says
-  whether it went to Overleaf or stayed here. A draft naming the source ranges it describes goes only once Overleaf has what
-  those ranges held, read from Overleaf's branch in a git clone and from the files kept in
-  step otherwise, and the refusal says whether to commit or to push first. Overleaf takes
+  whether it went to Overleaf or stayed here. A draft naming the source ranges it
+  describes goes only once Overleaf has what those ranges held, read from Overleaf's
+  branch in a git clone and from the files kept in step otherwise, and the refusal says
+  whether to commit or to push first. Overleaf takes
   the reply first, so what it refuses is not shown as said here.
 - With `overleaf_sync: true`, the paper's files and the project's are kept the same both
   ways while a page is open: an edit on Overleaf is written into the file within a second,
@@ -244,7 +247,7 @@ overleaf: https://www.overleaf.com/project/0123456789abcdef01234567
 | `references` | Folder holding only the papers yours builds on, converted to Markdown, relative to this file or absolute. Unset means no list of their terms. |
 | `translation` | `language` puts a button for that language beside **+ Note**: it shows each paragraph of the source translated by `claude -p`, with those on the current page marked. `instructions` adds rules for the translator, one per line. A paragraph is translated once per text, and of a figure or table only the caption is. Unset means no translation. |
 | `overleaf` | The paper's Overleaf project, by its link, which an open page follows and **Sync comments** reads. Unset means none. |
-| `overleaf_sync` | `true` keeps the paper's files and that project's the same both ways while a page is open, unless the folder is a git clone of the project. Unset means files are not touched and no edit is sent. |
+| `overleaf_sync` | `true` keeps the paper's files and that project's the same both ways while a page is open, and brings new threads in by themselves, unless the folder is a git clone of the project. Unset means files are not touched and no edit is sent. |
 
 ## See also
 

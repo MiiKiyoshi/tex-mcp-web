@@ -44,15 +44,37 @@ class FakeOverleaf:
         self.refuse_next = False
         self.drop_after_next = False
         self.connections = 0
+        self.threads: dict = {}          # what /threads gives: the messages of each thread
         app = web.Application()
         app.router.add_get("/socket.io/1/", self._handshake)
         app.router.add_get("/socket.io/1/websocket/{sid}", self._websocket)
-        for route in ("threads", "ranges", "entities"):
-            app.router.add_get(f"/project/{PROJECT_ID}/{route}", self._empty)
+        app.router.add_get(f"/project/{PROJECT_ID}/threads", self._threads)
+        app.router.add_get(f"/project/{PROJECT_ID}/ranges", self._ranges)
+        app.router.add_get(f"/project/{PROJECT_ID}/entities", self._entities)
+        app.router.add_get(f"/Project/{PROJECT_ID}/doc/{{doc}}/download", self._download)
         self.app = app
 
-    async def _empty(self, request: web.Request) -> web.Response:
-        return web.json_response({} if "threads" in request.path else [])
+    async def _threads(self, request: web.Request) -> web.Response:
+        return web.json_response(self.threads)
+
+    async def _entities(self, request: web.Request) -> web.Response:
+        return web.json_response({"entities": [{"path": "/main.tex", "type": "doc"},
+                                               {"path": "/tex/body.tex", "type": "doc"}]})
+
+    async def _ranges(self, request: web.Request) -> web.Response:
+        """The words of each thread /threads gives, where each document has them now."""
+        return web.json_response([{"id": key, "ranges": {"comments": [
+            {"id": f"c-{c['t']}", "op": {"t": c["t"], "p": c["p"], "c": _units(doc["text"], c["p"], c["p"] + c["n"])}}
+            for c in doc["comments"] if c["t"] in self.threads]}} for key, doc in self.docs.items()])
+
+    async def _download(self, request: web.Request) -> web.Response:
+        doc = self.docs[request.match_info["doc"]]
+        return web.Response(text=doc["text"], content_type="text/plain",
+                            headers={"Content-Disposition": f'attachment; filename="{doc["name"]}"'})
+
+    async def broadcast(self, name: str, *args) -> None:
+        for ws in list(self.sockets.values()):
+            await self.emit(ws, name, *args)
 
     async def _handshake(self, request: web.Request) -> web.Response:
         return web.Response(text="sid-1:60:60:websocket")
@@ -407,6 +429,40 @@ async def test_files_that_differ_at_the_start_wait_and_neither_is_overwritten(pa
         assert fake.docs["d-main"]["text"] == MAIN + "\n% only here"
         assert fake.docs["d-main"]["comments"][0]["n"] == 4     # the comment kept its word
         assert list((paper / ".tex-mcp-web" / "overleaf-sync" / "kept").glob("main.tex.overleaf.*"))
+    finally:
+        await opened.close()
+
+
+async def test_a_new_thread_comes_in_by_itself_once_every_file_is_in_step(paper, overleaf_site) -> None:
+    """With the files kept the same both ways there is no Sync comments to press: a thread
+    written on Overleaf is counted while a file waits for a choice, and comes in on its
+    words, by itself, once every file is the same as on Overleaf."""
+    fake, link = overleaf_site
+    (paper / "main.tex").write_text(MAIN + "\n% only here")
+    opened = await Review(paper, fake, link).open()
+    try:
+        await wait_for(lambda: opened.files().get("main.tex") == "differs")
+        fake.threads["t1"] = {"messages": [{"id": "m1", "user": {"first_name": "Ann"}, "content": "Faster?"}]}
+        fake.comment("d-main", "t1", "fast")
+        await fake.broadcast("new-comment", "t1", {})
+        await wait_for(lambda: opened.server._overleaf_waiting == 1)
+        await asyncio.sleep(0.2)
+        assert opened.server.comments.list() == []
+
+        await opened.client.post("/overleaf/sync", json={"path": "main.tex", "choice": "here"})
+        await opened.settled()
+        await wait_for(lambda: len(opened.server.comments.list()) == 1)
+        brought = opened.server.comments.list()[0]
+        assert brought.thread[0].text == "[Overleaf · Ann] Faster?"
+        assert (brought.anchor.file, brought.anchor.line_start) == ("main.tex", MAIN[:MAIN.index("fast")].count("\n") + 1)
+        assert opened.server._overleaf_waiting == 0
+
+        # A thread written while every file is in step comes in at once.
+        fake.threads["t2"] = {"messages": [{"id": "m2", "user": {"first_name": "Ann"}, "content": "And this?"}]}
+        fake.comment("d-body", "t2", BODY.split()[0])
+        await fake.broadcast("new-comment", "t2", {})
+        await wait_for(lambda: len(opened.server.comments.list()) == 2)
+        assert opened.server._overleaf_waiting == 0
     finally:
         await opened.close()
 

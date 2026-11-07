@@ -33,10 +33,12 @@ const state = {
   overleafReplies: new Map(),
   // Where on Overleaf the comments from there are whose words are not in the file here yet.
   overleafUnplaced: {},
-  // The cookie is kept, how many open threads on Overleaf wait to be synced, and where
-  // a folder cloned by git stands against Overleaf's branch (null until read, or no git).
+  // The cookie is kept, the files are kept the same both ways (which brings new threads in
+  // by themselves), how many open threads on Overleaf wait to be synced, and where a folder
+  // cloned by git stands against Overleaf's branch (null until read, or no git).
   overleafSignedIn: false,
   overleafProject: null,
+  overleafFullSync: false,
   overleafWaiting: 0,
   overleafGit: null,
   overleafGitRead: 0,
@@ -1071,7 +1073,6 @@ function renderOverleafStatus({ project, cookie, sync = false, settable = true, 
   $("#overleaf-sync").disabled = !settable;
   $("#overleaf-import-btn").textContent = project ? "Overleaf…" : "Connect to Overleaf…";
   $("#overleaf-direct").hidden = !project;
-  $("#overleaf-thread-sync").hidden = !project;
   $("#overleaf-git").hidden = !git;
   if (!git) {
     state.overleafGit = null;
@@ -1079,6 +1080,7 @@ function renderOverleafStatus({ project, cookie, sync = false, settable = true, 
   }
   state.overleafSignedIn = Boolean(cookie);
   state.overleafProject = project ?? null;
+  state.overleafFullSync = Boolean(project && sync && !git);
   state.overleafWaiting = waiting;
   if (project) {
     $("#overleaf-project").href = project;
@@ -1103,14 +1105,13 @@ function renderOverleafThreadSync() {
   const side = $("#overleaf-sync-comments-btn");
   const waiting = state.overleafWaiting;
   button.textContent = waiting ? `Sync comments (${waiting})` : "Sync comments";
-  side.hidden = !state.overleafProject;
+  // Files kept the same both ways bring new threads in by themselves: nothing to press.
+  button.hidden = side.hidden = !state.overleafProject || state.overleafFullSync;
   side.querySelector(".count").textContent = waiting ? String(waiting) : "";
   const words = waiting ? `Sync comments from Overleaf (${waiting} new)` : "Sync comments from Overleaf";
   side.title = words;
   side.setAttribute("aria-label", words);
-  // Files kept the same both ways stand in for the commit: every one in step first.
-  const apart = (overleafLive.snapshot?.files ?? []).some((file) => !["synced", "unsupported"].includes(file.status));
-  button.disabled = side.disabled = !state.overleafSignedIn || apart
+  button.disabled = side.disabled = !state.overleafSignedIn
     || (state.overleafGit !== null && state.overleafGit.state !== "same");
 }
 
@@ -1200,7 +1201,8 @@ function readOverleafGitSoon(delay) {
 // everyone in the project sees.
 const OVERLEAF_SYNC_QUESTION = "The paper's files and the Overleaf project will be kept the same both ways while a "
   + "page is open: edits here are sent to Overleaf, and edits there are written into the files. "
-  + "A file that differs at the start waits for your choice. Turn this on?";
+  + "A file that differs at the start waits for your choice. New comment threads on Overleaf come in "
+  + "by themselves whenever every file is the same. Turn this on?";
 
 async function connectOverleaf(change, done) {
   const response = await fetch("/overleaf/connect", {
@@ -2231,6 +2233,7 @@ async function refreshComments() {
   state.overleafUnplaced = linked.unplaced ?? {};
   state.overleafSignedIn = Boolean(linked.cookie);
   state.overleafProject = linked.project ?? null;
+  state.overleafFullSync = Boolean(linked.project && linked.sync && !linked.git);
   state.overleafWaiting = linked.waiting ?? 0;
   renderOverleafThreadSync();
   // Hidden comments are left out here, once, so the list, the editor's marks, the PDF's

@@ -2102,6 +2102,9 @@ def test_a_file_that_differs_from_overleaf_waits_for_a_choice_on_the_page(tmp_pa
         wait_until(lambda: browser.execute_script(
             'return document.querySelector(\'#overleaf-sync-files [data-path="main.tex"]\') !== null'), timeout=20)
         assert "wait for your choice" in text("#overleaf-sync-head")
+        # Files kept the same both ways bring new threads in by themselves: nothing to press.
+        assert browser.execute_script('return [document.querySelector("#overleaf-sync-comments-btn").hidden,'
+                                      ' document.querySelector("#overleaf-thread-sync").hidden]') == [True, True]
         assert browser.execute_script(
             'return document.querySelector("#overleaf-live-btn").classList.contains("trouble")') is True
         assert "1 waiting" in text("#overleaf-live-label")

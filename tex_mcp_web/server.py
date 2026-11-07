@@ -459,6 +459,8 @@ class TexMcpWebServer:
         self._overleaf_git = asyncio.Lock()
         # Open threads on Overleaf not yet brought in, as the last reading counted them.
         self._overleaf_waiting = 0
+        # Whether every file kept the same both ways was in step when last looked at.
+        self._overleaf_was_in_step = False
         self.overleaf_sync: ProjectSync | None = None
         # Texts the page may save over, by file and revision, for a save made over an
         # edit from Overleaf to be brought together with it.
@@ -749,6 +751,7 @@ class TexMcpWebServer:
             self._overleaf_live_stop.cancel()
             self._overleaf_live_stop = None
         self._overleaf_reads = 0
+        self._overleaf_was_in_step = False
         self._overleaf_deleted.clear()
         reader, self._overleaf_reader = self._overleaf_reader, None
         if reader is not None:
@@ -764,7 +767,12 @@ class TexMcpWebServer:
 
     def _overleaf_live_changed(self) -> None:
         """Changes come in bursts (a typist's cursor); the page hears of them a little later,
-        once."""
+        once. Threads that waited while a file kept the same both ways was out of step come
+        in once every file is in step."""
+        in_step = self._overleaf_in_step()
+        if in_step and not self._overleaf_was_in_step and self._overleaf_waiting:
+            self._overleaf_comment_news("", [])
+        self._overleaf_was_in_step = in_step
         if self._overleaf_live_push is not None:
             return
 
@@ -800,7 +808,14 @@ class TexMcpWebServer:
             async with self._overleaf_import:
                 data = await overleaf.fetch_export(live.link, cookie)
                 deleted, self._overleaf_deleted = self._overleaf_deleted, set()
-                await self._bring_in_overleaf(data, deleted, new=False)
+                # With files kept the same both ways a new thread comes in by itself, at a
+                # moment every file is in step, and waits for that moment otherwise. Without,
+                # it waits for Sync comments.
+                new = self._overleaf_in_step()
+                await self._bring_in_overleaf(data, deleted, new=new)
+            # Every file came into step while this reading counted threads as waiting.
+            if not new and self._overleaf_waiting and self._overleaf_in_step():
+                self._overleaf_comment_news("", [])
         except overleaf.OverleafError as error:
             trouble = str(error)
         if live.comments_trouble != trouble:
@@ -960,6 +975,17 @@ class TexMcpWebServer:
         await self._sync_overleaf_live(restart=True)
         return web.json_response(await self._overleaf_status())
 
+    def _overleaf_apart(self) -> list[str]:
+        """The files kept the same both ways that are not the same as on Overleaf now."""
+        if self.overleaf_sync is None:
+            return []
+        return sorted(doc.path for doc in self.overleaf_sync.docs.values()
+                      if doc.status not in ("synced", "unsupported") or doc.pending or doc.inflight is not None)
+
+    def _overleaf_in_step(self) -> bool:
+        """Files are kept the same both ways, and every one is the same as on Overleaf."""
+        return self.overleaf_sync is not None and bool(self.overleaf_sync.docs) and not self._overleaf_apart()
+
     async def _handle_overleaf_comments(self, request: web.Request) -> web.Response:
         """Bring in the comments of the project the config names, read from Overleaf with
         the reviewer's cookie. A folder that follows Overleaf by git takes them only at the
@@ -988,10 +1014,9 @@ class TexMcpWebServer:
                                           "Push first, so the comments sit on the text Overleaf has."}, status=409)
         elif self.overleaf_sync is not None:
             # Files kept the same both ways stand in for the commit: every one in step first.
-            apart = [doc.path for doc in self.overleaf_sync.docs.values()
-                     if doc.status not in ("synced", "unsupported") or doc.pending or doc.inflight is not None]
+            apart = self._overleaf_apart()
             if apart:
-                return web.json_response({"error": f"Not yet the same as on Overleaf: {', '.join(sorted(apart))}. "
+                return web.json_response({"error": f"Not yet the same as on Overleaf: {', '.join(apart)}. "
                                                    "Settle it first."}, status=409)
         try:
             async with self._overleaf_import:
@@ -1076,8 +1101,8 @@ class TexMcpWebServer:
         reworded here, it is open or resolved as it is there, and it sits where Overleaf has
         it (see _place_overleaf_comment). A thread deleted there is deleted here, and one
         deleted here comes back. Entries written here stay in their thread. A thread not yet
-        here comes in only when *new* says so, the reviewer having asked: otherwise it is
-        counted as waiting. A reply the reviewer sent from here is known by its words, once,
+        here comes in only when *new* says so, the reviewer having asked or every file kept
+        the same both ways being in step: otherwise it is counted as waiting. A reply the reviewer sent from here is known by its words, once,
         since Overleaf does not say which message it made. The ledger is written however this
         ends, so what did come in does not come in again."""
         ledger = self._overleaf_ledger()
