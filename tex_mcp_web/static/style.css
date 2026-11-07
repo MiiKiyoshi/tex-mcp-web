@@ -210,7 +210,8 @@ textarea {
 .overleaf-help p { margin: 0.3rem 0 0; line-height: 1.5; }
 .overleaf-signed { font-size: 0.9rem; }
 .overleaf-thread-row:has(> [hidden]) { display: none; }
-.overleaf-thread-sync { padding: 0.35rem 0.7rem; border: 1px solid var(--border); border-radius: 3px; background: var(--bg); color: inherit; }
+.overleaf-thread-sync { display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.35rem 0.7rem; border: 1px solid var(--border); border-radius: 3px; background: var(--bg); color: inherit; }
+.overleaf-thread-sync[hidden] { display: none; }
 .overleaf-thread-sync:disabled { opacity: 0.55; cursor: default; }
 #overleaf-git, #overleaf-live { padding-top: 0.5rem; border-top: 1px solid var(--border); }
 #overleaf-git p { margin: 0; overflow-wrap: anywhere; }

@@ -1111,7 +1111,7 @@ function renderOverleafThreadSync() {
   const button = $("#overleaf-thread-sync");
   const side = $("#overleaf-sync-comments-btn");
   const waiting = state.overleafWaiting;
-  button.textContent = waiting ? `Sync comments (${waiting})` : "Sync comments";
+  button.querySelector(".label").textContent = waiting ? `Sync comments (${waiting})` : "Sync comments";
   // Files kept the same both ways bring new threads in by themselves: nothing to press.
   button.hidden = side.hidden = !state.overleafProject || state.overleafFullSync;
   side.querySelector(".count").textContent = waiting ? String(waiting) : "";
