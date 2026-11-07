@@ -110,7 +110,8 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   in the remote's address never reaches the page.
 - Comments from Overleaf are kept as Overleaf has them. **Sync comments** brings its open
   threads in as comments on the words they were written about, with their replies. In a
-  git clone it waits until the folder is at Overleaf's commit, since a thread is on words.
+  git clone it waits until the folder is at Overleaf's commit, and with `overleaf_sync` on
+  until every file is in step, since a thread is on words.
   A file whose text has the hash of Overleaf's text holds the same text, and there each
   comment sits exactly where Overleaf has it and moves when Overleaf moves it. In a file
   that differs, a comment goes on its words, and this file's own edits keep it there. A

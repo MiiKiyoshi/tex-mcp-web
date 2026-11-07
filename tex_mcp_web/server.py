@@ -963,8 +963,9 @@ class TexMcpWebServer:
     async def _handle_overleaf_comments(self, request: web.Request) -> web.Response:
         """Bring in the comments of the project the config names, read from Overleaf with
         the reviewer's cookie. A folder that follows Overleaf by git takes them only at the
-        commit Overleaf is at: a thread is on words, and only the same text puts it exactly
-        where Overleaf has it."""
+        commit Overleaf is at, and one whose files are kept the same both ways only with every
+        file in step: a thread is on words, and only the same text puts it exactly where
+        Overleaf has it."""
         if not self.config.overleaf:
             return web.json_response(
                 {"error": "name the project in .tex-mcp-web.yaml as overleaf: <its link>"}, status=409)
@@ -985,6 +986,13 @@ class TexMcpWebServer:
                 return web.json_response({"error": f"Overleaf has {commits} this folder lacks. Pull first."
                                           if now["behind"] else f"This folder has {commits} Overleaf lacks. "
                                           "Push first, so the comments sit on the text Overleaf has."}, status=409)
+        elif self.overleaf_sync is not None:
+            # Files kept the same both ways stand in for the commit: every one in step first.
+            apart = [doc.path for doc in self.overleaf_sync.docs.values()
+                     if doc.status not in ("synced", "unsupported") or doc.pending or doc.inflight is not None]
+            if apart:
+                return web.json_response({"error": f"Not yet the same as on Overleaf: {', '.join(sorted(apart))}. "
+                                                   "Settle it first."}, status=409)
         try:
             async with self._overleaf_import:
                 data = await overleaf.fetch_export(self.config.overleaf, cookie)

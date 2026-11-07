@@ -397,9 +397,13 @@ async def test_files_that_differ_at_the_start_wait_and_neither_is_overwritten(pa
         assert opened.read("main.tex") == MAIN + "\n% only here" and fake.docs["d-main"]["text"] == MAIN
         live = await (await opened.client.get("/overleaf/live")).json()
         assert {"path": "main.tex", "status": "differs"}.items() <= live["files"][0].items()
+        # Comments wait for every file to be in step, as they do for a git clone's commit.
+        refused = await opened.client.post("/overleaf/comments")
+        assert refused.status == 409 and "main.tex" in (await refused.json())["error"]
 
         await opened.client.post("/overleaf/sync", json={"path": "main.tex", "choice": "here"})
         await opened.settled()
+        assert (await opened.client.post("/overleaf/comments")).status != 409
         assert fake.docs["d-main"]["text"] == MAIN + "\n% only here"
         assert fake.docs["d-main"]["comments"][0]["n"] == 4     # the comment kept its word
         assert list((paper / ".tex-mcp-web" / "overleaf-sync" / "kept").glob("main.tex.overleaf.*"))

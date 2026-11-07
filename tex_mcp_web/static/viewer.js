@@ -1098,7 +1098,10 @@ function renderOverleafThreadSync() {
   const button = $("#overleaf-thread-sync");
   const waiting = state.overleafWaiting;
   button.textContent = waiting ? `Sync comments (${waiting})` : "Sync comments";
-  button.disabled = !state.overleafSignedIn || (state.overleafGit !== null && state.overleafGit.state !== "same");
+  // Files kept the same both ways stand in for the commit: every one in step first.
+  const apart = (overleafLive.snapshot?.files ?? []).some((file) => !["synced", "unsupported"].includes(file.status));
+  button.disabled = !state.overleafSignedIn || apart
+    || (state.overleafGit !== null && state.overleafGit.state !== "same");
 }
 
 async function loadOverleafStatus() {
@@ -1391,6 +1394,7 @@ function renderOverleafLive(snapshot) {
   button.hidden = !off && !trouble;
   button.title = off ? "Connect this paper to its Overleaf project" : "Overleaf: something needs a look";
   renderOverleafFiles(files, choosing);
+  renderOverleafThreadSync();
   $("#overleaf-live-label").textContent = off ? "Connect Overleaf"
     : choosing.length ? `${choosing.length} waiting`
     : commentsTrouble ? "Comments not coming in"
