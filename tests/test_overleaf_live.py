@@ -344,12 +344,12 @@ def texts(comment):
 
 
 async def downloaded(client, server, count):
-    """The reviewer presses Download comments, and *count* comments are here."""
+    """The reviewer presses Sync comments, and *count* comments are here."""
     assert (await client.post("/overleaf/comments")).status == 200
     await wait_for(lambda: len(server.comments.list()) == count)
 
 
-async def test_what_was_said_while_no_page_was_open_waits_on_opening_to_be_downloaded(review) -> None:
+async def test_what_was_said_while_no_page_was_open_waits_on_opening_to_be_synced(review) -> None:
     client, server, fake = review
     fake.threads["t1"] = {"messages": [said("Ann", "Earlier.")]}
     fake.ranges.append(on_the_words("t1"))
@@ -389,15 +389,14 @@ async def test_a_new_thread_waits_and_its_replies_come_in_by_themselves_and_clos
     await wait_for(lambda: len(server.comments.get(comment.id).thread) == 2)
     assert texts(server.comments.get(comment.id))[1] == "[Overleaf · Bo] These."
 
-    # A reply taken back, and then another: the new one still comes in.
+    # A reply taken back goes here too, and the next one still comes in.
     fake.threads["t1"]["messages"].pop()
-    read = fake.ranges_read
     await fake.push(event("delete-message", "t1", "m2"))
-    await wait_for(lambda: fake.ranges_read >= read + 2)
+    await wait_for(lambda: len(server.comments.get(comment.id).thread) == 1)
     fake.threads["t1"]["messages"].append(said("Bo", "Those."))
     await fake.push(event("new-comment", "t1", {}))
-    await wait_for(lambda: len(server.comments.get(comment.id).thread) == 3)
-    assert texts(server.comments.get(comment.id))[2] == "[Overleaf · Bo] Those."
+    await wait_for(lambda: len(server.comments.get(comment.id).thread) == 2)
+    assert texts(server.comments.get(comment.id))[1] == "[Overleaf · Bo] Those."
 
     fake.threads["t1"]["resolved"] = True
     await fake.push(event("resolve-thread", "t1", {}))
@@ -408,7 +407,7 @@ async def test_a_new_thread_waits_and_its_replies_come_in_by_themselves_and_clos
     await page.close()
 
 
-async def test_what_the_reviewer_did_here_stands(review) -> None:
+async def test_a_thread_from_overleaf_is_as_overleaf_has_it_whatever_was_done_here(review) -> None:
     client, server, fake = review
     fake.threads = {"t1": {"messages": [said("Ann", "One.")]}, "t2": {"messages": [said("Ann", "Two.")]}}
     fake.ranges += [on_the_words("t1"), on_the_words("t2", "Hi")]
@@ -417,20 +416,22 @@ async def test_what_the_reviewer_did_here_stands(review) -> None:
     await downloaded(client, server, 2)
     one, two = sorted(server.comments.list(), key=lambda comment: texts(comment)[0])
 
-    # Closed here, open on Overleaf: another reading does not open it again.
+    # The page does not close, archive or delete it: that is done on Overleaf.
+    for action in ("resolve", "archive"):
+        assert (await client.post(f"/comments/{one.id}/{action}", json={"summary": ""})).status == 409
+    assert (await client.delete(f"/comments/{one.id}")).status == 409
+    # Closed or deleted here all the same, by another hand: the next reading puts it back.
     server.comments.resolve(one.id, summary="", author="human")
-    # Deleted here: it does not come back, by itself or downloaded again.
     server.comments.delete(two.id)
     read = fake.ranges_read
     await fake.push(event("new-comment", "t9", {}))
     await wait_for(lambda: fake.ranges_read >= read + 2)
-    assert (await client.post("/overleaf/comments")).status == 200
-    assert [comment.id for comment in server.comments.list()] == [one.id]
-    assert server.comments.get(one.id).status == "resolved"
+    assert server.comments.get(one.id).status == "open"
+    await downloaded(client, server, 2)
     await page.close()
 
 
-async def test_a_thread_deleted_on_overleaf_is_closed_here_not_lost(review) -> None:
+async def test_a_thread_deleted_on_overleaf_is_deleted_here(review) -> None:
     client, server, fake = review
     fake.threads["t1"] = {"messages": [said("Ann", "Mistake.")]}
     fake.ranges.append(on_the_words("t1"))
@@ -441,8 +442,8 @@ async def test_a_thread_deleted_on_overleaf_is_closed_here_not_lost(review) -> N
     fake.threads.clear()
     fake.ranges.clear()
     await fake.push(event("delete-thread", "t1"))
-    await wait_for(lambda: server.comments.get(comment.id).status == "resolved")
-    assert texts(server.comments.get(comment.id)) == ["[Overleaf · Ann] Mistake.", "[Overleaf] Deleted there."]
+    await wait_for(lambda: server.comments.get(comment.id) is None)
+    assert "t1" not in overleaf.ledger(server.watch_dir)
     await page.close()
 
 

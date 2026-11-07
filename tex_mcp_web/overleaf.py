@@ -16,6 +16,7 @@ file, for a machine set up by script.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import re
@@ -27,6 +28,7 @@ from urllib.parse import unquote, urlsplit
 import aiohttp
 
 from . import __version__
+from . import overleaf_ot as ot
 
 COOKIE_ENV = "TEX_MCP_WEB_OVERLEAF_COOKIE"
 # overleaf.com's own, a self-hosted Overleaf's, and an older self-hosted ShareLaTeX's.
@@ -276,11 +278,15 @@ async def fetch_export(link: str, cookie: tuple[str, str], *, timeout: float = 3
     entries = []
     for doc, comments in commented.items():
         text = texts[doc]
+        # The file's text as Overleaf has it, by hash: a file here with the same hash holds the
+        # same text, and there a comment's offset is exact.
+        text_sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
         for comment in comments:
             op = (comment or {}).get("op") or {}
             if not op.get("t"):
                 continue
-            offset = min(max(int(op.get("p") or 0), 0), len(text))
+            # Overleaf counts positions as JavaScript does, in UTF-16 units.
+            offset = ot.py_index(text, min(max(int(op.get("p") or 0), 0), ot.js_len(text)))
             before = text[:offset]
             entries.append({
                 "thread_id": str(op["t"]),
@@ -288,5 +294,7 @@ async def fetch_export(link: str, cookie: tuple[str, str], *, timeout: float = 3
                 "line": before.count("\n") + 1,
                 "col": len(before.rsplit("\n", 1)[-1]),
                 "anchored_text": str(op.get("c") or ""),
+                "offset": offset,
+                "text_sha": text_sha,
             })
     return {"threads": threads, "comments": entries}

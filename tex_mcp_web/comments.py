@@ -1513,6 +1513,33 @@ class CommentStore:
                 return comment
         raise KeyError(f"comment {comment_id!r} not found")
 
+    def rewrite_entry(self, comment_id: str, entry_id: str, text: str) -> Comment:
+        """Rewrite the entry named by its id, keeping its author and time."""
+        return self._change_entry(comment_id, entry_id, text)
+
+    def remove_entry(self, comment_id: str, entry_id: str) -> Comment:
+        """Take the entry named by its id out of its thread."""
+        return self._change_entry(comment_id, entry_id, None)
+
+    def _change_entry(self, comment_id: str, entry_id: str, text: str | None) -> Comment:
+        with self._locked():
+            comments = self._all()
+            for position, comment in enumerate(comments):
+                if comment.id != comment_id:
+                    continue
+                index = next((index for index, entry in enumerate(comment.thread) if entry.id == entry_id), None)
+                if index is None:
+                    raise KeyError(f"thread entry {entry_id!r} not found in {comment_id!r}")
+                if text is None:
+                    del comment.thread[index]
+                else:
+                    comment.thread[index].text = text
+                comment.updated = _now()
+                comments[position] = comment
+                self._save(comments)
+                return comment
+        raise KeyError(f"comment {comment_id!r} not found")
+
     def place(
         self,
         comment_id: str,

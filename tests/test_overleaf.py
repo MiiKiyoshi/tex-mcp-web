@@ -164,8 +164,14 @@ async def test_the_export_is_built_from_overleafs_own_routes(fake_overleaf) -> N
     assert export["threads"]["t1"]["messages"][0] == {"user": {"name": "A. Reviewer"}, "content": "Which prose?"}
     assert export["threads"]["t2"]["resolved"] is True
     by_thread = {entry["thread_id"]: entry for entry in export["comments"]}
-    assert by_thread["t1"] == {"thread_id": "t1", "pathname": "/paper.tex", "line": 4, "col": 5,
-                               "anchored_text": "prose"}
+    placed = {key: by_thread["t1"][key] for key in ("thread_id", "pathname", "line", "col", "anchored_text")}
+    assert placed == {"thread_id": "t1", "pathname": "/paper.tex", "line": 4, "col": 5, "anchored_text": "prose"}
+    # Where exactly, in the text Overleaf has, and that text by hash, to know a file holding it.
+    import hashlib
+
+    text = fake.docs["d1"][1]
+    assert text[by_thread["t1"]["offset"]:].startswith("prose")
+    assert by_thread["t1"]["text_sha"] == hashlib.sha256(text.encode("utf-8")).hexdigest()
     # A file is named by its download and placed by the project's path list.
     assert by_thread["t3"]["pathname"] == "/tex/body.tex" and by_thread["t3"]["line"] == 2
     # A file with nothing on it is not downloaded.

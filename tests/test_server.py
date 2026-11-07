@@ -2760,6 +2760,77 @@ async def test_overleaf_threads_become_comments_on_their_words(client) -> None:
     assert (await server._overleaf_status())["unplaced"] == {}
 
 
+async def test_overleaf_threads_are_kept_as_overleaf_has_them(client) -> None:
+    """A thread here follows its thread on Overleaf. Where the file holds Overleaf's text,
+    by hash, the comment sits exactly where Overleaf has it and moves when Overleaf moves
+    it; where the file differs, this file's own edits keep it on its words. A message
+    reworded or deleted there is reworded or deleted here, and a thread deleted there is
+    deleted here. A reading that finds no threads at all deletes nothing."""
+    import hashlib
+
+    _, server = client
+    paper = server.watch_dir / "paper.tex"
+    text = paper.read_text()
+    sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+    def message(key, name, content):
+        return {"id": key, "user": {"name": name}, "content": content}
+
+    export = {
+        "threads": {"t1": {"resolved": False, "messages": [message("m1", "A. Reviewer", "Which prose?"),
+                                                           message("m2", "Co Author", "The intro.")]},
+                    "t2": {"resolved": False, "messages": [message("m3", "A. Reviewer", "And this?")]}},
+        "comments": [
+            # "Some" is in the file twice; the offset says which, and the hash says it holds here.
+            {"thread_id": "t1", "pathname": "/paper.tex", "line": 1, "anchored_text": "Some",
+             "offset": text.index("Some methods"), "text_sha": sha},
+            {"thread_id": "t2", "pathname": "/paper.tex", "line": 8, "anchored_text": "methods"},
+        ],
+    }
+    await server._bring_in_overleaf(export, new=True)
+    one = next(c for c in server.comments.list() if c.thread[0].text.endswith("Which prose?"))
+    assert (one.anchor.line_start, one.anchor.column_start) == (8, 0)
+
+    # Moved on Overleaf, in a file holding its text: it moves exactly.
+    export["comments"][0].update(anchored_text="Introduction", offset=text.index("Introduction"), line=3)
+    await server._bring_in_overleaf(export, new=False)
+    moved = server.comments.get(one.id).anchor
+    assert (moved.line_start, moved.column_start, moved.column_end) == (3, 9, 21)
+    # The file edited here: Overleaf's text is no longer this one, and it stays on its words.
+    paper.write_text("% a line here\n" + text)
+    export["comments"][0].update(anchored_text="prose", offset=text.index("prose"))
+    await server._bring_in_overleaf(export, new=False)
+    assert server.comments.get(one.id).anchor.to_dict() == moved.to_dict()
+    paper.write_text(text)
+
+    # A reply reworded and one deleted on Overleaf.
+    export["threads"]["t1"]["messages"][1]["content"] = "The introduction."
+    await server._bring_in_overleaf(export, new=False)
+    assert [e.text for e in server.comments.get(one.id).thread] == [
+        "[Overleaf · A. Reviewer] Which prose?", "[Overleaf · Co Author] The introduction."]
+    server.comments.reply(one.id, "Claude, look.", "human")
+    del export["threads"]["t1"]["messages"][1]
+    await server._bring_in_overleaf(export, new=False)
+    assert [e.text for e in server.comments.get(one.id).thread] == [
+        "[Overleaf · A. Reviewer] Which prose?", "Claude, look."]
+
+    # Resolved there, resolved here; open there again, open here.
+    export["threads"]["t1"]["resolved"] = True
+    await server._bring_in_overleaf(export, new=False)
+    assert server.comments.get(one.id).status == "resolved"
+    export["threads"]["t1"]["resolved"] = False
+    await server._bring_in_overleaf(export, new=False)
+    assert server.comments.get(one.id).status == "open"
+
+    # A reading that finds no threads at all deletes nothing; one without this thread does.
+    await server._bring_in_overleaf({"threads": {}, "comments": []}, new=False)
+    assert server.comments.get(one.id) is not None
+    del export["threads"]["t1"]
+    export["comments"].pop(0)
+    await server._bring_in_overleaf(export, new=False)
+    assert server.comments.get(one.id) is None and len(server.comments.list()) == 1
+
+
 # --- Completion lists for the source editor ---
 
 @pytest.mark.asyncio

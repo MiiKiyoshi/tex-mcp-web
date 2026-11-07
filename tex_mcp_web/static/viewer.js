@@ -33,7 +33,7 @@ const state = {
   overleafReplies: new Map(),
   // Where on Overleaf the comments from there are whose words are not in the file here yet.
   overleafUnplaced: {},
-  // The cookie is kept, how many open threads on Overleaf wait to be downloaded, and where
+  // The cookie is kept, how many open threads on Overleaf wait to be synced, and where
   // a folder cloned by git stands against Overleaf's branch (null until read, or no git).
   overleafSignedIn: false,
   overleafWaiting: 0,
@@ -1067,7 +1067,7 @@ function renderOverleafStatus({ project, cookie, sync = false, settable = true, 
   $("#overleaf-sync").disabled = !settable;
   $("#overleaf-import-btn").textContent = project ? "Overleaf…" : "Connect to Overleaf…";
   $("#overleaf-direct").hidden = !project;
-  $("#overleaf-download").hidden = !project;
+  $("#overleaf-thread-sync").hidden = !project;
   $("#overleaf-git").hidden = !git;
   if (!git) state.overleafGit = null;
   state.overleafSignedIn = Boolean(cookie);
@@ -1083,16 +1083,16 @@ function renderOverleafStatus({ project, cookie, sync = false, settable = true, 
     ? "Signed in with the cookie TEX_MCP_WEB_OVERLEAF_COOKIE gives."
     : "Signed in with your saved cookie.";
   $("#overleaf-cookie-forget").hidden = cookie !== "file";
-  renderOverleafDownload();
+  renderOverleafThreadSync();
 }
 
-// Comments wait for every commit Overleaf has: a thread is on words, and words this folder
-// lacks are nowhere to put it.
-function renderOverleafDownload() {
-  const button = $("#overleaf-download");
+// Comments sync at the commit Overleaf is at: a thread is on words, and only the same text
+// puts it exactly where Overleaf has it.
+function renderOverleafThreadSync() {
+  const button = $("#overleaf-thread-sync");
   const waiting = state.overleafWaiting;
-  button.textContent = waiting ? `Download comments (${waiting})` : "Download comments";
-  button.disabled = !state.overleafSignedIn || Boolean(state.overleafGit?.behind);
+  button.textContent = waiting ? `Sync comments (${waiting})` : "Sync comments";
+  button.disabled = !state.overleafSignedIn || (state.overleafGit !== null && state.overleafGit.state !== "same");
 }
 
 async function loadOverleafStatus() {
@@ -1111,21 +1111,21 @@ function renderOverleafGit(now) {
   state.overleafGit = now;
   $("#overleaf-git-state").textContent = {
     same: `This folder is at Overleaf's commit (${now.there}).`,
-    ahead: `This folder has ${commits(now.ahead)} Overleaf lacks. Push sends them.`,
-    behind: `Overleaf has ${commits(now.behind)} this folder lacks. Pull brings them in, and comments download after that.`,
+    ahead: `This folder has ${commits(now.ahead)} Overleaf lacks. Push sends them, and comments sync after that.`,
+    behind: `Overleaf has ${commits(now.behind)} this folder lacks. Pull brings them in, and comments sync after that.`,
     diverged: `Overleaf and this folder each have commits the other lacks (${now.ahead} here, ${now.behind} on Overleaf). `
-      + "Pull merges them, and comments download after that.",
+      + "Pull merges them, Push sends the result, and comments sync after that.",
   }[now.state];
   $("#overleaf-git-uncommitted").hidden = !now.uncommitted.length;
   $("#overleaf-git-uncommitted").textContent = `Not committed, so not pushed: ${now.uncommitted.join(", ")}`;
   $("#overleaf-git-pull").disabled = !now.behind;
   $("#overleaf-git-push").disabled = !now.ahead || Boolean(now.behind);
-  renderOverleafDownload();
+  renderOverleafThreadSync();
 }
 
 // Reading Overleaf's branch, or pulling from it or pushing to it, as the reviewer asked.
 async function overleafGitAction(action) {
-  const buttons = ["#overleaf-git-pull", "#overleaf-git-push", "#overleaf-download"].map((id) => $(id));
+  const buttons = ["#overleaf-git-pull", "#overleaf-git-push", "#overleaf-thread-sync"].map((id) => $(id));
   for (const button of buttons) button.disabled = true;
   $("#overleaf-git-state").textContent = {
     fetch: "Reading Overleaf's branch…", pull: "Pulling from Overleaf…", push: "Pushing to Overleaf…",
@@ -1200,12 +1200,12 @@ function overleafBroughtIn(done) {
   const parts = [`${done.added} new comments`, `${done.replies} new replies`];
   if (done.resolved) parts.push(`${done.resolved} resolved threads left out`);
   if (done.unplaced) parts.push(`${done.unplaced} not found in the source, put on the paper`);
-  return `Brought in ${parts.join(", ")}.`;
+  return `Synced: ${parts.join(", ")}.`;
 }
 
-async function downloadOverleafComments() {
+async function syncOverleafComments() {
   showOverleafDialog("Reading Overleaf…");
-  $("#overleaf-download").disabled = true;
+  $("#overleaf-thread-sync").disabled = true;
   try {
     const response = await fetch("/overleaf/comments", { method: "POST" });
     if (!response.ok) {
@@ -2262,7 +2262,10 @@ function renderComments() {
 // open ones close, unarchived ones archive, and closed ones reopen. The counts say
 // exactly what each press will touch.
 function renderPickedActions() {
-  const picked = state.comments.filter((comment) => state.picked.has(comment.id));
+  // A thread from Overleaf is open, resolved or gone as it is there, so the picked actions
+  // leave it alone.
+  const picked = state.comments.filter((comment) => state.picked.has(comment.id)
+    && !state.overleafImported.has(comment.id));
   const open = picked.filter((comment) => comment.status === "open").map((comment) => comment.id);
   const archivable = picked.filter((comment) => comment.status !== "archived").map((comment) => comment.id);
   const closed = picked.filter((comment) => comment.status !== "open").map((comment) => comment.id);
@@ -2621,6 +2624,10 @@ function actionButtons(comment) {
   // empty summary flips the status without adding an entry. An archived thread still
   // takes replies, and goes back to open or resolved from the same row.
   const buttons = [];
+  // A thread from Overleaf is open, resolved or gone as it is there: here it is replied to.
+  if (state.overleafImported.has(comment.id)) {
+    return [actionButton("cmt-reply", "Reply", () => setActiveForm(comment.id, "reply"))];
+  }
   if (comment.status !== "resolved") {
     buttons.push(actionButton("cmt-reply", "Reply", () => setActiveForm(comment.id, "reply")));
   }
@@ -3242,7 +3249,7 @@ async function handleWebSocketMessage(message) {
       break;
     case "overleaf_waiting":
       state.overleafWaiting = message.count;
-      renderOverleafDownload();
+      renderOverleafThreadSync();
       break;
   }
 }
@@ -3506,7 +3513,7 @@ function attachSidebarToggle() {
     saveOverleafCookie().catch(overleafFailed);
   });
   $("#overleaf-cookie-forget").addEventListener("click", () => forgetOverleafCookie().catch(overleafFailed));
-  $("#overleaf-download").addEventListener("click", () => downloadOverleafComments().catch(overleafFailed));
+  $("#overleaf-thread-sync").addEventListener("click", () => syncOverleafComments().catch(overleafFailed));
   $("#overleaf-git-pull").addEventListener("click", () => overleafGitAction("pull").catch(overleafFailed));
   $("#overleaf-git-push").addEventListener("click", () => overleafGitAction("push").catch(overleafFailed));
   for (const button of document.querySelectorAll("[data-theme-choice]")) {
