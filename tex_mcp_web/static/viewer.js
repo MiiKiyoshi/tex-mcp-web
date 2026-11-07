@@ -31,6 +31,8 @@ const state = {
   // What the reviewer has typed into a thread's Overleaf reply, kept across renders, with
   // the draft it started from and the reason a send was refused.
   overleafReplies: new Map(),
+  // Where on Overleaf the comments from there are whose words are not in the file here yet.
+  overleafUnplaced: {},
   // The cookie is kept, how many open threads on Overleaf wait to be downloaded, and where
   // a folder cloned by git stands against Overleaf's branch (null until read, or no git).
   overleafSignedIn: false,
@@ -2159,6 +2161,7 @@ async function refreshComments() {
   // Which threads came from Overleaf, and so can be answered there.
   const linked = overleaf.ok ? await overleaf.json() : {};
   state.overleafImported = new Set(linked.imported ?? []);
+  state.overleafUnplaced = linked.unplaced ?? {};
   state.overleafSignedIn = Boolean(linked.cookie);
   // Hidden comments are left out here, once, so the list, the editor's marks, the PDF's
   // highlights and the count all agree without each asking.
@@ -2385,6 +2388,12 @@ function renderCommentItem(comment) {
   h("span", { class: "cmt-anchor", text: anchorLabel(comment.anchor) }));
 
   const children = [head];
+  const unplaced = state.overleafUnplaced[comment.id];
+  if (unplaced && comment.status === "open") {
+    children.push(h("div", { class: "cmt-unplaced" }, leafIcon(), h("span", {
+      text: `On Overleaf at ${unplaced}. Those words are not in the file here, so this sits on the paper until they are.`,
+    })));
+  }
   if (!expanded) {
     children.push(h("div", { class: "cmt-preview", text: comment.thread[0]?.text ?? "" }));
     // The request, then whatever was last said about it: a thread someone has answered

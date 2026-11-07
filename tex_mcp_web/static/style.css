@@ -884,6 +884,7 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 .cmt-form-actions .overleaf-send { display: inline-flex; align-items: center; gap: 0.25rem; }
 .thread-meta .entry-overleaf { margin-right: auto; display: inline-flex; align-items: center; gap: 0.2rem; }
 .entry-overleaf.here { color: var(--fg-dim); font-style: italic; }
+.cmt-unplaced { display: flex; align-items: baseline; gap: 0.3rem; margin: 0.25rem 0; font-size: 0.8rem; color: var(--fg-dim); }
 
 /* ----- compose-dialog suggestion section (collapsible) ----- */
 .compose-suggestion {

@@ -1336,6 +1336,17 @@ async def test_mcp_drafts_an_overleaf_reply_only_on_a_thread_from_overleaf(bound
                          edits=["paper.tex:99-99"], rev=receipt["rev"])
     assert "outside paper.tex" in outside["error"]
 
+    # Words on Overleaf that are not in the file here yet: the thread says where they are,
+    # and a suggestion on it says why it has to wait.
+    overleaf.ledger_path(project).write_text(json.dumps({"t1": {
+        "comment": brought.id, "messages": 1,
+        "place": {"pathname": "/paper.tex", "line": 3, "anchored_text": "words written on Overleaf"}}}))
+    told = (await call("read_comments", ids=[brought.id]))["comments"][0]
+    assert told["overleaf_place"] == "paper.tex:3, not found here"
+    refused = await call("write_comments", action="suggest", id=brought.id, text="Shorter.",
+                         changes=[{"old": "Some methods.", "new": "Methods."}], rev=receipt["rev"])
+    assert "on Overleaf at paper.tex:3" in refused["error"]
+
 
 @pytest.mark.asyncio
 async def test_mcp_comment_discovery_reads_only_selected_history(bound_project, project, monkeypatch):
@@ -2730,14 +2741,23 @@ async def test_overleaf_threads_become_comments_on_their_words(client) -> None:
     assert placed.anchor.to_dict() == {"kind": "source_range", "file": "paper.tex", "line_start": 5,
                                        "line_end": 5, "column_start": 5, "column_end": 10}
     assert [e.text for e in placed.thread] == ["[Overleaf · A. Reviewer] Which prose?", "[Overleaf · Co Author] The intro."]
-    assert comments["Gone from here."].anchor.kind == "paper"
-    assert "On Overleaf at paper.tex:2" in comments["Gone from here."].thread[0].text
+    unplaced = comments["Gone from here."]
+    assert unplaced.anchor.kind == "paper" and unplaced.thread[0].text == "[Overleaf · A. Reviewer] Gone from here."
+    assert (await server._overleaf_status())["unplaced"] == {unplaced.id: "paper.tex:2"}
 
     export["threads"]["t1"]["messages"].append(message("A. Reviewer", "Thanks."))
     reply = await server._bring_in_overleaf(export, new=True)
     assert reply == {"added": 0, "replies": 1, "resolved": 1, "unplaced": 0}
     assert server.comments.get(placed.id).thread[-1].text == "[Overleaf · A. Reviewer] Thanks."
     assert len(server.comments.list()) == 2
+
+    # The words reach the file, by a pull or by hand, and the comment moves onto them.
+    paper = server.watch_dir / "paper.tex"
+    paper.write_text(paper.read_text().replace("Some methods.", "Some methods, not in the paper before."))
+    await server.on_file_change(str(paper))
+    moved = server.comments.get(unplaced.id)
+    assert moved.anchor.kind == "source_range" and moved.anchor.file == "paper.tex"
+    assert (await server._overleaf_status())["unplaced"] == {}
 
 
 # --- Completion lists for the source editor ---

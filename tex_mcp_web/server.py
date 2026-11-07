@@ -115,6 +115,16 @@ def _eof_line(path: Path, fallback: int) -> int:
         return fallback
 
 
+def _overleaf_place(entry: dict[str, Any]) -> dict[str, Any]:
+    """Where a comment is on Overleaf, as the ledger keeps it while its words are not here."""
+    return {key: entry.get(key) for key in ("pathname", "line", "anchored_text")}
+
+
+def _place_name(place: dict[str, Any]) -> str:
+    path = str(place.get("pathname") or "").lstrip("/") or "an unknown file"
+    return f"{path}:{place['line']}" if isinstance(place.get("line"), int) else path
+
+
 def _parse_source_range(spec: str) -> tuple[str, int, int]:
     """Parse ``FILE:LSTART-LEND`` (or ``FILE:LINE``).  Raises ValueError."""
     try:
@@ -636,6 +646,7 @@ class TexMcpWebServer:
             await self.broadcast(
                 {"type": "source_changed", "path": relative, "revision": revision}
             )
+            await self._place_overleaf_comments_in(relative)
         except (OSError, ValueError):
             pass
         finally:
@@ -857,7 +868,8 @@ class TexMcpWebServer:
         """The paper's Overleaf project and where the reviewer's cookie comes from; never
         the cookie itself. Read from this machine alone: what Overleaf's branch holds is
         read by /overleaf/git/fetch."""
-        brought = [known["comment"] for known in self._overleaf_ledger().values()]
+        ledger = self._overleaf_ledger()
+        brought = [known["comment"] for known in ledger.values()]
         link = await self._overleaf_git_link()
         return {"project": self.config.overleaf, "cookie": overleaf.cookie_source(),
                 "sync": self.config.overleaf_sync,
@@ -866,8 +878,11 @@ class TexMcpWebServer:
                 "git": link.remote if link is not None else None,
                 "waiting": self._overleaf_waiting,
                 # Every comment brought in from Overleaf, which the page may leave out of view
-                # and offers to reply to there.
-                "imported": brought}
+                # and offers to reply to there, and where on Overleaf those not yet on their
+                # words are.
+                "imported": brought,
+                "unplaced": {known["comment"]: _place_name(known["place"]) for known in ledger.values()
+                             if "place" in known}}
 
     async def _handle_overleaf(self, request: web.Request) -> web.Response:
         return web.json_response(await self._overleaf_status(), headers={"Cache-Control": "no-store"})
@@ -1067,10 +1082,13 @@ class TexMcpWebServer:
         def keys(messages: list[dict[str, Any]]) -> list[str]:
             return [str(message.get("id") or f"#{index}") for index, message in enumerate(messages)]
 
-        async def update(thread: dict[str, Any], messages: list[dict[str, Any]], known: dict[str, Any]) -> None:
+        async def update(entry: dict[str, Any], thread: dict[str, Any], messages: list[dict[str, Any]],
+                         known: dict[str, Any]) -> None:
             comment = self.comments.get(known["comment"])
             if comment is None:
                 return
+            await self._place_overleaf_comment(comment, known, entry)
+            comment = self.comments.get(comment.id) or comment
             current = keys(messages)
             seen = set(known.get("seen", current[:known["messages"]]))
             sent = known.get("sent", [])
@@ -1111,7 +1129,7 @@ class TexMcpWebServer:
                 if not messages:
                     continue
                 if thread_id in ledger:
-                    await update(thread, messages, ledger[thread_id])
+                    await update(entry, thread, messages, ledger[thread_id])
                     continue
                 if thread.get("resolved"):
                     counts["resolved"] += 1
@@ -1120,13 +1138,14 @@ class TexMcpWebServer:
                     waiting.add(thread_id)
                     continue
                 anchor, resolved, selector, where = self._overleaf_anchor(entry)
-                text = said(messages[0]) if where is None else f"{said(messages[0])}\n(On Overleaf at {where}, not found here.)"
                 counts["unplaced"] += where is not None
-                comment = self.comments.add(anchor=anchor, text=text, author="human",
+                comment = self.comments.add(anchor=anchor, text=said(messages[0]), author="human",
                                             resolved_source=resolved, source_selector=selector)
                 for message in messages[1:]:
                     comment = self.comments.reply(comment.id, said(message), "human")
                 ledger[thread_id] = {"comment": comment.id, "messages": len(messages), "seen": keys(messages)}
+                if where is not None:
+                    ledger[thread_id]["place"] = _overleaf_place(entry)
                 counts["added"] += 1
                 await self.broadcast({"type": "comment_added", "comment": _comment_to_dict(comment)})
             for thread_id in deleted:
@@ -1140,6 +1159,36 @@ class TexMcpWebServer:
         if self._overleaf_waiting != was_waiting:
             await self.broadcast({"type": "overleaf_waiting", "count": self._overleaf_waiting})
         return counts
+
+    async def _place_overleaf_comment(self, comment: Comment, known: dict[str, Any], entry: dict[str, Any]) -> None:
+        """Try again to put a comment from Overleaf on its words, if they were not in the file
+        when it came in. The ledger keeps where it is on Overleaf until they are."""
+        if comment.anchor.kind != "paper" or comment.status != "open":
+            known.pop("place", None)
+            return
+        anchor, resolved, selector, where = self._overleaf_anchor(entry)
+        if where is not None:
+            known["place"] = _overleaf_place(entry)
+            return
+        known.pop("place", None)
+        placed = self.comments.place(comment.id, anchor, resolved, selector)
+        await self.broadcast({"type": "comment_updated", "comment": _comment_to_dict(placed)})
+
+    async def _place_overleaf_comments_in(self, relative: str) -> None:
+        """A file changed: comments from Overleaf waiting for words in it look again."""
+        async with self._overleaf_import:
+            ledger = self._overleaf_ledger()
+            waiting = [known for known in ledger.values()
+                       if str((known.get("place") or {}).get("pathname", "")).lstrip("/") == relative]
+            if not waiting:
+                return
+            for known in waiting:
+                comment = self.comments.get(known["comment"])
+                if comment is None:
+                    known.pop("place")
+                else:
+                    await self._place_overleaf_comment(comment, known, known["place"])
+            self._save_overleaf_ledger(ledger)
 
     def _overleaf_anchor(self, entry: dict[str, Any]) -> tuple[Any, Any, Any, str | None]:
         """Where an Overleaf comment sits here: its words in its file, the occurrence

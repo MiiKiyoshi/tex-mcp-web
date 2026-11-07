@@ -300,6 +300,15 @@ def _on_overleaf(watch_dir: Path) -> set[str]:
     return {known["comment"] for known in overleaf.ledger(watch_dir).values()}
 
 
+def _unplaced(watch_dir: Path, comment_id: str) -> str | None:
+    """Where on Overleaf a comment from there is, while its words are not in the file here."""
+    from . import overleaf
+    from .server import _place_name
+
+    return next((_place_name(known["place"]) for known in overleaf.ledger(watch_dir).values()
+                 if known["comment"] == comment_id and "place" in known), None)
+
+
 def _range_text(watch_dir: Path, spec: str) -> dict[str, str]:
     """What a "file:first-last" range of the source holds now."""
     from .server import _parse_source_range
@@ -368,6 +377,10 @@ def _agent_comment_to_dict(comment, watch_dir: Path) -> dict[str, Any]:
         ]
     if comment.id in _on_overleaf(watch_dir):
         payload["on_overleaf"] = True
+        if (where := _unplaced(watch_dir, comment.id)) is not None:
+            # Its words are in Overleaf's file and not yet in this one: the comment sits on
+            # the paper and moves onto them once they are here.
+            payload["overleaf_place"] = f"{where}, not found here"
     if comment.overleaf_draft is not None:
         # The reply drafted for Overleaf, which the reviewer has not sent yet.
         payload["overleaf_draft"] = comment.overleaf_draft.text
@@ -832,6 +845,10 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                     return _err("suggest requires id, text, changes and rev")
                 from .server import derive_suggestion
 
+                if (where := _unplaced(watch_dir, id)) is not None:
+                    return _err(f"this thread is on Overleaf at {where}, and those words are not in the "
+                                "file here yet. Once they are (a pull brings Overleaf's edits), the thread "
+                                "moves onto them and takes a suggestion")
                 pairs = [(change.old, change.new) for change in changes]
                 return receipt(store.suggest(
                     id, stamp_for(id), text,

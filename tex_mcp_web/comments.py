@@ -1513,6 +1513,30 @@ class CommentStore:
                 return comment
         raise KeyError(f"comment {comment_id!r} not found")
 
+    def place(
+        self,
+        comment_id: str,
+        anchor: Anchor,
+        resolved_source: ResolvedSource | None,
+        source_selector: SourceSelector | None,
+    ) -> Comment:
+        """Put a comment that was on the whole paper onto the words it was written about,
+        found only now."""
+        with self._locked():
+            comments = self._all()
+            for position, comment in enumerate(comments):
+                if comment.id != comment_id:
+                    continue
+                comment.anchor = anchor
+                comment.resolved_source = resolved_source
+                comment.source_selector = source_selector
+                comment.stale = False
+                comment.updated = _now()
+                comments[position] = comment
+                self._save(comments)
+                return comment
+        raise KeyError(f"comment {comment_id!r} not found")
+
     def delete(self, comment_id: str) -> bool:
         with self._locked():
             comments = self._all()
