@@ -92,37 +92,54 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   brought into view. The **A−** and **A+** buttons step the type size.
 - **Connect to Overleaf…** in the top bar's menu takes the project's link
   (`https://www.overleaf.com/project/…`) and writes it into `.tex-mcp-web.yaml` as
-  `overleaf:`; **Disconnect** there takes it out. Once connected, the same dialog turns
-  `overleaf_write` and `overleaf_sync` (below) on and off, each asking once before it
-  starts, and writes them into the file too. A project on another Overleaf server is
-  named in the file by hand.
-- The same dialog brings Overleaf's open threads in as
-  comments on the words they were written about, with their replies. With `overleaf` set,
-  **Bring in from Overleaf** reads them from the project itself, signed in with your
-  Overleaf session cookie (`overleaf_session2`, copied once from the browser's developer
-  tools). The cookie is kept in `~/.config/tex-mcp-web/overleaf-cookie`, readable by you
-  alone, or given by `TEX_MCP_WEB_OVERLEAF_COOKIE`, and serves every paper you open.
-  Bringing them in again adds only new threads and replies; a comment you deleted here
-  stays deleted.
-- Once comments have come in from Overleaf, the eye button (**OL**) beside the comment filter
-  hides them from the list, the editor and the PDF, and shows them again. It changes no
-  comment and is kept per browser; while they are hidden, the list says how many.
+  `overleaf:`. **Disconnect** there takes it out. A project on another Overleaf server is
+  named in the file by hand. Once connected, the same dialog holds everything Overleaf:
+  the cookie, who is in the project, where the folder stands against Overleaf's git
+  branch, and **Download comments**.
+- Overleaf is read with your Overleaf session cookie (`overleaf_session2`, copied once
+  from the browser's developer tools). The cookie is kept in
+  `~/.config/tex-mcp-web/overleaf-cookie`, readable by you alone, or given by
+  `TEX_MCP_WEB_OVERLEAF_COOKIE`, and serves every paper you open.
+- When the paper's folder is a git clone of the project (a remote whose address ends in
+  the project's id, as `https://git.overleaf.com/<id>` does), opening the dialog fetches
+  Overleaf's branch and says where the folder stands: at Overleaf's commit, with commits
+  Overleaf lacks, lacking commits Overleaf has, or both. **Pull** takes Overleaf's commits
+  in, as a fast-forward or as a merge git makes without conflicts, and changes nothing when
+  the merge would conflict or write over a change not committed. **Push** sends the
+  folder's commits, never forced, and leaves changes not committed where they are. A token
+  in the remote's address never reaches the page.
+- **Download comments** brings Overleaf's open threads in as comments on the words they
+  were written about, with their replies. In a git clone it waits until the folder has
+  every commit Overleaf has, since a thread is on words. Downloading again adds only new
+  threads and replies, and a comment you deleted here stays deleted. A thread whose words
+  are on Overleaf but not yet in the file here sits on the paper, with its place on
+  Overleaf shown under it, and moves onto its words once they reach the file.
+- Once comments have come in from Overleaf, the eye button with the leaf beside the comment
+  filter hides them from the list, the editor and the PDF, and shows them again. It changes
+  no comment and is kept per browser. While they are hidden, the list says how many.
 - With `overleaf` set and the cookie kept, an open page also sits in the Overleaf project,
-  read-only: the top bar shows a face for each collaborator there, its list says which file
-  and line each is on, their cursors are drawn in the editor on that file, and a file they
-  edit says so above the editor. It sends Overleaf no edit unless `overleaf_sync` is on
-  (below). It opens the main file and
-  puts one cursor at its top, which is what makes the others' editors send their cursors
-  at once, so to them it is one more of your tabs, idle.
-- While a page is open that way, comments come in by themselves, within seconds, as do
-  their replies, and they close and open with Overleaf, unless you changed that one here.
-  A thread deleted on Overleaf closes here and keeps what was said. A message reworded on
-  Overleaf stays as it came in. Opening the page reads what was said in the meantime.
-- With `overleaf_write: true`, a thread from Overleaf also has **Reply on Overleaf**,
-  **Resolve on Overleaf** and **Reopen on Overleaf**. Only these go there, for everyone in
-  the project to read: a plain reply stays here, since it may be an instruction to the
-  agent, and the agent's never go. Overleaf takes it first, so what it refuses is not
-  shown as done here.
+  read-only. The top bar shows a face for each collaborator there, which goes to the file
+  and line they are on, their cursors are drawn in the editor on that file, and a file
+  they edit says so above the editor. The dialog lists who is where and what was edited
+  while the page was open. A leaf button shows in the top bar only when something needs a
+  look: signed out, reconnecting, comments not coming in, or files waiting for a choice.
+  The page sends Overleaf no edit unless `overleaf_sync` is on (below). It opens the main
+  file and puts one cursor at its top, which is what makes the others' editors send their
+  cursors at once, so to them it is one more of your tabs, idle.
+- While a page is open that way, a new thread on Overleaf is counted on **Download
+  comments** within seconds. Replies on threads already here come in by themselves, and
+  those threads close and open with Overleaf, unless you changed that one here. A thread
+  deleted on Overleaf closes here and keeps what was said. A message reworded on Overleaf
+  stays as it came in.
+- A thread from Overleaf has a box under it for a reply on Overleaf, which everyone in the
+  project reads. The agent can put its draft there (`write_comments` with
+  `action="overleaf"`), one per thread, and you edit it and send it with **Send to** and
+  the leaf. The agent cannot send. A plain reply stays here, since it may be an instruction
+  to the agent, and each entry on such a thread says whether it went to Overleaf or stayed
+  here. A draft naming the source ranges it describes goes only once Overleaf has what
+  those ranges held, read from Overleaf's branch in a git clone and from the files kept in
+  step otherwise, and the refusal says whether to commit or to push first. Overleaf takes
+  the reply first, so what it refuses is not shown as said here.
 - With `overleaf_sync: true`, the paper's files and the project's are kept the same both
   ways while a page is open: an edit on Overleaf is written into the file within a second,
   and what changes in a file here, from the page, an editor or the agent, is sent as the
@@ -134,9 +151,11 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   of an open comment, and an edit Overleaf turns away each stop that file: a bar across
   the top of the page, and the editor on that file, say why and ask which text stands, and
   edits to the file stay here until then. The text that gives way is kept in
-  `.tex-mcp-web/overleaf-sync/kept/`. Only Overleaf's older kind of document
+  `.tex-mcp-web/overleaf-sync/kept/`. A file that already holds Overleaf's text, brought
+  some other way, agrees with it. Only Overleaf's older kind of document
   (`sharejs-text-ot`) is followed, and files added, renamed or deleted on Overleaf are not
-  mirrored beyond taking up a document's text.
+  mirrored beyond taking up a document's text. A git clone of the project follows Overleaf
+  by pull and push instead, and is not offered this.
 
 ## Suggested edits
 
@@ -214,9 +233,8 @@ overleaf: https://www.overleaf.com/project/0123456789abcdef01234567
 | `port` | This paper's review page port. Any free port works. Init picks the first free one from 8765, so each paper can have its own. |
 | `references` | Folder holding only the papers yours builds on, converted to Markdown, relative to this file or absolute. Unset means no list of their terms. |
 | `translation` | `language` puts a button for that language beside **+ Note**: it shows each paragraph of the source translated by `claude -p`, with those on the current page marked. `instructions` adds rules for the translator, one per line. A paragraph is translated once per text, and of a figure or table only the caption is. Unset means no translation. |
-| `overleaf` | The paper's Overleaf project, by its link, whose comments an open page follows and **Bring in from Overleaf** reads. Unset means comments come in only from a file. |
-| `overleaf_write` | `true` lets you send replies and closes to that project, each with its own button. Unset means nothing is sent there. |
-| `overleaf_sync` | `true` keeps the paper's files and that project's the same both ways while a page is open. Unset means files are not touched and no edit is sent. |
+| `overleaf` | The paper's Overleaf project, by its link, which an open page follows and **Download comments** reads. Unset means none. |
+| `overleaf_sync` | `true` keeps the paper's files and that project's the same both ways while a page is open, unless the folder is a git clone of the project. Unset means files are not touched and no edit is sent. |
 
 ## See also
 
