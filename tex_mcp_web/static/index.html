@@ -204,16 +204,19 @@
       </details>
       <p id="overleaf-signed" class="overleaf-signed" hidden><span id="overleaf-signed-text"></span> <button id="overleaf-cookie-forget" type="button" class="overleaf-forget">Forget it</button></p>
     </section>
-    <p id="overleaf-unset" class="overleaf-unset" hidden>Without a project, comments can come in from a file:</p>
-    <ol class="overleaf-steps">
-      <li>Install <a href="https://chromewebstore.google.com/detail/overleaf-comments-export/nbbappjfcankkjnpbaopjhejgdagaglc" target="_blank" rel="noopener">Overleaf Comments Export</a>.</li>
-      <li>Export the project's comments to <code>comments.json</code>.</li>
-      <li>Choose that file.</li>
-    </ol>
+    <!-- Open until a project is connected; after that the cookie is the way, and this waits folded. -->
+    <details id="overleaf-file-way" class="overleaf-file-way">
+      <summary>Or bring comments in from a file</summary>
+      <ol class="overleaf-steps">
+        <li>Install <a href="https://chromewebstore.google.com/detail/overleaf-comments-export/nbbappjfcankkjnpbaopjhejgdagaglc" target="_blank" rel="noopener">Overleaf Comments Export</a>.</li>
+        <li>Export the project's comments to <code>comments.json</code>.</li>
+        <li>Choose that file.</li>
+      </ol>
+      <label class="file-button">Choose comments.json…<input id="overleaf-file" type="file" accept=".json,application/json"></label>
+    </details>
     <p id="overleaf-status" class="overleaf-status" role="status"></p>
     <div class="dialog-actions">
       <button value="close" autofocus>Close</button>
-      <label class="file-button">Choose comments.json…<input id="overleaf-file" type="file" accept=".json,application/json"></label>
       <button id="overleaf-pull" type="button" class="overleaf-pull" hidden>Bring in from Overleaf</button>
     </div>
   </form>

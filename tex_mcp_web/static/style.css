@@ -195,6 +195,9 @@ textarea {
 .overleaf-switch span { color: var(--fg-dim); font-size: 0.85em; }
 .overleaf-direct[hidden], .overleaf-cookie[hidden], .overleaf-signed[hidden], .overleaf-unset[hidden] { display: none; }
 .overleaf-direct p, .overleaf-unset { margin: 0; overflow-wrap: anywhere; }
+.overleaf-file-way summary { cursor: pointer; color: var(--accent); }
+.overleaf-file-way .overleaf-steps { margin: 0.3rem 0 0.5rem; }
+.overleaf-file-way .file-button { display: inline-block; }
 .overleaf-cookie { display: flex; gap: 0.4rem; }
 .overleaf-cookie input { flex: 1; min-width: 0; padding: 0.35rem 0.5rem; border: 1px solid var(--border); border-radius: 3px; background: var(--bg); color: inherit; font: inherit; }
 .overleaf-cookie button, .overleaf-forget { padding: 0.35rem 0.7rem; border: 1px solid var(--border); border-radius: 3px; background: var(--bg); color: inherit; }

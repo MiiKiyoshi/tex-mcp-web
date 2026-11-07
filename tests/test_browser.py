@@ -1830,6 +1830,8 @@ def test_the_more_menu_brings_in_an_overleaf_export(tmp_path: Path) -> None:
             ' && document.querySelector("#overleaf-sync-row").hidden'))
         assert browser.execute_script(
             'return document.querySelector("#overleaf-import-btn").textContent') == "Connect to Overleaf…"
+        # Unconnected, bringing comments from a file lies open beside it.
+        assert browser.execute_script('return document.querySelector("#overleaf-file-way").open') is True
         browser.find_element("css selector", "#overleaf-file").send_keys(str(export))
         wait_until(lambda: browser.execute_script(
             'return document.querySelector("#overleaf-status").textContent').startswith("Brought in 1 new comments"))
@@ -1951,7 +1953,9 @@ def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path
         wait_until(lambda: browser.execute_script('return document.querySelector("#comments-list") !== null'))
         browser.execute_script('document.querySelector("#overleaf-import-btn").click()')
         wait_until(lambda: shown("#overleaf-direct"))
-        assert not shown("#overleaf-unset") and shown("#overleaf-cookie-row") and not shown("#overleaf-signed")
+        assert shown("#overleaf-cookie-row") and not shown("#overleaf-signed")
+        # Once connected, the cookie is the way in, and bringing comments from a file waits folded.
+        assert browser.execute_script('return document.querySelector("#overleaf-file-way").open') is False
         assert browser.execute_script('return document.querySelector("#overleaf-pull").disabled') is True
         assert browser.execute_script('return document.querySelector("#overleaf-project").textContent').endswith(project)
         # Named in the config, the project shows as connected, with both switches off.

@@ -1045,7 +1045,7 @@ function renderOverleafStatus({ project, cookie, write = false, sync = false, se
   $("#overleaf-write").disabled = $("#overleaf-sync").disabled = !settable;
   $("#overleaf-import-btn").textContent = project ? "Overleaf…" : "Connect to Overleaf…";
   $("#overleaf-direct").hidden = !project;
-  $("#overleaf-unset").hidden = Boolean(project);
+  $("#overleaf-file-way").open = !project;
   $("#overleaf-pull").hidden = !project;
   if (project) {
     $("#overleaf-project").href = project;
