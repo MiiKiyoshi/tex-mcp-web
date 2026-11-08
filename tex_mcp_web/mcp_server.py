@@ -382,8 +382,11 @@ def _agent_comment_to_dict(comment, watch_dir: Path) -> dict[str, Any]:
             # the paper and moves onto them once they are here.
             payload["overleaf_place"] = f"{where}, not found here"
     if comment.overleaf_draft is not None:
-        # The reply drafted for Overleaf, which the reviewer has not sent yet.
+        # The reply drafted for Overleaf, which the reviewer has not sent yet. A comment with
+        # no entries is a new thread drafted for Overleaf, and the draft is all it holds.
         payload["overleaf_draft"] = comment.overleaf_draft.text
+        if not comment.thread:
+            del payload["comment"]
     if comment.stale:
         payload["stale"] = True
     return payload
@@ -446,6 +449,29 @@ def _comment_add(
         author="agent",
         resolved_source=resolved,
         source_selector=source_selector,
+    )
+    return _ok({"id": comment.id, "status": comment.status, "rev": revision_of(comment.updated)})
+
+
+def _overleaf_thread_add(store, watch_dir: Path, text: str, anchor: "CommentAnchorInput",
+                         edits: list[str]) -> str:
+    """Implementation of ``write_comments(action="overleaf", anchor=...)``: a new thread
+    drafted for Overleaf on source lines, which the reviewer sends."""
+    from .comments import OverleafDraft, ResolvedSource, SourceRangeAnchor, capture_source_selector
+
+    if anchor.kind != "source_range":
+        return _err("a thread on Overleaf is on words in a file: give a source_range anchor")
+    if not _range_text(watch_dir, f"{anchor.file}:{anchor.start}-{anchor.end}")["text"].strip():
+        return _err("those lines are blank, and a thread on Overleaf is on words")
+    selector = capture_source_selector(watch_dir / anchor.file, anchor.start, anchor.end)
+    if selector is None:
+        return _err("source_range does not identify readable source lines")
+    checks = [check for check in (_range_text(watch_dir, edit) for edit in edits) if check["text"].strip()]
+    comment = store.add_overleaf_thread(
+        SourceRangeAnchor(file=anchor.file, line_start=anchor.start, line_end=anchor.end),
+        OverleafDraft(text, edits, checks),
+        ResolvedSource(file=anchor.file, line_start=anchor.start, line_end=anchor.end),
+        selector,
     )
     return _ok({"id": comment.id, "status": comment.status, "rev": revision_of(comment.updated)})
 
@@ -707,12 +733,12 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             return _err("save needs the ids of the threads to write out")
         summaries = []
         for comment in store.list(status=None if status == "all" else status):
-            if unanswered and comment.thread[-1].author != "human":
+            if unanswered and (not comment.thread or comment.thread[-1].author != "human"):
                 continue
             human = next((entry for entry in reversed(comment.thread) if entry.author == "human"), None)
             if moment is not None and (human is None or not _after(human, moment)):
                 continue
-            request = (human if human is not None else comment.thread[0]).text
+            request = human.text if human is not None else comment.text
             summaries.append({
                 "id": comment.id,
                 # The token a write quotes back. Without it here, answering a thread costs
@@ -804,7 +830,10 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         rev. overleaf: id, text, rev, and edits naming the source ranges the reply
         describes. On a thread that came from Overleaf (on_overleaf), it puts the reply the
         reviewer may send there: a thread holds one draft, which this replaces, and only
-        the reviewer sends it, once what those ranges now hold is on Overleaf. edit: id,
+        the reviewer sends it, once what those ranges now hold is on Overleaf. With anchor,
+        a source_range, instead of id and rev, it drafts a new thread for Overleaf on those
+        lines, text being its first message: a comment with no entries and that draft, which
+        id and rev then redraft and only the reviewer sends. edit: id,
         entry, text, rev, rewriting an entry you wrote. delete: id,
         refused once the reviewer has written in the thread.
 
@@ -859,14 +888,20 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                     return _err("withdraw requires id, text and rev")
                 return receipt(store.withdraw_suggestion(id, stamp_for(id), text))
             if action == "overleaf":
+                from .comments import OverleafDraft
+
+                if anchor is not None:
+                    if id is not None or rev is not None or not text:
+                        return _err("overleaf with anchor drafts a new thread: text and anchor, no id or rev")
+                    return _overleaf_thread_add(store, watch_dir, text, anchor, edits or [])
                 if not id or not text or not rev:
-                    return _err("overleaf requires id, text and rev")
-                if id not in _on_overleaf(watch_dir):
+                    return _err("overleaf requires id, text and rev, or text and anchor for a new thread")
+                target = store.get(id)
+                drafted = target is not None and not target.thread and target.overleaf_draft is not None
+                if id not in _on_overleaf(watch_dir) and not drafted:
                     return _err("this comment did not come from Overleaf")
                 checks = [check for check in (_range_text(watch_dir, edit) for edit in edits or [])
                           if check["text"].strip()]
-                from .comments import OverleafDraft
-
                 return receipt(store.draft_overleaf(id, stamp_for(id), OverleafDraft(text, edits or [], checks)))
             if action == "edit":
                 if not id or not entry or not text or not rev:

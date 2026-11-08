@@ -20,6 +20,8 @@ import hashlib
 import json
 import os
 import re
+import secrets
+import time
 from html import unescape
 from pathlib import Path
 from typing import Any
@@ -236,6 +238,26 @@ async def post_reply(link: str, cookie: tuple[str, str], thread: str, content: s
         read = _Reader(session, server)
         await read.post(f"/project/{project}/thread/{thread}/messages", await _write_token(read, project),
                         {"content": content})
+
+
+async def open_thread(link: str, cookie: tuple[str, str], thread: str, content: str, *, timeout: float = 30) -> None:
+    """Start a thread on Overleaf with its first message, as the reviewer, the way Overleaf's
+    editor does before it puts the thread on words. A thread Overleaf already has, from a send
+    that stopped before its words, is left as it is."""
+    server, project = project_of(link)
+    async with _session(server, cookie, timeout) as session:
+        read = _Reader(session, server)
+        threads = await read.get(f"/project/{project}/threads")
+        if isinstance(threads, dict) and thread in threads:
+            return
+        await read.post(f"/project/{project}/thread/{thread}/messages", await _write_token(read, project),
+                        {"content": content})
+
+
+def new_thread_id() -> str:
+    """An id for a new thread, shaped as Overleaf's editor makes them: the time in seconds and
+    random digits, 24 hexadecimal digits in all."""
+    return f"{int(time.time()):08x}{secrets.token_hex(8)}"
 
 
 async def set_resolved(link: str, cookie: tuple[str, str], thread: str, resolved: bool, *,

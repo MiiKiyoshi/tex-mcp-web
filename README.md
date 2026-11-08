@@ -130,13 +130,13 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   offers neither on it. A message reworded or deleted there is reworded or deleted here,
   a thread deleted there is deleted here, and one deleted here comes back. Replies
   written here stay in their thread.
-- With `overleaf` set and the cookie kept, an open page also sits in the Overleaf project,
-  read-only. The top bar shows a face for each collaborator there, which goes to the file
-  and line they are on, their cursors are drawn in the editor on that file, and a file
-  they edit says so above the editor. Settings lists who is where and what was edited
-  while the page was open. A leaf button shows in the top bar only when something needs a
-  look: signed out, reconnecting, comments not coming in, or files waiting for a choice.
-  The page sends Overleaf no edit unless the files follow it live (below). It opens the main
+- With `overleaf` set and the cookie kept, an open page also sits in the Overleaf project.
+  The top bar shows a face for each collaborator there, which goes to the file and line
+  they are on, their cursors are drawn in the editor on that file, and a file they edit
+  says so above the editor. Settings lists who is where and what was edited while the page
+  was open. A leaf button shows in the top bar only when something needs a look: signed
+  out, reconnecting, comments not coming in, or files waiting for a choice. The page sends
+  Overleaf no edit to the text unless the files follow it live (below). It opens the main
   file and puts one cursor at its top, which is what makes the others' editors send their
   cursors at once, so to them it is one more of your tabs, idle.
 - While a page is open that way, a new thread on Overleaf is counted on the sync button
@@ -154,6 +154,14 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   they follow Overleaf live and from Overleaf's branch in a git clone otherwise, and the
   refusal says whether to commit or to git push first. Overleaf takes the reply first, so what
   it refuses is not shown as said here.
+- The agent can also draft a new thread for Overleaf on source lines (`write_comments` with
+  `action="overleaf"` and an `anchor` instead of an `id`). It waits in the leaf
+  **Comments** tab as a card with nothing said in it yet, the draft being its first
+  message, and you edit it and send it the same way, alone or with the picked threads, or
+  delete it. Sent, it opens on Overleaf as Overleaf's editor opens a thread: the lines are
+  looked for in Overleaf's file first, the occurrence nearest the line they are on here,
+  then the message goes, then an edit that changes no text puts the thread on them. Lines
+  Overleaf does not have yet leave nothing behind there, and the card keeps its draft.
 - Settings chooses how the files follow Overleaf. **By hand**, the default, changes them
   only when you ask: by git pull and git push in a git clone, and not at all otherwise. **Live**
   (`overleaf_sync: true`) keeps the paper's files and the project's the same both ways

@@ -6,7 +6,7 @@ import random
 import pytest
 
 from tex_mcp_web.overleaf_ot import (
-    Mismatch, apply, comments_removed, diff, js_len, move_comments, py_index, text_only, transform_x,
+    Mismatch, apply, comments_removed, diff, js_len, move_comments, nearest, py_index, text_only, transform_x,
 )
 
 ALPHABET = "ab \n가나😀\\{}"
@@ -144,3 +144,28 @@ def test_an_edit_made_around_comments_still_makes_the_new_text() -> None:
         edit = diff(old, new, comments)
         assert apply(old, edit) == new, (old, new, comments, edit)
         assert len(comments_removed(comments, edit)) <= len(comments_removed(comments, diff(old, new)))
+
+
+def test_words_are_found_nearest_the_line_they_were_on() -> None:
+    text = "a\nfoo\nb\nfoo\n😀foo"
+    assert [nearest(text, "foo", line) for line in (1, 4, 5)] == [2, 8, 14]
+    assert nearest(text, "bar", 1) is None and nearest(text, "", 1) is None
+
+
+@pytest.mark.parametrize("theirs, words", [
+    ([{"p": 0, "i": ">> "}], "brave"),
+    ([{"p": 8, "i": "XX"}], "brXXave"),
+    ([{"p": 11, "i": "!"}], "brave"),
+    ([{"p": 4, "d": "o br"}], "ave"),
+    ([{"p": 6, "d": "brave "}], ""),
+    ([{"p": 0, "d": "Hello "}], "brave"),
+])
+def test_a_comment_sent_while_another_edit_lands_moves_with_the_text(theirs, words) -> None:
+    """A comment changes no text: an edit made at once passes it unchanged, and the comment
+    stays on its words as Overleaf keeps it, widened, narrowed or emptied with them."""
+    base = "Hello brave world."
+    mine, moved = transform_x([{"c": "brave", "p": 6, "t": "t1"}], theirs)
+    assert moved == theirs
+    after = apply(base, theirs)
+    [step] = mine
+    assert step["c"] == words and after[step["p"]:step["p"] + len(words)] == words

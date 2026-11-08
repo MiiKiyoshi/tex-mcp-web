@@ -4,13 +4,15 @@ read from the session Overleaf's own editor keeps open, signed in with the revie
 Overleaf's editor talks to its real-time service over socket.io 0.9: a handshake names the
 project, the service answers with the project's files, and from then on it tells the editor
 who moved where (clientTracking.*) and every edit applied to any file (otUpdateApplied).
-This reads that and sends no edit. It asks once who is connected, and says once where the
+This reads that and sends no edit to the text. It asks once who is connected, and says once where the
 reviewer is, the top of the main file, which needs that file opened (joinDoc) first: an
 editor that sees no one else sends its cursor every five minutes, and one that sees the
 reviewer sends it twice a second. To the others it is one more tab of the reviewer's, idle.
 The service also says when a comment changes, which is passed on for the server to read.
-With a sync attached, the session also carries the files' edits both ways (overleaf_sync);
-a file added, renamed or deleted on Overleaf joins the project again, to read its files anew.
+When the reviewer sends a new thread, the session puts it on its words with an edit that
+changes no text, as the editor does for a comment. With a sync attached, the session also
+carries the files' edits both ways (overleaf_sync); a file added, renamed or deleted on
+Overleaf joins the project again, to read its files anew.
 
 The protocol is the service's own (services/real-time in overleaf/overleaf), not a public
 API; a change on Overleaf's side ends in an error here, never in a change there.
@@ -23,12 +25,14 @@ import json
 import logging
 import re
 import time
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 
 import aiohttp
 
 from . import __version__
+from . import overleaf_ot as ot
 from .overleaf import project_of
+from .overleaf_sync import _decode
 
 logger = logging.getLogger(__name__)
 
@@ -106,7 +110,8 @@ class _Session:
 
 
 class LivePresence:
-    """One read-only connection to the project's editor session, kept up until stopped."""
+    """One connection to the project's editor session, kept up until stopped, which changes
+    no text unless a sync is attached."""
 
     def __init__(self, link: str, cookie: Callable[[], tuple[str, str] | None], changed: Callable[[], Any], *,
                  comments: Callable[[str, list], Any] = lambda name, args: None, sync: Any = None,
@@ -303,8 +308,8 @@ class LivePresence:
             self._comment_news("joined", [])
             await ws.send_str(f"5:{_ASK_USERS}+::" + json.dumps(
                 {"name": "clientTracking.getConnectedUsers", "args": []}))
+            self._session_api = _Session(ws, self._me)
             if self.sync is not None:
-                self._session_api = _Session(ws, self._me)
                 self.sync.session_opened(self._session_api, dict(self._docs))
             root = str(project.get("rootDoc_id") or "")
             self._main_doc = root if root in self._docs else next(iter(self._docs), "")
@@ -341,6 +346,44 @@ class LivePresence:
             change = self._changes.setdefault(path, {"file": path, "by": by, "at": 0.0, "count": 0})
             change.update(by=by, at=time.time(), count=change["count"] + 1)
             self._notify()
+
+    async def comment(self, path: str, words: str, line: int, thread: str,
+                      opened: Callable[[], Awaitable[None]]) -> str | None:
+        """Put a new thread on *words* in the file at *path* on Overleaf, the occurrence nearest
+        *line*, as Overleaf's editor does: once the words are found there, *opened* starts the
+        thread with its message, and an edit that changes no text puts it on them. With the
+        files following Overleaf live, the sync sends that edit in turn with its own. Says why
+        not, or None."""
+        if self.sync is not None:
+            return await self.sync.comment(path, words, line, thread, opened)
+        api = self._session_api
+        if api is None or self.status != "live":
+            return "The page is not connected to Overleaf right now. Send again in a moment."
+        doc = next((doc for doc, name in self._docs.items() if name == path), None)
+        if doc is None:
+            return f"Overleaf's project has no file {path}."
+        reply = await api.call("joinDoc", [doc, -1, {"encodeRanges": True, "supportsHistoryOT": True}])
+        try:
+            if not reply or reply[0] is not None:
+                return f"Overleaf did not open {path}: {reply[0] if reply else 'no answer'}."
+            if len(reply) > 5 and reply[5] != "sharejs-text-ot":
+                return f"Overleaf keeps {path} in a form ({reply[5]}) this page puts no thread on."
+            at = ot.nearest("\n".join(_decode(str(row)) for row in reply[1]), words, line)
+            if at is None:
+                return f"The lines this thread is on are not in {path} on Overleaf yet."
+            await opened()
+            answer = await api.call("applyOtUpdate", [doc, {"doc": doc, "op": [{"c": words, "p": at, "t": thread}],
+                                                            "v": reply[2]}])
+            if answer and answer[0] is not None:
+                return f"Overleaf took the thread's message but did not put it on its words ({answer[0]}). Send again."
+            return None
+        finally:
+            # The main file stays open, as the presence keeps it; any other is let go.
+            if doc != self._main_doc:
+                try:
+                    await api.call("leaveDoc", [doc], timeout=5)
+                except (ConnectionError, asyncio.TimeoutError):
+                    pass
 
     def _connected_users(self, reply: list) -> None:
         users = reply[1] if len(reply) > 1 and isinstance(reply[1], list) else []

@@ -95,12 +95,42 @@ def _units(text: str, start: int, end: int | None = None) -> str:
 
 
 def _push(dest: Op, step: dict) -> None:
-    if ("i" in step and step["i"]) or ("d" in step and step["d"]):
+    if "c" in step or ("i" in step and step["i"]) or ("d" in step and step["d"]):
         dest.append(step)
 
 
+def _comment_past(step: dict, other: dict) -> dict:
+    """A comment step moved past an insert or a delete, as Overleaf moves it: text inserted
+    at or before its start moves it, inside it widens it, and a delete takes away what it
+    removes of it, which may be all of it."""
+    p, words = step["p"], step["c"]
+    end = p + js_len(words)
+    if "i" in other:
+        if other["p"] <= p:
+            return {**step, "p": p + _length(other)}
+        if other["p"] < end:
+            cut = other["p"] - p
+            return {**step, "c": _units(words, 0, cut) + other["i"] + _units(words, cut)}
+        return dict(step)
+    other_end = other["p"] + _length(other)
+    if other_end <= p:
+        return {**step, "p": p - _length(other)}
+    if other["p"] >= end:
+        return dict(step)
+    kept = (_units(words, 0, other["p"] - p) if other["p"] > p else "") + (
+        _units(words, other_end - p) if end > other_end else "")
+    return {**step, "p": min(p, other["p"]), "c": kept}
+
+
 def _move(dest: Op, step: dict, other: dict, side: str) -> None:
-    """Move one step past one step of another edit made at the same time."""
+    """Move one step past one step of another edit made at the same time. A comment step
+    changes no text, so nothing moves past it."""
+    if "c" in other:
+        _push(dest, dict(step))
+        return
+    if "c" in step:
+        _push(dest, _comment_past(step, other))
+        return
     p = step["p"]
     if "i" in step:
         if "i" in other:
@@ -299,3 +329,15 @@ def comments_removed(comments: list[dict], op: Op) -> list[str]:
     """Threads whose every commented character the edit deletes."""
     after = {comment["t"]: comment["n"] for comment in move_comments(comments, op)}
     return [comment["t"] for comment in comments if comment["n"] > 0 and after.get(comment["t"], 0) <= 0]
+
+
+def nearest(text: str, words: str, line: int) -> int | None:
+    """Where *words* start in *text*, in JavaScript units: the occurrence whose first line is
+    nearest *line* (counting from 1), the earlier one on a tie. None when they are not there."""
+    found, at = None, text.find(words) if words else -1
+    while at >= 0:
+        distance = abs(text.count("\n", 0, at) + 1 - line)
+        if found is None or distance < found[0]:
+            found = (distance, at)
+        at = text.find(words, at + 1)
+    return None if found is None else js_len(text[:found[1]])

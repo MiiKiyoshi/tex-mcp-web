@@ -1868,8 +1868,28 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
         assert browser.execute_script('return document.querySelector("#archive-picked-btn").hidden') is True
         assert browser.execute_script(
             'return document.querySelector(\'#comment-filter option[value="archived"]\').hidden') is True
+        # A thread the agent drafted for Overleaf waits in this tab, with nothing said in it
+        # yet: its first message is the draft, and it is sent or deleted.
+        from tex_mcp_web.comments import OverleafDraft, ResolvedSource, SourceRangeAnchor, capture_source_selector
+
+        store = CommentStore(tmp_path / ".tex-mcp-web" / "comments.json")
+        drafted = store.add_overleaf_thread(
+            SourceRangeAnchor(file="paper.tex", line_start=3, line_end=3), OverleafDraft("Feedback and answer."),
+            ResolvedSource(file="paper.tex", line_start=3, line_end=3),
+            capture_source_selector(tmp_path / "paper.tex", 3, 3))
+        card = f"[data-comment-id='{drafted.id}']"
+        wait_until(lambda: browser.execute_script(f'return document.querySelector("{card} .overleaf-reply-input")?.value')
+                   == "Feedback and answer.")
+        assert "New thread on Overleaf" in browser.execute_script(f'return document.querySelector("{card}").textContent')
+        assert count("#overleaf-tab-count") == "2"
+        browser.execute_script(f'document.querySelector("{card} .cmt-head").click()')
+        wait_until(lambda: browser.execute_script(f'return document.querySelector("{card} .cmt-actions") !== null'))
+        assert browser.execute_script(
+            f'return [...document.querySelectorAll("{card} .cmt-actions button")].map((b) => b.textContent)') == ["Delete"]
         browser.execute_script('document.querySelector(\'.tab-btn[data-tab="comments"]\').click()')
         wait_until(lambda: "Written here." in browser.execute_script(listed))
+        assert "Feedback and answer." not in browser.execute_script(
+            'return [...document.querySelectorAll(".overleaf-reply-input")].map((b) => b.value).join("|")')
         assert browser.execute_script('return document.querySelector("#archive-picked-btn").hidden') is False
     finally:
         if browser is not None:

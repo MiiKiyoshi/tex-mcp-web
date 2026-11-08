@@ -1349,6 +1349,47 @@ async def test_mcp_drafts_an_overleaf_reply_only_on_a_thread_from_overleaf(bound
 
 
 @pytest.mark.asyncio
+async def test_mcp_drafts_a_new_overleaf_thread_on_source_lines(bound_project, project):
+    """With an anchor instead of an id, the agent drafts a new thread for Overleaf: a comment
+    with no entries holding the draft, on whole source lines with words on them. It redrafts
+    it by id, and nothing is said in it until the reviewer sends it."""
+    pytest.importorskip("mcp")
+    from tex_mcp_web.comments import CommentStore
+    from tex_mcp_web.mcp_server import create_server
+
+    mcp = create_server(bound_project)
+
+    async def call(tool_name, **arguments):
+        return json.loads((await mcp.call_tool(tool_name, arguments))[0].text)
+
+    store = CommentStore(project / ".tex-mcp-web" / "comments.json")
+    lines = {"kind": "source_range", "file": "paper.tex", "start": 5, "end": 5}
+    receipt = await call("write_comments", action="overleaf", text="Feedback: which prose? Answer: this.",
+                         anchor=lines)
+    drafted = store.get(receipt["id"])
+    assert drafted.thread == [] and drafted.overleaf_draft.text == "Feedback: which prose? Answer: this."
+    assert (drafted.resolved_source.file, drafted.resolved_source.line_start) == ("paper.tex", 5)
+    told = (await call("read_comments", ids=[drafted.id]))["comments"][0]
+    assert "comment" not in told and told["overleaf_draft"] == "Feedback: which prose? Answer: this."
+    assert "on_overleaf" not in told
+    assert any(item["id"] == drafted.id for item in (await call("read_comments"))["comments"])
+    receipt = await call("write_comments", action="overleaf", id=drafted.id, text="Answer: this, shorter.",
+                         rev=receipt["rev"])
+    assert store.get(drafted.id).overleaf_draft.text == "Answer: this, shorter."
+    assert store.get(drafted.id).thread == []
+
+    blank = await call("write_comments", action="overleaf", text="On nothing.",
+                       anchor={"kind": "source_range", "file": "paper.tex", "start": 10, "end": 10})
+    assert "blank" in blank["error"]
+    paper_wide = await call("write_comments", action="overleaf", text="Everywhere.", anchor={"kind": "paper"})
+    assert "source_range" in paper_wide["error"]
+    both = await call("write_comments", action="overleaf", id=drafted.id, text="Both.", anchor=lines)
+    assert "no id or rev" in both["error"]
+    # The agent may take back its own draft: nobody has said anything in it.
+    assert (await call("write_comments", action="delete", id=drafted.id))["ok"] is True
+
+
+@pytest.mark.asyncio
 async def test_mcp_comment_discovery_reads_only_selected_history(bound_project, project, monkeypatch):
     pytest.importorskip("mcp")
     from tex_mcp_web.comments import CommentStore, PaperAnchor, ResolvedSource, SectionAnchor

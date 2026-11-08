@@ -2254,8 +2254,8 @@ async function refreshComments() {
   // The other tab's comments are left out here, once, so the list, the editor's marks and
   // the PDF's highlights agree without each asking. Each tab counts its own open ones.
   const opened = (comments) => comments.filter((comment) => comment.status === "open").length;
-  const onOverleaf = data.comments.filter((comment) => state.overleafImported.has(comment.id));
-  const here = data.comments.filter((comment) => !state.overleafImported.has(comment.id));
+  const onOverleaf = data.comments.filter(forOverleaf);
+  const here = data.comments.filter((comment) => !forOverleaf(comment));
   renderCommentTabs(opened(here), opened(onOverleaf));
   data.comments = state.commentTab === "overleaf-comments" ? onOverleaf : here;
   renderOverleafThreadSync();
@@ -2276,6 +2276,16 @@ async function refreshComments() {
   renderComments();
   syncCommentAnnotations();
   syncSourceCommentMarkers();
+}
+
+// A thread from Overleaf, or one drafted for it: a comment with no entries, since nothing
+// has been said in it until the reviewer sends its draft.
+function draftedThread(comment) {
+  return comment.thread.length === 0 && Boolean(comment.overleaf_draft);
+}
+
+function forOverleaf(comment) {
+  return state.overleafImported.has(comment.id) || draftedThread(comment);
 }
 
 // The leaf tab shows once the paper names an Overleaf project or has threads from one. The
@@ -2342,8 +2352,9 @@ function renderComments() {
 // open ones close, unarchived ones archive, and closed ones reopen. The counts say
 // exactly what each press will touch.
 function renderPickedActions() {
-  // A thread from Overleaf resolves and reopens there too. Overleaf has no archive.
-  const picked = state.comments.filter((comment) => state.picked.has(comment.id));
+  // A thread from Overleaf resolves and reopens there too. Overleaf has no archive. A thread
+  // drafted for Overleaf is only sent or deleted.
+  const picked = state.comments.filter((comment) => state.picked.has(comment.id) && !draftedThread(comment));
   const open = picked.filter((comment) => comment.status === "open").map((comment) => comment.id);
   const archivable = picked.filter((comment) => comment.status !== "archived"
     && !state.overleafImported.has(comment.id)).map((comment) => comment.id);
@@ -2375,7 +2386,7 @@ function renderPickedActions() {
   reopen.dataset.ids = closed.join(" ");
   // A picked thread from Overleaf sends what its reply box holds, each to its own thread there.
   const sendable = state.comments.filter((comment) => state.picked.has(comment.id)
-    && state.overleafImported.has(comment.id) && comment.status === "open"
+    && forOverleaf(comment) && comment.status === "open"
     && overleafReplyText(comment).trim()).map((comment) => comment.id);
   const send = $("#send-picked-btn");
   send.hidden = !state.overleafProject || state.commentTab !== "overleaf-comments";
@@ -2532,8 +2543,8 @@ function renderCommentItem(comment) {
       text: `On Overleaf at ${unplaced}. Those words are not in the file here, so this sits on the paper until they are.`,
     })));
   }
-  if (!expanded) {
-    children.push(h("div", { class: "cmt-preview", text: comment.thread[0]?.text ?? "" }));
+  if (!expanded && comment.thread.length > 0) {
+    children.push(h("div", { class: "cmt-preview", text: comment.thread[0].text }));
     // The request, then whatever was last said about it: a thread someone has answered
     // must not read like one nobody has touched, and who answered has to be visible.
     // A long answer is cut to three lines here and opens in full on a click, so nothing
@@ -2556,8 +2567,9 @@ function renderCommentItem(comment) {
   // The proposal sits under the conversation, where the card ends. A thread carries one,
   // so this is never a list.
   if (comment.suggestion) children.push(renderSuggestion(comment));
-  // So does the reply drafted for Overleaf, shown closed or open while it waits to be sent.
-  if (onOverleaf && comment.status === "open" && (expanded || comment.overleaf_draft)) {
+  // So does the reply drafted for Overleaf, or a new thread's first message, shown closed or
+  // open while it waits to be sent.
+  if (forOverleaf(comment) && comment.status === "open" && (expanded || comment.overleaf_draft)) {
     children.push(renderOverleafReply(comment));
   }
   if (expanded) {
@@ -2622,7 +2634,8 @@ function renderOverleafReply(comment) {
   const draft = comment.overleaf_draft;
   const textarea = h("textarea", {
     class: "cmt-form-input overleaf-reply-input", rows: 3,
-    placeholder: "Reply on Overleaf, for everyone in the project…",
+    placeholder: draftedThread(comment) ? "The thread's first message on Overleaf, for everyone in the project…"
+      : "Reply on Overleaf, for everyone in the project…",
   });
   textarea.value = overleafReplyText(comment);
   const kept = state.overleafReplies.get(comment.id);
@@ -2658,7 +2671,8 @@ function renderOverleafReply(comment) {
   });
   return h("div", { class: "cmt-overleaf" },
     h("div", { class: "cmt-overleaf-head" }, leafIcon(),
-      h("span", { text: draft ? "Draft for Overleaf" : "Reply on Overleaf" })),
+      h("span", { text: draftedThread(comment) ? "New thread on Overleaf"
+        : draft ? "Draft for Overleaf" : "Reply on Overleaf" })),
     textarea,
     draft?.edits?.length
       ? h("div", { class: "thread-edits" }, ...draft.edits.map((edit) => h("span", { class: "edit", text: edit })))
@@ -2758,6 +2772,8 @@ function actionButtons(comment) {
   // empty summary flips the status without adding an entry. An archived thread still
   // takes replies, and goes back to open or resolved from the same row.
   const buttons = [];
+  // A thread drafted for Overleaf has nothing said in it yet: it is sent, or deleted here.
+  if (draftedThread(comment)) return [deleteButton];
   // A thread from Overleaf resolves and reopens there, at once: Overleaf takes no summary,
   // has no archive, and deletes a thread only there.
   if (state.overleafImported.has(comment.id)) {

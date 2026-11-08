@@ -52,10 +52,25 @@ class FakeOverleaf:
         app.router.add_get(f"/project/{PROJECT_ID}/ranges", self._ranges)
         app.router.add_get(f"/project/{PROJECT_ID}/entities", self._entities)
         app.router.add_get(f"/Project/{PROJECT_ID}/doc/{{doc}}/download", self._download)
+        app.router.add_get(f"/project/{PROJECT_ID}", self._editor_page)
+        app.router.add_post(f"/project/{PROJECT_ID}/thread/{{thread}}/messages", self._post_message)
         self.app = app
 
     async def _threads(self, request: web.Request) -> web.Response:
         return web.json_response(self.threads)
+
+    async def _editor_page(self, request: web.Request) -> web.Response:
+        return web.Response(text='<html><head><meta name="ol-csrfToken" content="token-1"></head></html>',
+                            content_type="text/html")
+
+    async def _post_message(self, request: web.Request) -> web.Response:
+        if request.headers.get("X-Csrf-Token") != "token-1":
+            raise web.HTTPForbidden(text="invalid csrf token")
+        body = await request.json()
+        thread = self.threads.setdefault(request.match_info["thread"], {"messages": []})
+        thread["messages"].append({"id": f"m-{len(thread['messages'])}", "user": {"first_name": "Me"},
+                                   "content": body["content"]})
+        return web.Response(status=204)
 
     async def _entities(self, request: web.Request) -> web.Response:
         return web.json_response({"entities": [{"path": "/main.tex", "type": "doc"},
@@ -139,6 +154,8 @@ class FakeOverleaf:
                 for c in doc["comments"]]}
             return [None, [wire(line) for line in doc["text"].split("\n")], doc["version"], ops, ranges,
                     doc["kind"], {}]
+        if name == "leaveDoc":
+            return [None]
         if name == "applyOtUpdate":
             try:
                 await self.apply(args[0], args[1], me)
@@ -720,3 +737,71 @@ async def test_the_page_connects_a_project_and_turns_each_switch_in_the_config(p
     finally:
         await page.close()
         await client.close()
+
+
+# ----- New threads -----
+
+@pytest.mark.parametrize("live", [False, True])
+async def test_a_thread_drafted_for_overleaf_opens_there_on_its_lines_when_sent(paper, overleaf_site, live) -> None:
+    """A thread the agent drafted is a comment with no entries. Sent, it opens on Overleaf as
+    Overleaf's editor opens one: its first message, then an edit that changes no text and puts
+    it on the lines it sits on here. The send is the reviewer's first entry, and a reading
+    afterwards knows it as the one sent from here. By hand and live alike."""
+    from tex_mcp_web.comments import OverleafDraft, ResolvedSource, SourceRangeAnchor, capture_source_selector
+
+    fake, link = overleaf_site
+    opened = await Review(paper, fake, link, sync=live).open()
+    try:
+        if live:
+            await opened.settled()
+        else:
+            await wait_for(lambda: opened.server.overleaf_live is not None and opened.server.overleaf_live.status == "live")
+        store = opened.server.comments
+        drafted = store.add_overleaf_thread(
+            SourceRangeAnchor(file="tex/body.tex", line_start=2, line_end=2), OverleafDraft("Enough?"),
+            ResolvedSource(file="tex/body.tex", line_start=2, line_end=2),
+            capture_source_selector(paper / "tex" / "body.tex", 2, 2))
+        assert drafted.thread == [] and fake.threads == {}
+        response = await opened.client.post(f"/comments/{drafted.id}/reply",
+                                            json={"text": "Is this enough?", "overleaf": True})
+        assert response.status == 200, await response.text()
+        [thread] = fake.threads
+        assert [m["content"] for m in fake.threads[thread]["messages"]] == ["Is this enough?"]
+        await wait_for(lambda: fake.docs["d-body"]["comments"])
+        [placed] = fake.docs["d-body"]["comments"]
+        assert placed["t"] == thread and _units(BODY, placed["p"], placed["p"] + placed["n"]) == "More body text here."
+        assert fake.docs["d-body"]["text"] == BODY
+        sent = store.get(drafted.id)
+        assert [entry.text for entry in sent.thread] == ["Is this enough?"] and sent.overleaf_draft is None
+        assert sent.thread[0].overleaf is not None
+        if not live:
+            assert (await opened.client.post("/overleaf/comments")).status == 200
+            await asyncio.sleep(0.3)
+            assert [entry.text for entry in store.get(drafted.id).thread] == ["Is this enough?"]
+            assert len(store.list()) == 1
+    finally:
+        await opened.close()
+
+
+async def test_a_drafted_thread_whose_lines_overleaf_lacks_is_not_opened_at_all(paper, overleaf_site) -> None:
+    """The lines are looked for on Overleaf before anything is written there, so a thread
+    whose words Overleaf lacks leaves no message behind, and keeps its draft here."""
+    from tex_mcp_web.comments import OverleafDraft, ResolvedSource, SourceRangeAnchor, capture_source_selector
+
+    fake, link = overleaf_site
+    opened = await Review(paper, fake, link, sync=False).open()
+    try:
+        await wait_for(lambda: opened.server.overleaf_live is not None and opened.server.overleaf_live.status == "live")
+        opened.write("tex/body.tex", BODY + "\nWritten here only.")
+        drafted = opened.server.comments.add_overleaf_thread(
+            SourceRangeAnchor(file="tex/body.tex", line_start=4, line_end=4), OverleafDraft("New?"),
+            ResolvedSource(file="tex/body.tex", line_start=4, line_end=4),
+            capture_source_selector(paper / "tex" / "body.tex", 4, 4))
+        response = await opened.client.post(f"/comments/{drafted.id}/reply", json={"text": "New?", "overleaf": True})
+        assert response.status == 409
+        assert "not in tex/body.tex on Overleaf yet" in (await response.json())["error"]
+        assert fake.threads == {} and not fake.docs["d-body"]["comments"]
+        kept = opened.server.comments.get(drafted.id)
+        assert kept.thread == [] and kept.overleaf_draft.text == "New?"
+    finally:
+        await opened.close()

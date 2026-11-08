@@ -708,7 +708,7 @@ class TexMcpWebServer:
     OVERLEAF_COMMENT_SETTLE = 2
 
     async def _sync_overleaf_live(self, restart: bool = False) -> None:
-        """Keep the read-only Overleaf session open while a page is: the reviewer looking at
+        """Keep the Overleaf session open while a page is: the reviewer looking at
         the paper is the reviewer in the project. It needs the config's overleaf: and the
         reviewer's cookie; a new cookie or link starts it again."""
         async with self._overleaf_live_turn:
@@ -872,7 +872,8 @@ class TexMcpWebServer:
     def _review_line(self) -> str:
         # The line counts what a wake-up is for: open threads whose last word is the
         # reviewer's. A count of open threads sent an agent to read one it had answered.
-        waiting = sum(comment.thread[-1].author == "human" for comment in self.comments.list(status="open"))
+        waiting = sum(bool(comment.thread) and comment.thread[-1].author == "human"
+                      for comment in self.comments.list(status="open"))
         return (f"[review] reviewer called (press #{self.review_calls}): "
                 + (f"{waiting} unanswered comments" if waiting else "no unanswered comments")
                 + " -- read them with read_comments(new=True)")
@@ -1092,11 +1093,12 @@ class TexMcpWebServer:
         return None, ""
 
     async def _send_to_overleaf(self, cid: str, reply: str) -> tuple[web.Response | None, str]:
-        """Send the reviewer's reply to the Overleaf thread a comment came from, once the
-        words its draft describes are on Overleaf, and before anything changes here, so that
-        what Overleaf does not take is not shown as said. Answers a refusal, or None with the
-        commit Overleaf's branch was at. Readings wait meanwhile: one begun before this
-        would bring the reply in again as someone else's."""
+        """Send the reviewer's reply to the Overleaf thread a comment came from, or open the
+        thread a comment with no entries was drafted as, once the words its draft describes are
+        on Overleaf, and before anything changes here, so that what Overleaf does not take is
+        not shown as said. Answers a refusal, or None with the commit Overleaf's branch was at.
+        Readings wait meanwhile: one begun before this would bring the reply in again as
+        someone else's."""
         cookie = overleaf.read_cookie()
         if cookie is None:
             return web.json_response({"error": "paste your Overleaf session cookie first"}, status=401), ""
@@ -1105,20 +1107,51 @@ class TexMcpWebServer:
         async with self._overleaf_import:
             ledger = self._overleaf_ledger()
             thread = next((key for key, known in ledger.items() if known["comment"] == cid), None)
-            if thread is None:
+            opening = thread is None and comment is not None and not comment.thread and comment.overleaf_draft is not None
+            if thread is None and not opening:
                 return web.json_response({"error": "this comment did not come from Overleaf"}, status=409), ""
+            if not self.config.overleaf:
+                return web.json_response({"error": "name the Overleaf project in .tex-mcp-web.yaml first"}, status=409), ""
             lacking, commit = await self._overleaf_lacks(checks)
             if lacking is not None:
                 return web.json_response({"error": lacking}, status=409), ""
             try:
-                await overleaf.post_reply(self.config.overleaf, cookie, thread, reply)
+                if opening:
+                    refused, thread = await self._open_on_overleaf(comment, reply, cookie)
+                    if refused is not None:
+                        return web.json_response({"error": refused}, status=409), ""
+                    ledger[thread] = {"comment": cid, "entries": {}}
+                else:
+                    await overleaf.post_reply(self.config.overleaf, cookie, thread, reply)
             except overleaf.SignedOut as error:
                 return web.json_response({"error": f"{error} (the cookie has expired or is wrong)"}, status=401), ""
             except overleaf.OverleafError as error:
                 return web.json_response({"error": str(error)}, status=502), ""
+            except (ConnectionError, asyncio.TimeoutError):
+                return web.json_response({"error": "The connection to Overleaf closed before it answered. "
+                                                   "Send again."}, status=502), ""
             ledger[thread].setdefault("sent", []).append(reply)
             self._save_overleaf_ledger(ledger)
         return None, commit
+
+    async def _open_on_overleaf(self, comment: Comment, text: str, cookie: tuple[str, str]) -> tuple[str | None, str]:
+        """Open on Overleaf the thread a comment was drafted as: on the lines it sits on here,
+        found in Overleaf's file nearest the line they are on here, with *text* as its first
+        message. Its id is kept with the draft first, so a send that stops halfway finishes
+        that thread when sent again. Why not, or None, with the thread's id."""
+        source = comment.resolved_source
+        words = None if comment.stale else read_anchored_source(self.watch_dir, comment)
+        if source is None or not words or not words.strip():
+            return "The lines this thread is on are not in the file here any more.", ""
+        if self.overleaf_live is None:
+            return "The page is not connected to Overleaf right now. Send again in a moment.", ""
+        thread = comment.overleaf_draft.thread or overleaf.new_thread_id()
+        if comment.overleaf_draft.thread is None:
+            self.comments.name_overleaf_thread(comment.id, thread)
+        refused = await self.overleaf_live.comment(
+            source.file, words, source.line_start, thread,
+            lambda: overleaf.open_thread(self.config.overleaf, cookie, thread, text))
+        return refused, thread
 
     async def _bring_in_overleaf(self, data: dict[str, Any], deleted: Iterable[str] = (), *,
                                  new: bool) -> dict[str, int]:

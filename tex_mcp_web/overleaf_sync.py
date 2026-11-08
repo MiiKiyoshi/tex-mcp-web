@@ -149,6 +149,14 @@ class ProjectSync:
         self._queue.put_nowait(("decide", path, choice, done))
         return await done
 
+    async def comment(self, path: str, words: str, line: int, thread: str,
+                      opened: Callable[[], Awaitable[None]]) -> str | None:
+        """Put a new thread on *words* in *path*, the occurrence nearest *line*, in turn with
+        this file's edits; see LivePresence.comment. An error, or None."""
+        done: asyncio.Future = asyncio.get_running_loop().create_future()
+        self._queue.put_nowait(("comment", path, words, line, thread, opened, done))
+        return await done
+
     def snapshot(self) -> list[dict]:
         return [doc.view() for doc in sorted(self.docs.values(), key=lambda doc: doc.path)]
 
@@ -215,6 +223,12 @@ class ProjectSync:
                 done.set_result(await self._decide(path, choice))
             except Exception as error:  # the page is told
                 done.set_result(str(error))
+        elif kind == "comment":
+            _, path, words, line, thread, opened, done = event
+            try:
+                done.set_result(await self._comment(path, words, line, thread, opened))
+            except Exception as error:  # the page is told
+                done.set_exception(error)
         elif kind == "failed":
             doc = self.docs.get(event[1])
             if doc is not None:
@@ -584,6 +598,23 @@ class ProjectSync:
             doc.inflight, doc.inflight_ids = None, []
             self._save(doc)
             self._set(doc, "stopped", f"Overleaf did not take an edit to this file ({error}). Choose which text stands.")
+
+    async def _comment(self, path: str, words: str, line: int, thread: str,
+                       opened: Callable[[], Awaitable[None]]) -> str | None:
+        doc = next((doc for doc in self.docs.values() if doc.path == path), None)
+        if doc is None or not doc.known:
+            return f"{path} is not followed on Overleaf."
+        if self._session is None or doc.status != "synced" or doc.inflight is not None or doc.pending:
+            return f"{path} is still being brought in step with Overleaf. Send again in a moment."
+        at = ot.nearest(doc.server, words, line)
+        if at is None:
+            return f"The lines this thread is on are not in {path} on Overleaf yet."
+        await opened()
+        doc.pending = [{"c": words, "p": at, "t": thread}]
+        await self._send(doc)
+        if doc.status == "stopped":
+            return doc.message
+        return None
 
     async def _check_some(self) -> None:
         """Read again a file whose edits crossed others', to make sure both texts agree."""
