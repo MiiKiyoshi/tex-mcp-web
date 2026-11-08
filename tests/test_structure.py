@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from tex_mcp_web.structure import (
+    AmbiguousSection,
     DocumentStructure,
     Section,
     _extract_braced,
@@ -143,6 +144,16 @@ class TestParseStructure:
         ds = parse_structure(tmp_path)
         intro = next(s for s in ds.sections if s.title == "Introduction")
         assert intro.label == "sec:intro"
+
+    def test_a_label_after_the_next_heading_is_that_headings(self, tmp_path):
+        (tmp_path / "main.tex").write_text(
+            "\\section{Experiments}\n"
+            "\\subsection{Setup}\\label{sec:setup}\n"
+            "Text.\n"
+        )
+        ds = parse_structure(tmp_path, tmp_path / "main.tex")
+        assert [(s.title, s.label) for s in ds.sections] == [("Experiments", None), ("Setup", "sec:setup")]
+        assert find_section(ds, label="sec:setup") == ("main.tex", 2, -1)
 
     def test_paths_are_relative(self, tmp_path):
         self._setup_project(tmp_path)
@@ -311,3 +322,17 @@ class TestFindSection:
 
     def test_empty_structure(self):
         assert find_section(DocumentStructure(), title="x") is None
+
+    def test_a_title_several_headings_share_needs_their_place(self):
+        structure = DocumentStructure(sections=[
+            Section(level="subsection", title="Setup", file="main.tex", line=10, number="1.1"),
+            Section(level="section", title="Experiments", file="main.tex", line=20, number="2"),
+            Section(level="subsection", title="Setup", file="main.tex", line=30, number="2.1",
+                    label="sec:exp-setup"),
+        ])
+        with pytest.raises(AmbiguousSection, match=r"2 headings are titled 'Setup': 1\.1 at main\.tex:10, "
+                                                   r"2\.1 at main\.tex:30 \(label sec:exp-setup\)"):
+            find_section(structure, title="Setup")
+        assert find_section(structure, title="Setup", near=("main.tex", 27)) == ("main.tex", 30, -1)
+        assert find_section(structure, title="setup", near=("main.tex", 12)) == ("main.tex", 10, 19)
+        assert find_section(structure, title="Setup", label="sec:exp-setup") == ("main.tex", 30, -1)

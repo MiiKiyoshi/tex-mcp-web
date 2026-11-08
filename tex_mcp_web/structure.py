@@ -192,12 +192,17 @@ def _parse_sections(content: str, rel_path: str) -> list[tuple[Section, bool]]:
                 continue
             title = extracted[0].strip()
 
-            # Look ahead a few lines for \label{...}
+            # A \label{...} in the next few lines names this heading, unless the
+            # next heading comes first: a label after it is that heading's.
             label: str | None = None
-            for ahead in range(line_no - 1, min(line_no + 3, n)):
-                lm = _LABEL_RE.search(_strip_comment(lines[ahead]))
+            texts = [line[extracted[1]:]] + [_strip_comment(lines[i]) for i in range(line_no, min(line_no + 3, n))]
+            for text in texts:
+                heading = _SECTION_PREFIX_RE.search(text)
+                lm = _LABEL_RE.search(text[: heading.start()] if heading else text)
                 if lm:
                     label = lm.group(1).strip()
+                    break
+                if heading:
                     break
 
             sections.append(
@@ -271,10 +276,27 @@ def parse_structure(
     return structure
 
 
+class AmbiguousSection(ValueError):
+    """Several headings carry the title, and neither a label nor a place tells which."""
+
+    def __init__(self, title: str, sections: list[Section]):
+        self.sections = sections
+        where = ", ".join(f"{s.number or s.level} at {s.file}:{s.line}"
+                          + (f" (label {s.label})" if s.label else "") for s in sections)
+        super().__init__(f"{len(sections)} headings are titled {title!r}: {where}")
+
+
+def section_end(structure: DocumentStructure, section: Section) -> int:
+    """The line just before the next heading in *section*'s file, or ``-1`` for end-of-file."""
+    after = [s.line for s in structure.sections if s.file == section.file and s.line > section.line]
+    return min(after) - 1 if after else -1
+
+
 def find_section(
     structure: DocumentStructure,
     title: str | None = None,
     label: str | None = None,
+    near: tuple[str, int] | None = None,
 ) -> tuple[str, int, int] | None:
     """Resolve a section anchor to ``(file, line_start, line_end)``.
 
@@ -282,6 +304,11 @@ def find_section(
         1. exact label match (when *label* is given)
         2. exact title match (case-sensitive)
         3. case-insensitive title match
+
+    LaTeX keeps labels unique but not titles. When several headings carry the
+    title, *near*, the ``(file, line)`` where the heading was last found, picks
+    the one in that file closest to that line; without it the lookup raises
+    :class:`AmbiguousSection`.
 
     The end line is the line just before the next section in the same
     file, or ``-1`` to mean "to end-of-file" (caller can resolve by
@@ -295,13 +322,13 @@ def find_section(
     if label:
         target = next((s for s in sections if s.label == label), None)
     if target is None and title is not None:
-        target = next((s for s in sections if s.title == title), None)
-        if target is None:
-            lc = title.lower()
-            target = next((s for s in sections if s.title.lower() == lc), None)
+        found = ([s for s in sections if s.title == title]
+                 or [s for s in sections if s.title.lower() == title.lower()])
+        if len(found) > 1:
+            if near is None:
+                raise AmbiguousSection(title, found)
+            found.sort(key=lambda s: (s.file != near[0], abs(s.line - near[1])))
+        target = found[0] if found else None
     if target is None:
         return None
-
-    same_file_after = [s for s in sections if s.file == target.file and s.line > target.line]
-    end_line = (min(s.line for s in same_file_after) - 1) if same_file_after else -1
-    return (target.file, target.line, end_line)
+    return (target.file, target.line, section_end(structure, target))

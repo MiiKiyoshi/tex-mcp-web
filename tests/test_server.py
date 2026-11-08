@@ -330,6 +330,66 @@ async def test_a_reviewer_replacement_on_a_section_goes_to_its_source(client):
 
 
 @pytest.mark.asyncio
+async def test_a_section_comment_keeps_to_the_heading_it_was_made_on(client_with_pdf, project):
+    """Headings can share a title. The Sections tab names the heading pressed, the
+    comment keeps to it through lines added above, and the title alone is refused."""
+    from tex_mcp_web.server import resolve_section_to_source
+    from tex_mcp_web.structure import parse_structure
+
+    tc, server = client_with_pdf
+    body = ("\\section{Methods}\n\\subsection{Setup}\nFirst.\n"
+            "\\section{Experiments}\n\\subsection{Setup}\nSecond.\n")
+    (project / "paper.tex").write_text(body)
+    server.structure = parse_structure(project)
+
+    def where(comment):
+        return {key: comment["resolved_source"][key] for key in ("file", "line_start", "line_end")}
+
+    resp = await tc.post("/comments", json={"anchor": {"kind": "section", "title": "Setup", "label": None},
+                                            "text": "which setup", "heading": {"file": "paper.tex", "line": 5}})
+    assert resp.status == 201
+    made = await resp.json()
+    assert where(made) == {"file": "paper.tex", "line_start": 5, "line_end": 6}
+
+    (project / "paper.tex").write_text("% one\n% two\n" + body)
+    server.structure = parse_structure(project)
+    server.comments.refresh_anchors(
+        project, server.last_result.output_file,
+        sections_resolver=lambda title, label, near: resolve_section_to_source(
+            server.structure, project, title, label, near))
+    assert where((await (await tc.get(f"/comments/{made['id']}")).json())) == {
+        "file": "paper.tex", "line_start": 7, "line_end": 8}
+
+    resp = await tc.post("/comments", json={"anchor": {"kind": "section", "title": "Setup"}, "text": "which"})
+    assert resp.status == 409
+    assert "2 headings are titled 'Setup'" in (await resp.json())["error"]
+    resp = await tc.post("/goto", json={"section": "Setup"})
+    assert resp.status == 409
+
+
+@pytest.mark.asyncio
+async def test_the_pdf_downloads_named_as_overleaf_names_it(client_with_pdf, project):
+    """Download PDF names the file after the Overleaf project, every character but a
+    letter or a digit turned to _, and keeps the PDF's own name without a project."""
+    from types import SimpleNamespace
+
+    tc, server = client_with_pdf
+    resp = await tc.get("/pdf/download")
+    assert resp.status == 200
+    assert resp.headers["Content-Disposition"] == "attachment; filename=\"paper.pdf\"; filename*=UTF-8''paper.pdf"
+    assert await resp.read() == (project / "paper.pdf").read_bytes()
+
+    server.overleaf_live = SimpleNamespace(project_name="논문 v2: Final")
+    try:
+        resp = await tc.get("/pdf/download")
+    finally:
+        server.overleaf_live = None
+    assert resp.headers["Content-Disposition"] == (
+        "attachment; filename=\"___v2__Final.pdf\"; "
+        "filename*=UTF-8''%EB%85%BC%EB%AC%B8_v2__Final.pdf")
+
+
+@pytest.mark.asyncio
 async def test_empty_suggestion_omitted(client):
     """Both old and new empty -> no suggestion stored (avoid empty pair)."""
     tc, _ = client
@@ -1528,6 +1588,29 @@ async def test_a_suggestion_answers_a_comment_made_off_the_source(bound_project,
         ) as response:
             assert response.status == 200
     assert "Two careful methods." in (project / "paper.tex").read_text(encoding="utf-8")
+
+
+@pytest.mark.asyncio
+async def test_the_agent_names_a_heading_others_share_the_title_of_by_its_label(bound_project, project):
+    """A title several headings carry does not say which one the agent means: the
+    comment is refused with the headings, and their label tells them apart."""
+    pytest.importorskip("mcp")
+    from tex_mcp_web.mcp_server import create_server
+
+    (project / "paper.tex").write_text(
+        "\\section{Methods}\n\\subsection{Setup}\nFirst.\n"
+        "\\section{Experiments}\n\\subsection{Setup}\\label{sec:exp-setup}\nSecond.\n")
+    mcp = create_server(bound_project)
+
+    async def add(anchor):
+        result = await mcp.call_tool("write_comments", {"action": "add", "text": "Look here.", "anchor": anchor})
+        return json.loads(result[0].text)
+
+    refused = await add({"kind": "section", "title": "Setup"})
+    assert refused["error"] == ("2 headings are titled 'Setup': 1.1 at paper.tex:2, 2.1 at paper.tex:5 "
+                                "(label sec:exp-setup). Give the label, or anchor on the heading's lines "
+                                "with source_range.")
+    assert "id" in await add({"kind": "section", "title": "Setup", "label": "sec:exp-setup"})
 
 
 @pytest.mark.asyncio

@@ -1908,6 +1908,83 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
 
 
 @pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
+def test_the_more_menu_downloads_the_pdf_and_a_section_comment_keeps_its_heading(tmp_path: Path) -> None:
+    """Download PDF in the more menu saves the PDF, under its own name while no Overleaf
+    project is named. + comment in the Sections tab lands on the heading it was pressed
+    on, though another heading has the same title."""
+    import fitz
+
+    (tmp_path / "paper.tex").write_text(
+        "\\documentclass{article}\n\\begin{document}\n"
+        "\\section{Methods}\n\\subsection{Setup}\nFirst.\n"
+        "\\section{Experiments}\n\\subsection{Setup}\nSecond.\n\\end{document}\n", encoding="utf-8")
+    with fitz.open() as pdf:
+        pdf.new_page().insert_text((72, 72), "Hello world.")
+        pdf.save(tmp_path / "paper.pdf")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    profile = tempfile.mkdtemp(prefix="tex_mcp_download_")
+    downloads = tmp_path / "downloads"
+    downloads.mkdir()
+    marionette_port = available_port()
+    prefs = {"marionette.port": marionette_port, "browser.download.folderList": 2,
+             "browser.download.dir": str(downloads), "browser.download.useDownloadDir": True,
+             "browser.download.always_ask_before_handling_new_types": False,
+             "browser.helperApps.neverAsk.saveToDisk": "application/pdf", "pdfjs.disabled": True}
+    (Path(profile) / "user.js").write_text(
+        "".join(f"user_pref({json.dumps(key)}, {json.dumps(value)});\n" for key, value in prefs.items()),
+        encoding="utf-8")
+    browser_process = None
+    browser = None
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: get_json(f"{base}/paper")["pdf_digest"])
+        browser_process = subprocess.Popen(
+            ["firefox", "-marionette", "-headless", "-no-remote", "-profile", profile, "about:blank"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        browser = marionette.Marionette(host="127.0.0.1", port=marionette_port, startup_timeout=30)
+        browser.start_session()
+        browser.navigate(base)
+        wait_until(lambda: browser.execute_script('return document.querySelectorAll(".paper-section").length') == 4)
+        browser.execute_script('document.querySelector("#more-btn").click()')
+        assert browser.execute_script('return document.querySelector("#download-pdf-btn").disabled') is False
+        browser.execute_script('document.querySelector("#download-pdf-btn").click()')
+        assert browser.execute_script('return document.querySelector("#more-menu").hidden') is True
+        saved = downloads / "paper.pdf"
+        wait_until(lambda: saved.is_file() and not list(downloads.glob("*.part")))
+        with urllib.request.urlopen(f"{base}/pdf", timeout=3) as response:
+            assert saved.read_bytes() == response.read()
+
+        browser.execute_script('document.querySelectorAll(".paper-section")[3].querySelector(".comment-section-btn").click()')
+        wait_until(lambda: browser.execute_script('return document.querySelector("#compose-dialog").open'))
+        browser.execute_script('''
+          document.querySelector("#compose-text").value = "Which setup is this?";
+          document.querySelector("#compose-form").requestSubmit();
+        ''')
+        made = wait_until(lambda: next((c for c in get_json(f"{base}/comments")["comments"]
+                                        if c["thread"][0]["text"] == "Which setup is this?"), None))
+        # The second Setup, to the end of the file, not the first one at line 4.
+        assert (made["resolved_source"]["line_start"], made["resolved_source"]["line_end"]) == (7, 9)
+    finally:
+        if browser is not None:
+            try:
+                browser.delete_session()
+            except Exception:
+                pass
+        if browser_process is not None:
+            browser_process.terminate()
+            try:
+                browser_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                browser_process.kill()
+        shutil.rmtree(profile, ignore_errors=True)
+        shared.stop()
+
+
+@pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
 def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path: Path, monkeypatch) -> None:
     """With the project named in the config, the dialog takes the reviewer's session cookie
     once, keeps it in their own config folder for them alone, never shows it again, and

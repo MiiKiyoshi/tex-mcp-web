@@ -815,6 +815,16 @@ def follow_edits(base: str, now: str, comments: list["Comment"]) -> dict[str, tu
     return placed
 
 
+def moved_line(base: str, now: str, line: int) -> int:
+    """The line of *now* that *line* of *base* starts, carried through the smallest edit
+    between them as :func:`follow_edits` carries a comment."""
+    from . import overleaf_ot as ot
+
+    start = ot.js_len(base[:source_offset(base, line, 0)])
+    (moved,) = ot.move_comments([{"t": "line", "p": start, "n": 0}], ot.diff(base, now))
+    return now.count("\n", 0, ot.py_index(now, moved["p"])) + 1
+
+
 def _strip_for_match(s: str) -> str:
     """Normalize whitespace for source and rendered-text matching."""
     return re.sub(r"\s+", " ", s).strip()
@@ -1255,7 +1265,10 @@ class CommentStore:
         resolved_source: ResolvedSource | None = None,
         source_selector: SourceSelector | None = None,
         suggestion: SuggestedEdit | None = None,
+        base_text: str | None = None,
     ) -> Comment:
+        """*base_text* is the file's text *resolved_source* was found in, which later edits
+        carry the comment from."""
         now = _now()
         comment = Comment(
             id=_new_id(),
@@ -1269,6 +1282,8 @@ class CommentStore:
             updated=now,
         )
         with self._locked():
+            if base_text is not None:
+                comment.base = self._keep_text(base_text)
             all_comments = self._all()
             all_comments.append(comment)
             self._save(all_comments)
@@ -1731,12 +1746,24 @@ class CommentStore:
             handled.update(comment.id for comment in group)
         return handled, changed
 
-    def _keep_bases(self, comments: list[Comment], watch_dir: Path) -> bool:
-        """Record for each source-range comment the text its range is exact in now, by hash,
-        and let go of texts no comment names. Whether any comment's base changed."""
+    def _keep_text(self, text: str) -> str:
+        """Keep *text* under anchor-texts by its hash, which is returned."""
+        sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        kept = self._bases / f"{sha}.txt"
+        if not kept.exists():
+            self._bases.mkdir(parents=True, exist_ok=True)
+            staging = kept.with_suffix(".tmp")
+            staging.write_text(text, encoding="utf-8")
+            os.replace(staging, kept)
+        return sha
+
+    def _keep_bases(self, comments: list[Comment], watch_dir: Path, kinds: tuple[type, ...]) -> bool:
+        """Record for each comment of *kinds*, the ones just found in the files as they are,
+        the text its range is exact in now, by hash, and let go of texts no comment names.
+        Whether any comment's base changed."""
         changed, texts = False, {}
         for comment in comments:
-            if not isinstance(comment.anchor, SourceRangeAnchor) or comment.resolved_source is None or comment.stale:
+            if not isinstance(comment.anchor, kinds) or comment.resolved_source is None or comment.stale:
                 continue
             name = comment.resolved_source.file
             if name not in texts:
@@ -1746,13 +1773,7 @@ class CommentStore:
                     texts[name] = None
             if texts[name] is None:
                 continue
-            sha = hashlib.sha256(texts[name].encode("utf-8")).hexdigest()
-            kept = self._bases / f"{sha}.txt"
-            if not kept.exists():
-                self._bases.mkdir(parents=True, exist_ok=True)
-                staging = kept.with_suffix(".tmp")
-                staging.write_text(texts[name], encoding="utf-8")
-                os.replace(staging, kept)
+            sha = self._keep_text(texts[name])
             if comment.base != sha:
                 comment.base, changed = sha, True
         named = {comment.base for comment in comments if comment.base is not None}
@@ -1777,7 +1798,7 @@ class CommentStore:
                 stale, modified = self._refresh_anchor(comment, watch_dir, None, "", None, None, None)
                 changed |= modified or stale != comment.stale
                 comment.stale = stale
-            changed |= self._keep_bases(comments, watch_dir)
+            changed |= self._keep_bases(comments, watch_dir, (SourceRangeAnchor,))
             if changed:
                 self._save(comments)
 
@@ -1791,8 +1812,9 @@ class CommentStore:
         """Reattach source selectors and regenerate text-selection rectangles.
 
         ``sections_resolver`` is an optional callable
-        ``(title: str, label: str | None) -> ResolvedSource | None`` used
-        for SectionAnchor comments (typically wraps :func:`structure.parse_structure`).
+        ``(title: str, label: str | None, near: tuple[str, int] | None) -> ResolvedSource | None``
+        used for SectionAnchor comments (typically wraps :func:`structure.parse_structure`);
+        *near* is where the heading is now.
         ``text_resolver`` maps a text selection to a verified source range.
 
         Returns the list of comment IDs that became stale on this pass
@@ -1823,6 +1845,7 @@ class CommentStore:
                         sections_resolver,
                         text_resolver,
                         text_index,
+                        self._heading_place(c, watch_dir) if isinstance(c.anchor, SectionAnchor) else None,
                     )
 
                     if new_stale != was_stale:
@@ -1836,11 +1859,26 @@ class CommentStore:
                 if text_index is not None:
                     text_index.close()
 
-            changed |= self._keep_bases(comments, watch_dir)
+            changed |= self._keep_bases(comments, watch_dir, (SourceRangeAnchor, SectionAnchor))
             if changed:
                 self._save(comments)
 
         return newly_stale
+
+    def _heading_place(self, comment: Comment, watch_dir: Path) -> tuple[str, int] | None:
+        """Where a section comment's heading is now, which tells apart headings with one
+        title: the line it was last found on, carried through the edits to its file since."""
+        source = comment.resolved_source
+        if source is None:
+            return None
+        if comment.base is None:
+            return source.file, source.line_start
+        try:
+            base = (self._bases / f"{comment.base}.txt").read_text(encoding="utf-8")
+            now = (watch_dir / source.file).read_text(encoding="utf-8")
+            return source.file, moved_line(base, now, source.line_start)
+        except (OSError, UnicodeError, ValueError):
+            return source.file, source.line_start
 
     @staticmethod
     def _refresh_anchor(
@@ -1851,8 +1889,10 @@ class CommentStore:
         sections_resolver,
         text_resolver,
         text_index: PdfTextIndex | None,
+        near: tuple[str, int] | None = None,
     ) -> tuple[bool, bool]:
-        """Refresh one anchor.  Returns ``(is_stale, was_modified)``."""
+        """Refresh one anchor.  Returns ``(is_stale, was_modified)``. *near* is where a
+        section comment's heading is now."""
         kind = c.anchor.kind
 
         if kind == "paper":
@@ -1860,12 +1900,16 @@ class CommentStore:
             return False, False
 
         if kind == "section":
+            from .structure import AmbiguousSection
             anchor = c.anchor  # SectionAnchor
-            resolved = (
-                sections_resolver(anchor.title, anchor.label)
-                if sections_resolver is not None
-                else None
-            )
+            try:
+                resolved = (
+                    sections_resolver(anchor.title, anchor.label, near)
+                    if sections_resolver is not None
+                    else None
+                )
+            except AmbiguousSection:
+                resolved = None
             if resolved is None:
                 return True, False
             if c.resolved_source != resolved:

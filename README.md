@@ -74,7 +74,9 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   box to comment on what has no text to select, such as part of a figure. The box holds
   while a compile leaves what it covers as it was.
 - **+ Note** comments on the whole paper, and the **Sections** tab comments on a section.
-  You can also select text in the Source tab and press **+ Comment**.
+  A section comment stays on the heading it was made on as the file is edited, also when
+  another heading has the same title. You can also select text in the Source tab and press
+  **+ Comment**.
 - Press **Call agent**, the bell in the Comments tab, when your comments are ready. The
   listening agent edits the source, compiles, and replies in the same thread. Without
   listen, ask the agent in chat to handle the tex comments.
@@ -92,6 +94,9 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
 - **Settings**, the gear in the top bar (in the ⋯ menu on a phone), picks the page's look:
   **Light**, **Dark**, or **Warm**, a softer paper tone for long writing, as a screen looks with its blue light turned down. The PDF's pages
   stay as compiled in each. The page remembers the choice.
+- **Download PDF** in the ⋯ menu saves the PDF. As on Overleaf, the file is named after the
+  Overleaf project, with each character other than a letter or a digit turned to `_`. A
+  paper with no Overleaf project keeps the PDF's own name, such as `paper.pdf`.
 - With `translation` set, the language's button shows the source translated under the
   Preview or the editor. In Split, the menu beside the view tabs puts it under the Preview,
   under Source, beside Source, or instead of Source. The grips between panes are dragged to

@@ -445,7 +445,7 @@ def _comment_add(
     from .server import (
         resolve_section_to_source,
     )
-    from .structure import parse_structure
+    from .structure import AmbiguousSection, parse_structure
 
     if not text or not anchor:
         return _err("add requires text and anchor")
@@ -466,12 +466,15 @@ def _comment_add(
             return _err("source_range does not identify readable source lines")
         resolved = ResolvedSource(file=file, line_start=ls, line_end=le)
     elif kind == "section":
-        resolved = resolve_section_to_source(
-            parse_structure(watch_dir, get_main_file(cfg)),
-            watch_dir,
-            anchor_data["title"],
-            anchor_data["label"] if "label" in anchor_data else None,
-        )
+        try:
+            resolved = resolve_section_to_source(
+                parse_structure(watch_dir, get_main_file(cfg)),
+                watch_dir,
+                anchor_data["title"],
+                anchor_data["label"] if "label" in anchor_data else None,
+            )
+        except AmbiguousSection as exc:
+            return _err(f"{exc}. Give the label, or anchor on the heading's lines with source_range.")
 
     a = anchor_from_dict(anchor_data)
 
@@ -481,6 +484,9 @@ def _comment_add(
         author="agent",
         resolved_source=resolved,
         source_selector=source_selector,
+        # The text the heading was just found in, which later edits carry the comment from.
+        base_text=((watch_dir / resolved.file).read_text(encoding="utf-8")
+                   if kind == "section" and resolved is not None else None),
     )
     return _ok({"id": comment.id, "status": comment.status, "rev": revision_of(comment.updated)})
 

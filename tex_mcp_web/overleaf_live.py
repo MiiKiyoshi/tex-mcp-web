@@ -147,6 +147,8 @@ class LivePresence:
         self._task: asyncio.Task | None = None
         self.status = "off"
         self.message = ""
+        # The project's name on Overleaf, which a downloaded PDF is named after.
+        self.project_name = ""
         self._me = ""
         self._main_doc = ""
         self._docs: dict[str, str] = {}
@@ -318,6 +320,7 @@ class LivePresence:
             raise RuntimeError("the project's files changed on Overleaf; joining again to read them")
         if name == "joinProjectResponse" and isinstance(first, dict):
             project = first.get("project") or {}
+            self.project_name = str(project.get("name") or "")
             self._me = str(first.get("publicId", ""))
             self._docs = {}
             self._uploads, self._folders = {}, {}

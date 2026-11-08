@@ -20,6 +20,7 @@ const state = {
   paper: null,
   pendingAnchor: null,
   pendingSourceRevision: null,
+  pendingHeading: null,
   composeSubmitting: false,
   errors: [],
   warnings: [],
@@ -750,9 +751,11 @@ function selectQuoteInLines(quote, first, last) {
   state.editor.focus();
 }
 
-function openCompose(anchor, label, selectionText = "") {
+// A section comment names the heading it was pressed on too, since headings can share a title.
+function openCompose(anchor, label, selectionText = "", heading = null) {
   state.pendingAnchor = anchor;
   state.pendingSourceRevision = anchor.kind === "source_range" ? state.sourceRevision : null;
+  state.pendingHeading = heading;
   $("#compose-anchor").textContent = label;
   $("#compose-text").value = "";
   $("#compose-suggestion-old").value = selectionText;
@@ -2303,6 +2306,7 @@ async function submitCompose(event) {
   if (!text || !state.pendingAnchor) return;
   const body = { anchor: state.pendingAnchor, text };
   if (state.pendingSourceRevision !== null) body.source_revision = state.pendingSourceRevision;
+  if (state.pendingHeading !== null) body.heading = state.pendingHeading;
   const suggestionOld = $("#compose-suggestion-old").value.trim();
   const suggestionNew = $("#compose-suggestion-new").value.trim();
   if (suggestionOld && suggestionNew) body.suggestion = { old: suggestionOld, new: suggestionNew };
@@ -3226,7 +3230,8 @@ function renderSections() {
       section.number ? h("span", { class: "section-number", text: section.number }) : null,
       h("span", { text: section.title })),
       actionButton("comment-section-btn", "+ comment", () =>
-        openCompose({ kind: "section", title: section.title }, `Section: ${section.title}`))));
+        openCompose({ kind: "section", title: section.title, label: section.label }, `Section: ${section.title}`,
+          "", { file: section.file, line: section.line }))));
   }
   host.appendChild(list);
 }
@@ -3700,6 +3705,7 @@ function attachSidebarToggle() {
   $("#more-btn").addEventListener("click", (event) => {
     event.stopPropagation();
     const open = $("#more-menu").hidden;
+    $("#download-pdf-btn").disabled = !state.pdfDigest;
     $("#more-menu").hidden = !open;
     $("#more-btn").setAttribute("aria-expanded", String(open));
   });
@@ -3709,6 +3715,7 @@ function attachSidebarToggle() {
   });
   $("#settings-btn").addEventListener("click", () => showSettings());
   $("#settings-menu-btn").addEventListener("click", () => showSettings());
+  $("#download-pdf-btn").addEventListener("click", () => h("a", { href: "/pdf/download", download: "" }).click());
   $("#overleaf-connect-btn").addEventListener("click", async () => {
     const link = $("#overleaf-link").value.trim();
     if (!link) return;

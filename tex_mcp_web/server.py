@@ -55,10 +55,12 @@ from .comments import (
 from .compiler import CompileResult, compile_tex, source_dependencies
 from .config import Config, get_main_file, get_watch_dir, load_config
 from .structure import (
+    AmbiguousSection,
     DocumentStructure,
     _files_reachable_from,
     find_section,
     parse_structure,
+    section_end,
 )
 from .synctex import (
     SyncTeXData,
@@ -274,15 +276,16 @@ def _parse_bbox(spec: str) -> tuple[float, float, float, float]:
 
 
 def resolve_section_to_source(
-    structure: DocumentStructure, watch_dir: Path, title: str | None, label: str | None
+    structure: DocumentStructure, watch_dir: Path, title: str | None, label: str | None,
+    near: tuple[str, int] | None = None,
 ) -> ResolvedSource | None:
     """Look up a section in *structure* and return a fully-resolved source range.
 
     Returns None when no matching section exists.  When the section runs to
     end-of-file (``line_end < 0`` from :func:`find_section`), reads the file
-    to compute the true EOF line.
+    to compute the true EOF line. *near* tells apart headings with one title.
     """
-    match = find_section(structure, title=title, label=label)
+    match = find_section(structure, title=title, label=label, near=near)
     if match is None:
         return None
     file, line_start, line_end = match
@@ -319,8 +322,7 @@ def structure_to_dict(
     """
     sections: list[dict[str, Any]] = []
     for s in structure.sections:
-        match = find_section(structure, title=s.title, label=s.label)
-        line_end = match[2] if match else -1
+        line_end = section_end(structure, s)
         if line_end < 0:
             line_end = _eof_line(watch_dir / s.file, s.line)
         sections.append(
@@ -490,6 +492,7 @@ class TexMcpWebServer:
         app.router.add_get("/static/{name:.*}", self._handle_static)
         app.router.add_get("/ws", self._handle_ws)
         app.router.add_get("/pdf", self._handle_pdf)
+        app.router.add_get("/pdf/download", self._handle_pdf_download)
         app.router.add_get("/paper", self._handle_paper)
         app.router.add_get("/sources", self._handle_sources)
         app.router.add_get("/source", self._handle_source)
@@ -580,8 +583,8 @@ class TexMcpWebServer:
                 self.comments.refresh_anchors(
                     self.watch_dir,
                     self.last_result.output_file,
-                    sections_resolver=lambda title, label: resolve_section_to_source(
-                        self.structure, self.watch_dir, title, label
+                    sections_resolver=lambda title, label, near: resolve_section_to_source(
+                        self.structure, self.watch_dir, title, label, near
                     ),
                     text_resolver=lambda selection: resolve_text_selection_to_source(
                         self.last_result.output_file,
@@ -1658,6 +1661,22 @@ class TexMcpWebServer:
             headers={"Cache-Control": "no-store"},
         )
 
+    async def _handle_pdf_download(self, request: web.Request) -> web.StreamResponse:
+        """The PDF as a file to keep, named as Overleaf names it: after the project, with
+        every character but a letter or a digit turned to _. A paper without an Overleaf
+        project keeps the PDF's own name."""
+        from urllib.parse import quote
+
+        if self.last_result is None or self.last_result.output_file is None:
+            return web.json_response({"error": "no PDF available"}, status=404)
+        project = self.overleaf_live.project_name if self.overleaf_live is not None else ""
+        name = ("".join(c if c.isalpha() or c.isdecimal() else "_" for c in project) + ".pdf"
+                if project else self.last_result.output_file.name)
+        plain = "".join(c if c.isascii() and c.isprintable() and c not in '"\\' else "_" for c in name)
+        return web.FileResponse(self.last_result.output_file, headers={
+            "Cache-Control": "no-store",
+            "Content-Disposition": f"attachment; filename=\"{plain}\"; filename*=UTF-8''{quote(name, safe='')}"})
+
     # ----- API: paper / compile -----
 
     async def _handle_paper(self, request: web.Request) -> web.Response:
@@ -1916,6 +1935,9 @@ class TexMcpWebServer:
                                      tuple(float(value) for value in anchor_d["bbox"]))
                 anchor_d = {**anchor_d, "region": region}
             anchor = anchor_from_dict(anchor_d)
+            # The Sections tab names the heading it was pressed on, which tells apart headings with one title.
+            near = ((str(data["heading"]["file"]), int(data["heading"]["line"]))
+                    if isinstance(anchor, SectionAnchor) and "heading" in data else None)
         except (ValueError, KeyError, TypeError) as exc:
             return web.json_response(
                 {"error": f"invalid comment input: {exc}"}, status=400
@@ -1951,7 +1973,10 @@ class TexMcpWebServer:
                     {"error": "the PDF changed after this area was selected"}, status=409
                 )
 
-        resolved, source_selector = self._resolve_anchor(anchor)
+        try:
+            resolved, source_selector = self._resolve_anchor(anchor, near)
+        except AmbiguousSection as exc:
+            return web.json_response({"error": f"{exc}. Comment from the heading in the Sections tab."}, status=409)
         if isinstance(anchor, SourceRangeAnchor) and source_selector is None:
             return web.json_response({"error": "Source selection is out of bounds"}, status=400)
         # A replacement is written into the file the comment points at: its own for a
@@ -1978,14 +2003,22 @@ class TexMcpWebServer:
             resolved_source=resolved,
             source_selector=source_selector,
             suggestion=suggestion,
+            base_text=self._section_base(anchor, resolved),
         )
         await self.broadcast({"type": "comment_added", "comment": _comment_to_dict(comment)})
         return web.json_response(_comment_to_dict(comment), status=201)
 
+    def _section_base(self, anchor: Any, resolved: ResolvedSource | None) -> str | None:
+        """The text a section comment's heading was just found in, which later edits carry it from."""
+        if not isinstance(anchor, SectionAnchor) or resolved is None:
+            return None
+        return self._resolve_source_path(resolved.file).read_text(encoding="utf-8")
+
     def _resolve_anchor(
-        self, anchor: Any
+        self, anchor: Any, near: tuple[str, int] | None = None
     ) -> tuple[ResolvedSource | None, SourceSelector | None]:
-        """Resolve one new anchor and capture its exact source selector."""
+        """Resolve one new anchor and capture its exact source selector. *near* is the
+        ``(file, line)`` of the heading the reviewer chose, for a section anchor."""
         from .comments import ResolveContext
 
         if isinstance(anchor, PaperAnchor):
@@ -2019,9 +2052,11 @@ class TexMcpWebServer:
             )
             return resolved, selector
 
-        # Lazy-load structure for section resolution.
-        if isinstance(anchor, SectionAnchor) and self.structure is None:
-            self.structure = parse_structure(self.watch_dir, self.main_file)
+        # The headings as the files hold them now, the text the comment's base records.
+        if isinstance(anchor, SectionAnchor):
+            return resolve_section_to_source(
+                parse_structure(self.watch_dir, self.main_file), self.watch_dir,
+                anchor.title, anchor.label, near), None
 
         ctx = ResolveContext(
             watch_dir=self.watch_dir,
@@ -2031,9 +2066,6 @@ class TexMcpWebServer:
         resolved = anchor.resolve_source(ctx)
         if resolved is None:
             return None, None
-
-        if isinstance(anchor, SectionAnchor):
-            return resolved, None
 
         selector = capture_source_selector(
             self.watch_dir / resolved.file, resolved.line_start, resolved.line_end,
@@ -2508,11 +2540,14 @@ class TexMcpWebServer:
         if section or label:
             if self.structure is None:
                 self.structure = parse_structure(self.watch_dir, self.main_file)
-            match = find_section(
-                self.structure,
-                title=section if section else None,
-                label=label if label else None,
-            )
+            try:
+                match = find_section(
+                    self.structure,
+                    title=section if section else None,
+                    label=label if label else None,
+                )
+            except AmbiguousSection as exc:
+                return web.json_response({"error": f"{exc}. Go to its label or its line."}, status=409)
             if match:
                 resolved_file, resolved_line, _ = match
         elif line and file:
