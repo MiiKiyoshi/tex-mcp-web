@@ -255,6 +255,49 @@ async def open_thread(link: str, cookie: tuple[str, str], thread: str, content: 
                         {"content": content})
 
 
+async def download_file(link: str, cookie: tuple[str, str], file_id: str, *, timeout: float = 120) -> bytes:
+    """An uploaded file's bytes, as Overleaf's editor downloads them."""
+    server, project = project_of(link)
+    async with _session(server, cookie, timeout) as session:
+        try:
+            async with session.get(f"{server}/project/{project}/file/{file_id}", allow_redirects=False) as response:
+                if response.status in (301, 302, 303, 307, 308, 401, 403):
+                    raise SignedOut("Overleaf did not accept the cookie; paste a new one")
+                if response.status >= 400:
+                    raise OverleafError(f"Overleaf answered {response.status} for a file")
+                return await response.read()
+        except (aiohttp.ClientError, asyncio.TimeoutError) as error:
+            raise OverleafError(f"could not reach Overleaf: {error or 'no answer'}") from error
+
+
+async def upload_file(link: str, cookie: tuple[str, str], folder_id: str, name: str, data: bytes, *,
+                      timeout: float = 120) -> dict[str, Any]:
+    """Upload a file into a folder of the project, as the reviewer, the way Overleaf's editor
+    uploads one: a file of that name there is replaced. Overleaf's answer, with the entity it
+    made and the hash of its bytes."""
+    server, project = project_of(link)
+    async with _session(server, cookie, timeout) as session:
+        read = _Reader(session, server)
+        token = await _write_token(read, project)
+        form = aiohttp.FormData()
+        form.add_field("relativePath", "null")
+        form.add_field("name", name)
+        form.add_field("type", "application/octet-stream")
+        form.add_field("qqfile", data, filename=name, content_type="application/octet-stream")
+        try:
+            async with session.post(f"{server}/project/{project}/upload?folder_id={folder_id}", data=form,
+                                    headers={"X-Csrf-Token": token, "Origin": server}, allow_redirects=False) as response:
+                if response.status in (301, 302, 303, 307, 308, 401):
+                    raise SignedOut("Overleaf did not accept the cookie; paste a new one")
+                answer = await response.json(content_type=None) if response.status < 300 else {}
+                if response.status >= 300 or not answer.get("success"):
+                    raise OverleafError(f"Overleaf refused the upload of {name} ({response.status}); nothing was changed there")
+                return answer
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as error:
+            raise OverleafError(f"could not reach Overleaf, so {name} may or may not have arrived: "
+                                f"{error or 'no answer'}") from error
+
+
 def new_thread_id() -> str:
     """An id for a new thread, shaped as Overleaf's editor makes them: the time in seconds and
     random digits, 24 hexadecimal digits in all."""

@@ -14,15 +14,18 @@ from tex_mcp_web import overleaf
 from tex_mcp_web import overleaf_ot as ot
 from tex_mcp_web.config import load_config
 from tex_mcp_web.overleaf_live import LivePresence
+from tex_mcp_web.overleaf_sync import blob_sha
 from tex_mcp_web.server import TexMcpWebServer
 
 PROJECT_ID = "0123456789abcdef01234567"
+# An uploaded file of the project, which the folder here holds too.
+FIGURE = b"\x89PNG a figure"
 ME = {"_id": "u-me", "first_name": "Me", "last_name": "Myself", "email": "me@example.org"}
 CO = {"_id": "u-co", "first_name": "Co", "last_name": "Author", "email": "co@example.org"}
 PROJECT = {
     "_id": PROJECT_ID, "name": "Paper", "owner": ME, "rootDoc_id": "d-main", "members": [dict(CO, privileges="readAndWrite")],
     "rootFolder": [{"_id": "f0", "name": "rootFolder", "docs": [{"_id": "d-main", "name": "main.tex"}],
-                    "fileRefs": [{"_id": "x1", "name": "a.png"}],
+                    "fileRefs": [{"_id": "x1", "name": "a.png", "hash": blob_sha(FIGURE)}],
                     "folders": [{"_id": "f1", "name": "tex", "docs": [{"_id": "d-body", "name": "body.tex"}],
                                  "fileRefs": [], "folders": []}]}],
 }
@@ -309,6 +312,7 @@ async def review(tmp_path: Path, monkeypatch, realtime):
     (tmp_path / "main.tex").write_text(MAIN)
     (tmp_path / "tex").mkdir()
     (tmp_path / "tex" / "body.tex").write_text(BODY)
+    (tmp_path / "a.png").write_bytes(FIGURE)
     (tmp_path / ".tex-mcp-web.yaml").write_text(f"main: main.tex\noverleaf: {link}\n")
     server = TexMcpWebServer(load_config(tmp_path / ".tex-mcp-web.yaml"))
     server.OVERLEAF_LIVE_GRACE = 0

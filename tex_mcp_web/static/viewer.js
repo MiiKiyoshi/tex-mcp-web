@@ -1090,7 +1090,7 @@ function renderOverleafStatus({ project, cookie, sync = false, live = false, set
   ...syncDrawing, " in the ", leafIcon(), " Comments tab.");
   $("#overleaf-mode-live-note").textContent = git
     ? "While this review page is open, text files such as .tex change both ways within a second, and a new comment thread on Overleaf comes in by itself. Figures and other uploaded files go by git: one you commit here goes with git push, and one added on Overleaf comes in by itself, or with git pull when the top bar shows it."
-    : "While this review page is open, text files such as .tex change both ways within a second, and a new comment thread on Overleaf comes in by itself. Figures and other uploaded files are not copied: a git clone of the project brings those.";
+    : "While this review page is open, text files such as .tex change both ways within a second, and a new comment thread on Overleaf comes in by itself. Figures and other uploaded files are copied whole when one side replaces them.";
   $("#overleaf-direct").hidden = !project;
   $("#overleaf-git").hidden = !git && !state.overleafFiles;
   if (!git) {
@@ -1182,7 +1182,7 @@ function renderOverleafFiles(now) {
     : counts[0] && counts[1] ? `Overleaf has edits to ${fileCount(counts[0])} this folder lacks, and this folder has edits to ${fileCount(counts[1])} Overleaf lacks. Get brings them in and Send makes them there, and comments sync after that.`
     : counts[0] ? `Overleaf has edits to ${fileCount(counts[0])} this folder lacks. Get in the top bar brings them in, and comments sync after that.`
     : counts[1] ? `This folder has edits to ${fileCount(counts[1])} Overleaf lacks. Send in the top bar makes them there, and comments sync after that.`
-    : "This folder and Overleaf hold the same text.";
+    : "This folder and Overleaf hold the same files.";
   $("#overleaf-git-uncommitted").hidden = true;
   renderGitButtons();
   renderOverleafThreadSync();
@@ -1287,8 +1287,9 @@ function readOverleafGitSoon(delay) {
 const OVERLEAF_SYNC_QUESTION = "The paper's files and the Overleaf project will be kept the same both ways while a "
   + "page is open: edits here are sent to Overleaf, and edits there are written into the files. "
   + "A file that differs at the start waits for your choice. New comment threads on Overleaf come in "
-  + "by themselves whenever every file is the same. In a folder cloned by git, figures and other "
-  + "uploaded files go by git pull and git push as before, and those never put older text over Overleaf's. Turn this on?";
+  + "by themselves whenever every file is the same. Figures and other uploaded files are copied whole when one "
+  + "side replaces them, except in a folder cloned by git, where they go by git pull and git push as before, and "
+  + "those never put older text over Overleaf's. Turn this on?";
 
 async function connectOverleaf(change, done) {
   const response = await fetch("/overleaf/connect", {

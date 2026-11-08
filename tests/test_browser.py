@@ -2194,7 +2194,7 @@ def test_a_folder_without_git_gets_and_sends_by_hand_from_the_top_bar(tmp_path: 
     import asyncio
     import threading
     from aiohttp.test_utils import TestServer
-    from tests.test_overleaf_sync import BODY, MAIN, PROJECT_ID, FakeOverleaf
+    from tests.test_overleaf_sync import BODY, FIGURE, MAIN, PROJECT_ID, FakeOverleaf
     from tex_mcp_web import overleaf
 
     loop = asyncio.new_event_loop()
@@ -2208,6 +2208,8 @@ def test_a_folder_without_git_gets_and_sends_by_hand_from_the_top_bar(tmp_path: 
     (tmp_path / "tex").mkdir()
     (tmp_path / "main.tex").write_text(MAIN, encoding="utf-8")
     (tmp_path / "tex" / "body.tex").write_text(BODY, encoding="utf-8")
+    (tmp_path / "fig").mkdir()
+    (tmp_path / "fig" / "plot.png").write_bytes(FIGURE)
     port = available_port()
     config_path = tmp_path / ".tex-mcp-web.yaml"
     config_path.write_text(f"main: main.tex\nport: {port}\n"
@@ -2231,7 +2233,7 @@ def test_a_folder_without_git_gets_and_sends_by_hand_from_the_top_bar(tmp_path: 
         browser = marionette.Marionette(host="127.0.0.1", port=marionette_port, startup_timeout=30)
         browser.start_session()
         browser.navigate(base)
-        wait_until(lambda: "hold the same text" in text("#overleaf-git-state"), timeout=20)
+        wait_until(lambda: "hold the same files" in text("#overleaf-git-state"), timeout=20)
         assert hidden("#git-pull-btn") and hidden("#git-push-btn")
         click("#settings-btn")
         hand_note = text("#overleaf-mode-hand-note")
@@ -2256,7 +2258,7 @@ def test_a_folder_without_git_gets_and_sends_by_hand_from_the_top_bar(tmp_path: 
         browser.execute_script("(window.wrappedJSObject || window).confirm = () => true;", sandbox=None)
         click("#git-push-btn")
         wait_until(lambda: fake.docs["d-main"]["text"] == MAIN.replace("fast", "quick"), timeout=15)
-        wait_until(lambda: hidden("#git-push-btn") and "hold the same text" in text("#overleaf-git-state"), timeout=15)
+        wait_until(lambda: hidden("#git-push-btn") and "hold the same files" in text("#overleaf-git-state"), timeout=15)
         wait_until(lambda: browser.execute_script(
             'return document.querySelector("#overleaf-sync-comments-btn").disabled') is False, timeout=15)
     finally:
@@ -2287,7 +2289,7 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
     import fitz
     import threading
     from aiohttp.test_utils import TestServer
-    from tests.test_overleaf_live import PROJECT_ID, FakeRealtime, event
+    from tests.test_overleaf_live import FIGURE, PROJECT_ID, FakeRealtime, event
     from tex_mcp_web import overleaf
 
     loop = asyncio.new_event_loop()
@@ -2304,9 +2306,10 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
         "\\documentclass{article}\n\\begin{document}\nHello world.\n\\input{tex/body}\n\\end{document}\n",
         encoding="utf-8")
     (tmp_path / "tex" / "body.tex").write_text("Body text.\nMore body text here.\n", encoding="utf-8")
-    # Overleaf holds the same text, so Get and Send have nothing to move.
+    # Overleaf holds the same text and figure, so Get and Send have nothing to move.
     fake.texts = {"d-main": (tmp_path / "main.tex").read_text(encoding="utf-8"),
                   "d-body": (tmp_path / "tex" / "body.tex").read_text(encoding="utf-8")}
+    (tmp_path / "a.png").write_bytes(FIGURE)
     with fitz.open() as pdf:
         pdf.new_page().insert_text((72, 72), "Hello world.")
         pdf.save(tmp_path / "main.pdf")

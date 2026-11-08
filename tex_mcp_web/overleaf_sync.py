@@ -32,7 +32,7 @@ import time
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Protocol
 
-from . import overleaf_ot as ot
+from . import overleaf, overleaf_ot as ot
 
 logger = logging.getLogger(__name__)
 
@@ -166,9 +166,12 @@ class _Records:
 
     def _keep(self, doc: Doc, text: str, which: str) -> Path:
         """Keep a text that is about to give way."""
-        kept = self.state_dir / "kept" / f"{doc.path}.{which}.{time.strftime('%Y%m%d-%H%M%S')}"
+        return self._keep_bytes(doc.path, text.encode("utf-8"), which)
+
+    def _keep_bytes(self, path: str, data: bytes, which: str) -> Path:
+        kept = self.state_dir / "kept" / f"{path}.{which}.{time.strftime('%Y%m%d-%H%M%S')}"
         kept.parent.mkdir(parents=True, exist_ok=True)
-        kept.write_text(text, encoding="utf-8")
+        kept.write_bytes(data)
         return kept
 
     # ----- The record -----
@@ -202,6 +205,9 @@ class ProjectSync(_Records):
         super().__init__(root, written)
         self._changed = changed
         self.docs: dict[str, Doc] = {}
+        # The project's uploaded files, kept the same both ways too, in a folder that is no git clone.
+        self.uploads: Uploads | None = None
+        self._uploads_quiet_until = 0.0
         self.resolved_threads: set[str] = set()
         self._session: Session | None = None
         self._queue: asyncio.Queue = asyncio.Queue()
@@ -243,7 +249,11 @@ class ProjectSync(_Records):
         return await done
 
     def snapshot(self) -> list[dict]:
-        return [doc.view() for doc in sorted(self.docs.values(), key=lambda doc: doc.path)]
+        views = [doc.view() for doc in sorted(self.docs.values(), key=lambda doc: doc.path)]
+        if self.uploads is not None:
+            views += [upload.view() for upload in sorted(self.uploads.files.values(), key=lambda upload: upload.path)
+                      if upload.status != "same"]
+        return views
 
     def owns(self, path: str) -> bool:
         return any(doc.path == path and doc.status not in ("unsupported",) for doc in self.docs.values())
@@ -284,6 +294,7 @@ class ProjectSync(_Records):
         if kind == "open":
             self._session = event[1]
             await self._open_all(event[2])
+            await self._settle_uploads()
         elif kind == "closed":
             self._session = None
             for doc in self.docs.values():
@@ -297,6 +308,7 @@ class ProjectSync(_Records):
                 if doc.status in ("synced", "sending", "held"):
                     self._absorb(doc)
                     await self._send(doc)
+            await self._settle_uploads()
         elif kind == "check":
             await self._check_some()
         elif kind == "forget":
@@ -643,7 +655,25 @@ class ProjectSync(_Records):
 
     # ----- The reviewer's choice -----
 
+    async def _settle_uploads(self) -> None:
+        """Uploaded files replaced on one side only go to the other, whole. One that fails waits
+        a minute before the next try, so a file Overleaf will not take is not sent on every tick."""
+        if self.uploads is None or self._session is None or time.monotonic() < self._uploads_quiet_until:
+            return
+        before = [upload.view() for upload in self.uploads.files.values()]
+        try:
+            self.uploads.recount()
+            await self.uploads.get()
+            await self.uploads.send()
+        except (NotConnected, overleaf.OverleafError, OSError) as error:
+            logger.info("Overleaf uploads: %s", error)
+            self._uploads_quiet_until = time.monotonic() + 60
+        if [upload.view() for upload in self.uploads.files.values()] != before:
+            self._notify()
+
     async def _decide(self, path: str, choice: str) -> str | None:
+        if self.uploads is not None and path in self.uploads.files:
+            return await self.uploads.decide(path, choice, lambda name, data: self._keep_bytes(name, data, "here"))
         doc = next((doc for doc in self.docs.values() if doc.path == path), None)
         if doc is None or not doc.known:
             return f"{path} is not followed on Overleaf"
@@ -685,6 +715,180 @@ class NotConnected(Exception):
     """The page is not in the Overleaf project right now."""
 
 
+def blob_sha(data: bytes) -> str:
+    """The hash Overleaf gives an uploaded file: git's object hash of its bytes."""
+    return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
+
+
+class Upload:
+    """One uploaded file of the project, and where it stands against the file here."""
+
+    def __init__(self, path: str) -> None:
+        self.path, self.status, self.message, self.threads = path, "same", "", []
+
+    def view(self) -> dict:
+        return {"path": self.path, "status": self.status, "message": self.message, "threads": []}
+
+
+class Uploads:
+    """The project's uploaded files, figures and the like, which Overleaf keeps whole and names
+    by the hash of their bytes, brought together with the files here whole. Each keeps the
+    hash both sides last agreed on, in ``.tex-mcp-web/overleaf-sync/uploads.json``, and
+    stands as same, get (replaced or added on Overleaf), send (replaced here), differs (both
+    replaced, or the two differ with nothing to say which changed), or gone (deleted here).
+    Downloads and uploads go through Overleaf's own routes, with the reviewer's cookie."""
+
+    def __init__(self, root: Path, tree: Callable[[], tuple[dict[str, dict[str, str]], dict[str, str]]],
+                 link: Callable[[], str | None], cookie: Callable[[], tuple[str, str] | None],
+                 written: Callable[[str], Awaitable[None]] | None = None) -> None:
+        self.root = root.resolve()
+        self.record_path = self.root / ".tex-mcp-web" / "overleaf-sync" / "uploads.json"
+        self._tree, self._link, self._cookie, self._written = tree, link, cookie, written
+        self.files: dict[str, Upload] = {}
+        self._refs: dict[str, dict[str, str]] = {}
+        self._hashes: dict[str, tuple[tuple[int, int], str]] = {}   # path: (mtime, size), hash
+        # Files just uploaded, as Overleaf answered, with the hash the session's tree named
+        # before: the answer stands for the file until the tree, joined again after the
+        # change, names other bytes than that.
+        self._sent: dict[str, tuple[dict[str, str], str]] = {}
+
+    # ----- Records and files -----
+
+    def _records(self) -> dict[str, str]:
+        try:
+            return dict(json.loads(self.record_path.read_text(encoding="utf-8")))
+        except (OSError, ValueError):
+            return {}
+
+    def _agree(self, path: str, sha: str) -> None:
+        records = self._records()
+        records[path] = sha
+        self.record_path.parent.mkdir(parents=True, exist_ok=True)
+        staging = self.record_path.with_suffix(".tmp")
+        staging.write_text(json.dumps(records, indent=1), encoding="utf-8")
+        os.replace(staging, self.record_path)
+
+    def _file(self, path: str) -> Path:
+        file = (self.root / path).resolve()
+        if self.root not in file.parents or (self.root / ".tex-mcp-web") in file.parents:
+            raise ValueError(f"{path} is not a file of this paper")
+        return file
+
+    def _hash_here(self, path: str) -> str | None:
+        """The hash of the file here, worked out again only when its time or size changed."""
+        try:
+            info = self._file(path).stat()
+        except (FileNotFoundError, ValueError):
+            return None
+        mark = (info.st_mtime_ns, info.st_size)
+        known = self._hashes.get(path)
+        if known is None or known[0] != mark:
+            known = (mark, blob_sha(self._file(path).read_bytes()))
+            self._hashes[path] = known
+        return known[1]
+
+    def _write(self, path: str, data: bytes) -> None:
+        file = self._file(path)
+        file.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile("wb", dir=file.parent, prefix=f".{file.name}-", suffix=".tmp",
+                                         delete=False) as handle:
+            handle.write(data)
+            staging = Path(handle.name)
+        os.chmod(staging, 0o644)
+        os.replace(staging, file)
+        if self._written is not None:
+            asyncio.ensure_future(self._written(path))
+
+    def _access(self) -> tuple[str, tuple[str, str]]:
+        link, cookie = self._link(), self._cookie()
+        if not link or cookie is None:
+            raise NotConnected("The page is not signed in to an Overleaf project. Save the cookie first.")
+        return link, cookie
+
+    # ----- Where each stands -----
+
+    def recount(self) -> None:
+        refs, _ = self._tree()
+        for path, (ref, before) in list(self._sent.items()):
+            if refs.get(path, {}).get("hash") == before:
+                refs[path] = ref
+            else:
+                del self._sent[path]
+        self._refs = refs
+        records = self._records()
+        for path in [path for path in self.files if path not in refs]:
+            del self.files[path]
+        for path, ref in refs.items():
+            try:
+                self._file(path)
+            except ValueError:
+                continue
+            upload = self.files.setdefault(path, Upload(path))
+            here, there, agreed = self._hash_here(path), ref["hash"], records.get(path)
+            if here is None:
+                upload.status, upload.message = ("gone", "Deleted here, and still on Overleaf.") if agreed else ("get", "")
+            elif here == there:
+                upload.status, upload.message = "same", ""
+                if agreed != there:
+                    self._agree(path, there)
+            elif agreed is None:
+                upload.status, upload.message = "differs", ("This file and Overleaf's differ, and nothing says "
+                                                            "which changed. Choose which stands.")
+            elif there != agreed and here != agreed:
+                upload.status, upload.message = "differs", ("This file and Overleaf's were both replaced. "
+                                                            "Choose which stands.")
+            else:
+                upload.status, upload.message = ("get" if there != agreed else "send"), ""
+
+    def paths(self, *kinds: str) -> list[str]:
+        return sorted(upload.path for upload in self.files.values() if upload.status in kinds)
+
+    # ----- Moving them -----
+
+    async def get(self, only: str | None = None) -> None:
+        link, cookie = self._access()
+        for upload in [upload for upload in self.files.values()
+                       if (upload.status == "get" and only is None) or upload.path == only]:
+            ref = self._refs[upload.path]
+            data = await overleaf.download_file(link, cookie, ref["id"])
+            if blob_sha(data) != ref["hash"]:
+                upload.status, upload.message = "differs", "Overleaf sent other bytes than it names. Choose again."
+                continue
+            self._write(upload.path, data)
+            self._agree(upload.path, ref["hash"])
+            upload.status, upload.message = "same", ""
+
+    async def send(self, only: str | None = None) -> None:
+        link, cookie = self._access()
+        _, folders = self._tree()
+        for upload in [upload for upload in self.files.values()
+                       if (upload.status == "send" and only is None) or upload.path == only]:
+            folder, _, name = upload.path.rpartition("/")
+            data = self._file(upload.path).read_bytes()
+            answer = await overleaf.upload_file(link, cookie, folders[folder], name, data)
+            if answer.get("hash") != blob_sha(data):
+                upload.status, upload.message = "differs", "Overleaf holds other bytes than were sent. Choose which stands."
+                continue
+            self._agree(upload.path, answer["hash"])
+            self._sent[upload.path] = ({"id": str(answer.get("entity_id", "")), "hash": answer["hash"]},
+                                       self._refs.get(upload.path, {}).get("hash", ""))
+            upload.status, upload.message = "same", ""
+
+    async def decide(self, path: str, choice: str, keep: Callable[[str, bytes], None]) -> str | None:
+        upload = self.files.get(path)
+        if upload is None or upload.status != "differs":
+            return f"{path} needs no choice"
+        if choice == "overleaf":
+            if (self.root / path).exists():
+                keep(path, self._file(path).read_bytes())
+            await self.get(only=path)
+        elif choice == "here":
+            await self.send(only=path)
+        else:
+            return f"no such choice {choice!r}"
+        return None
+
+
 _JOIN = {"encodeRanges": True, "supportsHistoryOT": True}
 # Seconds a request from the page waits for its session in the project, just opened.
 JOIN_WAIT = 10
@@ -715,17 +919,24 @@ class HandSync(_Records):
         self.resolved_threads: set[str] = set()
         self._theirs: dict[str, tuple[str, int, list[dict]]] = {}   # Overleaf's text, version, comments
         self.read_once = False
+        # The project's uploaded files, moved whole by Get and Send too.
+        self.uploads: Uploads | None = None
 
     # ----- What the page shows -----
 
     def snapshot(self) -> list[dict]:
-        return [doc.view() for doc in sorted(self.docs.values(), key=lambda doc: doc.path)
-                if doc.status not in ("same", "get", "send", "both")]
+        views = [doc.view() for doc in self.docs.values() if doc.status not in ("same", "get", "send", "both")]
+        if self.uploads is not None:
+            views += [upload.view() for upload in self.uploads.files.values()
+                      if upload.status not in ("same", "get", "send")]
+        return sorted(views, key=lambda view: view["path"])
 
     def state(self) -> dict:
         """The files Get and Send would move, and those waiting for the reviewer."""
         def paths(*kinds: str) -> list[str]:
-            return sorted(doc.path for doc in self.docs.values() if doc.status in kinds)
+            found = [doc.path for doc in self.docs.values() if doc.status in kinds]
+            uploads = self.uploads.paths(*kinds) if self.uploads is not None else []
+            return sorted(found + uploads)
         return {"read": self.read_once, "get": paths("get", "both"), "send": paths("send"),
                 "choose": paths("differs", "held", "stopped"), "gone": paths("gone")}
 
@@ -759,6 +970,8 @@ class HandSync(_Records):
                         self._save(doc)
                 except _ChangedMeanwhile:
                     continue
+            if self.uploads is not None:
+                await self.uploads.get()
             self._recount()
         return self.state()
 
@@ -772,6 +985,8 @@ class HandSync(_Records):
                       if (doc.status == "send" and path is None) or (doc.path == path and doc.status == "held")]
             for doc in chosen:
                 await self._send(session, doc)
+            if self.uploads is not None and path is None:
+                await self.uploads.send()
             self._recount()
         return self.state()
 
@@ -781,6 +996,11 @@ class HandSync(_Records):
         if choice == "anyway":
             await self.send(path)
             return None
+        if self.uploads is not None and path in self.uploads.files:
+            async with self._turn:
+                answer = await self.uploads.decide(path, choice, lambda name, data: self._keep_bytes(name, data, "here"))
+                self._recount()
+            return answer
         async with self._turn:
             doc = next((doc for doc in self.docs.values() if doc.path == path), None)
             if doc is None or doc.doc_id not in self._theirs:
@@ -882,6 +1102,11 @@ class HandSync(_Records):
         self._recount()
 
     def _recount(self) -> None:
+        if self.uploads is not None:
+            before = [upload.view() for upload in self.uploads.files.values()]
+            self.uploads.recount()
+            if [upload.view() for upload in self.uploads.files.values()] != before:
+                self._changed()
         for doc in self.docs.values():
             if doc.doc_id not in self._theirs:
                 continue

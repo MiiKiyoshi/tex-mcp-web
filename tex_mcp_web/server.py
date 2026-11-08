@@ -74,7 +74,7 @@ from . import overleaf
 from . import overleaf_git
 from . import overleaf_ot
 from .overleaf_live import LivePresence
-from .overleaf_sync import HandSync, NotConnected, ProjectSync
+from .overleaf_sync import HandSync, NotConnected, ProjectSync, Uploads
 from .completion import bib_entries, defined_commands, defined_environments, labels
 from .translate import Translator, TranslationStore, load_glossary, split_paragraphs, store_name
 from .watcher import Watcher, is_watched_source, matches_patterns
@@ -741,10 +741,18 @@ class TexMcpWebServer:
                 self.overleaf_live = LivePresence(self.config.overleaf, overleaf.read_cookie,
                                                   self._overleaf_live_changed, comments=self._overleaf_comment_news,
                                                   sync=self.overleaf_sync)
-                if not syncing and await self._overleaf_git_link() is None:
-                    self.overleaf_hand = HandSync(self.watch_dir, self._overleaf_live_changed,
-                                                  self.overleaf_live.editor, written=self._overleaf_written)
-                    self.overleaf_live.files = self.overleaf_hand
+                # Without a git clone the uploaded files, figures and the like, follow Overleaf
+                # whole by Overleaf's own routes too, live or by Get and Send.
+                if await self._overleaf_git_link() is None:
+                    uploads = Uploads(self.watch_dir, self.overleaf_live.tree, lambda: self.config.overleaf,
+                                      overleaf.read_cookie, written=self._overleaf_written)
+                    if self.overleaf_sync is not None:
+                        self.overleaf_sync.uploads = uploads
+                    else:
+                        self.overleaf_hand = HandSync(self.watch_dir, self._overleaf_live_changed,
+                                                      self.overleaf_live.editor, written=self._overleaf_written)
+                        self.overleaf_hand.uploads = uploads
+                        self.overleaf_live.files = self.overleaf_hand
                 await self.overleaf_live.start()
         elif live is not None and self._overleaf_live_stop is None:
             loop = asyncio.get_running_loop()
@@ -1048,8 +1056,10 @@ class TexMcpWebServer:
         """The files kept the same both ways that are not the same as on Overleaf now."""
         if self.overleaf_sync is None:
             return []
-        return sorted(doc.path for doc in self.overleaf_sync.docs.values()
-                      if doc.status not in ("synced", "unsupported") or doc.pending or doc.inflight is not None)
+        uploads = self.overleaf_sync.uploads
+        return sorted([doc.path for doc in self.overleaf_sync.docs.values()
+                       if doc.status not in ("synced", "unsupported") or doc.pending or doc.inflight is not None]
+                      + (uploads.paths("get", "send", "differs") if uploads is not None else []))
 
     def _overleaf_in_step(self) -> bool:
         """Files are kept the same both ways, and every one is the same as on Overleaf."""

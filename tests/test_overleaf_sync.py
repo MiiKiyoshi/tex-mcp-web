@@ -19,6 +19,7 @@ from tex_mcp_web.server import TexMcpWebServer
 PROJECT_ID = "0123456789abcdef01234567"
 MAIN = "\\documentclass{article}\n\\begin{document}\nThe placer is fast.\n\\input{tex/body}\n\\end{document}"
 BODY = "Body text.\nMore body text here.\n가나다 😀 end."
+FIGURE = b"\x89PNG figure one"
 
 
 def wire(text: str) -> str:
@@ -45,6 +46,8 @@ class FakeOverleaf:
         self.drop_after_next = False
         self.connections = 0
         self.threads: dict = {}          # what /threads gives: the messages of each thread
+        # Uploaded files by path, each with its id and bytes, in the folder of that name.
+        self.uploads = {"fig/plot.png": {"id": "u-1", "data": FIGURE}}
         app = web.Application()
         app.router.add_get("/socket.io/1/", self._handshake)
         app.router.add_get("/socket.io/1/websocket/{sid}", self._websocket)
@@ -53,6 +56,8 @@ class FakeOverleaf:
         app.router.add_get(f"/project/{PROJECT_ID}/entities", self._entities)
         app.router.add_get(f"/Project/{PROJECT_ID}/doc/{{doc}}/download", self._download)
         app.router.add_get(f"/project/{PROJECT_ID}", self._editor_page)
+        app.router.add_get(f"/project/{PROJECT_ID}/file/{{file}}", self._file)
+        app.router.add_post(f"/project/{PROJECT_ID}/upload", self._upload)
         app.router.add_post(f"/project/{PROJECT_ID}/thread/{{thread}}/messages", self._post_message)
         self.app = app
 
@@ -62,6 +67,26 @@ class FakeOverleaf:
     async def _editor_page(self, request: web.Request) -> web.Response:
         return web.Response(text='<html><head><meta name="ol-csrfToken" content="token-1"></head></html>',
                             content_type="text/html")
+
+    async def _file(self, request: web.Request) -> web.Response:
+        found = next((item for item in self.uploads.values() if item["id"] == request.match_info["file"]), None)
+        if found is None:
+            raise web.HTTPNotFound()
+        return web.Response(body=found["data"], content_type="application/octet-stream")
+
+    async def _upload(self, request: web.Request) -> web.Response:
+        if request.headers.get("X-Csrf-Token") != "token-1":
+            raise web.HTTPForbidden(text="invalid csrf token")
+        folder = {"f0": "", "f1": "tex", "f2": "fig"}[request.query["folder_id"]]
+        form = await request.post()
+        path = f"{folder}/{form['name']}".lstrip("/")
+        self.replace(path, form["qqfile"].file.read())
+        return web.json_response({"success": True, "entity_id": self.uploads[path]["id"], "entity_type": "file",
+                                  "hash": overleaf_sync.blob_sha(self.uploads[path]["data"])})
+
+    def replace(self, path: str, data: bytes) -> None:
+        """A file uploaded on Overleaf: a new id, as Overleaf gives a replaced file."""
+        self.uploads[path] = {"id": f"u-{len(self.applied) + len(self.uploads) + 7}-{len(data)}", "data": data}
 
     async def _post_message(self, request: web.Request) -> web.Response:
         if request.headers.get("X-Csrf-Token") != "token-1":
@@ -106,7 +131,11 @@ class FakeOverleaf:
                 "owner": {"_id": "u-me", "first_name": "Me"}, "members": [],
                 "rootFolder": [{"_id": "f0", "name": "rootFolder", "docs": docs("d-main"), "fileRefs": [],
                                 "folders": [{"_id": "f1", "name": "tex", "docs": docs("d-body"), "fileRefs": [],
-                                             "folders": []}]}]}
+                                             "folders": []},
+                                            {"_id": "f2", "name": "fig", "docs": [], "folders": [], "fileRefs": [
+                                                {"_id": item["id"], "name": path.split("/", 1)[1],
+                                                 "hash": overleaf_sync.blob_sha(item["data"])}
+                                                for path, item in self.uploads.items()]}]}]}
 
     async def _websocket(self, request: web.Request) -> web.WebSocketResponse:
         ws = web.WebSocketResponse()
@@ -229,6 +258,8 @@ def paper(tmp_path: Path, monkeypatch):
     (tmp_path / "tex").mkdir()
     (tmp_path / "main.tex").write_text(MAIN, encoding="utf-8")
     (tmp_path / "tex" / "body.tex").write_text(BODY, encoding="utf-8")
+    (tmp_path / "fig").mkdir()
+    (tmp_path / "fig" / "plot.png").write_bytes(FIGURE)
     return tmp_path
 
 
@@ -905,3 +936,53 @@ async def test_by_hand_files_pick_up_where_live_left_off(paper, overleaf_site) -
         assert live.read("main.tex").startswith("% hand\n")
     finally:
         await live.close()
+
+
+# ----- Uploaded files, without git -----
+
+async def test_by_hand_get_and_send_move_uploaded_files_whole(paper, overleaf_site) -> None:
+    """A figure replaced on Overleaf is counted by Get and brought in whole, one replaced here
+    is counted by Send and uploaded, and one replaced on both sides waits for a choice. Overleaf
+    names each by the hash of its bytes, so nothing is downloaded to compare."""
+    fake, link = overleaf_site
+    opened = await Review(paper, fake, link, sync=False).open()
+    try:
+        assert await hand_ready(opened) == {"read": True, "get": [], "send": [], "choose": [], "gone": []}
+        fake.replace("fig/plot.png", b"\x89PNG figure two")
+        await fake.broadcast("reciveNewFile", "f2", {})
+        await wait_for(lambda: opened.server.overleaf_live.tree()[0]["fig/plot.png"]["hash"]
+                       == overleaf_sync.blob_sha(b"\x89PNG figure two"), timeout=10)
+        now = await (await opened.client.post("/overleaf/files/read")).json()
+        assert now["get"] == ["fig/plot.png"]
+        await opened.client.post("/overleaf/files/get")
+        assert (paper / "fig" / "plot.png").read_bytes() == b"\x89PNG figure two"
+
+        (paper / "fig" / "plot.png").write_bytes(b"\x89PNG figure three")
+        now = await (await opened.client.post("/overleaf/files/read")).json()
+        assert now["send"] == ["fig/plot.png"]
+        now = await (await opened.client.post("/overleaf/files/send")).json()
+        assert fake.uploads["fig/plot.png"]["data"] == b"\x89PNG figure three" and now["send"] == now["get"] == []
+
+        fake.replace("fig/plot.png", b"\x89PNG theirs")
+        await fake.broadcast("reciveNewFile", "f2", {})
+        await wait_for(lambda: opened.server.overleaf_live.tree()[0]["fig/plot.png"]["hash"]
+                       == overleaf_sync.blob_sha(b"\x89PNG theirs"), timeout=10)
+        (paper / "fig" / "plot.png").write_bytes(b"\x89PNG mine")
+        now = await (await opened.client.post("/overleaf/files/read")).json()
+        assert now["choose"] == ["fig/plot.png"]
+        assert (await opened.client.post("/overleaf/sync", json={"path": "fig/plot.png", "choice": "overleaf"})).status == 200
+        assert (paper / "fig" / "plot.png").read_bytes() == b"\x89PNG theirs"
+        assert list((paper / ".tex-mcp-web" / "overleaf-sync" / "kept").rglob("plot.png.here.*"))
+    finally:
+        await opened.close()
+
+
+async def test_live_uploaded_files_follow_by_themselves(review) -> None:
+    fake = review.fake
+    await review.settled()
+    fake.replace("fig/plot.png", b"\x89PNG from Overleaf")
+    await fake.broadcast("reciveNewFile", "f2", {})
+    await wait_for(lambda: (review.folder / "fig" / "plot.png").read_bytes() == b"\x89PNG from Overleaf", timeout=15)
+    review.write("main.tex", review.read("main.tex"))
+    (review.folder / "fig" / "plot.png").write_bytes(b"\x89PNG from here")
+    await wait_for(lambda: fake.uploads["fig/plot.png"]["data"] == b"\x89PNG from here", timeout=15)

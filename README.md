@@ -177,8 +177,9 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   which text stands, and edits to the file stay here until then. The text that gives way
   is kept in `.tex-mcp-web/overleaf-sync/kept/`. A file that already holds Overleaf's
   text, brought some other way, agrees with it. Only Overleaf's older kind of document
-  (`sharejs-text-ot`) is followed, and only text documents: figures and other uploaded
-  files, and files added, renamed or deleted on Overleaf, come by git.
+  (`sharejs-text-ot`) is followed. Figures and other uploaded files are copied whole when
+  one side replaces them, and in a git clone they come by git instead. Files added,
+  renamed or deleted on Overleaf come by git.
 - By hand in a folder that is no git clone (Overleaf's git integration is for paid plans),
   the top bar's two buttons are **Get** and **Send**, with the leaf, each shown with the
   number of files it moves. They need no git: the page reads and edits Overleaf's
@@ -191,8 +192,9 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   as under Live, and so does an edit that would delete every word of an open comment. Each
   file keeps the same record of the text both sides last agreed on as under Live, so
   switching between By hand and Live picks up where the other left off. Comments sync once
-  nothing is left to Get or Send. Only text documents move: figures and other uploaded
-  files do not.
+  nothing is left to Get or Send. Figures and other uploaded files move whole: Overleaf
+  names each by a hash of its bytes, so the page compares that with the file here without
+  downloading it, and a file replaced on both sides waits for a choice.
 - In a git clone, git pull and git push go on beside Live. The files Live keeps hold
   Overleaf's text already when its commit arrives, so a git pull takes them as they are
   and brings in the rest, such as a figure added on Overleaf, and reading Overleaf's

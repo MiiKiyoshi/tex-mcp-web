@@ -57,6 +57,22 @@ def _paths(folder: dict, prefix: str = "") -> dict[str, str]:
     return found
 
 
+def _uploads(folder: dict, prefix: str = "") -> tuple[dict[str, dict[str, str]], dict[str, str]]:
+    """The uploaded files under one folder of the project's tree, {path: {id, hash}}, and its
+    folders, {path: id}, the folder itself as *prefix* ("" at the top)."""
+    files: dict[str, dict[str, str]] = {}
+    folders = {prefix.rstrip("/"): str(folder.get("_id", ""))}
+    for ref in folder.get("fileRefs") or []:
+        if isinstance(ref, dict) and ref.get("_id"):
+            files[prefix + str(ref.get("name", ""))] = {"id": str(ref["_id"]), "hash": str(ref.get("hash", ""))}
+    for child in folder.get("folders") or []:
+        if isinstance(child, dict):
+            more, inner = _uploads(child, f"{prefix}{child.get('name', '')}/")
+            files.update(more)
+            folders.update(inner)
+    return files, folders
+
+
 def _name(person: Any) -> str:
     if not isinstance(person, dict):
         return ""
@@ -134,6 +150,8 @@ class LivePresence:
         self._me = ""
         self._main_doc = ""
         self._docs: dict[str, str] = {}
+        self._uploads: dict[str, dict[str, str]] = {}
+        self._folders: dict[str, str] = {}
         self._people: dict[str, str] = {}
         self._users: dict[str, dict] = {}
         self._changes: dict[str, dict] = {}
@@ -302,6 +320,12 @@ class LivePresence:
             project = first.get("project") or {}
             self._me = str(first.get("publicId", ""))
             self._docs = {}
+            self._uploads, self._folders = {}, {}
+            for root in project.get("rootFolder") or []:
+                if isinstance(root, dict):
+                    files, folders = _uploads(root)
+                    self._uploads.update(files)
+                    self._folders.update(folders)
             for root in project.get("rootFolder") or []:
                 if isinstance(root, dict):
                     self._docs.update(_paths(root))
@@ -357,6 +381,12 @@ class LivePresence:
         if self.status != "live" or self._session_api is None:
             return None, {}, ""
         return self._session_api, dict(self._docs), self._main_doc
+
+    def tree(self) -> tuple[dict[str, dict[str, str]], dict[str, str]]:
+        """The project's uploaded files by path, each with its id and the hash of its bytes, and
+        its folders by path, as the session last joined it. A file added, replaced, renamed or
+        deleted on Overleaf joins the project again, so this is current while the page is in it."""
+        return dict(self._uploads), dict(self._folders)
 
     async def comment(self, path: str, words: str, line: int, thread: str,
                       opened: Callable[[], Awaitable[None]]) -> str | None:
