@@ -84,7 +84,7 @@ def cmd_init(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 
-_CONFIG_KEYS = ("main", "dir", "port", "compiler", "watch", "ignore", "references")
+_CONFIG_KEYS = ("main", "dir", "port", "compiler", "watch", "ignore", "references", "guideline")
 
 
 def cmd_config(args: argparse.Namespace) -> int:
@@ -122,6 +122,14 @@ def cmd_config(args: argparse.Namespace) -> int:
         value = int(args.value)
     elif args.key in ("watch", "ignore"):
         value = [p.strip() for p in args.value.split(",") if p.strip()]
+    elif args.key == "guideline":
+        from .config import Config, get_guideline_files
+
+        try:
+            get_guideline_files(Config.from_dict({"main": "main.tex", "guideline": args.value}))
+        except (OSError, ValueError) as error:
+            print(f"{error}. setup_info() lists the guidelines to choose from.", file=sys.stderr)
+            return 1
     elif args.key == "compiler":
         from .compiler import ALLOWED_COMPILERS
 

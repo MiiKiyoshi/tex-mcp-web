@@ -176,6 +176,7 @@ class TestCreateConfig:
         assert "**/*.tex" not in data["watch"]
         assert data["compiler"] == "auto"
         assert data["port"] == 8765
+        assert data["guideline"] == "neutral-paper"
 
     def test_create_custom(self, tmp_path):
         """Test creating config with custom values."""
@@ -236,3 +237,44 @@ class TestHelperFunctions:
         config = Config(main="document.tex", config_path=tmp_path / ".tex-mcp-web.yaml")
         result = get_main_file(config)
         assert result == tmp_path / "document.tex"
+
+
+class TestGuidelines:
+    """The guideline the agent reads, by folder name: the user's own replaces an installed one
+    of the same name, and one that extends another is read after it."""
+
+    def test_the_installed_neutral_paper_guideline_is_found(self, tmp_path, monkeypatch):
+        from tex_mcp_web.config import get_guideline_files, list_guidelines
+
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "home"))
+        [path] = get_guideline_files(Config(main="main.tex", guideline="neutral-paper"))
+        assert path.name == "GUIDELINE.md" and path.parent.name == "neutral-paper" and path.is_file()
+        listed = list_guidelines()
+        assert "neutral-paper" in listed["built_in"]["entries"] and listed["user"]["entries"] is None
+        assert get_guideline_files(Config(main="main.tex")) == []
+
+    def test_a_users_guideline_extends_the_installed_one_and_is_read_after_it(self, tmp_path, monkeypatch):
+        from tex_mcp_web.config import get_guideline_files, list_guidelines
+
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "home"))
+        mine = tmp_path / "home" / "tex-mcp-web" / "guidelines" / "my-field"
+        mine.mkdir(parents=True)
+        (mine / "GUIDELINE.md").write_text("---\nextends: neutral-paper\n---\n# My field\n")
+        (mine.parent / "empty").mkdir()
+        files = get_guideline_files(Config(main="main.tex", guideline="my-field"))
+        assert [path.parent.name for path in files] == ["neutral-paper", "my-field"]
+        listed = list_guidelines()
+        assert listed["used"]["my-field"] == "user" and listed["incomplete"] == ["user/empty"]
+        (mine / "GUIDELINE.md").write_text("---\nextends: my-field\n---\n")
+        with pytest.raises(ValueError, match="extends itself"):
+            get_guideline_files(Config(main="main.tex", guideline="my-field"))
+        with pytest.raises(FileNotFoundError):
+            get_guideline_files(Config(main="main.tex", guideline="nowhere"))
+
+    def test_a_guideline_name_is_a_folder_name(self, tmp_path):
+        config = tmp_path / ".tex-mcp-web.yaml"
+        config.write_text("main: main.tex\nguideline: ../elsewhere\n")
+        with pytest.raises(ValueError, match="guideline must name a folder"):
+            load_config(config)
+        config.write_text("main: main.tex\nguideline: neutral-paper\n")
+        assert load_config(config).to_dict()["guideline"] == "neutral-paper"

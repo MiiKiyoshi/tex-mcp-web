@@ -1,5 +1,7 @@
 """Configuration loading and validation for tex_mcp_web."""
 
+import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -40,6 +42,8 @@ class Config:
         port: HTTP server port.
         references: Folder of reference papers converted to Markdown, relative to the
             config file's folder or absolute. Unset means no list of their terms.
+        guideline: The writing guideline the agent reads before editing, by its folder's
+            name under the user's guidelines or the installed ones. Unset means none.
         translation_language: Language the page's translation panel shows the source in,
             from ``translation: {language: ...}``. Unset means no translation panel.
         translation_instructions: Extra rules the translator follows, such as a field's
@@ -57,6 +61,7 @@ class Config:
     compiler: str = "auto"
     port: int = DEFAULT_PORT
     references: str | None = None
+    guideline: str | None = None
     translation_language: str | None = None
     translation_instructions: str | None = None
     overleaf: str | None = None
@@ -74,6 +79,7 @@ class Config:
             compiler=data.get("compiler", "auto"),
             port=data.get("port", DEFAULT_PORT),
             references=data.get("references"),
+            guideline=_guideline(data),
             translation_language=_translation(data).get("language"),
             translation_instructions=_translation(data).get("instructions"),
             overleaf=_overleaf(data),
@@ -94,6 +100,8 @@ class Config:
             d["dir"] = self.dir
         if self.references is not None:
             d["references"] = self.references
+        if self.guideline is not None:
+            d["guideline"] = self.guideline
         if self.translation_language is not None:
             d["translation"] = {"language": self.translation_language}
             if self.translation_instructions is not None:
@@ -103,6 +111,16 @@ class Config:
         if self.overleaf_sync:
             d["overleaf_sync"] = True
         return d
+
+
+def _guideline(data: dict[str, Any]) -> str | None:
+    """``guideline:`` as a guideline folder's name."""
+    raw = data.get("guideline")
+    if raw is None:
+        return None
+    if not isinstance(raw, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", raw):
+        raise ValueError("guideline must name a folder under guidelines/, such as neutral-paper")
+    return raw
 
 
 def _overleaf(data: dict[str, Any]) -> str | None:
@@ -212,6 +230,7 @@ def create_config(
         "ignore": ignore or ["*_backup.tex"],
         "compiler": compiler,
         "port": port,
+        "guideline": "neutral-paper",
     }
 
     with open(output_path, "w") as f:
@@ -250,3 +269,75 @@ def _overleaf_flag(data: dict[str, Any], key: str) -> bool:
     if raw and _overleaf(data) is None:
         raise ValueError(f"{key} needs overleaf: to name the project")
     return raw
+
+
+def user_config_dir() -> Path:
+    """The reviewer's own tex-mcp-web folder, one for every paper: their Overleaf cookie and
+    their guidelines are kept there."""
+    return Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "tex-mcp-web"
+
+
+def guideline_roots() -> dict[str, Path]:
+    """The folders guidelines come from. A name in the user's folder is used instead of the
+    installed one of the same name."""
+    return {"built_in": Path(__file__).resolve().parent / "guidelines", "user": user_config_dir() / "guidelines"}
+
+
+def list_guidelines() -> dict[str, Any]:
+    """Each guideline folder with its entries (None when the folder is missing), the folder
+    each name is read from, and entries without a GUIDELINE.md."""
+    choices: dict[str, Any] = {}
+    used: dict[str, str] = {}
+    incomplete: list[str] = []
+    for source, root in guideline_roots().items():
+        entries = (sorted(path.name for path in root.iterdir()
+                          if path.is_dir() and not path.name.startswith((".", "_")))
+                   if root.is_dir() else None)
+        choices[source] = {"dir": str(root), "entries": entries}
+        for name in entries or []:
+            used[name] = source          # the user's folder comes second and wins, as in lookup
+            if not (root / name / "GUIDELINE.md").is_file():
+                incomplete.append(f"{source}/{name}")
+    return {**choices, "used": used, "incomplete": incomplete}
+
+
+def _guideline_file(name: str) -> Path:
+    roots = guideline_roots()
+    if (roots["user"] / name).is_dir():
+        return (roots["user"] / name / "GUIDELINE.md").resolve()
+    return roots["built_in"] / name / "GUIDELINE.md"
+
+
+def _extended_name(path: Path) -> str | None:
+    """The guideline a file extends, from front matter it opens with: a ``---`` line,
+    ``extends: <name>``, and a closing ``---`` line."""
+    text = path.read_text(encoding="utf-8")
+    if not text.startswith("---\n"):
+        return None
+    end = text.find("\n---\n", 3)
+    if end < 0:
+        raise ValueError(f"{path}: front matter has no closing ---")
+    front = yaml.safe_load(text[4:end]) or {}
+    if not isinstance(front, dict) or set(front) - {"extends"}:
+        raise ValueError(f"{path}: front matter takes only extends")
+    name = front.get("extends")
+    if name is not None and not (isinstance(name, str) and re.fullmatch(r"[A-Za-z0-9_-]+", name)):
+        raise ValueError(f"{path}: extends must name a guideline folder")
+    return name
+
+
+def get_guideline_files(config: Config) -> list[Path]:
+    """The configured guideline and every guideline it extends, base first, so the agent
+    reads the general rules before the ones that add to or override them. A file that is
+    missing raises."""
+    files: list[Path] = []
+    name = config.guideline
+    while name is not None:
+        path = _guideline_file(name)
+        if path in files:
+            raise ValueError(f"guideline {name} extends itself")
+        if not path.is_file():
+            raise FileNotFoundError(f"guideline not found: {path}")
+        files.insert(0, path)
+        name = _extended_name(path)
+    return files

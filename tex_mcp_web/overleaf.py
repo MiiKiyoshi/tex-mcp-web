@@ -63,8 +63,9 @@ def ledger(watch_dir: Path) -> dict[str, dict[str, Any]]:
 
 def cookie_path() -> Path:
     """Where the reviewer's cookie is kept: their config folder, one for every paper."""
-    base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
-    return Path(base) / "tex-mcp-web" / "overleaf-cookie"
+    from .config import user_config_dir
+
+    return user_config_dir() / "overleaf-cookie"
 
 
 def parse_cookie(pasted: str) -> tuple[str, str]:

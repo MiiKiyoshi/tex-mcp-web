@@ -1251,7 +1251,9 @@ async def test_setup_info_reports_paths_without_connecting(tmp_path):
 
     files = sorted(tmp_path.rglob("*"))
     try:
-        assert await setup_info() == {
+        told = await setup_info()
+        assert "neutral-paper" in told.pop("guidelines")["built_in"]["entries"]
+        assert told == {
             "startup_dir": str(child.resolve()),
             "discovered_config_path": str(config.resolve()),
             "bound_config_path": None,
@@ -1346,6 +1348,30 @@ async def test_mcp_drafts_an_overleaf_reply_only_on_a_thread_from_overleaf(bound
     refused = await call("write_comments", action="suggest", id=brought.id, text="Shorter.",
                          changes=[{"old": "Some methods.", "new": "Methods."}], rev=receipt["rev"])
     assert "on Overleaf at paper.tex:3" in refused["error"]
+
+
+@pytest.mark.asyncio
+async def test_guide_lists_the_papers_guideline_base_first(bound_project, project, tmp_path, monkeypatch):
+    """guide() names the guideline the config chooses and every one it extends, base first."""
+    pytest.importorskip("mcp")
+    from tex_mcp_web.mcp_server import create_server
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "home"))
+    mine = tmp_path / "home" / "tex-mcp-web" / "guidelines" / "my-field"
+    mine.mkdir(parents=True)
+    (mine / "GUIDELINE.md").write_text("---\nextends: neutral-paper\n---\n# My field\n")
+    mcp = create_server(bound_project)
+
+    async def guide():
+        return json.loads((await mcp.call_tool("guide", {}))[0].text)
+
+    config = project / ".tex-mcp-web.yaml"
+    assert (await guide())["read"] == []
+    config.write_text(config.read_text() + "guideline: my-field\n")
+    read = (await guide())["read"]
+    assert [Path(path).parent.name for path in read] == ["neutral-paper", "my-field"]
+    config.write_text(config.read_text().replace("my-field", "nowhere"))
+    assert "guideline not found" in (await guide())["error"]
 
 
 @pytest.mark.asyncio

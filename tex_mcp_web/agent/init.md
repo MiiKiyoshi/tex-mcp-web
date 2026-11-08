@@ -30,6 +30,10 @@ connection has been verified.
 - Compiler: `command -v latexmk`. Missing: tell the user, and do not install a TeX distribution.
 - References: a folder the user names that holds the papers theirs builds on, converted to
   Markdown. Unnamed: leave it unset.
+- Guideline: `setup_info()` lists the installed guidelines and the user's own, with each
+  folder's absolute path and entries. A user guideline of the same name replaces the
+  installed one. Mark an entry without GUIDELINE.md rather than falling back to the
+  installed copy. neutral-paper, the installed one, is the default.
 
 ## 2. Confirm
 
@@ -43,9 +47,12 @@ Show one summary, in the user's language, like:
     ignore   : *_backup.tex
     compiler : auto (latexmk)
     references : ../related  (the reference papers in Markdown, relative to the config)
+    guideline : neutral-paper  (writing rules the agent reads before editing, the default)
 
 Leave out `dir` when the paper is in the startup directory, and `references` when the user
-named no folder. Ask once. A choice the user has already approved is not asked again.
+named no folder. Under guideline, list the user's guidelines beside neutral-paper, each with
+one line on what it is for, read from its first lines. Ask once. A choice the user has
+already approved is not asked again.
 
 ## 3. Write
 
@@ -54,7 +61,7 @@ directory, with the command that `listen()`'s missing-config error names. Changi
 working directory does not retarget this MCP process.
 
     tex-mcp-web --port <port> init --main <file>
-    tex-mcp-web config <dir|compiler|watch|ignore|references> <value>   # only for changed fields
+    tex-mcp-web config <dir|compiler|watch|ignore|references|guideline> <value>   # only for changed fields
 
 Continue only if init succeeds and the expected local config exists. Before changing any
 setting, run `tex-mcp-web config` without arguments and confirm that it selects the intended
@@ -84,5 +91,7 @@ verified. Otherwise report what was prepared and what remains unverified.
 Report setup as ready only after the current MCP connection passes the check. If restarting
 the MCP process remains necessary, say that the files are prepared but this session is not
 ready yet, and state the remaining action. Saying "do tex listen" starts the review page.
+To follow an Overleaf project, the user presses Connect Overleaf in the page's top bar (in
+the ⋯ menu on a phone) and follows what it asks. Tell them so in one line.
 With the plugin, Claude Code started in the folder later listens on its own. Start listening
 only when the user asks for it.

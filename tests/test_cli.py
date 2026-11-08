@@ -102,6 +102,23 @@ def test_config_sets_the_reference_papers(project_dir, capsys):
     assert yaml.safe_load((project_dir / ".tex-mcp-web.yaml").read_text())["references"] == "../related"
 
 
+def test_init_chooses_the_neutral_guideline_and_config_takes_only_one_that_exists(project_dir, capsys,
+                                                                                  monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(project_dir / "home"))
+    main(["init", "--main", "main.tex"])
+    config = project_dir / ".tex-mcp-web.yaml"
+    assert yaml.safe_load(config.read_text())["guideline"] == "neutral-paper"
+    assert main(["config", "guideline", "nowhere"]) == 1
+    assert "guideline not found" in capsys.readouterr().err
+    assert main(["config", "guideline", "../elsewhere"]) == 1
+    assert "must name a folder" in capsys.readouterr().err
+    mine = project_dir / "home" / "tex-mcp-web" / "guidelines" / "my-field"
+    mine.mkdir(parents=True)
+    (mine / "GUIDELINE.md").write_text("# My field\n")
+    assert main(["config", "guideline", "my-field"]) == 0
+    assert yaml.safe_load(config.read_text())["guideline"] == "my-field"
+
+
 def test_config_rejects_unknown_key_and_compiler(project_dir, capsys):
     main(["init", "--main", "main.tex"])
     assert main(["config", "bogus", "1"]) == 1

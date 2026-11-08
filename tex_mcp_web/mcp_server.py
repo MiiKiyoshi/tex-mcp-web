@@ -615,12 +615,19 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
     # would wrap the answer in {"result": ...} and the hook reads the answer as written.
     @mcp.tool(structured_output=False)
     async def guide() -> str:
-        """Paths to files to read in full before editing the paper: the terms its reference papers use, when references is set."""
+        """Paths to files to read in full before editing the paper: its guideline and the ones that
+        guideline extends, base first, when guideline is set, and the terms its reference papers
+        use, when references is set."""
+        from .config import get_guideline_files
         from .terms import refresh
 
         cfg, _, _ = _load_project(binding)
+        try:
+            guidelines = get_guideline_files(cfg)
+        except (OSError, ValueError) as error:
+            return _err(str(error))
         terms = refresh(cfg)
-        return _ok({"read": [] if terms is None else [str(terms)]})
+        return _ok({"read": [str(path) for path in guidelines] + ([] if terms is None else [str(terms)])})
 
     @mcp.tool(structured_output=False)
     async def read_comments(
@@ -1037,8 +1044,9 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
 
     @mcp.tool(structured_output=False)
     async def setup_info() -> str:
-        """Report setup paths and the existing binding without connecting or changing files."""
-        from .config import find_config
+        """Report setup paths, the existing binding and the guidelines to choose from, without
+        connecting or changing files."""
+        from .config import find_config, list_guidelines
 
         discovered = find_config(binding.start_dir)
         bound = binding.bound_config_path()
@@ -1046,6 +1054,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             "startup_dir": str(binding.start_dir),
             "discovered_config_path": None if discovered is None else str(discovered.resolve()),
             "bound_config_path": None if bound is None else str(bound),
+            "guidelines": list_guidelines(),
         })
 
     return mcp

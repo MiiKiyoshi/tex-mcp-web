@@ -250,6 +250,7 @@ ignore:
 - '*_backup.tex'
 compiler: auto
 port: 8765
+guideline: neutral-paper
 translation:
   language: Korean
   instructions: Keep cell names in English.
@@ -264,6 +265,7 @@ overleaf: https://www.overleaf.com/project/0123456789abcdef01234567
 | `ignore` | Patterns excluded even when they match `watch`. |
 | `compiler` | `auto` (latexmk for LaTeX, pandoc for Markdown or text), `latexmk`, `pdflatex`, `xelatex`, `lualatex`, or `pandoc`. |
 | `port` | This paper's review page port. Any free port works. Init picks the first free one from 8765, so each paper can have its own. |
+| `guideline` | The writing guideline the agent reads before editing, by its folder's name. `neutral-paper` is installed. A folder of your own under `~/.config/tex-mcp-web/guidelines/<name>/` holding a `GUIDELINE.md` is chosen the same way, and replaces an installed one of the same name. A guideline whose file opens with front matter `extends: <name>` is read after the one it names. Unset means none. |
 | `references` | Folder holding only the papers yours builds on, converted to Markdown, relative to this file or absolute. Unset means no list of their terms. |
 | `translation` | `language` puts a button for that language beside **+ Note**: it shows each paragraph of the source translated by `claude -p`, with those on the current page marked. `instructions` adds rules for the translator, one per line. A paragraph is translated once per text, and of a figure or table only the caption is. Unset means no translation. |
 | `overleaf` | The paper's Overleaf project, by its link, which an open page follows and the sync button reads. Unset means none. |
