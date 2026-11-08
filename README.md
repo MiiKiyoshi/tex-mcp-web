@@ -186,9 +186,10 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   is kept in `.tex-mcp-web/overleaf-sync/kept/`. A file that already holds Overleaf's
   text, brought some other way, agrees with it. Only Overleaf's older kind of document
   (`sharejs-text-ot`) is followed. Figures and other uploaded files are copied whole when
-  one side replaces them, and in a git clone they come by git instead. A file deleted on
-  one side waits for a choice, as under By hand. In a git clone, files added, renamed or
-  deleted on Overleaf come by git.
+  one side replaces them, a new file here that `overleaf_add` names goes up by itself, as
+  Send sends it under By hand, and in a git clone all of these come by git instead. A file
+  deleted on one side waits for a choice, as under By hand. In a git clone, files added,
+  renamed or deleted on Overleaf come by git.
 - By hand in a folder that is no git clone (Overleaf's git integration is for paid plans),
   the top bar's two buttons are **Get** and **Send**, with the leaf, each shown with the
   number of files it moves. They need no git: the page reads and edits Overleaf's
@@ -307,7 +308,7 @@ overleaf: https://www.overleaf.com/project/0123456789abcdef01234567
 | `references` | Folder holding only the papers yours builds on, converted to Markdown, relative to this file or absolute. Unset means no list of their terms. |
 | `translation` | `language` puts a button for that language beside **+ Note**: it shows each paragraph of the source translated by `claude -p`, with those on the current page marked. `instructions` adds rules for the translator, one per line. A paragraph is translated once per text, and of a figure or table only the caption is. Unset means no translation. |
 | `overleaf` | The paper's Overleaf project, by its link, which an open page follows and the sync button reads. Unset means none. |
-| `overleaf_add` | Patterns for the files only here that **Send** adds to the Overleaf project, in a folder that is no git clone. Unset means the paper's sources and figures: `*.tex`, `*.bib`, `*.sty`, `*.cls`, `*.bst`, `*.png`, `*.jpg`, `*.jpeg`, `*.pdf`, `*.eps` and `*.svg`. A file of a kind the project already holds is added too, and the paper's compiled PDF never is. |
+| `overleaf_add` | Patterns for the files only here that go to the Overleaf project, by **Send** or under **Live** by themselves, in a folder that is no git clone. Unset means the paper's sources and figures: `*.tex`, `*.bib`, `*.sty`, `*.cls`, `*.bst`, `*.png`, `*.jpg`, `*.jpeg`, `*.pdf`, `*.eps` and `*.svg`. A file of a kind the project already holds is added too, and the paper's compiled PDF never is. |
 | `overleaf_sync` | `true` is **Live** in Settings: it keeps the paper's files and that project's the same both ways while a page is open, and brings new threads in by themselves. Unset is **By hand**: files change only by git pull and git push in a git clone, or by Get and Send otherwise. |
 
 ## See also

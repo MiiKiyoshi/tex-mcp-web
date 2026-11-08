@@ -1090,7 +1090,7 @@ function renderOverleafStatus({ project, cookie, sync = false, live = false, set
   ...syncDrawing, " in the ", leafIcon(), " Comments tab.");
   $("#overleaf-mode-live-note").textContent = git
     ? "While this review page is open, text files such as .tex change both ways within a second, and a new comment thread on Overleaf comes in by itself. Figures and other uploaded files go by git: one you commit here goes with git push, and one added on Overleaf comes in by itself, or with git pull when the top bar shows it."
-    : "While this review page is open, text files such as .tex change both ways within a second, and a new comment thread on Overleaf comes in by itself. Figures and other uploaded files are copied whole when one side replaces them.";
+    : "While this review page is open, text files such as .tex change both ways within a second, and a new comment thread on Overleaf comes in by itself. Figures and other uploaded files are copied whole when one side replaces them, and a new figure or source file here goes up by itself.";
   $("#overleaf-direct").hidden = !project;
   $("#overleaf-git").hidden = !git && !state.overleafFiles;
   if (!git) {
@@ -1288,8 +1288,8 @@ const OVERLEAF_SYNC_QUESTION = "The paper's files and the Overleaf project will 
   + "page is open: edits here are sent to Overleaf, and edits there are written into the files. "
   + "A file that differs at the start waits for your choice. New comment threads on Overleaf come in "
   + "by themselves whenever every file is the same. Figures and other uploaded files are copied whole when one "
-  + "side replaces them, except in a folder cloned by git, where they go by git pull and git push as before, and "
-  + "those never put older text over Overleaf's. Turn this on?";
+  + "side replaces them, and a new figure or source file here goes up by itself, except in a folder cloned by git, "
+  + "where they go by git pull and git push as before, and those never put older text over Overleaf's. Turn this on?";
 
 async function connectOverleaf(change, done) {
   const response = await fetch("/overleaf/connect", {

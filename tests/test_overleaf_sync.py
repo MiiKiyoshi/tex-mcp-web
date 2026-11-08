@@ -1150,3 +1150,33 @@ async def test_live_a_file_deleted_on_one_side_waits_for_a_choice(review) -> Non
     await wait_for(lambda: any(file["path"] == "fig/plot.png" and file["status"] == "dropped"
                                for file in review.server.overleaf_sync.snapshot()), timeout=15)
     assert (review.folder / "fig" / "plot.png").exists()
+
+
+async def test_live_a_new_file_of_the_paper_goes_up_by_itself(review) -> None:
+    fake = review.fake
+    await review.settled()
+    (review.folder / "fig" / "new.png").write_bytes(b"\x89PNG a new figure")
+    (review.folder / "main.log").write_text("log", encoding="utf-8")
+    await wait_for(lambda: fake.uploads.get("fig/new.png", {}).get("data") == b"\x89PNG a new figure", timeout=15)
+    await asyncio.sleep(0.3)
+    assert "main.log" not in fake.uploads and len([path for path in fake.uploads if path == "fig/new.png"]) == 1
+    # Replaced here at once, before the session joins again: it follows, not waiting for a choice.
+    (review.folder / "fig" / "new.png").write_bytes(b"\x89PNG the new figure, redrawn")
+    await wait_for(lambda: fake.uploads["fig/new.png"]["data"] == b"\x89PNG the new figure, redrawn", timeout=15)
+
+
+async def test_live_a_file_changed_here_while_overleafs_comes_is_not_written_over(review, monkeypatch) -> None:
+    fake = review.fake
+    await review.settled()
+    downloading = overleaf.download_file
+
+    async def slowly(link, cookie, file_id, **kw):     # the file here changes while it comes
+        (review.folder / "fig" / "plot.png").write_bytes(b"\x89PNG drawn here meanwhile")
+        return await downloading(link, cookie, file_id, **kw)
+
+    monkeypatch.setattr(overleaf, "download_file", slowly)
+    fake.replace("fig/plot.png", b"\x89PNG from Overleaf")
+    await fake.broadcast("reciveNewFile", "f2", {})
+    await wait_for(lambda: any(file["path"] == "fig/plot.png" and file["status"] == "differs"
+                               for file in review.server.overleaf_sync.snapshot()), timeout=15)
+    assert (review.folder / "fig" / "plot.png").read_bytes() == b"\x89PNG drawn here meanwhile"

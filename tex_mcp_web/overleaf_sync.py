@@ -14,9 +14,9 @@ that cannot be done for certain, when an edit would delete every word of an open
 or when Overleaf turns an edit away, the file stops and the reviewer chooses which text
 stands. The text that gives way is kept in ``.tex-mcp-web/overleaf-sync/kept/`` first.
 
-Only documents of Overleaf's older kind (``sharejs-text-ot``) are followed. Live, a file
-only here is not sent there. A file deleted on one side waits for the reviewer's choice,
-by hand and live alike, and Send adds files only here that the config's patterns name.
+Only documents of Overleaf's older kind (``sharejs-text-ot``) are followed. Files only here
+that the config's patterns name go to the project, by Send or live by themselves, and a
+file deleted on one side waits for the reviewer's choice, by hand and live alike.
 """
 
 from __future__ import annotations
@@ -119,6 +119,10 @@ class _Records:
         self.root = root.resolve()
         self.state_dir = self.root / ".tex-mcp-web" / "overleaf-sync"
         self._written = written
+        # The patterns of files only here that go to the project, and the paths that never do,
+        # and the files just added, until the project's tree names them.
+        self._adding: Callable[[], tuple[list[str], set[str]]] = lambda: ([], set())
+        self._added: set[str] = set()
 
     # ----- The files here -----
 
@@ -200,6 +204,27 @@ class _Records:
                 record.unlink(missing_ok=True)
         return sorted(dropped)
 
+    def _new_files(self, there: set[str], uploads: "Uploads | None") -> list[str]:
+        """Files only here that go to the project: those matching the patterns, or of a kind
+        the project already holds, never the paper's compiled output, none just added and not
+        yet in the project's tree, and none Overleaf held and no longer does, which were
+        deleted there."""
+        patterns, never = self._adding()
+        self._added -= there
+        kinds = {Path(path).suffix for path in there if Path(path).suffix}
+        recorded = (uploads.recorded() if uploads is not None else set()) | set(self._recorded())
+        found = []
+        for file in self.root.rglob("*"):
+            relative = file.relative_to(self.root).as_posix()
+            if (any(part.startswith(".") or part == "__pycache__" for part in relative.split("/"))
+                    or relative in there or relative in recorded or relative in never or relative in self._added
+                    or not file.is_file()):
+                continue
+            if file.suffix in kinds or any(fnmatch.fnmatch(relative, pattern) or fnmatch.fnmatch(file.name, pattern)
+                                           for pattern in patterns):
+                found.append(relative)
+        return sorted(found)
+
     def _forget(self, path: str) -> None:
         record = self._recorded().get(path)
         if record is not None:
@@ -230,9 +255,11 @@ class ProjectSync(_Records):
     """Every document of the project that is a file here, kept the same both ways."""
 
     def __init__(self, root: Path, changed: Callable[[], Any],
-                 written: Callable[[str], Awaitable[None]] | None = None) -> None:
+                 written: Callable[[str], Awaitable[None]] | None = None,
+                 adding: Callable[[], tuple[list[str], set[str]]] = lambda: ([], set())) -> None:
         super().__init__(root, written)
         self._changed = changed
+        self._adding = adding
         self.docs: dict[str, Doc] = {}
         # The project's uploaded files, kept the same both ways too, in a folder that is no git clone.
         self.uploads: Uploads | None = None
@@ -709,6 +736,10 @@ class ProjectSync(_Records):
             self.uploads.recount()
             await self.uploads.get()
             await self.uploads.send()
+            for path in self._new_files({doc.path for doc in self.docs.values()} | set(self.uploads.files),
+                                        self.uploads):
+                await self.uploads.add(path)
+                self._added.add(path)
         except (NotConnected, overleaf.OverleafError, OSError) as error:
             logger.info("Overleaf uploads: %s", error)
             self._uploads_quiet_until = time.monotonic() + 60
@@ -794,6 +825,7 @@ class Upload:
 
     def __init__(self, path: str) -> None:
         self.path, self.status, self.message, self.threads = path, "same", "", []
+        self.here: str | None = None    # the hash of the file here when last counted
 
     def view(self) -> dict:
         return {"path": self.path, "status": self.status, "message": self.message, "threads": []}
@@ -817,9 +849,9 @@ class Uploads:
         self._refs: dict[str, dict[str, str]] = {}
         self._hashes: dict[str, tuple[tuple[int, int], str]] = {}   # path: (mtime, size), hash
         # Files just uploaded, as Overleaf answered, with the hash the session's tree named
-        # before: the answer stands for the file until the tree, joined again after the
-        # change, names other bytes than that.
-        self._sent: dict[str, tuple[dict[str, str], str]] = {}
+        # before (None for a file it did not hold): the answer stands for the file until the
+        # tree, joined again after the change, names something else.
+        self._sent: dict[str, tuple[dict[str, str], str | None]] = {}
 
     # ----- Records and files -----
 
@@ -904,6 +936,7 @@ class Uploads:
                 continue
             upload = self.files.setdefault(path, Upload(path))
             here, there, agreed = self._hash_here(path), ref["hash"], records.get(path)
+            upload.here = here
             if here is None:
                 upload.status, upload.message = ("gone", "Deleted here, and still on Overleaf.") if agreed else ("get", "")
             elif here == there:
@@ -942,7 +975,12 @@ class Uploads:
             if inner not in folders:
                 folders[inner] = await overleaf.create_folder(link, cookie, folders[parent], part)
             parent = inner
-        await overleaf.upload_file(link, cookie, folders[folder], name, self._file(path).read_bytes())
+        data = self._file(path).read_bytes()
+        answer = await overleaf.upload_file(link, cookie, folders[folder], name, data)
+        # An uploaded file, not a text Overleaf made a document of: both sides agree on its bytes.
+        if answer.get("entity_type") == "file" and answer.get("hash") == blob_sha(data):
+            self._agree(path, answer["hash"])
+            self._sent[path] = ({"id": str(answer.get("entity_id", "")), "hash": answer["hash"]}, None)
 
     # ----- Moving them -----
 
@@ -952,6 +990,9 @@ class Uploads:
                        if (upload.status == "get" and only is None) or upload.path == only]:
             ref = self._refs[upload.path]
             data = await overleaf.download_file(link, cookie, ref["id"])
+            # Changed here while it came: the next count sees both, nothing is written over.
+            if only is None and self._hash_here(upload.path) != upload.here:
+                continue
             if blob_sha(data) != ref["hash"]:
                 upload.status, upload.message = "differs", "Overleaf sent other bytes than it names. Choose again."
                 continue
@@ -1034,10 +1075,8 @@ class HandSync(_Records):
         super().__init__(root, written)
         self._changed = changed
         self._editor = editor
-        # The patterns of files only here that Send adds to the project, and the paths it never adds.
         self._adding = adding
         self._new: list[str] = []
-        self._added: set[str] = set()
         self._gone_there: list[str] = []
         self._turn = asyncio.Lock()
         self.docs: dict[str, Doc] = {}
@@ -1263,25 +1302,8 @@ class HandSync(_Records):
         self._recount()
 
     def _new_here(self) -> list[str]:
-        """Files only here that Send adds: those matching the patterns, or of a kind the
-        project already holds, never the paper's compiled output, and none Overleaf held
-        and no longer does, which were deleted there."""
-        patterns, never = self._adding()
         there = {doc.path for doc in self.docs.values()} | set(self.uploads.files if self.uploads is not None else ())
-        self._added -= there
-        kinds = {Path(path).suffix for path in there if Path(path).suffix}
-        recorded = (self.uploads.recorded() if self.uploads is not None else set()) | set(self._recorded())
-        found = []
-        for file in self.root.rglob("*"):
-            relative = file.relative_to(self.root).as_posix()
-            if (any(part.startswith(".") or part == "__pycache__" for part in relative.split("/"))
-                    or relative in there or relative in recorded or relative in never or relative in self._added
-                    or not file.is_file()):
-                continue
-            if file.suffix in kinds or any(fnmatch.fnmatch(relative, pattern) or fnmatch.fnmatch(file.name, pattern)
-                                           for pattern in patterns):
-                found.append(relative)
-        return sorted(found)
+        return self._new_files(there, self.uploads)
 
     async def _add(self, paths: list[str]) -> None:
         """Upload new files into their folders on Overleaf. The session joins the project again

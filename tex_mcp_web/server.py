@@ -742,7 +742,7 @@ class TexMcpWebServer:
             if live is None:
                 if syncing:
                     self.overleaf_sync = ProjectSync(self.watch_dir, self._overleaf_live_changed,
-                                                     written=self._overleaf_written)
+                                                     written=self._overleaf_written, adding=self._overleaf_adding)
                     await self.overleaf_sync.start()
                 self.overleaf_live = LivePresence(self.config.overleaf, overleaf.read_cookie,
                                                   self._overleaf_live_changed, comments=self._overleaf_comment_news,
