@@ -52,6 +52,10 @@ def _scrub(text: str) -> str:
     return re.sub(r"(\w+://)[^@/\s]+@", r"\1", text)
 
 
+# The review page's own records beside the paper, which never go to Overleaf.
+RECORDS = ".tex-mcp-web/"
+
+
 async def _git(folder: Path, *args: str, check: bool = True, env: dict[str, str] | None = None) -> tuple[int, str]:
     """Run git in *folder* with no prompt for credentials; its output, or GitError."""
     process = await asyncio.create_subprocess_exec(
@@ -81,6 +85,19 @@ async def link_of(folder: Path, project_id: str) -> Link | None:
         if url.strip().rstrip("/").removesuffix(".git").rsplit("/", 1)[-1] == project_id:
             return Link(folder, key.removeprefix("remote.").removesuffix(".url"))
     return None
+
+
+async def keep_records_out(link: Link) -> None:
+    """Name the review page's own records, .tex-mcp-web/, in the clone's local exclude file,
+    so a commit of every file leaves them out: they hold the comments and copies of the text.
+    The exclude file is the clone's own and is never committed."""
+    _, out = await _git(link.folder, "rev-parse", "--git-path", "info/exclude")
+    exclude = (link.folder / out.strip()).resolve()
+    text = exclude.read_text(encoding="utf-8") if exclude.exists() else ""
+    if RECORDS not in text.splitlines():
+        exclude.parent.mkdir(parents=True, exist_ok=True)
+        with exclude.open("a", encoding="utf-8") as handle:
+            handle.write(("\n" if text and not text.endswith("\n") else "") + f"{RECORDS}\n")
 
 
 async def fetch(link: Link) -> None:
@@ -317,6 +334,10 @@ async def push(link: Link, followed: Collection[str] | None = None) -> dict:
             raise GitError("Overleaf has commits this folder lacks. Press git pull first.")
         if now["state"] == "same":
             raise GitError("this folder has no commit Overleaf lacks")
+        _, records = await _git(link.folder, "ls-files", "--", RECORDS)
+        if records.strip():
+            raise GitError("The commits hold .tex-mcp-web/, the review page's own records with its comments. "
+                           "Untrack it with git rm -r --cached .tex-mcp-web and commit, then press git push.")
         if followed is not None and (older := await _not_overleafs(link, now["branch"], followed)):
             raise GitError(f"The commits hold text for {', '.join(older)} that is not Overleaf's now. "
                            "Commit those files as they are, then press git push.")

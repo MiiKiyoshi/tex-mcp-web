@@ -1675,6 +1675,8 @@ class CommentStore:
                 comment.anchor = anchor
                 comment.resolved_source = resolved_source
                 comment.source_selector = source_selector
+                # Placed on the file as it is now: the next refresh records that text.
+                comment.base = None
                 comment.stale = False
                 comment.updated = _now()
                 comments[position] = comment

@@ -788,3 +788,19 @@ def test_a_comment_goes_stale_only_when_its_file_is_gone(store, tmp_path):
     store.refresh_source_anchors(tmp_path)
     assert store.get(comment.id).stale
     assert len(list((store.path.parent / "anchor-texts").glob("*.txt"))) == 1
+
+
+def test_a_comment_placed_anew_follows_edits_from_the_text_it_was_placed_on(store, tmp_path):
+    """A comment put on other words of a changed file, as a thread from Overleaf is placed,
+    is moved by the next edit from the text it was placed on, not from the one before."""
+    source = tmp_path / "paper.tex"
+    comment = _followed(store, source, "AAAAA BBBBB CCCCC DDDDD.\n", (1, 6), (1, 11))
+    placed = "CCCCC DDDDD AAAAA ZZZZZ.\n"
+    source.write_text(placed)
+    at = placed.index("ZZZZZ")
+    store.place(comment.id, store.get(comment.id).anchor, ResolvedSource("paper.tex", 1, 1, at, at + 5),
+                capture_source_selector(source, 1, 1, column_start=at, column_end=at + 5))
+    store.refresh_source_anchors(tmp_path)
+    assert store.get(comment.id).source_selector.exact == "ZZZZZ"
+    moved, words = _after(store, source, "More. " + placed, comment)
+    assert (moved.resolved_source, words) == (ResolvedSource("paper.tex", 1, 1, at + 6, at + 11), "ZZZZZ")

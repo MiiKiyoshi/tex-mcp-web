@@ -467,6 +467,8 @@ class TexMcpWebServer:
         self.overleaf_hand: HandSync | None = None
         # Where a git clone stood against Overleaf's branch when last read.
         self._overleaf_git_now: dict[str, Any] | None = None
+        # The clone whose exclude file already names the review page's records.
+        self._overleaf_records_kept_out: overleaf_git.Link | None = None
         # Texts the page may save over, by file and revision, for a save made over an
         # edit from Overleaf to be brought together with it.
         self._source_texts: dict[str, dict[str, str]] = {}
@@ -938,7 +940,11 @@ class TexMcpWebServer:
     async def _overleaf_git_link(self) -> overleaf_git.Link | None:
         if not self.config.overleaf:
             return None
-        return await overleaf_git.link_of(self.watch_dir, overleaf.project_of(self.config.overleaf)[1])
+        link = await overleaf_git.link_of(self.watch_dir, overleaf.project_of(self.config.overleaf)[1])
+        if link is not None and link != self._overleaf_records_kept_out:
+            await overleaf_git.keep_records_out(link)
+            self._overleaf_records_kept_out = link
+        return link
 
     async def _overleaf_live_misplaced(self) -> str | None:
         """Why the files cannot follow Overleaf live here, or None. In a git clone of the
@@ -2124,6 +2130,8 @@ class TexMcpWebServer:
                     prefix=updated_text[max(0, moved_start - 80):moved_start],
                     suffix=updated_text[moved_end:moved_end + 80],
                 )
+                # The range is in the text just written: the next refresh records that text.
+                comment.base = None
                 comment.stale = False
 
         self._replace_source(path, updated_text.encode("utf-8"))

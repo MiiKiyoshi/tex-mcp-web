@@ -372,6 +372,11 @@ async def test_the_page_pulls_pushes_and_downloads_comments_only_with_every_over
         git(coauthor, "push", "-q", "origin", "HEAD:main")
         now = await (await client.post("/overleaf/git/fetch")).json()
         assert (now["state"], now["behind"]) == ("behind", 1)
+        # The page's own records, comments and copies of the text, stay out of a commit of
+        # every file, by the clone's local exclude file.
+        (paper / ".tex-mcp-web").mkdir(exist_ok=True)
+        (paper / ".tex-mcp-web" / "comments.json").write_text("{}", encoding="utf-8")
+        assert ".tex-mcp-web/" not in git(paper, "status", "--porcelain", "--untracked-files=all")
         # The agent reads the same in few words: only what differs, from the last reading.
         assert await (await client.get("/overleaf/upstream")).json() == {"by": "git", "git": True, "behind": 1}
         # Words Overleaf has and this folder lacks are nowhere to put a thread.
@@ -389,3 +394,22 @@ async def test_the_page_pulls_pushes_and_downloads_comments_only_with_every_over
         assert chosen.status == 200 and (await chosen.json())["sync"] is True
     finally:
         await client.close()
+
+
+async def test_a_push_holding_the_review_pages_records_is_refused(sides) -> None:
+    """The records beside the paper hold its comments and copies of its text: a clone keeps
+    them out of a commit of every file, and a commit that holds them anyway is not pushed."""
+    paper, _ = sides
+    link = await overleaf_git.link_of(paper, PROJECT)
+    await overleaf_git.keep_records_out(link)
+    await overleaf_git.keep_records_out(link)
+    exclude = paper / ".git" / "info" / "exclude"
+    assert exclude.read_text(encoding="utf-8").splitlines().count(".tex-mcp-web/") == 1
+    (paper / ".tex-mcp-web").mkdir()
+    (paper / ".tex-mcp-web" / "comments.json").write_text("{}", encoding="utf-8")
+    git(paper, "add", "-A")
+    assert ".tex-mcp-web/" not in git(paper, "status", "--porcelain")
+    git(paper, "add", "-f", ".tex-mcp-web/comments.json")
+    git(paper, "-c", "user.name=S", "-c", "user.email=s@example.com", "commit", "-q", "-m", "records")
+    with pytest.raises(overleaf_git.GitError, match="hold .tex-mcp-web/"):
+        await overleaf_git.push(link)
