@@ -136,9 +136,9 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   says so above the editor. Settings lists who is where and what was edited while the page
   was open. A leaf button shows in the top bar only when something needs a look: signed
   out, reconnecting, comments not coming in, or files waiting for a choice. The page sends
-  Overleaf no edit to the text unless the files follow it live (below). It opens the main
-  file and puts one cursor at its top, which is what makes the others' editors send their
-  cursors at once, so to them it is one more of your tabs, idle.
+  Overleaf no edit to the text unless the files follow it live or you press Send (below).
+  It opens the main file and puts one cursor at its top, which is what makes the others'
+  editors send their cursors at once, so to them it is one more of your tabs, idle.
 - While a page is open that way, a new thread on Overleaf is counted on the sync button
   within seconds, or comes in by itself when the files follow Overleaf live, and threads
   already here follow theirs by themselves.
@@ -163,22 +163,36 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   then the message goes, then an edit that changes no text puts the thread on them. Lines
   Overleaf does not have yet leave nothing behind there, and the card keeps its draft.
 - Settings chooses how the files follow Overleaf. **By hand**, the default, changes them
-  only when you ask: by git pull and git push in a git clone, and not at all otherwise. **Live**
-  (`overleaf_sync: true`) keeps the paper's files and the project's the same both ways
-  while a page is open: an edit on Overleaf is written into the file within a second,
-  and what changes in a file here, from the page, an editor or the agent, is sent as the
-  smallest edit that makes it, so comments on words left alone keep them, and words
-  written over commented words take the comment, as if typed inside it. A save from
-  the page over an edit from Overleaf takes both. Edits made on either side while no page
-  was open come together when one is. Nothing is overwritten on a guess: a file that
-  differs with nothing to say which side changed it, an edit that would delete every word
-  of an open comment, and an edit Overleaf turns away each stop that file: a bar across
-  the top of the page, and the editor on that file, say why and ask which text stands, and
-  edits to the file stay here until then. The text that gives way is kept in
-  `.tex-mcp-web/overleaf-sync/kept/`. A file that already holds Overleaf's text, brought
-  some other way, agrees with it. Only Overleaf's older kind of document
+  only when you ask: by git pull and git push in a git clone, and by **Get** and **Send**
+  otherwise (below). **Live** (`overleaf_sync: true`) keeps the paper's files and the
+  project's the same both ways while a page is open: an edit on Overleaf is written into
+  the file within a second, and what changes in a file here, from the page, an editor or
+  the agent, is sent as the smallest edit that makes it, so comments on words left alone
+  keep them, and words written over commented words take the comment, as if typed inside
+  it. A save from the page over an edit from Overleaf takes both. Edits made on either
+  side while no page was open come together when one is. Nothing is overwritten on a
+  guess: a file that differs with nothing to say which side changed it, an edit that would
+  delete every word of an open comment, and an edit Overleaf turns away each stop that
+  file: a bar across the top of the page, and the editor on that file, say why and ask
+  which text stands, and edits to the file stay here until then. The text that gives way
+  is kept in `.tex-mcp-web/overleaf-sync/kept/`. A file that already holds Overleaf's
+  text, brought some other way, agrees with it. Only Overleaf's older kind of document
   (`sharejs-text-ot`) is followed, and only text documents: figures and other uploaded
   files, and files added, renamed or deleted on Overleaf, come by git.
+- By hand in a folder that is no git clone (Overleaf's git integration is for paid plans),
+  the top bar's two buttons are **Get** and **Send**, with the leaf, each shown with the
+  number of files it moves. They need no git: the page reads and edits Overleaf's
+  documents through the editor session it keeps in the project, as Live does. Opening
+  Settings, the page, or the window after a minute reads where the files stand. Get writes
+  Overleaf's edits into the files, and where each side changed other places of one file it
+  writes both. Send makes the files' edits on Overleaf as small edits, after asking once,
+  for everyone in the project, and reads each file back. A file both sides changed in one
+  place, or one that differs with nothing to say which side changed it, waits for a choice
+  as under Live, and so does an edit that would delete every word of an open comment. Each
+  file keeps the same record of the text both sides last agreed on as under Live, so
+  switching between By hand and Live picks up where the other left off. Comments sync once
+  nothing is left to Get or Send. Only text documents move: figures and other uploaded
+  files do not.
 - In a git clone, git pull and git push go on beside Live. The files Live keeps hold
   Overleaf's text already when its commit arrives, so a git pull takes them as they are
   and brings in the rest, such as a figure added on Overleaf, and reading Overleaf's
@@ -269,7 +283,7 @@ overleaf: https://www.overleaf.com/project/0123456789abcdef01234567
 | `references` | Folder holding only the papers yours builds on, converted to Markdown, relative to this file or absolute. Unset means no list of their terms. |
 | `translation` | `language` puts a button for that language beside **+ Note**: it shows each paragraph of the source translated by `claude -p`, with those on the current page marked. `instructions` adds rules for the translator, one per line. A paragraph is translated once per text, and of a figure or table only the caption is. Unset means no translation. |
 | `overleaf` | The paper's Overleaf project, by its link, which an open page follows and the sync button reads. Unset means none. |
-| `overleaf_sync` | `true` is **Live** in Settings: it keeps the paper's files and that project's the same both ways while a page is open, and brings new threads in by themselves. Unset is **By hand**: files change only by git pull and git push, and no edit is sent. |
+| `overleaf_sync` | `true` is **Live** in Settings: it keeps the paper's files and that project's the same both ways while a page is open, and brings new threads in by themselves. Unset is **By hand**: files change only by git pull and git push in a git clone, or by Get and Send otherwise. |
 
 ## See also
 

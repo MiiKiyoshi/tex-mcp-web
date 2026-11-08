@@ -74,7 +74,7 @@ from . import overleaf
 from . import overleaf_git
 from . import overleaf_ot
 from .overleaf_live import LivePresence
-from .overleaf_sync import ProjectSync
+from .overleaf_sync import HandSync, NotConnected, ProjectSync
 from .completion import bib_entries, defined_commands, defined_environments, labels
 from .translate import Translator, TranslationStore, load_glossary, split_paragraphs, store_name
 from .watcher import Watcher, is_watched_source, matches_patterns
@@ -462,6 +462,9 @@ class TexMcpWebServer:
         # Whether every file kept the same both ways was in step when last looked at.
         self._overleaf_was_in_step = False
         self.overleaf_sync: ProjectSync | None = None
+        # The files brought together with Overleaf by Get and Send, in a folder that is no
+        # git clone of the project and does not follow it live.
+        self.overleaf_hand: HandSync | None = None
         # Texts the page may save over, by file and revision, for a save made over an
         # edit from Overleaf to be brought together with it.
         self._source_texts: dict[str, dict[str, str]] = {}
@@ -515,6 +518,7 @@ class TexMcpWebServer:
         app.router.add_delete("/overleaf/cookie", self._handle_overleaf_cookie)
         app.router.add_post("/overleaf/comments", self._handle_overleaf_comments)
         app.router.add_post(r"/overleaf/git/{action:fetch|pull|push}", self._handle_overleaf_git)
+        app.router.add_post(r"/overleaf/files/{action:read|get|send}", self._handle_overleaf_files)
         app.router.add_get("/overleaf/live", self._handle_overleaf_live)
         app.router.add_post("/overleaf/sync", self._handle_overleaf_sync)
         app.router.add_post("/overleaf/connect", self._handle_overleaf_connect)
@@ -654,6 +658,8 @@ class TexMcpWebServer:
         finally:
             if self.overleaf_sync is not None:
                 self.overleaf_sync.poke()
+            if self.overleaf_hand is not None:
+                self.overleaf_hand.local_changed()
 
     # ----- websocket -----
 
@@ -735,6 +741,10 @@ class TexMcpWebServer:
                 self.overleaf_live = LivePresence(self.config.overleaf, overleaf.read_cookie,
                                                   self._overleaf_live_changed, comments=self._overleaf_comment_news,
                                                   sync=self.overleaf_sync)
+                if not syncing and await self._overleaf_git_link() is None:
+                    self.overleaf_hand = HandSync(self.watch_dir, self._overleaf_live_changed,
+                                                  self.overleaf_live.editor, written=self._overleaf_written)
+                    self.overleaf_live.files = self.overleaf_hand
                 await self.overleaf_live.start()
         elif live is not None and self._overleaf_live_stop is None:
             loop = asyncio.get_running_loop()
@@ -756,6 +766,7 @@ class TexMcpWebServer:
             reader.cancel()
             await asyncio.gather(reader, return_exceptions=True)
         live, self.overleaf_live = self.overleaf_live, None
+        self.overleaf_hand = None
         if live is not None:
             await live.stop()
         sync, self.overleaf_sync = self.overleaf_sync, None
@@ -782,7 +793,10 @@ class TexMcpWebServer:
         self._overleaf_live_push = asyncio.get_running_loop().call_later(0.2, push)
 
     def _overleaf_comment_news(self, name: str, args: list) -> None:
-        """Comments changed on Overleaf, or the session opened after a time away: read them."""
+        """Comments changed on Overleaf, or the session opened after a time away: read them.
+        A session opened also reads where the files brought together by hand stand."""
+        if name == "joined" and self.overleaf_hand is not None:
+            asyncio.ensure_future(self._read_overleaf_files())
         if name == "delete-thread" and args:
             self._overleaf_deleted.add(str(args[0]))
             if self.overleaf_sync is not None:
@@ -826,13 +840,16 @@ class TexMcpWebServer:
 
     async def _handle_overleaf_sync(self, request: web.Request) -> web.Response:
         """The reviewer's choice for a file that stopped: which text stands."""
-        if self.overleaf_sync is None:
-            return web.json_response({"error": "files are not kept in step with Overleaf; "
-                                               "set overleaf_sync: true in .tex-mcp-web.yaml"}, status=409)
+        follower = self.overleaf_sync or self.overleaf_hand
+        if follower is None:
+            return web.json_response({"error": "no file here is brought together with Overleaf"}, status=409)
         data, err = await self._read_json(request)
         if err is not None:
             return err
-        error = await self.overleaf_sync.decide(str(data.get("path", "")), str(data.get("choice", "")))
+        try:
+            error = await follower.decide(str(data.get("path", "")), str(data.get("choice", "")))
+        except NotConnected as error:
+            return web.json_response({"error": str(error)}, status=409)
         if error:
             return web.json_response({"error": error}, status=400)
         return web.json_response({"ok": True})
@@ -953,6 +970,31 @@ class TexMcpWebServer:
                 return web.json_response({"error": str(error)}, status=409)
         return web.json_response(now)
 
+    async def _read_overleaf_files(self) -> None:
+        hand = self.overleaf_hand
+        try:
+            if hand is not None:
+                await hand.read()
+        except (NotConnected, ConnectionError, asyncio.TimeoutError) as error:
+            logger.info("Overleaf files: %s", error)
+
+    async def _handle_overleaf_files(self, request: web.Request) -> web.Response:
+        """Where the files stand against Overleaf's documents, read afresh, or the same after a
+        Get or a Send the reviewer asked for, in a folder brought together with Overleaf by hand."""
+        hand = self.overleaf_hand
+        if hand is None:
+            return web.json_response({"error": "this folder follows Overleaf by git or live, not by Get and Send"},
+                                     status=409)
+        action = request.match_info["action"]
+        try:
+            now = await (hand.read if action == "read" else hand.get if action == "get" else hand.send)()
+        except NotConnected as error:
+            return web.json_response({"error": str(error)}, status=409)
+        except (ConnectionError, asyncio.TimeoutError):
+            return web.json_response({"error": "The connection to Overleaf closed before it answered. Try again."},
+                                     status=502)
+        return web.json_response(now)
+
     async def _handle_overleaf_connect(self, request: web.Request) -> web.Response:
         """Name the paper's Overleaf project from the page, or forget it, and turn keeping
         the files the same on or off. Each is written into .tex-mcp-web.yaml, so the file
@@ -1045,6 +1087,23 @@ class TexMcpWebServer:
             if apart:
                 return web.json_response({"error": f"Not yet the same as on Overleaf: {', '.join(apart)}. "
                                                    "Settle it first."}, status=409)
+        elif self.overleaf_hand is not None:
+            # Files brought together by hand stand in for the commit: nothing left to Get or
+            # Send, read afresh as a git clone reads Overleaf's branch.
+            try:
+                now = await self.overleaf_hand.read()
+            except NotConnected as error:
+                return web.json_response({"error": str(error)}, status=409)
+            except (ConnectionError, asyncio.TimeoutError):
+                return web.json_response({"error": "The connection to Overleaf closed before it answered. "
+                                                   "Try again."}, status=502)
+            if now["get"] or now["choose"]:
+                return web.json_response({"error": f"Overleaf has edits this folder lacks: "
+                                                   f"{', '.join(now['get'] + now['choose'])}. Press Get first."}, status=409)
+            if now["send"]:
+                return web.json_response({"error": f"Edits here are not on Overleaf: {', '.join(now['send'])}. "
+                                                   "Press Send first, so the comments sit on the text Overleaf has."},
+                                         status=409)
         try:
             async with self._overleaf_import:
                 data = await overleaf.fetch_export(self.config.overleaf, cookie)
@@ -1082,6 +1141,15 @@ class TexMcpWebServer:
                 except overleaf_git.GitError as error:
                     return f"Overleaf's branch could not be read: {error}", ""
             return None, now["there"]
+        if self.overleaf_hand is not None:
+            for check in checks:
+                try:
+                    there = await self.overleaf_hand.text_of(check["file"])
+                except (ConnectionError, asyncio.TimeoutError):
+                    there = None
+                if there is None or check["text"] not in there:
+                    return f"The edit to {check['file']} this reply describes is not on Overleaf. Press Send first.", ""
+            return None, ""
         for check in checks:
             doc = next((doc for doc in self.overleaf_sync.docs.values() if doc.path == check["file"]), None) \
                 if self.overleaf_sync is not None else None
@@ -1165,9 +1233,10 @@ class TexMcpWebServer:
         since Overleaf does not say which message it made. The ledger is written however this
         ends, so what did come in does not come in again."""
         ledger = self._overleaf_ledger()
-        if self.overleaf_sync is not None:
-            self.overleaf_sync.resolved_threads = {
-                str(key) for key, thread in data["threads"].items() if isinstance(thread, dict) and thread.get("resolved")}
+        for follower in (self.overleaf_sync, self.overleaf_hand):
+            if follower is not None:
+                follower.resolved_threads = {str(key) for key, thread in data["threads"].items()
+                                             if isinstance(thread, dict) and thread.get("resolved")}
         counts = {"added": 0, "replies": 0, "resolved": 0, "unplaced": 0}
         waiting: set[str] = set()
         was_waiting = self._overleaf_waiting
@@ -2083,10 +2152,11 @@ class TexMcpWebServer:
                 return web.json_response({"error": f"{error} (the cookie has expired or is wrong)"}, status=401)
             except overleaf.OverleafError as error:
                 return web.json_response({"error": str(error)}, status=502)
-            if self.overleaf_sync is not None and resolved:
-                self.overleaf_sync.resolved_threads.add(thread)
-            elif self.overleaf_sync is not None:
-                self.overleaf_sync.resolved_threads.discard(thread)
+            for follower in (self.overleaf_sync, self.overleaf_hand):
+                if follower is not None and resolved:
+                    follower.resolved_threads.add(thread)
+                elif follower is not None:
+                    follower.resolved_threads.discard(thread)
             return await self._mutate_comment(
                 cid,
                 (lambda: self.comments.resolve(cid, summary="", author="human")) if resolved

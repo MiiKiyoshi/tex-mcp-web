@@ -122,6 +122,8 @@ class LivePresence:
         self._changed = changed
         self._comments = comments
         self.sync = sync
+        # The files brought together by hand (overleaf_sync.HandSync), when they do not follow live.
+        self.files: Any = None
         self._session_api: _Session | None = None
         self.comments_trouble = ""
         self.doc_type = ""
@@ -149,7 +151,9 @@ class LivePresence:
         return {"status": self.status, "message": self.message, "project": self.link,
                 "users": sorted(users, key=lambda user: user["name"]), "changes": changes,
                 "comments_trouble": self.comments_trouble, "doc_type": self.doc_type,
-                "files": self.sync.snapshot() if self.sync is not None else []}
+                "files": (self.sync.snapshot() if self.sync is not None
+                          else self.files.snapshot() if self.files is not None else []),
+                "by_hand": self.files.state() if self.files is not None else None}
 
     def _set(self, status: str, message: str = "") -> None:
         self.status, self.message = status, message
@@ -346,6 +350,13 @@ class LivePresence:
             change = self._changes.setdefault(path, {"file": path, "by": by, "at": 0.0, "count": 0})
             change.update(by=by, at=time.time(), count=change["count"] + 1)
             self._notify()
+
+    def editor(self) -> tuple[_Session | None, dict[str, str], str]:
+        """The open session, the project's documents by path, and the main one, which the
+        session keeps open. No session while the page is not in the project."""
+        if self.status != "live" or self._session_api is None:
+            return None, {}, ""
+        return self._session_api, dict(self._docs), self._main_doc
 
     async def comment(self, path: str, words: str, line: int, thread: str,
                       opened: Callable[[], Awaitable[None]]) -> str | None:

@@ -1,4 +1,5 @@
-"""The paper's files kept the same as its Overleaf project, both ways, as edits.
+"""The paper's files kept the same as its Overleaf project, both ways, as edits: live
+while a page is open (ProjectSync), or when the reviewer presses Get or Send (HandSync).
 
 Overleaf's editor sends each change as a small edit naming its version, and the service
 moves it past the edits made meanwhile; this does the same for each file. Overleaf's
@@ -107,15 +108,99 @@ class Doc:
         return {"path": self.path, "status": self.status, "message": self.message, "threads": self.threads}
 
 
-class ProjectSync:
+class _Records:
+    """The paper's files that are documents on Overleaf, and for each the record of the text
+    both sides last agreed on and its version, kept in ``.tex-mcp-web/overleaf-sync/``. The
+    files following Overleaf live and the files brought together by hand keep the same
+    record, so either picks up where the other left off."""
+
+    def __init__(self, root: Path, written: Callable[[str], Awaitable[None]] | None = None) -> None:
+        self.root = root.resolve()
+        self.state_dir = self.root / ".tex-mcp-web" / "overleaf-sync"
+        self._written = written
+
+    # ----- The files here -----
+
+    def _file(self, doc: Doc) -> Path:
+        file = (self.root / doc.path).resolve()
+        if self.root not in file.parents or (self.root / ".tex-mcp-web") in file.parents:
+            raise ValueError(f"{doc.path} is not a file of this paper")
+        return file
+
+    def _read(self, doc: Doc) -> str | None:
+        file = self._file(doc)
+        try:
+            info = file.stat()
+        except FileNotFoundError:
+            return None
+        data = file.read_bytes()
+        doc.mark = (info.st_mtime_ns, info.st_size)
+        return data.decode("utf-8")
+
+    def _write(self, doc: Doc, text: str) -> None:
+        """Write the file, unless it changed since it was read: then the caller reads it
+        again. The record goes first, naming what the file held, so a stop between the
+        two is told from an edit."""
+        file = self._file(doc)
+        try:
+            info = file.stat()
+            now = (info.st_mtime_ns, info.st_size)
+        except FileNotFoundError:
+            now = None
+        if now is not None and now != doc.mark:
+            raise _ChangedMeanwhile()
+        doc.local_before, doc.local = _sha(doc.local), text
+        self._save(doc)
+        file.parent.mkdir(parents=True, exist_ok=True)
+        mode = stat.S_IMODE(file.stat().st_mode) if file.exists() else 0o644
+        with tempfile.NamedTemporaryFile("wb", dir=file.parent, prefix=f".{file.name}-", suffix=".tmp",
+                                         delete=False) as handle:
+            handle.write(text.encode("utf-8"))
+            staging = Path(handle.name)
+        os.chmod(staging, mode)
+        os.replace(staging, file)
+        info = file.stat()
+        doc.mark = (info.st_mtime_ns, info.st_size)
+        if self._written is not None:
+            asyncio.ensure_future(self._written(doc.path))
+
+    def _keep(self, doc: Doc, text: str, which: str) -> Path:
+        """Keep a text that is about to give way."""
+        kept = self.state_dir / "kept" / f"{doc.path}.{which}.{time.strftime('%Y%m%d-%H%M%S')}"
+        kept.parent.mkdir(parents=True, exist_ok=True)
+        kept.write_text(text, encoding="utf-8")
+        return kept
+
+    # ----- The record -----
+
+    def _record_path(self, doc_id: str) -> Path:
+        return self.state_dir / f"{doc_id}.json"
+
+    def _save(self, doc: Doc) -> None:
+        self.state_dir.mkdir(parents=True, exist_ok=True)
+        path = self._record_path(doc.doc_id)
+        staging = path.with_suffix(".tmp")
+        staging.write_text(json.dumps(doc.record()), encoding="utf-8")
+        os.replace(staging, path)
+
+    def _load(self, doc: Doc) -> bool:
+        try:
+            record = json.loads(self._record_path(doc.doc_id).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return False
+        if record.get("path") != doc.path:   # renamed: begin again
+            return False
+        doc.restore(record)
+        return True
+
+
+class ProjectSync(_Records):
     """Every document of the project that is a file here, kept the same both ways."""
 
     def __init__(self, root: Path, changed: Callable[[], Any],
                  written: Callable[[str], Awaitable[None]] | None = None) -> None:
-        self.root = root.resolve()
-        self.state_dir = self.root / ".tex-mcp-web" / "overleaf-sync"
+        super().__init__(root, written)
         self._changed = changed
-        self._written = written
         self.docs: dict[str, Doc] = {}
         self.resolved_threads: set[str] = set()
         self._session: Session | None = None
@@ -252,58 +337,6 @@ class ProjectSync:
             doc.status, doc.message, doc.threads = status, message, threads or []
             self._notify()
 
-    # ----- The files here -----
-
-    def _file(self, doc: Doc) -> Path:
-        file = (self.root / doc.path).resolve()
-        if self.root not in file.parents or (self.root / ".tex-mcp-web") in file.parents:
-            raise ValueError(f"{doc.path} is not a file of this paper")
-        return file
-
-    def _read(self, doc: Doc) -> str | None:
-        file = self._file(doc)
-        try:
-            info = file.stat()
-        except FileNotFoundError:
-            return None
-        data = file.read_bytes()
-        doc.mark = (info.st_mtime_ns, info.st_size)
-        return data.decode("utf-8")
-
-    def _write(self, doc: Doc, text: str) -> None:
-        """Write the file, unless it changed since it was read: then the caller reads it
-        again. The record goes first, naming what the file held, so a stop between the
-        two is told from an edit."""
-        file = self._file(doc)
-        try:
-            info = file.stat()
-            now = (info.st_mtime_ns, info.st_size)
-        except FileNotFoundError:
-            now = None
-        if now is not None and now != doc.mark:
-            raise _ChangedMeanwhile()
-        doc.local_before, doc.local = _sha(doc.local), text
-        self._save(doc)
-        file.parent.mkdir(parents=True, exist_ok=True)
-        mode = stat.S_IMODE(file.stat().st_mode) if file.exists() else 0o644
-        with tempfile.NamedTemporaryFile("wb", dir=file.parent, prefix=f".{file.name}-", suffix=".tmp",
-                                         delete=False) as handle:
-            handle.write(text.encode("utf-8"))
-            staging = Path(handle.name)
-        os.chmod(staging, mode)
-        os.replace(staging, file)
-        info = file.stat()
-        doc.mark = (info.st_mtime_ns, info.st_size)
-        if self._written is not None:
-            asyncio.ensure_future(self._written(doc.path))
-
-    def _keep(self, doc: Doc, text: str, which: str) -> Path:
-        """Keep a text that is about to give way."""
-        kept = self.state_dir / "kept" / f"{doc.path}.{which}.{time.strftime('%Y%m%d-%H%M%S')}"
-        kept.parent.mkdir(parents=True, exist_ok=True)
-        kept.write_text(text, encoding="utf-8")
-        return kept
-
     def _absorb(self, doc: Doc) -> None:
         """Take up what changed in the file here as an edit still to send."""
         text = self._read(doc)
@@ -320,28 +353,6 @@ class ProjectSync:
         except (KeyError, TypeError):
             return []
         return [c for c in moved if c["t"] not in self.resolved_threads]
-
-    # ----- The record -----
-
-    def _record_path(self, doc_id: str) -> Path:
-        return self.state_dir / f"{doc_id}.json"
-
-    def _save(self, doc: Doc) -> None:
-        self.state_dir.mkdir(parents=True, exist_ok=True)
-        path = self._record_path(doc.doc_id)
-        staging = path.with_suffix(".tmp")
-        staging.write_text(json.dumps(doc.record()), encoding="utf-8")
-        os.replace(staging, path)
-
-    def _load(self, doc: Doc) -> bool:
-        try:
-            record = json.loads(self._record_path(doc.doc_id).read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return False
-        if record.get("path") != doc.path:   # renamed: begin again
-            return False
-        doc.restore(record)
-        return True
 
     # ----- Joining -----
 
@@ -464,16 +475,14 @@ class ProjectSync:
             self._set(doc, "differs", "An edit sent before the connection dropped may or may not have reached "
                                       "Overleaf. Choose which text stands.")
             return
-        their_edit, my_edit = ot.diff(base, theirs), ot.diff(base, mine)
+        together = merge(base, theirs, mine)
         self._set_first(doc, theirs, version, comments)
         doc.local = mine
-        if my_edit and their_edit and _overlap(base, theirs, mine):
+        if together is None:
             self._set(doc, "differs", "This file and Overleaf changed the same place while apart. "
                                       "Choose which stands.")
             return
-        moved_mine, moved_theirs = ot.transform_x(my_edit, their_edit)
-        doc.pending = moved_mine
-        merged = ot.apply(mine, moved_theirs)
+        merged, doc.pending = together
         if merged != mine:
             try:
                 self._write(doc, merged)
@@ -672,8 +681,294 @@ class ProjectSync:
         return f"no such choice {choice!r}"
 
 
+class NotConnected(Exception):
+    """The page is not in the Overleaf project right now."""
+
+
+_JOIN = {"encodeRanges": True, "supportsHistoryOT": True}
+# Seconds a request from the page waits for its session in the project, just opened.
+JOIN_WAIT = 10
+
+
+class HandSync(_Records):
+    """The paper's files brought together with its Overleaf project's documents only when the
+    reviewer asks: Get takes Overleaf's edits into the files, and Send makes the files' edits
+    on Overleaf, each as the smallest edit, as the files following Overleaf live do. Where
+    things stand is read by opening each document and letting it go again, through the
+    session the page keeps in the project.
+
+    Each file stands, against the record of the text both sides last agreed on, as one of:
+    same; get, changed on Overleaf; send, changed here; both, each side changed other places,
+    which Get brings together; differs, both changed one place, or the two differ with no
+    record to say which changed, and the reviewer chooses which stands; held, its edit would
+    delete every word of an open comment, and the reviewer sends it anyway or not; gone,
+    deleted here; unsupported, a document of Overleaf's newer kind."""
+
+    def __init__(self, root: Path, changed: Callable[[], Any],
+                 editor: Callable[[], tuple[Session | None, dict[str, str], str]],
+                 written: Callable[[str], Awaitable[None]] | None = None) -> None:
+        super().__init__(root, written)
+        self._changed = changed
+        self._editor = editor
+        self._turn = asyncio.Lock()
+        self.docs: dict[str, Doc] = {}
+        self.resolved_threads: set[str] = set()
+        self._theirs: dict[str, tuple[str, int, list[dict]]] = {}   # Overleaf's text, version, comments
+        self.read_once = False
+
+    # ----- What the page shows -----
+
+    def snapshot(self) -> list[dict]:
+        return [doc.view() for doc in sorted(self.docs.values(), key=lambda doc: doc.path)
+                if doc.status not in ("same", "get", "send", "both")]
+
+    def state(self) -> dict:
+        """The files Get and Send would move, and those waiting for the reviewer."""
+        def paths(*kinds: str) -> list[str]:
+            return sorted(doc.path for doc in self.docs.values() if doc.status in kinds)
+        return {"read": self.read_once, "get": paths("get", "both"), "send": paths("send"),
+                "choose": paths("differs", "held", "stopped"), "gone": paths("gone")}
+
+    def owns(self, path: str) -> bool:
+        return any(doc.path == path for doc in self.docs.values())
+
+    # ----- Asked by the page -----
+
+    async def read(self) -> dict:
+        async with self._turn:
+            await self._read_all()
+        return self.state()
+
+    async def get(self) -> dict:
+        """Write Overleaf's edits into the files: its text where only Overleaf changed a file,
+        and both sides' edits where each changed other places."""
+        async with self._turn:
+            await self._read_all()
+            for doc in [doc for doc in self.docs.values() if doc.status in ("get", "both")]:
+                theirs, version, _ = self._theirs[doc.doc_id]
+                disk = self._read(doc)
+                together = merge(doc.server, theirs, disk) if doc.status == "both" else (theirs, [])
+                if together is None:
+                    continue
+                doc.version, doc.server = version, theirs
+                try:
+                    if disk != together[0]:
+                        self._write(doc, together[0])
+                    else:
+                        doc.local = disk
+                        self._save(doc)
+                except _ChangedMeanwhile:
+                    continue
+            self._recount()
+        return self.state()
+
+    async def send(self, path: str | None = None) -> dict:
+        """Make the files' edits on Overleaf, each file that changed only here, or with *path*
+        that one file, sent though it deletes every word of an open comment."""
+        async with self._turn:
+            session = await self._session()
+            await self._read_all()
+            chosen = [doc for doc in self.docs.values()
+                      if (doc.status == "send" and path is None) or (doc.path == path and doc.status == "held")]
+            for doc in chosen:
+                await self._send(session, doc)
+            self._recount()
+        return self.state()
+
+    async def decide(self, path: str, choice: str) -> str | None:
+        """The reviewer's choice for a file that differs: Overleaf's text stands, or this
+        file's, which Send then makes on Overleaf. The text that gives way is kept first."""
+        if choice == "anyway":
+            await self.send(path)
+            return None
+        async with self._turn:
+            doc = next((doc for doc in self.docs.values() if doc.path == path), None)
+            if doc is None or doc.doc_id not in self._theirs:
+                return f"{path} is not a document of the Overleaf project"
+            if doc.status not in ("differs", "stopped"):
+                return f"{path} needs no choice"
+            theirs, version, _ = self._theirs[doc.doc_id]
+            disk = self._read(doc)
+            doc.version, doc.server = version, theirs
+            if choice == "overleaf":
+                if disk is not None and disk != theirs:
+                    self._keep(doc, disk, "here")
+                try:
+                    self._write(doc, theirs)
+                except _ChangedMeanwhile:
+                    return "the file changed meanwhile; choose again"
+            elif choice == "here":
+                self._keep(doc, theirs, "overleaf")
+                doc.local = theirs
+                self._save(doc)
+            else:
+                return f"no such choice {choice!r}"
+            self._recount()
+        return None
+
+    async def text_of(self, path: str) -> str | None:
+        """Overleaf's text of the file at *path*, read now, or None when it is no document."""
+        async with self._turn:
+            session, docs, main = self._editor()
+            doc_id = next((key for key, name in docs.items() if name == path), None)
+            if session is None or doc_id is None:
+                return None
+            read = await self._open(session, doc_id, main)
+            return None if read is None else read[0]
+
+    def local_changed(self) -> None:
+        """A file changed here: what Send would move is counted again from what Overleaf
+        held when last read. A Get or a Send under way counts it when done."""
+        if self.read_once and not self._turn.locked():
+            self._recount()
+
+    # ----- Reading Overleaf -----
+
+    async def _session(self) -> Session:
+        """The page's session in the project, waited for a little while it is joining."""
+        for _ in range(int(JOIN_WAIT / 0.1)):
+            session, _, _ = self._editor()
+            if session is not None:
+                return session
+            await asyncio.sleep(0.1)
+        raise NotConnected("The page is not in the Overleaf project right now. Try again in a moment.")
+
+    async def _open(self, session: Session, doc_id: str, main: str) -> tuple[str, int, list[dict]] | str | None:
+        """A document's text, version and comments, or why it cannot be followed, opened and
+        let go again unless it is the main file, which the session keeps open."""
+        reply = await session.call("joinDoc", [doc_id, -1, _JOIN])
+        if doc_id != main:
+            try:
+                await session.call("leaveDoc", [doc_id], timeout=5)
+            except (ConnectionError, asyncio.TimeoutError):
+                pass
+        if not reply or reply[0] is not None:
+            return f"Overleaf would not open this file: {reply[0] if reply else 'no answer'}"
+        kind = reply[5] if len(reply) > 5 else KIND
+        if kind != KIND:
+            return f"Overleaf keeps this file as {kind}, which is not brought together here."
+        ranges = (reply[4] if len(reply) > 4 else None) or {}
+        comments = [{"t": str((c.get("op") or {}).get("t")), "p": int((c.get("op") or {}).get("p", 0)),
+                     "n": ot.js_len(_decode(str((c.get("op") or {}).get("c", ""))))}
+                    for c in ranges.get("comments") or [] if isinstance(c, dict)]
+        return "\n".join(_decode(str(line)) for line in reply[1]), int(reply[2]), comments
+
+    async def _read_all(self) -> None:
+        session = await self._session()
+        _, docs, main = self._editor()
+        for doc_id, path in docs.items():
+            doc = self.docs.get(doc_id)
+            if doc is None or doc.path != path:
+                doc = Doc(doc_id, path)
+                try:
+                    self._file(doc)
+                except ValueError:
+                    continue
+                self._load(doc)
+                self.docs[doc_id] = doc
+            read = await self._open(session, doc_id, main)
+            if isinstance(read, tuple):
+                self._theirs[doc_id] = read
+                if doc.status in ("unsupported", "stopped"):
+                    doc.status = "joining"
+            else:
+                self._theirs.pop(doc_id, None)
+                self._set(doc, "unsupported" if "kind" in (read or "") or "keeps" in (read or "") else "stopped",
+                          read or "")
+        for doc_id in [key for key in self.docs if key not in docs]:
+            del self.docs[doc_id]
+            self._theirs.pop(doc_id, None)
+        self.read_once = True
+        self._recount()
+
+    def _recount(self) -> None:
+        for doc in self.docs.values():
+            if doc.doc_id not in self._theirs:
+                continue
+            theirs, version, comments = self._theirs[doc.doc_id]
+            disk = self._read(doc)
+            if not doc.known:
+                if disk is None:
+                    self._set(doc, "get")
+                elif disk == theirs:      # the same text: both agree on it from here on
+                    doc.version, doc.server, doc.local = version, theirs, theirs
+                    self._save(doc)
+                    self._set(doc, "same")
+                else:
+                    self._set(doc, "differs", "This file and Overleaf's differ, and nothing says which "
+                                              "changed. Choose which stands.")
+                continue
+            base = doc.server
+            there, here = theirs != base, disk is not None and disk != base
+            if disk is None:
+                self._set(doc, "gone", "Deleted here, and still on Overleaf.")
+            elif there and here:
+                if merge(base, theirs, disk) is None:
+                    self._set(doc, "differs", "This file and Overleaf changed the same place. Choose which stands.")
+                else:
+                    self._set(doc, "both")
+            elif there:
+                self._set(doc, "get")
+            elif here:
+                open_comments = [c for c in comments if c["t"] not in self.resolved_threads]
+                lost = ot.comments_removed(open_comments, ot.diff(base, disk, open_comments))
+                if lost:
+                    self._set(doc, "held", "This edit deletes every word of an open Overleaf comment, so Send "
+                                           "leaves it. Send it anyway, or put Overleaf's text back.", lost)
+                else:
+                    self._set(doc, "send")
+            else:
+                self._set(doc, "same")
+
+    # ----- Sending -----
+
+    async def _send(self, session: Session, doc: Doc) -> None:
+        theirs, version, comments = self._theirs[doc.doc_id]
+        disk = self._read(doc)
+        if disk is None or theirs != doc.server:
+            return
+        open_comments = [c for c in comments if c["t"] not in self.resolved_threads]
+        op = ot.diff(doc.server, disk, open_comments)
+        reply = await session.call("applyOtUpdate", [doc.doc_id, {"doc": doc.doc_id, "op": op, "v": version,
+                                                                  "hash": text_hash(disk)}])
+        if reply and reply[0] is not None:
+            error = reply[0].get("message") if isinstance(reply[0], dict) else reply[0]
+            self._set(doc, "stopped", f"Overleaf did not take the edit to this file ({error}). Nothing was "
+                                      "changed there. Send again, or choose which text stands.")
+            return
+        # Overleaf took it: read it back, so the record says only what Overleaf holds.
+        _, _, main = self._editor()
+        read = await self._open(session, doc.doc_id, main)
+        if not isinstance(read, tuple):
+            self._set(doc, "stopped", read or "Overleaf could not be read after the edit.")
+            return
+        self._theirs[doc.doc_id] = read
+        if read[0] == disk:
+            doc.version, doc.server, doc.local = read[1], disk, disk
+            self._save(doc)
+
+    def _set(self, doc: Doc, status: str, message: str = "", threads: list[str] | None = None) -> None:
+        if (doc.status, doc.message, doc.threads) != (status, message, threads or []):
+            doc.status, doc.message, doc.threads = status, message, threads or []
+            try:
+                self._changed()
+            except Exception:  # the page's trouble is not the files'
+                logger.exception("Overleaf files listener failed")
+
+
 class _ChangedMeanwhile(Exception):
     """The file changed after it was last read."""
+
+
+def merge(base: str, theirs: str, mine: str) -> tuple[str, ot.Op] | None:
+    """Two texts changed from *base* brought together: the text holding both sides' edits,
+    and my edit moved past theirs, which makes that text from *theirs*. None when both
+    changed the same place."""
+    their_edit, my_edit = ot.diff(base, theirs), ot.diff(base, mine)
+    if my_edit and their_edit and _overlap(base, theirs, mine):
+        return None
+    moved_mine, moved_theirs = ot.transform_x(my_edit, their_edit)
+    return ot.apply(mine, moved_theirs), moved_mine
 
 
 def _span(base: str, text: str) -> tuple[int, int]:

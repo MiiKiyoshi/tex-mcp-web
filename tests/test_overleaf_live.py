@@ -11,6 +11,7 @@ from aiohttp import WSMsgType, web
 from aiohttp.test_utils import TestClient, TestServer
 
 from tex_mcp_web import overleaf
+from tex_mcp_web import overleaf_ot as ot
 from tex_mcp_web.config import load_config
 from tex_mcp_web.overleaf_live import LivePresence
 from tex_mcp_web.server import TexMcpWebServer
@@ -28,6 +29,7 @@ PROJECT = {
 
 
 MAIN = "\\documentclass{article}\n\\begin{document}\nHi there.\n\\end{document}\n"
+BODY = "Body text.\n"
 
 
 def event(name, *args):
@@ -62,6 +64,10 @@ class FakeRealtime:
         app.router.add_post(f"/project/{PROJECT_ID}/doc/{{doc}}/thread/{{thread}}/{{what:resolve|reopen}}", self._close)
         self.written: list = []            # every write Overleaf took
         self.refuse_writes = False
+        # The documents' text and version, which an editor opens and edits by its own calls.
+        self.texts = {"d-main": MAIN, "d-body": BODY}
+        self.versions = {"d-main": 1, "d-body": 1}
+        self.applied: list = []            # (doc, op) of every edit taken
         self.app = app
 
     async def _editor_page(self, request: web.Request) -> web.Response:
@@ -154,7 +160,22 @@ class FakeRealtime:
             elif message.data.startswith("5:2+::"):
                 lines = ["\\documentclass{article}", "Hello."]
                 await ws.send_str("6:::2+" + json.dumps([None, lines, 4, [], {}, "sharejs-text-ot", {}]))
+            elif (call := re.match(r"^5:(\d+)\+::(.*)$", message.data, re.S)) is not None:
+                payload = json.loads(call.group(2))
+                await ws.send_str(f"6:::{call.group(1)}+" + json.dumps(self._answer(payload["name"], payload["args"])))
         return ws
+
+    def _answer(self, name: str, args: list) -> list:
+        doc = str(args[0]) if args else ""
+        if name == "joinDoc":
+            ranges = {"comments": self.ranges} if doc == "d-main" else {}
+            return [None, self.texts[doc].split("\n"), self.versions[doc], [], ranges, "sharejs-text-ot", {}]
+        if name == "applyOtUpdate":
+            op = args[1]["op"]
+            self.texts[doc] = ot.apply(self.texts[doc], ot.text_only(op))
+            self.versions[doc] += 1
+            self.applied.append((doc, op))
+        return [None]
 
     async def push(self, frame: str) -> None:
         await self.sockets[-1].send_str(frame)
@@ -286,6 +307,8 @@ async def review(tmp_path: Path, monkeypatch, realtime):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config-home"))
     monkeypatch.delenv(overleaf.COOKIE_ENV, raising=False)
     (tmp_path / "main.tex").write_text(MAIN)
+    (tmp_path / "tex").mkdir()
+    (tmp_path / "tex" / "body.tex").write_text(BODY)
     (tmp_path / ".tex-mcp-web.yaml").write_text(f"main: main.tex\noverleaf: {link}\n")
     server = TexMcpWebServer(load_config(tmp_path / ".tex-mcp-web.yaml"))
     server.OVERLEAF_LIVE_GRACE = 0
@@ -666,16 +689,23 @@ async def test_the_agents_draft_is_sent_by_the_reviewer_once_its_edit_is_on_over
     await page.close()
 
 
-async def test_a_draft_naming_an_edit_waits_where_nothing_follows_overleaf(review) -> None:
+async def test_a_draft_naming_an_edit_waits_by_hand_until_send_makes_it_on_overleaf(review) -> None:
+    """In a folder that is no git clone, by hand, the words a draft describes are read from
+    Overleaf's own text, and the refusal says to Send first."""
     from tex_mcp_web.comments import OverleafDraft
 
     client, server, fake = review
     page, comment = await on_overleaf(client, server, fake)
-    server.comments.draft_overleaf(comment.id, comment.updated, OverleafDraft(
-        "Reworded it.", ["main.tex:3-3"], [{"file": "main.tex", "text": "Hi there."}]))
+    (server.watch_dir / "main.tex").write_text(MAIN.replace("Hi there.", "Hello there."))
+    server.comments.draft_overleaf(comment.id, server.comments.get(comment.id).updated, OverleafDraft(
+        "Reworded it.", ["main.tex:3-3"], [{"file": "main.tex", "text": "Hello there."}]))
     response = await client.post(f"/comments/{comment.id}/reply", json={"text": "Reworded it.", "overleaf": True})
-    assert response.status == 409 and "not a git clone" in (await response.json())["error"]
+    assert response.status == 409 and (await response.json())["error"].endswith("Press Send first.")
     assert fake.written == [] and server.comments.get(comment.id).overleaf_draft is not None
+    assert (await (await client.post("/overleaf/files/send")).json())["send"] == []
+    assert fake.texts["d-main"] == MAIN.replace("Hi there.", "Hello there.")
+    response = await client.post(f"/comments/{comment.id}/reply", json={"text": "Reworded it.", "overleaf": True})
+    assert response.status == 200 and fake.written == [("reply", "t1", "Reworded it.")]
     await page.close()
 
 

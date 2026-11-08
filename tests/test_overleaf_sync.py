@@ -805,3 +805,103 @@ async def test_a_drafted_thread_whose_lines_overleaf_lacks_is_not_opened_at_all(
         assert kept.thread == [] and kept.overleaf_draft.text == "New?"
     finally:
         await opened.close()
+
+
+# ----- By hand, in a folder that is no git clone -----
+
+async def hand_ready(opened: "Review") -> dict:
+    """The page is in the project and has read where the files stand."""
+    await wait_for(lambda: opened.server.overleaf_hand is not None and opened.server.overleaf_hand.read_once)
+    return (await (await opened.client.post("/overleaf/files/read")).json())
+
+
+async def test_by_hand_files_change_only_when_get_or_send_is_pressed(paper, overleaf_site) -> None:
+    """Without git and without live, Get writes Overleaf's edits into the files and Send makes
+    the files' edits there, each as a small edit, and nothing moves either way until pressed."""
+    fake, link = overleaf_site
+    opened = await Review(paper, fake, link, sync=False).open()
+    try:
+        assert await hand_ready(opened) == {"read": True, "get": [], "send": [], "choose": [], "gone": []}
+        await fake.coauthor("d-body", [{"p": 0, "i": "New. "}])
+        opened.write("main.tex", MAIN.replace("fast", "quick"))
+        await asyncio.sleep(0.3)
+        assert opened.read("tex/body.tex") == BODY and fake.docs["d-main"]["text"] == MAIN
+        now = await (await opened.client.post("/overleaf/files/read")).json()
+        assert (now["get"], now["send"]) == (["tex/body.tex"], ["main.tex"])
+
+        now = await (await opened.client.post("/overleaf/files/get")).json()
+        assert opened.read("tex/body.tex") == "New. " + BODY and (now["get"], now["send"]) == ([], ["main.tex"])
+        assert fake.docs["d-main"]["text"] == MAIN
+        now = await (await opened.client.post("/overleaf/files/send")).json()
+        assert fake.docs["d-main"]["text"] == MAIN.replace("fast", "quick") and now["send"] == []
+        [sent] = [op for doc, _, op in fake.applied if doc == "d-main"]
+        assert sum(len(step.get("i", "") + step.get("d", "")) for step in sent) == len("fast" + "quick")
+    finally:
+        await opened.close()
+
+
+async def test_by_hand_get_brings_both_sides_together_and_a_clash_waits_for_a_choice(paper, overleaf_site) -> None:
+    fake, link = overleaf_site
+    opened = await Review(paper, fake, link, sync=False).open()
+    try:
+        await hand_ready(opened)
+        # Each side changed another place: Get writes both, and Send then sends this side's.
+        await fake.coauthor("d-body", [{"p": 0, "i": "Theirs. "}])
+        opened.write("tex/body.tex", BODY.replace("end.", "end. Mine."))
+        now = await (await opened.client.post("/overleaf/files/read")).json()
+        assert now["get"] == ["tex/body.tex"] and now["send"] == []
+        now = await (await opened.client.post("/overleaf/files/get")).json()
+        both = "Theirs. " + BODY.replace("end.", "end. Mine.")
+        assert opened.read("tex/body.tex") == both and now["send"] == ["tex/body.tex"]
+        await opened.client.post("/overleaf/files/send")
+        assert fake.docs["d-body"]["text"] == both
+
+        # Both changed one place: nothing is written, the file waits for a choice, and Send
+        # leaves it.
+        await fake.coauthor("d-body", [{"p": 0, "d": "Theirs."}, {"p": 0, "i": "Ours?"}])
+        opened.write("tex/body.tex", both.replace("Theirs.", "Mine?"))
+        now = await (await opened.client.post("/overleaf/files/get")).json()
+        assert now["choose"] == ["tex/body.tex"] and opened.read("tex/body.tex") == both.replace("Theirs.", "Mine?")
+        await opened.client.post("/overleaf/files/send")
+        assert fake.docs["d-body"]["text"].startswith("Ours?")
+        files = (await (await opened.client.get("/overleaf/live")).json())["files"]
+        assert [(file["path"], file["status"]) for file in files] == [("tex/body.tex", "differs")]
+        assert (await opened.client.post("/overleaf/sync", json={"path": "tex/body.tex", "choice": "here"})).status == 200
+        now = await (await opened.client.post("/overleaf/files/send")).json()
+        assert fake.docs["d-body"]["text"] == both.replace("Theirs.", "Mine?") and now == {
+            "read": True, "get": [], "send": [], "choose": [], "gone": []}
+        assert list((paper / ".tex-mcp-web" / "overleaf-sync" / "kept").rglob("body.tex.overleaf.*"))
+        # Comments come in only once nothing is left to Get or Send.
+        opened.write("main.tex", MAIN + "% here")
+        await opened.client.post("/overleaf/files/read")
+        refused = await opened.client.post("/overleaf/comments")
+        assert refused.status == 409 and "Press Send first" in (await refused.json())["error"]
+    finally:
+        await opened.close()
+
+
+async def test_by_hand_files_pick_up_where_live_left_off(paper, overleaf_site) -> None:
+    """Both ways of following keep one record per file, so a file followed live and then by
+    hand, or the other way, is not read as differing."""
+    fake, link = overleaf_site
+    live = await Review(paper, fake, link).open()
+    try:
+        await live.settled()
+        await fake.coauthor("d-body", [{"p": 0, "i": "Live. "}])
+        await wait_for(lambda: live.read("tex/body.tex").startswith("Live. "))
+    finally:
+        await live.close()
+    opened = await Review(paper, fake, link, sync=False).open()
+    try:
+        assert await hand_ready(opened) == {"read": True, "get": [], "send": [], "choose": [], "gone": []}
+        await fake.coauthor("d-main", [{"p": 0, "i": "% hand\n"}])
+        now = await (await opened.client.post("/overleaf/files/read")).json()
+        assert now["get"] == ["main.tex"]
+    finally:
+        await opened.close()
+    live = await Review(paper, fake, link).open()
+    try:
+        await live.settled()
+        assert live.read("main.tex").startswith("% hand\n")
+    finally:
+        await live.close()

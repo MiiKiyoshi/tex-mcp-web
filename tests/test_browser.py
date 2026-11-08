@@ -2188,6 +2188,96 @@ def test_a_file_that_differs_from_overleaf_waits_for_a_choice_on_the_page(tmp_pa
 
 
 @pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
+def test_a_folder_without_git_gets_and_sends_by_hand_from_the_top_bar(tmp_path: Path, monkeypatch) -> None:
+    """By hand in a folder that is no git clone, the top bar's two buttons are Get and Send,
+    with the leaf, shown when there are edits to move, each counting the files it moves."""
+    import asyncio
+    import threading
+    from aiohttp.test_utils import TestServer
+    from tests.test_overleaf_sync import BODY, MAIN, PROJECT_ID, FakeOverleaf
+    from tex_mcp_web import overleaf
+
+    loop = asyncio.new_event_loop()
+    threading.Thread(target=loop.run_forever, daemon=True).start()
+    fake = FakeOverleaf()
+    site = TestServer(fake.app, loop=loop)
+    asyncio.run_coroutine_threadsafe(site.start_server(), loop).result(10)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config-home"))
+    monkeypatch.delenv(overleaf.COOKIE_ENV, raising=False)
+    overleaf.save_cookie(fake.cookie)
+    (tmp_path / "tex").mkdir()
+    (tmp_path / "main.tex").write_text(MAIN, encoding="utf-8")
+    (tmp_path / "tex" / "body.tex").write_text(BODY, encoding="utf-8")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: main.tex\nport: {port}\n"
+                           f"overleaf: http://127.0.0.1:{site.port}/project/{PROJECT_ID}\n", encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    profile = tempfile.mkdtemp(prefix="tex_mcp_overleaf_hand_")
+    marionette_port = available_port()
+    (Path(profile) / "user.js").write_text(f'user_pref("marionette.port", {marionette_port});\n', encoding="utf-8")
+    browser_process = None
+    browser = None
+    text = lambda selector: browser.execute_script(f'return document.querySelector("{selector}").textContent')
+    hidden = lambda selector: browser.execute_script(f'return document.querySelector("{selector}").hidden')
+    click = lambda selector: browser.execute_script(f'document.querySelector("{selector}").click()')
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        browser_process = subprocess.Popen(
+            ["firefox", "-marionette", "-headless", "-no-remote", "-profile", profile, "about:blank"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        browser = marionette.Marionette(host="127.0.0.1", port=marionette_port, startup_timeout=30)
+        browser.start_session()
+        browser.navigate(base)
+        wait_until(lambda: "hold the same text" in text("#overleaf-git-state"), timeout=20)
+        assert hidden("#git-pull-btn") and hidden("#git-push-btn")
+        click("#settings-btn")
+        hand_note = text("#overleaf-mode-hand-note")
+        assert "Get or" in hand_note and "Send, which show in the top bar" in hand_note
+        assert browser.execute_script('return document.querySelectorAll("#overleaf-mode-hand-note svg").length') == 7
+        browser.execute_script('document.querySelector("#settings-dialog").close()')
+
+        asyncio.run_coroutine_threadsafe(fake.coauthor("d-body", [{"p": 0, "i": "New. "}]), loop).result(10)
+        (tmp_path / "main.tex").write_text(MAIN.replace("fast", "quick"), encoding="utf-8")
+        click("#settings-btn")
+        wait_until(lambda: not hidden("#git-pull-btn") and not hidden("#git-push-btn"), timeout=15)
+        browser.execute_script('document.querySelector("#settings-dialog").close()')
+        assert text("#git-pull-btn") == "Get1" and text("#git-push-btn") == "Send1"
+        assert not hidden("#git-pull-btn .by-hand-mark")
+        # Comments wait until nothing is left to Get or Send, as at a git commit.
+        browser.execute_script('document.querySelector(\'.tab-btn[data-tab="overleaf-comments"]\').click()')
+        assert browser.execute_script('return document.querySelector("#overleaf-sync-comments-btn").disabled') is True
+        click("#git-pull-btn")
+        wait_until(lambda: (tmp_path / "tex" / "body.tex").read_text(encoding="utf-8") == "New. " + BODY, timeout=15)
+        wait_until(lambda: hidden("#git-pull-btn"), timeout=15)
+        assert fake.docs["d-main"]["text"] == MAIN
+        browser.execute_script("(window.wrappedJSObject || window).confirm = () => true;", sandbox=None)
+        click("#git-push-btn")
+        wait_until(lambda: fake.docs["d-main"]["text"] == MAIN.replace("fast", "quick"), timeout=15)
+        wait_until(lambda: hidden("#git-push-btn") and "hold the same text" in text("#overleaf-git-state"), timeout=15)
+        wait_until(lambda: browser.execute_script(
+            'return document.querySelector("#overleaf-sync-comments-btn").disabled') is False, timeout=15)
+    finally:
+        if browser is not None:
+            try:
+                browser.delete_session()
+            except Exception:
+                pass
+        if browser_process is not None:
+            browser_process.terminate()
+            try:
+                browser_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                browser_process.kill()
+        shutil.rmtree(profile, ignore_errors=True)
+        shared.stop()
+        asyncio.run_coroutine_threadsafe(site.close(), loop).result(10)
+        loop.call_soon_threadsafe(loop.stop)
+
+
+@pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
 def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_changed(
         tmp_path: Path, monkeypatch) -> None:
     """With the project named and the cookie kept, an open page sits in the Overleaf project:
@@ -2214,6 +2304,9 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
         "\\documentclass{article}\n\\begin{document}\nHello world.\n\\input{tex/body}\n\\end{document}\n",
         encoding="utf-8")
     (tmp_path / "tex" / "body.tex").write_text("Body text.\nMore body text here.\n", encoding="utf-8")
+    # Overleaf holds the same text, so Get and Send have nothing to move.
+    fake.texts = {"d-main": (tmp_path / "main.tex").read_text(encoding="utf-8"),
+                  "d-body": (tmp_path / "tex" / "body.tex").read_text(encoding="utf-8")}
     with fitz.open() as pdf:
         pdf.new_page().insert_text((72, 72), "Hello world.")
         pdf.save(tmp_path / "main.pdf")
@@ -2328,7 +2421,7 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
         second = next(c for c in store.list() if "A second one." in c.thread[0].text)
         store.draft_overleaf(brought.id, store.get(brought.id).updated, OverleafDraft("Both go, the first.", [], []))
         store.draft_overleaf(second.id, second.updated, OverleafDraft(
-            "Both go, the second.", ["main.tex:3-3"], [{"file": "main.tex", "text": "Hello world."}]))
+            "Both go, the second.", ["main.tex:3-3"], [{"file": "main.tex", "text": "Hello world, reworded."}]))
         wait_until(lambda: browser.execute_script(
             'return [...document.querySelectorAll(".overleaf-reply-input")].map((box) => box.value).sort().join("|")')
             == "Both go, the first.|Both go, the second.", timeout=15)

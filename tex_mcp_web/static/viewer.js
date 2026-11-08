@@ -42,6 +42,8 @@ const state = {
   overleafWaiting: 0,
   overleafGit: null,
   overleafGitRead: 0,
+  // Where a folder brought together with Overleaf by Get and Send stands, or null.
+  overleafFiles: null,
   overleafGitTimer: null,
   overleafEdits: "",
   // Comments brought in from Overleaf, and which comment tab is shown: the comments written
@@ -1056,7 +1058,7 @@ function showSettings(status = "") {
     $("#settings-dialog").showModal();
     // Opening reads Overleaf's branch afresh, so what the dialog says is what is there now.
     loadOverleafStatus()
-      .then((linked) => (linked?.git ? overleafGitAction("fetch") : null))
+      .then((linked) => (linked?.git || state.overleafFiles ? overleafGitAction("fetch") : null))
       .catch((error) => console.error(error));
   }
 }
@@ -1075,15 +1077,22 @@ function renderOverleafStatus({ project, cookie, sync = false, live = false, set
   }
   // The sync button and the tab it is in show drawings, so the note shows them too.
   const syncDrawing = [...$("#overleaf-sync-comments-btn").querySelectorAll("svg")].map((svg) => svg.cloneNode(true));
-  $("#overleaf-mode-hand-note").replaceChildren(git
-    ? "Files change only when you press git pull or git push, which show in the top bar when there are commits to move. Overleaf gets nothing until you git push. A new comment thread on Overleaf comes in when you press "
-    : "Nothing changes the files: this folder is not a git clone of the project. Who is on Overleaf still shows here, and a new comment thread there comes in when you press ",
+  // Get and Send show their drawings beside their words, which a phone leaves out.
+  const drawn = (selector, word) => [...[...$(selector).querySelectorAll("svg")].map((svg) => {
+    const copy = svg.cloneNode(true);
+    copy.removeAttribute("hidden");
+    return copy;
+  }), word];
+  $("#overleaf-mode-hand-note").replaceChildren(...(git
+    ? ["Files change only when you press git pull or git push, which show in the top bar when there are commits to move. Overleaf gets nothing until you git push. A new comment thread on Overleaf comes in when you press "]
+    : ["Files change only when you press ", ...drawn("#git-pull-btn", " Get"), " or ", ...drawn("#git-push-btn", " Send"),
+      ", which show in the top bar when there are edits to move. Overleaf gets nothing until you Send. A new comment thread on Overleaf comes in when you press "]),
   ...syncDrawing, " in the ", leafIcon(), " Comments tab.");
   $("#overleaf-mode-live-note").textContent = git
     ? "While this review page is open, text files such as .tex change both ways within a second, and a new comment thread on Overleaf comes in by itself. Figures and other uploaded files go by git: one you commit here goes with git push, and one added on Overleaf comes in by itself, or with git pull when the top bar shows it."
     : "While this review page is open, text files such as .tex change both ways within a second, and a new comment thread on Overleaf comes in by itself. Figures and other uploaded files are not copied: a git clone of the project brings those.";
   $("#overleaf-direct").hidden = !project;
-  $("#overleaf-git").hidden = !git;
+  $("#overleaf-git").hidden = !git && !state.overleafFiles;
   if (!git) {
     state.overleafGit = null;
     renderGitButtons();
@@ -1119,8 +1128,10 @@ function renderOverleafThreadSync() {
   const words = waiting ? `Sync comments from Overleaf (${waiting} new)` : "Sync comments from Overleaf";
   side.title = words;
   side.setAttribute("aria-label", words);
+  const files = state.overleafFiles;
   side.disabled = !state.overleafSignedIn
-    || (state.overleafGit !== null && state.overleafGit.state !== "same");
+    || (state.overleafGit !== null && state.overleafGit.state !== "same")
+    || (files !== null && (!files.read || files.get.length + files.send.length + files.choose.length > 0));
 }
 
 async function loadOverleafStatus() {
@@ -1158,10 +1169,45 @@ function renderOverleafGit(now) {
   renderOverleafThreadSync();
 }
 
+function fileCount(count) {
+  return `${count} file${count === 1 ? "" : "s"}`;
+}
+
+// A folder brought together with Overleaf by hand: Get and Send, each with the files it moves.
+function renderOverleafFiles(now) {
+  state.overleafFiles = now;
+  const counts = [now.get.length, now.send.length];
+  $("#overleaf-git").hidden = false;
+  $("#overleaf-git-state").textContent = !now.read ? "Reading Overleaf's files…"
+    : counts[0] && counts[1] ? `Overleaf has edits to ${fileCount(counts[0])} this folder lacks, and this folder has edits to ${fileCount(counts[1])} Overleaf lacks. Get brings them in and Send makes them there, and comments sync after that.`
+    : counts[0] ? `Overleaf has edits to ${fileCount(counts[0])} this folder lacks. Get in the top bar brings them in, and comments sync after that.`
+    : counts[1] ? `This folder has edits to ${fileCount(counts[1])} Overleaf lacks. Send in the top bar makes them there, and comments sync after that.`
+    : "This folder and Overleaf hold the same text.";
+  $("#overleaf-git-uncommitted").hidden = true;
+  renderGitButtons();
+  renderOverleafThreadSync();
+}
+
 function renderGitButtons() {
-  const now = state.overleafGit;
   const pull = $("#git-pull-btn");
   const push = $("#git-push-btn");
+  const byHand = state.overleafFiles;
+  for (const button of [pull, push]) {
+    button.querySelector(".by-hand-mark").hidden = !byHand;
+    button.querySelector(".wide-label").textContent = byHand ? (button === pull ? "Get" : "Send")
+      : (button === pull ? "git pull" : "git push");
+  }
+  if (byHand) {
+    pull.hidden = !byHand.get.length;
+    push.hidden = !byHand.send.length;
+    pull.disabled = push.disabled = false;
+    pull.querySelector(".git-count").textContent = byHand.get.length ? String(byHand.get.length) : "";
+    push.querySelector(".git-count").textContent = byHand.send.length ? String(byHand.send.length) : "";
+    pull.title = `Get Overleaf's edits to ${fileCount(byHand.get.length)}: ${byHand.get.join(", ")}`;
+    push.title = `Send the edits to ${fileCount(byHand.send.length)} to Overleaf: ${byHand.send.join(", ")}`;
+    return;
+  }
+  const now = state.overleafGit;
   pull.hidden = !now?.behind;
   // With the files kept the same, Push takes Overleaf's commits in first by itself.
   push.hidden = !now?.ahead || (Boolean(now?.behind) && !state.overleafFullSync);
@@ -1176,6 +1222,7 @@ function renderGitButtons() {
 // Reading Overleaf's branch, or pulling from it or pushing to it, as the reviewer asked.
 // A pull or push that does not go through says why in Settings.
 async function overleafGitAction(action) {
+  if (state.overleafFiles) return overleafFilesAction({ fetch: "read", pull: "get", push: "send" }[action]);
   if (action === "push" && !confirm(`git push ${commits(state.overleafGit?.ahead ?? 0)} to Overleaf, `
     + "for everyone in the project?")) return;
   for (const id of ["#git-pull-btn", "#git-push-btn", "#overleaf-sync-comments-btn"]) $(id).disabled = true;
@@ -1201,8 +1248,35 @@ async function overleafGitAction(action) {
 
 // Overleaf's branch is read again when the page opens, a little after someone edits on
 // Overleaf, and when the reviewer comes back to the page, at most once a minute.
+// Reading where the files brought together by hand stand, or a Get or a Send the reviewer asked
+// for. One that does not go through says why in Settings.
+async function overleafFilesAction(action) {
+  const sending = state.overleafFiles?.send ?? [];
+  if (action === "send" && !confirm(`Send the edits to ${fileCount(sending.length)} (${sending.join(", ")}) to Overleaf, `
+    + "for everyone in the project?")) return;
+  for (const id of ["#git-pull-btn", "#git-push-btn", "#overleaf-sync-comments-btn"]) $(id).disabled = true;
+  if (action !== "read") $("#overleaf-git-state").textContent = action === "get" ? "Getting Overleaf's edits…" : "Sending to Overleaf…";
+  state.overleafGitRead = Date.now();
+  const response = await fetch(`/overleaf/files/${action}`, { method: "POST" });
+  if (response.ok) {
+    renderOverleafFiles(await response.json());
+    if (action !== "read" && $("#settings-dialog").open) {
+      $("#overleaf-status").textContent = action === "get" ? "Get done." : "Send done.";
+    }
+    return;
+  }
+  const why = await responseError(response);
+  if (action === "read") {
+    $("#overleaf-git-state").textContent = `Could not read Overleaf's files: ${why}`;
+    renderGitButtons();
+    return;
+  }
+  showSettings(`Could not ${action === "get" ? "Get" : "Send"}: ${why}`);
+  await overleafFilesAction("read");
+}
+
 function readOverleafGitSoon(delay) {
-  if (!state.overleafGit) return;
+  if (!state.overleafGit && !state.overleafFiles) return;
   clearTimeout(state.overleafGitTimer);
   state.overleafGitTimer = setTimeout(() => overleafGitAction("fetch").catch((error) => console.error(error)), delay);
 }
@@ -1374,11 +1448,12 @@ function overleafChoiceItem(file, withOpen) {
   return item;
 }
 
-function renderOverleafFiles(files, choosing) {
+function renderOverleafChoices(files, choosing) {
   const head = $("#overleaf-sync-head");
   const followed = files.filter((file) => file.status !== "unsupported").length;
-  head.hidden = !files.length;
-  head.textContent = choosing.length
+  head.hidden = !files.length || (Boolean(state.overleafFiles) && !choosing.length);
+  head.textContent = state.overleafFiles ? `${choosing.length} file${choosing.length === 1 ? "" : "s"} wait for your choice.`
+    : choosing.length
     ? `${choosing.length} file${choosing.length === 1 ? "" : "s"} wait for your choice; the others stay in step with Overleaf.`
     : `${followed} file${followed === 1 ? "" : "s"} kept in step with Overleaf.`;
   $("#overleaf-sync-files").replaceChildren(...choosing.map((file) => overleafChoiceItem(file, false)));
@@ -1407,6 +1482,11 @@ async function chooseOverleafText(path, choice, label) {
 
 function renderOverleafLive(snapshot) {
   overleafLive.snapshot = snapshot;
+  if (snapshot.by_hand) renderOverleafFiles(snapshot.by_hand);
+  else if (state.overleafFiles) {
+    state.overleafFiles = null;
+    renderGitButtons();
+  }
   const { status, users = [], changes = [] } = snapshot;
   const button = $("#overleaf-live-btn");
   const off = status === "off";
@@ -1421,7 +1501,7 @@ function renderOverleafLive(snapshot) {
   button.classList.toggle("trouble", trouble);
   button.hidden = !off && !trouble;
   button.title = off ? "Connect this paper to its Overleaf project" : "Overleaf: something needs a look";
-  renderOverleafFiles(files, choosing);
+  renderOverleafChoices(files, choosing);
   renderOverleafThreadSync();
   $("#overleaf-live-label").textContent = off ? "Connect Overleaf"
     : choosing.length ? `${choosing.length} waiting`
