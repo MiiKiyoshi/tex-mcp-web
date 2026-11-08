@@ -30,6 +30,7 @@ quote is found again in the new PDF and its rectangles are regenerated.
 from __future__ import annotations
 
 import contextlib
+import difflib
 import hashlib
 import json
 import logging
@@ -514,6 +515,9 @@ class Comment:
     # The selected source text was edited and the comment was reattached by the
     # unchanged text around it, so it now points at the edited text.
     reanchored: bool = False
+    # The hash of the file's text in which resolved_source is exact, kept under
+    # anchor-texts beside the store: the next edits to the file move the comment from it.
+    base: str | None = None
 
     @property
     def text(self) -> str:
@@ -543,6 +547,8 @@ class Comment:
             d["stale"] = True
         if self.reanchored:
             d["reanchored"] = True
+        if self.base is not None:
+            d["base"] = self.base
         return d
 
     @classmethod
@@ -577,6 +583,7 @@ class Comment:
             resolved=str(d["resolved"]) if "resolved" in d else None,
             stale=bool(d["stale"]) if "stale" in d else False,
             reanchored=bool(d.get("reanchored", False)),
+            base=str(d["base"]) if "base" in d else None,
         )
 
 
@@ -744,6 +751,68 @@ def reattach_source_lines(
         return None
     return (ResolvedSource(name, first + 1, last + 1),
             SourceSelector("\n".join(lines[first:last + 1]), selector.prefix, selector.suffix))
+
+
+def _span(text: str, source: ResolvedSource) -> tuple[int, int]:
+    """The Python offsets a resolved source range covers: its characters, or for whole lines
+    their text without the last newline. Empty when its words were deleted."""
+    if source.column_start is not None:
+        return (source_offset(text, source.line_start, source.column_start),
+                source_offset(text, source.line_end, source.column_end))
+    lines = text.split("\n")
+    if not 1 <= source.line_start <= source.line_end <= len(lines):
+        raise ValueError("Source range is out of bounds")
+    start = source_offset(text, source.line_start, 0)
+    return start, start + len("\n".join(lines[source.line_start - 1:source.line_end]))
+
+
+def follow_edits(base: str, now: str, comments: list["Comment"]) -> dict[str, tuple[ResolvedSource, SourceSelector, bool]]:
+    """Where comments exact in *base* sit in *now*, as Overleaf moves a comment through an
+    edit: the edit is the smallest one between the two texts, text inserted at or before a
+    comment's start moves it, inside it widens it, words written over its words take it, and
+    a delete takes away what it removes of it, all of it leaving an empty range where the
+    words were. When what is left there shares little with the comment's words and those
+    occur once elsewhere in *now*, as a moved paragraph's do, the comment goes with them. By
+    comment id: the range in *now*, its selector, and whether its words changed."""
+    from . import overleaf_ot as ot
+
+    ranges, spans = [], {}
+    for comment in comments:
+        start, end = _span(base, comment.resolved_source)
+        spans[comment.id] = (start, end)
+        ranges.append({"t": comment.id, "p": ot.js_len(base[:start]), "n": ot.js_len(base[start:end])})
+    moved = {r["t"]: r for r in ot.move_comments(ranges, ot.diff(base, now, ranges))}
+    placed = {}
+    for comment in comments:
+        start, end = spans[comment.id]
+        words = base[start:end]
+        r = moved[comment.id]
+        new_start = ot.py_index(now, r["p"])
+        new_end = ot.py_index(now, r["p"] + r["n"])
+        # A smallest edit cannot tell a moved paragraph from a rewritten one: the words left
+        # where the comment was may be another paragraph's. When they share little with the
+        # comment's own words and those occur once elsewhere, the comment goes with them.
+        taken = now[new_start:new_end]
+        if (taken != words and words.strip() and now.count(words) == 1
+                and difflib.SequenceMatcher(None, words, taken).ratio() < 0.5):
+            new_start = now.index(words)
+            new_end = new_start + len(words)
+        source = comment.resolved_source
+        if source.column_start is not None:
+            ls, cs = _coordinate(now, new_start)
+            le, ce = _coordinate(now, new_end)
+            resolved = ResolvedSource(source.file, ls, le, cs, ce)
+            selector = SourceSelector(now[new_start:new_end], now[max(0, new_start - 80):new_start],
+                                      now[new_end:new_end + 80])
+        else:
+            ls = now.count("\n", 0, new_start) + 1
+            le = max(ls, now.count("\n", 0, max(new_start, new_end - 1 if new_end > new_start else new_end)) + 1)
+            lines = now.split("\n")
+            resolved = ResolvedSource(source.file, ls, le)
+            selector = SourceSelector("\n".join(lines[ls - 1:le]), "\n".join(lines[max(0, ls - 3):ls - 1]),
+                                      "\n".join(lines[le:le + 2]))
+        placed[comment.id] = (resolved, selector, now[new_start:new_end] != words)
+    return placed
 
 
 def _strip_for_match(s: str) -> str:
@@ -1625,17 +1694,88 @@ class CommentStore:
 
     # ----- staleness -----
 
+    @property
+    def _bases(self) -> Path:
+        return self.path.parent / "anchor-texts"
+
+    def _follow_edits(self, comments: list[Comment], watch_dir: Path) -> tuple[set[str], bool]:
+        """Move source-range comments through the edits made to their files since the text
+        they were last exact in, one smallest edit per file. Comments with no base text known
+        are left to be found by their words. The ids moved, and whether any changed."""
+        groups: dict[tuple[str, str], list[Comment]] = {}
+        for comment in comments:
+            if (isinstance(comment.anchor, SourceRangeAnchor) and comment.resolved_source is not None
+                    and comment.base is not None):
+                groups.setdefault((comment.resolved_source.file, comment.base), []).append(comment)
+        handled, changed = set(), False
+        for (name, base_sha), group in groups.items():
+            try:
+                base = (self._bases / f"{base_sha}.txt").read_text(encoding="utf-8")
+                now = (watch_dir / name).read_text(encoding="utf-8")
+            except (OSError, UnicodeError):
+                continue
+            if now != base:
+                try:
+                    placed = follow_edits(base, now, group)
+                except ValueError:
+                    continue
+                for comment in group:
+                    resolved, selector, edited = placed[comment.id]
+                    if (resolved, selector) != (comment.resolved_source, comment.source_selector):
+                        comment.resolved_source, comment.source_selector = resolved, selector
+                        changed = True
+                    if edited and not comment.reanchored:
+                        comment.reanchored = changed = True
+            handled.update(comment.id for comment in group)
+        return handled, changed
+
+    def _keep_bases(self, comments: list[Comment], watch_dir: Path) -> bool:
+        """Record for each source-range comment the text its range is exact in now, by hash,
+        and let go of texts no comment names. Whether any comment's base changed."""
+        changed, texts = False, {}
+        for comment in comments:
+            if not isinstance(comment.anchor, SourceRangeAnchor) or comment.resolved_source is None or comment.stale:
+                continue
+            name = comment.resolved_source.file
+            if name not in texts:
+                try:
+                    texts[name] = (watch_dir / name).read_text(encoding="utf-8")
+                except (OSError, UnicodeError):
+                    texts[name] = None
+            if texts[name] is None:
+                continue
+            sha = hashlib.sha256(texts[name].encode("utf-8")).hexdigest()
+            kept = self._bases / f"{sha}.txt"
+            if not kept.exists():
+                self._bases.mkdir(parents=True, exist_ok=True)
+                staging = kept.with_suffix(".tmp")
+                staging.write_text(texts[name], encoding="utf-8")
+                os.replace(staging, kept)
+            if comment.base != sha:
+                comment.base, changed = sha, True
+        named = {comment.base for comment in comments if comment.base is not None}
+        if self._bases.is_dir():
+            for kept in self._bases.glob("*.txt"):
+                if kept.stem not in named:
+                    kept.unlink(missing_ok=True)
+        return changed
+
     def refresh_source_anchors(self, watch_dir: Path) -> None:
         """Update source comments even when automatic compilation is disabled."""
         with self._locked():
             comments = self._all()
-            changed = False
+            handled, changed = self._follow_edits(comments, watch_dir)
             for comment in comments:
                 if not isinstance(comment.anchor, SourceRangeAnchor):
+                    continue
+                if comment.id in handled:
+                    changed |= comment.stale
+                    comment.stale = False
                     continue
                 stale, modified = self._refresh_anchor(comment, watch_dir, None, "", None, None, None)
                 changed |= modified or stale != comment.stale
                 comment.stale = stale
+            changed |= self._keep_bases(comments, watch_dir)
             if changed:
                 self._save(comments)
 
@@ -1659,7 +1799,7 @@ class CommentStore:
         with self._locked():
             comments = self._all()
             newly_stale: list[str] = []
-            changed = False
+            handled, changed = self._follow_edits(comments, watch_dir)
             digest = pdf_digest(pdf_path)
             text_index = (
                 PdfTextIndex(pdf_path)
@@ -1669,6 +1809,10 @@ class CommentStore:
             try:
                 for c in comments:
                     was_stale = c.stale
+                    if c.id in handled:
+                        changed |= c.stale
+                        c.stale = False
+                        continue
                     new_stale, modified = self._refresh_anchor(
                         c,
                         watch_dir,
@@ -1690,6 +1834,7 @@ class CommentStore:
                 if text_index is not None:
                     text_index.close()
 
+            changed |= self._keep_bases(comments, watch_dir)
             if changed:
                 self._save(comments)
 

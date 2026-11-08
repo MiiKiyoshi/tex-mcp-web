@@ -80,6 +80,11 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   listen, ask the agent in chat to handle the tex comments.
 - **Resolve** a thread whose edit satisfies you, or **Reply** in it when it does not.
   **Archive** sets a thread aside, and it still takes replies.
+- A comment on source text follows the file's edits as a comment on Overleaf does: text
+  inserted before it moves it, inside it widens it, words written over its words take it,
+  and deleting all of them leaves it where they were. A paragraph moved elsewhere takes its
+  comments along. The card says **EDITED** once its words changed, and **STALE** only when
+  its file is gone.
 - The row above the comments acts on the threads picked by their boxes. The buttons
   pressed less often, **Expand all**, **Archive** and **Reopen**, sit together at the row's
   end, and behind **⋯** with their names when the panel is too narrow for the whole row.

@@ -2313,10 +2313,12 @@ async def test_exact_source_selection_revision_and_save(client, project):
     response = await tc.post("/comments", json={"anchor": anchor, "text": "old selection",
                                              "source_revision": source["revision"]})
     assert response.status == 409
-    # File watcher updates source anchors without a PDF or a compile.
+    # File watcher updates source anchors without a PDF or a compile. Words written over the
+    # commented words take the comment, as on Overleaf, and it says its words were edited.
     (project / "paper.tex").write_text(changed.replace("prose", "replacement"))
     await server.on_file_change(str(project / "paper.tex"))
-    assert server.comments.get(comment["id"]).stale
+    moved = server.comments.get(comment["id"])
+    assert not moved.stale and moved.reanchored and moved.source_selector.exact == "replacement"
 
 
 @pytest.mark.asyncio

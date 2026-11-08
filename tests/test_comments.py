@@ -697,3 +697,94 @@ def test_reanchored_flag_round_trips(store: CommentStore, tmp_path: Path):
     source.write_text(_CTX_BEFORE + "New words." + _CTX_AFTER)
     store.refresh_source_anchors(tmp_path)
     assert CommentStore(store.path).get(comment.id).reanchored
+
+
+# --- following the file's edits from the text the comment was last exact in, as Overleaf ---
+
+def _followed(store, source, text, start, end):
+    """A comment on characters of *text*, whose base text the store has recorded."""
+    source.write_text(text)
+    comment = _source_comment(store, source, start, end)
+    store.refresh_source_anchors(source.parent)
+    assert store.get(comment.id).base is not None
+    return comment
+
+
+def _after(store, source, text, comment):
+    source.write_text(text)
+    store.refresh_source_anchors(source.parent)
+    moved = store.get(comment.id)
+    return moved, moved.source_selector.exact
+
+
+def test_a_comment_moves_with_text_inserted_before_it_even_where_its_words_repeat(store, tmp_path):
+    source = tmp_path / "paper.tex"
+    comment = _followed(store, source, "A cell. A cell.\n", (1, 8), (1, 14))
+    moved, words = _after(store, source, "New. A cell. A cell.\n", comment)
+    assert (moved.resolved_source, words, moved.stale, moved.reanchored) == (
+        ResolvedSource("paper.tex", 1, 1, 13, 19), "A cell", False, False)
+
+
+def test_words_written_over_or_inside_a_comment_take_it(store, tmp_path):
+    source = tmp_path / "paper.tex"
+    comment = _followed(store, source, "Keep this word here.\n", (1, 5), (1, 14))
+    moved, words = _after(store, source, "Keep this other word here.\n", comment)
+    assert words == "this other word" and moved.reanchored and not moved.stale
+    moved, words = _after(store, source, "Keep these words here.\n", comment)
+    assert words == "these words"
+    # Text typed at either edge stays outside, as on Overleaf.
+    moved, words = _after(store, source, "Keep (these words) here.\n", comment)
+    assert words == "these words"
+
+
+def test_a_comment_whose_words_are_all_deleted_stays_where_they_were(store, tmp_path):
+    source = tmp_path / "paper.tex"
+    text = "First sentence. Delete me. Last sentence.\n"
+    comment = _followed(store, source, text, (1, 16), (1, 26))
+    moved, words = _after(store, source, "First sentence. Last sentence.\n", comment)
+    assert (moved.resolved_source, words, moved.stale) == (ResolvedSource("paper.tex", 1, 1, 16, 16), "", False)
+
+
+def test_a_moved_paragraph_takes_its_comment_along(store, tmp_path):
+    source = tmp_path / "paper.tex"
+    one, two = "The first paragraph stays.\n", "The moved paragraph has the comment.\n"
+    comment = _followed(store, source, one + "\n" + two, (3, 4), (3, 9))
+    moved, words = _after(store, source, two + "\n" + one, comment)
+    assert (moved.resolved_source, words) == (ResolvedSource("paper.tex", 1, 1, 4, 9), "moved")
+
+
+def test_edits_made_while_no_server_ran_are_followed_from_the_kept_text(store, tmp_path):
+    source = tmp_path / "paper.tex"
+    block = _CTX_BEFORE + "Edit me." + _CTX_AFTER
+    comment = _followed(store, source, block, (2, 0), (2, 8))
+    # The same context twice: words alone cannot say which, the kept text can.
+    source.write_text(block + _CTX_BEFORE + "Edited." + _CTX_AFTER)
+    again = CommentStore(store.path)
+    again.refresh_source_anchors(tmp_path)
+    moved = again.get(comment.id)
+    assert (moved.resolved_source, moved.stale) == (ResolvedSource("paper.tex", 2, 2, 0, 8), False)
+
+
+def test_a_line_comment_follows_its_lines(store, tmp_path):
+    source = tmp_path / "paper.tex"
+    source.write_text("one\ntwo\nthree\nfour\n")
+    comment = store.add(SourceRangeAnchor(file="paper.tex", line_start=2, line_end=3), "review",
+                        resolved_source=ResolvedSource("paper.tex", 2, 3),
+                        source_selector=capture_source_selector(source, 2, 3, context=2))
+    store.refresh_source_anchors(tmp_path)
+    source.write_text("zero\none\ntwo\nthree\nfour\n")
+    store.refresh_source_anchors(tmp_path)
+    assert store.get(comment.id).resolved_source == ResolvedSource("paper.tex", 3, 4)
+    source.write_text("zero\none\nfour\n")
+    store.refresh_source_anchors(tmp_path)
+    gone = store.get(comment.id)
+    assert (gone.resolved_source, gone.stale) == (ResolvedSource("paper.tex", 3, 3), False)
+
+
+def test_a_comment_goes_stale_only_when_its_file_is_gone(store, tmp_path):
+    source = tmp_path / "paper.tex"
+    comment = _followed(store, source, "Some words.\n", (1, 5), (1, 10))
+    source.unlink()
+    store.refresh_source_anchors(tmp_path)
+    assert store.get(comment.id).stale
+    assert len(list((store.path.parent / "anchor-texts").glob("*.txt"))) == 1
