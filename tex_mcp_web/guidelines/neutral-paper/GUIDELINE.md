@@ -48,7 +48,11 @@ Record this sequence and grouping before drafting, as the section map, showing e
 
 If the needed explanation exceeds a page limit, reduce the scope within authorized constraints. Do not meet a length by inventing terms, obscuring relationships, or omitting needed explanation. When removing content, remove what fails 1.4 or repeats a claim. Keep the prerequisites, definitions, mechanism or calculation steps, conditions, evidence, local context, and details the reader needs to follow each answer and its reasoning.
 
+Spend the page budget on the paper's own contribution. Explain the method's components in detail, and keep the Introduction and Background together to about a third of the page limit, and when they exceed it, shorten or drop first the background subsections the method's explanation needs least. When a subsection's components each need more than one paragraph, give each component its own subsubsection.
+
 2.7 **Order sections by prerequisites.** Order sections by prerequisites under 6.1. Distinguish background from the subject by explanatory role, not source or novelty, and make headings match. For empirical work, present method, setup, then results.
+
+In the method, a problem formulation comes before the overview and states only the inputs, constraints, output, and objective. Definitions that only the procedure uses, such as its intermediate states and transitions, go with the procedure. In the experiments, after the setup, report the accuracy of any model or estimator the method relies on first, then the comparison with baselines, the ablation, a case study, and runtime.
 
 2.8 **Keep planning records in one file.** Keep the planning records in one file outside the paper's LaTeX sources, in the paper's language, recording choices as they are made. The file holds:
 
@@ -70,6 +74,10 @@ If the needed explanation exceeds a page limit, reduce the scope within authoriz
 
 2.10 **Keep each section to its role.** A section holds only the content of its role: background the method needs in the background, the method's rules, steps, inputs, and outputs in the method, the conditions, settings, and benchmarks in the setup, and measured values with their interpretation in the results. Outside the results, show no measured value, result, or instance taken from a particular run, under 5.6. Where such a section must show the form of an output or record, read several real ones and show the form they share, with placeholders for their values and names.
 
+State the method in the field's terms: what each part takes, does, and produces. Generalize or omit code-level detail, such as the programming language, API and function names, diffs, shell tools, log syntax, and file paths, keeping a tool command or option name only where 4.1 needs it to identify the subject. A property that changes how the method behaves is not code-level detail: keep it and state in one clause what it gives. A comparison against a baseline belongs in the comparison, not the ablation, even when it uses an ablation condition. A case study shows the process of one run in a few marked scenes, and no value a table already shows.
+
+2.11 **Keep a skeleton's notes in the sources.** When the requester drafts from a skeleton, write it as comments in the LaTeX sources, one block per paragraph headed by the paragraph's topic, one claim per line, in the requester's language, with each cited work's full reference under the line that uses it. A drafted paragraph keeps its notes above its prose. Notes name sections, figures, tables, and equations by their printed numbers and titles, since a comment cannot use \ref, and are updated when those numbers change. They state what a thing is and does rather than what it is not, and carry no implementation reason or drafting history. Draft the prose in the paper's language from the notes' content under 4.1, not by translating them sentence by sentence. While notes carry the content, the reviewer reads the sources: judge first use under 4.3 and order over the notes and the printed text together, in source order. Once prose replaces the notes, judge them on the compiled paper.
+
 ## Article 3. Draft sections
 
 3.1 **Draft in reading order, not source order.** Draft in reading order, applying 1.4 to each paragraph, figure, table, and equation and establishing missing prerequisites and relationships before dependent content. This order, not source order, determines what comes next.
@@ -87,6 +95,8 @@ State a problem and why it is one. Do not replace it with an evasive phrase that
 
 Ground relationships implied by conceptual drawings, including ordering, crossings, and meaningful relative size, in sources or checks under stated conditions. Omit unsupported relationships.
 
+State a limitation of the proposed method only together with an alternative under the same constraints that would avoid or reduce it. Without one, the effect is a condition of the problem, not a limitation: omit it, or state it as a condition where a claim's scope depends on it.
+
 3.3 **Show each step's actor, inputs, and outputs.** For a process or comparison, show:
 
 1. each step's actor, inputs, and outputs, and how its output determines the next step,
@@ -99,6 +109,8 @@ Ground relationships implied by conceptual drawings, including ordering, crossin
 
 3.5 **Establish each claim only once.** Establish each claim once. Where a claim recurs beyond such local context (3.4), add a consequence or interpretation. Expand an overview by answering a further question, not repeating the topic. Combine subjects only through a real connection. Resolve or report contradictions with earlier sections.
 
+Define each term and rule in the method, and give in the setup only the conditions, settings, tools, and benchmarks with their values. Do not restate an equation in prose. Before writing a term, find where the paper defines it and refer to that definition.
+
 3.6 **Show the mechanism before naming it.** For an unfamiliar mechanism, show what happens to named objects, what changes, what stays fixed, and what follows before attaching its name and definition. Establish its referent and defining rule at the section's level, then build the formal explanation on those relationships. Accept introductory simplifications that preserve the relationships and agree with the formal explanation and with grounded drawings (3.2).
 
 Introduce an unfamiliar general concept through an instance of it familiar outside the work, the one commonly used to teach it, such as a table of house prices for tabular data, then state in one line that the work's setting has the same form.
@@ -107,13 +119,19 @@ To justify a model over a simpler one, show what the simpler model misses, why i
 
 3.7 **Justify a design choice by a widely accepted finding.** Justify a design choice by a widely accepted finding, cited, and by showing that the setting meets the conditions the finding is about. Add no measurement, count, or criterion of the author's own to pre-empt an objection the reader has not raised, and no number the reader has no reference to judge.
 
+3.8 **Open each component with why it exists.** Under 2.5, open the explanation of a method's component with the qualitative reason it exists as a separate component, the problem it handles that its neighbors leave, before its inputs, operation, and outputs.
+
 ## Article 4. Words and notation
 
 4.1 **Use established field terms, never coinages.** Think and draft each text in its reader's language rather than translating it. Name each object or action as the reader and field name it in the paper's language, including established loanwords, with expressions of clear meaning and actual common use, in headings, captions, and labels too. Where the field uses an English term, write the English term, such as baseline, backbone, adapter, retention, or word problem, not a translation of it. Do not form names by literally translating internal code names or foreign words, or replace established terms with paraphrases or coinages to sound plainer. Avoid rarely used words and word pairings, and common words in a part of speech unusual for them, even when their dictionary meanings fit.
 
 Where no established term fits, describe the relevant objects, properties, and relationships. Do not substitute unexplained identifiers, working labels, or type signatures for explanation. Retain command, option, and data structure names needed to identify the subject.
 
+In Korean, put a count before its noun, in digits under 4.5, or name the members, not a noun followed by a count and a particle: 3개 model, or the members' names, not model 셋은. Replace vague nouns such as 양, 것, and 측면 with the name of the quantity or object.
+
 4.2 **Name the operation, not a person's act.** Describe an object, program, model, agent's output, or quantity by what it computes, holds, or outputs, never with a verb for what a person does by choice or mind, such as knowing, expecting, wanting, trying, judging, following, taking on, keeping, correcting, or stepping, unless that verb is the field's technical term for the operation, such as a model that predicts or a router that routes: a tree whose output is the value of the leaf a sample falls in, not a tree that follows the remaining error, and a model that gives an answer a high probability, not one that knows the answer. The test is the meaning, so it holds for the verbs and endings of whatever language the paper is written in, and for a title or label phrased as a question, which puts a person's deliberation in a thing's place. A requester's informal explanation gives the idea, not the wording, so restate it as what is computed.
+
+The rule covers LLM agents as parts of a method, in notes and replies as in the text: describe an agent by its inputs and outputs, not by receiving, submitting, reading, or deciding, and read 3.3's "receives, decides, and produces" for such an actor as its inputs, the choices its output records, and its outputs. When an agent's own decision during a run is the subject, as in a case study, write the agent as the actor of that decision.
 
 When describing an action or change, first state what acts or changes and what happens to the affected object, with no long list or long clause between the action and its participants, and keep the action and participants needed to identify it in shorter headings, labels, definitions, and captions. Name the operation itself, such as multiplying an output by a factor below one, not a vague verb for its effect, such as weakening it, and name an object, not a figure of speech for it. Name steps by object and operation at the level explained, not a hidden substep.
 
@@ -140,6 +158,8 @@ In text, identify quantities and drawn elements by established names or their de
 Use one equation per definition step, numbered and labeled when the text refers to it. Give each symbol one role and distinguish assumed from solved values.
 
 4.7 **Headings are English noun phrases naming subjects.** Head sections and subsections with English noun phrases in Title Case naming the subject at the level explained, such as Proxy Dev Sets or Interference-Aware Rank Allocation, not its conclusion, incidental source, or an action used merely to obtain it. Do not use a bare generic word, such as Approach or Plan, as a subsection heading, and do not head a subsection in another language.
+
+4.8 **Punctuate without semicolons or clauses in parentheses.** Write no semicolon in prose, captions, table cells, notes, or replies. Parentheses hold a noun or symbol list, a value, or a pointer such as a table or equation number, never a definition, condition, or reason, which becomes its own sentence.
 
 ## Article 5. Figures and tables
 
@@ -182,13 +202,17 @@ Show purpose, operation, and conditions and scope beyond the instance, including
 
 When a table or plot first shows an unfamiliar computed quantity, define it before the visual by an equation in the paper's notation, writing a constant taken from data or a setting as a defined symbol.
 
-A caption names what is shown and its role in the argument. The interpretation of a figure or table, and any worked calculation with its values, go in the paragraph that references it.
+A caption is one short line naming what is shown. A format shared by several tables is described once in the text, and their captions refer to it as the form of the first such table. The interpretation of a figure or table, and any worked calculation with its values, go in the paragraph that references it.
 
 5.9 **Table cells hold labels, numbers, or marks.** Use rows for entities or conditions unless transposing clarifies comparison. Rows and columns must belong to their header's set at the same grouping level. A cell holds a short label, a number, or a mark, never a sentence: move explanation into the text. Put conclusions and facts of another kind outside the table. Aggregates computed from member rows or columns may remain if labeled and set apart. Order entries meaningfully, state units once, identify sources of differing measurements, and keep group conditions and needed explanation with results.
 
 When a column repeats one value in every row, state the value once outside the columns and drop the column. Keep the column when that value is a measured number or when the column is one of several compared columns and another of them varies.
 
 A list of names, such as datasets or models with their sizes or roles, goes in a table, not in a sentence.
+
+Apart from such labeled aggregates, no column holds a value the reader can compute from the other columns of its row, and a reported total stands without its breakdown unless the breakdown is the claim. Show a result against its reference: give the reference values, and each method's value with its change as a percentage in parentheses after it, as in -2,168 (+22%), never as a number of its own, with a positive change meaning an improvement. Keep a row per benchmark instance, each cell the mean over runs with its spread and change, and let an aggregate row cover only the instances every column has.
+
+List a model's input features one scalar per row, with the columns Input (the indexed symbol), Feature (an English name), and Value (definition with unit). Give each object one symbol, list features shared by several models once, and put a diagram of input vector, model, and output beside the table. Do not paraphrase input features in prose or merge several into one row.
 
 5.10 **Reuse the existing figures' visual style.** When extending or restyling a paper, reuse the palette, line and arrow styles, typography, and panel label placement of its existing figures, use existing visual distinctions before adding new ones, and preserve their meanings when adapting figures.
 
@@ -208,11 +232,15 @@ Leave out a section the argument does not need, and name a section added for a n
 
 6.2 **Abstract states problem, method, and result.** The abstract states the problem, the method, and the result or expected outcome in one paragraph, under 4.3, with no figure. A figure of the work's main structure belongs in the Introduction.
 
-6.3 **Introduction states problem, hypothesis, and contributions.** The Introduction states the problem, its cause, the limit of existing solutions, and the hypothesis in one paragraph, and ends with a short list of contributions, about three. A list of tasks or hypotheses does not go there: detail of hypotheses and their tests belongs in the experimental sections.
+The abstract names the surrounding work in one clause, without citations or system names. It states each limitation of prior work that the method addresses in its own sentence, and what the method does that prior work does not, gives the method's overall flow in one sentence, and ends with the result and its numbers. It compares against a general baseline or one representative prior work, or reports metrics alone, never against a list of specific configurations. When the submission system limits the abstract's words, keep a version within the limit as a comment in the abstract's source.
+
+6.3 **The Introduction moves from general use to the problem and the method.** The Introduction gives the general use of the paper's technique in one paragraph, without limitations when that use lies outside the paper's problem. The next paragraph states the problem through the direction of the work closest to it and that work's limits at a general level, leaving each work's detail to the Background. Then it states the method with one sentence per component, and ends with a short list of contributions, about three, that names baselines by their feature, not their name, and lists no ablation or validation. The Conclusion names baselines as the Introduction does. The contribution list holds no list of tasks or hypotheses: detail of hypotheses and their tests belongs in the experimental sections.
 
 6.4 **Each paragraph advances one line of thought.** Write each paragraph as one line of thought that every sentence advances. A Korean paper uses the plain written style, ending its sentences in -다, not the polite style.
 
 6.5 **Clear compile warnings by rewriting or fixing the source.** After each compile(), read the warnings it reports in its log: overfull and underfull boxes, undefined references, and undefined citations. They are the author's to clear. Clear a box in running text by rewriting the sentences around it, with no meaning lost: cut redundancy, reorder, or choose another established word. Clear a box that a table, figure, or equation causes by changing its source until it fits its column. Clear an undefined reference or citation by fixing the source: the \label, the key in \ref, \cref, or \cite, or the .bib entry it names. Do not suppress a warning, such as with \sloppy, a raised \hfuzz or \hbadness, or a forced line break. Leave approved wording (1.5) unchanged, and report a warning that only a change to it would clear.
+
+6.6 **Related work takes one sentence per work.** Group works into paragraphs by approach. State a limitation shared by a paragraph's works once at its end, and a work's own limitation in one more sentence right after that work. Describe compared work in a neutral tone. Omit calculations the field already knows unless the method changes them. When a section presents a few representative methods of a space, state why they cover it.
 
 ## Article 7. Check the compiled paper
 
@@ -254,6 +282,10 @@ Comments in the paper's review threads come from the requester unless the reques
 A second report of confusion about the same section, in any words, means the last repair missed what the reader lacks. Before editing again, read every question about that section together and write in the planning records the one idea they circle around: the relation, premise, or distinction the section does not show. Then start again at step 1 and rebuild the section around that idea, reconsidering structure, premises, and interpretation, rather than rewording the element the latest question names. Do not add notes that document the review response.
 
 8.4 **Recheck every active requirement after repair.** After a repair, read the revision against every active requirement gathered under 8.1, including earlier requests the fix affects, and identify where each is satisfied. Repair the same defect in every affected section within the editing scope, report it in sections outside that scope, then check again under Article 7.
+
+Change only what the flagged defect requires, wherever it occurs: keep what the reader needs, and do not swing to the opposite extreme.
+
+8.5 **Reply to a review thread in one line.** A reply to a completed change or a confirmation is one line naming what the comment changed and where. A question gets its answer, its basis in one clause, and where the answer went in. Content moved elsewhere is reported with its destination. A change to the reviewer's own wording, or one the reviewer did not ask for, gets one clause of reason. Do not restate what the notes or the text now say, list moved items or renumbered floats, paste the text before and after, or report a change made for another comment. When the reviewer is right, admit it directly and say what changed or will change. When the reviewer misread, say what the text meant, that its wording invited the misreading, and how it changed. These two take up to three sentences.
 
 ## Article 9. Report
 
