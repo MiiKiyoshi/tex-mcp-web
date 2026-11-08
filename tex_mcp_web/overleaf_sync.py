@@ -14,14 +14,15 @@ that cannot be done for certain, when an edit would delete every word of an open
 or when Overleaf turns an edit away, the file stops and the reviewer chooses which text
 stands. The text that gives way is kept in ``.tex-mcp-web/overleaf-sync/kept/`` first.
 
-Only documents of Overleaf's older kind (``sharejs-text-ot``) are followed. A file only
-here is not sent there, and files added, renamed or deleted on Overleaf are not created,
-moved or deleted here beyond taking up a document's text.
+Only documents of Overleaf's older kind (``sharejs-text-ot``) are followed. Live, a file
+only here is not sent there. A file deleted on one side waits for the reviewer's choice,
+by hand and live alike, and Send adds files only here that the config's patterns name.
 """
 
 from __future__ import annotations
 
 import asyncio
+import fnmatch
 import hashlib
 import json
 import logging
@@ -176,6 +177,34 @@ class _Records:
 
     # ----- The record -----
 
+    def _recorded(self) -> dict[str, Path]:
+        """The files with a record, by path, each with its record file."""
+        found = {}
+        for record in self.state_dir.glob("*.json"):
+            try:
+                found[str(json.loads(record.read_text(encoding="utf-8"))["path"])] = record
+            except (OSError, ValueError, KeyError, TypeError):
+                continue
+        return found
+
+    def _dropped(self, there: set[str]) -> list[str]:
+        """Files with a record that Overleaf no longer has and that are still here: deleted on
+        Overleaf. A record of a file gone from both sides is let go."""
+        dropped = []
+        for path, record in self._recorded().items():
+            if path in there:
+                continue
+            if (self.root / path).is_file():
+                dropped.append(path)
+            else:
+                record.unlink(missing_ok=True)
+        return sorted(dropped)
+
+    def _forget(self, path: str) -> None:
+        record = self._recorded().get(path)
+        if record is not None:
+            record.unlink(missing_ok=True)
+
     def _record_path(self, doc_id: str) -> Path:
         return self.state_dir / f"{doc_id}.json"
 
@@ -208,6 +237,7 @@ class ProjectSync(_Records):
         # The project's uploaded files, kept the same both ways too, in a folder that is no git clone.
         self.uploads: Uploads | None = None
         self._uploads_quiet_until = 0.0
+        self._gone_there: list[str] = []
         self.resolved_threads: set[str] = set()
         self._session: Session | None = None
         self._queue: asyncio.Queue = asyncio.Queue()
@@ -253,6 +283,8 @@ class ProjectSync(_Records):
         if self.uploads is not None:
             views += [upload.view() for upload in sorted(self.uploads.files.values(), key=lambda upload: upload.path)
                       if upload.status != "same"]
+        views += [{"path": path, "status": "dropped", "message": "Deleted on Overleaf, and still here.", "threads": []}
+                  for path in self._gone_there]
         return views
 
     def owns(self, path: str) -> bool:
@@ -305,6 +337,11 @@ class ProjectSync(_Records):
             await self._remote(event[1])
         elif kind == "disk":
             for doc in list(self.docs.values()):
+                there = self._file(doc).is_file()
+                if doc.status == "synced" and not there and doc.known and self.uploads is not None:
+                    self._set(doc, "gone", "Deleted here, and still on Overleaf.")
+                elif doc.status == "gone" and there:
+                    self._set(doc, "synced")
                 if doc.status in ("synced", "sending", "held"):
                     self._absorb(doc)
                     await self._send(doc)
@@ -657,8 +694,15 @@ class ProjectSync(_Records):
 
     async def _settle_uploads(self) -> None:
         """Uploaded files replaced on one side only go to the other, whole. One that fails waits
-        a minute before the next try, so a file Overleaf will not take is not sent on every tick."""
-        if self.uploads is None or self._session is None or time.monotonic() < self._uploads_quiet_until:
+        a minute before the next try, so a file Overleaf will not take is not sent on every tick.
+        Documents deleted on Overleaf and still here are listed for the reviewer."""
+        if self.uploads is None or self._session is None:
+            return
+        dropped = self._dropped({doc.path for doc in self.docs.values()})
+        if dropped != self._gone_there:
+            self._gone_there = dropped
+            self._notify()
+        if time.monotonic() < self._uploads_quiet_until:
             return
         before = [upload.view() for upload in self.uploads.files.values()]
         try:
@@ -674,6 +718,31 @@ class ProjectSync(_Records):
     async def _decide(self, path: str, choice: str) -> str | None:
         if self.uploads is not None and path in self.uploads.files:
             return await self.uploads.decide(path, choice, lambda name, data: self._keep_bytes(name, data, "here"))
+        if self.uploads is not None and path in self._gone_there:
+            if choice == "delete-here":
+                self._keep_bytes(path, (self.root / path).read_bytes(), "here")
+                (self.root / path).unlink()
+            elif choice == "restore":
+                await self.uploads.add(path)
+            else:
+                return f"no such choice {choice!r}"
+            self._forget(path)
+            self._gone_there.remove(path)
+            self._notify()
+            return None
+        gone = next((doc for doc in self.docs.values() if doc.path == path and doc.status == "gone"), None)
+        if gone is not None and self.uploads is not None:
+            if choice == "delete-there":
+                link, cookie = self.uploads._access()
+                await overleaf.delete_entity(link, cookie, "doc", gone.doc_id)
+                self._forget(path)
+            elif choice == "restore":
+                self._read(gone)
+                self._write(gone, gone.server)
+                self._set(gone, "synced")
+            else:
+                return f"no such choice {choice!r}"
+            return None
         doc = next((doc for doc in self.docs.values() if doc.path == path), None)
         if doc is None or not doc.known:
             return f"{path} is not followed on Overleaf"
@@ -818,6 +887,16 @@ class Uploads:
         records = self._records()
         for path in [path for path in self.files if path not in refs]:
             del self.files[path]
+        for path in [path for path in records if path not in refs]:
+            try:
+                here = self._file(path).is_file()
+            except ValueError:
+                here = False
+            if here:
+                upload = self.files[path] = Upload(path)
+                upload.status, upload.message = "dropped", "Deleted on Overleaf, and still here."
+            else:
+                self.forget(path)
         for path, ref in refs.items():
             try:
                 self._file(path)
@@ -842,6 +921,28 @@ class Uploads:
 
     def paths(self, *kinds: str) -> list[str]:
         return sorted(upload.path for upload in self.files.values() if upload.status in kinds)
+
+    def recorded(self) -> set[str]:
+        return set(self._records())
+
+    def forget(self, path: str) -> None:
+        records = self._records()
+        if records.pop(path, None) is not None:
+            self.record_path.write_text(json.dumps(records, indent=1), encoding="utf-8")
+
+    async def add(self, path: str) -> None:
+        """Upload a file only here into its folder on Overleaf, making the folders it lacks.
+        A text file uploaded becomes a document there."""
+        link, cookie = self._access()
+        folders = self._tree()[1]
+        parent = ""
+        folder, _, name = path.rpartition("/")
+        for part in [part for part in folder.split("/") if part]:
+            inner = f"{parent}/{part}".lstrip("/")
+            if inner not in folders:
+                folders[inner] = await overleaf.create_folder(link, cookie, folders[parent], part)
+            parent = inner
+        await overleaf.upload_file(link, cookie, folders[folder], name, self._file(path).read_bytes())
 
     # ----- Moving them -----
 
@@ -876,9 +977,27 @@ class Uploads:
 
     async def decide(self, path: str, choice: str, keep: Callable[[str, bytes], None]) -> str | None:
         upload = self.files.get(path)
-        if upload is None or upload.status != "differs":
+        if upload is None or upload.status not in ("differs", "gone", "dropped"):
             return f"{path} needs no choice"
-        if choice == "overleaf":
+        if upload.status == "gone" and choice == "delete-there":
+            link, cookie = self._access()
+            await overleaf.delete_entity(link, cookie, "file", self._refs[path]["id"])
+            self.forget(path)
+            del self.files[path]
+        elif upload.status == "gone" and choice == "restore":
+            await self.get(only=path)
+        elif upload.status == "dropped" and choice == "delete-here":
+            keep(path, self._file(path).read_bytes())
+            self._file(path).unlink()
+            self.forget(path)
+            del self.files[path]
+        elif upload.status == "dropped" and choice == "restore":
+            self.forget(path)
+            await self.add(path)
+            del self.files[path]
+        elif upload.status in ("gone", "dropped"):
+            return f"no such choice {choice!r}"
+        elif choice == "overleaf":
             if (self.root / path).exists():
                 keep(path, self._file(path).read_bytes())
             await self.get(only=path)
@@ -910,10 +1029,16 @@ class HandSync(_Records):
 
     def __init__(self, root: Path, changed: Callable[[], Any],
                  editor: Callable[[], tuple[Session | None, dict[str, str], str]],
-                 written: Callable[[str], Awaitable[None]] | None = None) -> None:
+                 written: Callable[[str], Awaitable[None]] | None = None,
+                 adding: Callable[[], tuple[list[str], set[str]]] = lambda: ([], set())) -> None:
         super().__init__(root, written)
         self._changed = changed
         self._editor = editor
+        # The patterns of files only here that Send adds to the project, and the paths it never adds.
+        self._adding = adding
+        self._new: list[str] = []
+        self._added: set[str] = set()
+        self._gone_there: list[str] = []
         self._turn = asyncio.Lock()
         self.docs: dict[str, Doc] = {}
         self.resolved_threads: set[str] = set()
@@ -929,6 +1054,8 @@ class HandSync(_Records):
         if self.uploads is not None:
             views += [upload.view() for upload in self.uploads.files.values()
                       if upload.status not in ("same", "get", "send")]
+        views += [{"path": path, "status": "dropped", "message": "Deleted on Overleaf, and still here.", "threads": []}
+                  for path in self._gone_there]
         return sorted(views, key=lambda view: view["path"])
 
     def state(self) -> dict:
@@ -936,9 +1063,10 @@ class HandSync(_Records):
         def paths(*kinds: str) -> list[str]:
             found = [doc.path for doc in self.docs.values() if doc.status in kinds]
             uploads = self.uploads.paths(*kinds) if self.uploads is not None else []
-            return sorted(found + uploads)
+            return sorted(found + uploads + (self._new if "send" in kinds else []))
         return {"read": self.read_once, "get": paths("get", "both"), "send": paths("send"),
-                "choose": paths("differs", "held", "stopped"), "gone": paths("gone")}
+                "choose": paths("differs", "held", "stopped"), "gone": paths("gone"),
+                "dropped": sorted(paths("dropped") + self._gone_there)}
 
     def owns(self, path: str) -> bool:
         return any(doc.path == path for doc in self.docs.values())
@@ -987,6 +1115,7 @@ class HandSync(_Records):
                 await self._send(session, doc)
             if self.uploads is not None and path is None:
                 await self.uploads.send()
+                await self._add(list(self._new))
             self._recount()
         return self.state()
 
@@ -1001,6 +1130,38 @@ class HandSync(_Records):
                 answer = await self.uploads.decide(path, choice, lambda name, data: self._keep_bytes(name, data, "here"))
                 self._recount()
             return answer
+        if path in self._gone_there:
+            async with self._turn:
+                if choice == "delete-here":
+                    self._keep_bytes(path, (self.root / path).read_bytes(), "here")
+                    (self.root / path).unlink()
+                    self._forget(path)
+                elif choice == "restore" and self.uploads is not None:
+                    self._forget(path)
+                    await self.uploads.add(path)
+                    self._added.add(path)
+                else:
+                    return f"no such choice {choice!r}"
+                self._recount()
+            return None
+        gone = next((doc for doc in self.docs.values() if doc.path == path and doc.status == "gone"), None)
+        if gone is not None:
+            async with self._turn:
+                if choice == "delete-there" and self.uploads is not None:
+                    link, cookie = self.uploads._access()
+                    await overleaf.delete_entity(link, cookie, "doc", gone.doc_id)
+                    self._forget(path)
+                    del self.docs[gone.doc_id]
+                    self._theirs.pop(gone.doc_id, None)
+                elif choice == "restore":
+                    theirs, version, _ = self._theirs[gone.doc_id]
+                    gone.version, gone.server = version, theirs
+                    self._read(gone)
+                    self._write(gone, theirs)
+                else:
+                    return f"no such choice {choice!r}"
+                self._recount()
+            return None
         async with self._turn:
             doc = next((doc for doc in self.docs.values() if doc.path == path), None)
             if doc is None or doc.doc_id not in self._theirs:
@@ -1101,6 +1262,36 @@ class HandSync(_Records):
         self.read_once = True
         self._recount()
 
+    def _new_here(self) -> list[str]:
+        """Files only here that Send adds: those matching the patterns, or of a kind the
+        project already holds, never the paper's compiled output, and none Overleaf held
+        and no longer does, which were deleted there."""
+        patterns, never = self._adding()
+        there = {doc.path for doc in self.docs.values()} | set(self.uploads.files if self.uploads is not None else ())
+        self._added -= there
+        kinds = {Path(path).suffix for path in there if Path(path).suffix}
+        recorded = (self.uploads.recorded() if self.uploads is not None else set()) | set(self._recorded())
+        found = []
+        for file in self.root.rglob("*"):
+            relative = file.relative_to(self.root).as_posix()
+            if (any(part.startswith(".") or part == "__pycache__" for part in relative.split("/"))
+                    or relative in there or relative in recorded or relative in never or relative in self._added
+                    or not file.is_file()):
+                continue
+            if file.suffix in kinds or any(fnmatch.fnmatch(relative, pattern) or fnmatch.fnmatch(file.name, pattern)
+                                           for pattern in patterns):
+                found.append(relative)
+        return sorted(found)
+
+    async def _add(self, paths: list[str]) -> None:
+        """Upload new files into their folders on Overleaf. The session joins the project again
+        after each change, and the next reading takes the files up as the same on both sides."""
+        if self.uploads is None:
+            return
+        for path in paths:
+            await self.uploads.add(path)
+            self._added.add(path)
+
     def _recount(self) -> None:
         if self.uploads is not None:
             before = [upload.view() for upload in self.uploads.files.values()]
@@ -1144,6 +1335,12 @@ class HandSync(_Records):
                     self._set(doc, "send")
             else:
                 self._set(doc, "same")
+        new = self._new_here() if self.read_once else []
+        there = {doc.path for doc in self.docs.values()}
+        dropped = self._dropped(there) if self.read_once and self.uploads is not None else []
+        if (new, dropped) != (self._new, self._gone_there):
+            self._new, self._gone_there = new, dropped
+            self._changed()
 
     # ----- Sending -----
 

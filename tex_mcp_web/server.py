@@ -754,7 +754,8 @@ class TexMcpWebServer:
                         self.overleaf_sync.uploads = uploads
                     else:
                         self.overleaf_hand = HandSync(self.watch_dir, self._overleaf_live_changed,
-                                                      self.overleaf_live.editor, written=self._overleaf_written)
+                                                      self.overleaf_live.editor, written=self._overleaf_written,
+                                                      adding=self._overleaf_adding)
                         self.overleaf_hand.uploads = uploads
                         self.overleaf_live.files = self.overleaf_hand
                 await self.overleaf_live.start()
@@ -1023,6 +1024,12 @@ class TexMcpWebServer:
         except (ConnectionError, asyncio.TimeoutError):
             return web.json_response({"error": "The connection to Overleaf closed before it answered. Try again."},
                                      status=502)
+
+    def _overleaf_adding(self) -> tuple[list[str], set[str]]:
+        """The patterns of files only here that Send adds to Overleaf, and the paper's own
+        compiled output, which it never adds."""
+        stem = Path(self.config.main).with_suffix("")
+        return list(self.config.overleaf_add), {f"{stem}.pdf", f"{stem}.synctex.gz"}
 
     async def _read_overleaf_files(self) -> None:
         hand = self.overleaf_hand

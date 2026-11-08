@@ -16,6 +16,13 @@ DEFAULT_PORT = 8765
 DEFAULT_WATCH = ("*.tex", "*.bib")
 
 
+# The files of a paper a new file here may be, which Send adds to the Overleaf project: its
+# sources and its figures. A file of a kind the project already holds is added too, and the
+# paper's own compiled output never is.
+DEFAULT_OVERLEAF_ADD = ("*.tex", "*.bib", "*.sty", "*.cls", "*.bst",
+                        "*.png", "*.jpg", "*.jpeg", "*.pdf", "*.eps", "*.svg")
+
+
 def default_watch(main: str) -> list[str]:
     """The watch patterns for a paper whose top-level source is *main*."""
     patterns = list(DEFAULT_WATCH)
@@ -51,6 +58,8 @@ class Config:
         overleaf_sync: Keep the paper's files and that project's the same, both ways.
         overleaf: The paper's Overleaf project, by its link, whose comments the page
             brings in with the reviewer's own session cookie. Unset means none.
+        overleaf_add: Glob patterns for the files only here that Send adds to the project,
+            in a folder that follows it without git.
         config_path: Path to .tex-mcp-web.yaml file (used to resolve watch_dir).
     """
 
@@ -66,6 +75,7 @@ class Config:
     translation_instructions: str | None = None
     overleaf: str | None = None
     overleaf_sync: bool = False
+    overleaf_add: list[str] = field(default_factory=lambda: list(DEFAULT_OVERLEAF_ADD))
     config_path: Path | None = None
 
     @classmethod
@@ -84,6 +94,7 @@ class Config:
             translation_instructions=_translation(data).get("instructions"),
             overleaf=_overleaf(data),
             overleaf_sync=_overleaf_flag(data, "overleaf_sync"),
+            overleaf_add=_patterns(data, "overleaf_add", DEFAULT_OVERLEAF_ADD),
             config_path=config_path,
         )
 
@@ -110,7 +121,19 @@ class Config:
             d["overleaf"] = self.overleaf
         if self.overleaf_sync:
             d["overleaf_sync"] = True
+        if self.overleaf_add != list(DEFAULT_OVERLEAF_ADD):
+            d["overleaf_add"] = self.overleaf_add
         return d
+
+
+def _patterns(data: dict[str, Any], key: str, default: tuple[str, ...]) -> list[str]:
+    """A list of glob patterns, or the default when unset."""
+    raw = data.get(key)
+    if raw is None:
+        return list(default)
+    if not isinstance(raw, list) or not all(isinstance(item, str) and item.strip() for item in raw):
+        raise ValueError(f"{key} must be a list of patterns such as ['*.tex', '*.png']")
+    return [item.strip() for item in raw]
 
 
 def _guideline(data: dict[str, Any]) -> str | None:

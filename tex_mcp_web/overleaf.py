@@ -298,6 +298,46 @@ async def upload_file(link: str, cookie: tuple[str, str], folder_id: str, name: 
                                 f"{error or 'no answer'}") from error
 
 
+async def create_folder(link: str, cookie: tuple[str, str], parent_id: str, name: str, *,
+                        timeout: float = 30) -> str:
+    """Make a folder in the project, as Overleaf's editor does: its id."""
+    server, project = project_of(link)
+    async with _session(server, cookie, timeout) as session:
+        read = _Reader(session, server)
+        token = await _write_token(read, project)
+        headers = {"X-Csrf-Token": token, "Origin": server, "Content-Type": "application/json"}
+        try:
+            async with session.post(f"{server}/project/{project}/folder", json={"name": name, "parent_folder_id": parent_id},
+                                    headers=headers, allow_redirects=False) as response:
+                if response.status in (301, 302, 303, 307, 308, 401):
+                    raise SignedOut("Overleaf did not accept the cookie; paste a new one")
+                answer = await response.json(content_type=None) if response.status < 300 else {}
+                if response.status >= 300 or not answer.get("_id"):
+                    raise OverleafError(f"Overleaf refused the folder {name} ({response.status}); nothing was changed there")
+                return str(answer["_id"])
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as error:
+            raise OverleafError(f"could not reach Overleaf, so the folder {name} may or may not exist: "
+                                f"{error or 'no answer'}") from error
+
+
+async def delete_entity(link: str, cookie: tuple[str, str], kind: str, entity_id: str, *, timeout: float = 30) -> None:
+    """Delete a document, file or folder of the project, as Overleaf's editor does. Overleaf
+    keeps it in the project's history."""
+    server, project = project_of(link)
+    async with _session(server, cookie, timeout) as session:
+        read = _Reader(session, server)
+        token = await _write_token(read, project)
+        try:
+            async with session.delete(f"{server}/project/{project}/{kind}/{entity_id}",
+                                      headers={"X-Csrf-Token": token, "Origin": server}, allow_redirects=False) as response:
+                if response.status in (301, 302, 303, 307, 308, 401):
+                    raise SignedOut("Overleaf did not accept the cookie; paste a new one")
+                if response.status >= 300:
+                    raise OverleafError(f"Overleaf refused to delete it ({response.status}); nothing was changed there")
+        except (aiohttp.ClientError, asyncio.TimeoutError) as error:
+            raise OverleafError(f"could not reach Overleaf, so it may or may not be deleted: {error or 'no answer'}") from error
+
+
 def new_thread_id() -> str:
     """An id for a new thread, shaped as Overleaf's editor makes them: the time in seconds and
     random digits, 24 hexadecimal digits in all."""

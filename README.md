@@ -178,8 +178,9 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   is kept in `.tex-mcp-web/overleaf-sync/kept/`. A file that already holds Overleaf's
   text, brought some other way, agrees with it. Only Overleaf's older kind of document
   (`sharejs-text-ot`) is followed. Figures and other uploaded files are copied whole when
-  one side replaces them, and in a git clone they come by git instead. Files added,
-  renamed or deleted on Overleaf come by git.
+  one side replaces them, and in a git clone they come by git instead. A file deleted on
+  one side waits for a choice, as under By hand. In a git clone, files added, renamed or
+  deleted on Overleaf come by git.
 - By hand in a folder that is no git clone (Overleaf's git integration is for paid plans),
   the top bar's two buttons are **Get** and **Send**, with the leaf, each shown with the
   number of files it moves. They need no git: the page reads and edits Overleaf's
@@ -194,7 +195,12 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   switching between By hand and Live picks up where the other left off. Comments sync once
   nothing is left to Get or Send. Figures and other uploaded files move whole: Overleaf
   names each by a hash of its bytes, so the page compares that with the file here without
-  downloading it, and a file replaced on both sides waits for a choice.
+  downloading it, and a file replaced on both sides waits for a choice. A file added on
+  Overleaf comes in by Get. A file only here goes by Send when it matches `overleaf_add`,
+  or is of a kind the project already holds, into its folder, which Send makes on Overleaf
+  when missing. The paper's compiled PDF never goes. A file deleted on one side is not
+  deleted on the other: it is listed in Settings with a choice, to delete it there too or
+  to bring it back.
 - The agent reads where the folder stands with `overleaf()`, which reads Overleaf again and
   names only what differs: files with edits on Overleaf not here, files with edits here
   not on Overleaf, files waiting for a choice, and in a git clone the commits behind and
@@ -293,6 +299,7 @@ overleaf: https://www.overleaf.com/project/0123456789abcdef01234567
 | `references` | Folder holding only the papers yours builds on, converted to Markdown, relative to this file or absolute. Unset means no list of their terms. |
 | `translation` | `language` puts a button for that language beside **+ Note**: it shows each paragraph of the source translated by `claude -p`, with those on the current page marked. `instructions` adds rules for the translator, one per line. A paragraph is translated once per text, and of a figure or table only the caption is. Unset means no translation. |
 | `overleaf` | The paper's Overleaf project, by its link, which an open page follows and the sync button reads. Unset means none. |
+| `overleaf_add` | Patterns for the files only here that **Send** adds to the Overleaf project, in a folder that is no git clone. Unset means the paper's sources and figures: `*.tex`, `*.bib`, `*.sty`, `*.cls`, `*.bst`, `*.png`, `*.jpg`, `*.jpeg`, `*.pdf`, `*.eps` and `*.svg`. A file of a kind the project already holds is added too, and the paper's compiled PDF never is. |
 | `overleaf_sync` | `true` is **Live** in Settings: it keeps the paper's files and that project's the same both ways while a page is open, and brings new threads in by themselves. Unset is **By hand**: files change only by git pull and git push in a git clone, or by Get and Send otherwise. |
 
 ## See also

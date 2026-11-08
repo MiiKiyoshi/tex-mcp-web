@@ -1415,6 +1415,8 @@ const OVERLEAF_CHOICES = {
   differs: [["overleaf", "Use Overleaf's"], ["here", "Send this file's"]],
   stopped: [["overleaf", "Use Overleaf's"], ["here", "Send this file's"]],
   held: [["anyway", "Send it anyway"], ["overleaf", "Put Overleaf's back"]],
+  gone: [["delete-there", "Delete on Overleaf"], ["restore", "Get it back"]],
+  dropped: [["delete-here", "Delete here"], ["restore", "Send it back"]],
 };
 
 // What a file waiting for a choice says, by why it waits.
@@ -1422,6 +1424,8 @@ const OVERLEAF_WAITS = {
   held: "Not sent to Overleaf",
   differs: "Not in step with Overleaf",
   stopped: "Stopped following Overleaf",
+  gone: "Deleted here",
+  dropped: "Deleted on Overleaf",
 };
 
 function overleafChoiceItem(file, withOpen) {
@@ -1471,8 +1475,13 @@ function renderOverleafChoices(files, choosing) {
 }
 
 async function chooseOverleafText(path, choice, label) {
-  const replaced = choice === "overleaf" ? "this file's text" : "Overleaf's text";
-  if (choice !== "anyway" && !confirm(`${label} for ${path}? ${replaced} is kept in .tex-mcp-web/overleaf-sync/kept/.`)) return;
+  const asked = {
+    overleaf: `${label} for ${path}? This file's text is kept in .tex-mcp-web/overleaf-sync/kept/.`,
+    here: `${label} for ${path}? Overleaf's text is kept in .tex-mcp-web/overleaf-sync/kept/.`,
+    "delete-there": `Delete ${path} on Overleaf, for everyone in the project? Overleaf keeps it in its history.`,
+    "delete-here": `Delete ${path} here? A copy is kept in .tex-mcp-web/overleaf-sync/kept/.`,
+  }[choice];
+  if (asked && !confirm(asked)) return;
   const response = await fetch("/overleaf/sync", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -1493,7 +1502,7 @@ function renderOverleafLive(snapshot) {
   const off = status === "off";
   const commentsTrouble = status === "live" ? snapshot.comments_trouble : "";
   const files = snapshot.files ?? [];
-  const choosing = files.filter((file) => ["differs", "stopped", "held"].includes(file.status));
+  const choosing = files.filter((file) => ["differs", "stopped", "held", "gone", "dropped"].includes(file.status));
   // The leaf button connects an unconnected paper, and otherwise shows only when something
   // needs a look in the dialog; a session that is up shows faces alone.
   const trouble = !off && (status === "signed_out" || status === "reconnecting" || !!commentsTrouble

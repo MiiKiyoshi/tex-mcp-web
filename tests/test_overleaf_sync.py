@@ -34,10 +34,12 @@ class FakeOverleaf:
         self.cookie = "s%3Agood"
         self.docs = {
             "d-main": {"name": "main.tex", "text": MAIN, "version": 40, "history": {}, "comments": [],
-                       "kind": "sharejs-text-ot"},
+                       "kind": "sharejs-text-ot", "folder": ""},
             "d-body": {"name": "body.tex", "text": BODY, "version": 7, "history": {}, "comments": [],
-                       "kind": "sharejs-text-ot"},
+                       "kind": "sharejs-text-ot", "folder": "tex"},
         }
+        self.folders = {"": "f0", "tex": "f1", "fig": "f2"}
+        self.deleted: list[tuple[str, str]] = []
         self.oldest = 0                  # edits before this version are no longer kept
         self.sockets: dict[str, web.WebSocketResponse] = {}
         self.sent: list[dict] = []       # every event a client sent
@@ -58,6 +60,8 @@ class FakeOverleaf:
         app.router.add_get(f"/project/{PROJECT_ID}", self._editor_page)
         app.router.add_get(f"/project/{PROJECT_ID}/file/{{file}}", self._file)
         app.router.add_post(f"/project/{PROJECT_ID}/upload", self._upload)
+        app.router.add_post(f"/project/{PROJECT_ID}/folder", self._folder)
+        app.router.add_delete(f"/project/{PROJECT_ID}/{{kind}}/{{entity}}", self._delete)
         app.router.add_post(f"/project/{PROJECT_ID}/thread/{{thread}}/messages", self._post_message)
         self.app = app
 
@@ -77,12 +81,40 @@ class FakeOverleaf:
     async def _upload(self, request: web.Request) -> web.Response:
         if request.headers.get("X-Csrf-Token") != "token-1":
             raise web.HTTPForbidden(text="invalid csrf token")
-        folder = {"f0": "", "f1": "tex", "f2": "fig"}[request.query["folder_id"]]
+        folder = next(path for path, key in self.folders.items() if key == request.query["folder_id"])
         form = await request.post()
         path = f"{folder}/{form['name']}".lstrip("/")
-        self.replace(path, form["qqfile"].file.read())
+        data = form["qqfile"].file.read()
+        if path.endswith(".tex"):      # Overleaf makes an uploaded text file a document
+            key = f"d-{len(self.docs) + 1}"
+            self.docs[key] = {"name": form["name"], "text": data.decode("utf-8"), "version": 0, "history": {},
+                              "comments": [], "kind": "sharejs-text-ot", "folder": folder}
+            await self.broadcast("reciveNewDoc", self.folders[folder], {})
+            return web.json_response({"success": True, "entity_id": key, "entity_type": "doc"})
+        self.replace(path, data)
         return web.json_response({"success": True, "entity_id": self.uploads[path]["id"], "entity_type": "file",
                                   "hash": overleaf_sync.blob_sha(self.uploads[path]["data"])})
+
+    async def _delete(self, request: web.Request) -> web.Response:
+        if request.headers.get("X-Csrf-Token") != "token-1":
+            raise web.HTTPForbidden(text="invalid csrf token")
+        kind, entity = request.match_info["kind"], request.match_info["entity"]
+        if kind == "doc":
+            del self.docs[entity]
+        else:
+            del self.uploads[next(path for path, item in self.uploads.items() if item["id"] == entity)]
+        self.deleted.append((kind, entity))
+        await self.broadcast("removeEntity", entity, "editor")
+        return web.Response(status=204)
+
+    async def _folder(self, request: web.Request) -> web.Response:
+        if request.headers.get("X-Csrf-Token") != "token-1":
+            raise web.HTTPForbidden(text="invalid csrf token")
+        body = await request.json()
+        parent = next(path for path, key in self.folders.items() if key == body["parent_folder_id"])
+        path = f"{parent}/{body['name']}".lstrip("/")
+        self.folders[path] = f"f{len(self.folders)}"
+        return web.json_response({"_id": self.folders[path], "name": body["name"], "docs": [], "fileRefs": [], "folders": []})
 
     def replace(self, path: str, data: bytes) -> None:
         """A file uploaded on Overleaf: a new id, as Overleaf gives a replaced file."""
@@ -125,17 +157,16 @@ class FakeOverleaf:
                                 "n": ot.js_len(words)})
 
     def project(self) -> dict:
-        def docs(*ids):
-            return [{"_id": key, "name": self.docs[key]["name"]} for key in ids]
+        def folder(path: str) -> dict:
+            inner = [name for name in self.folders if name and name.rpartition("/")[0] == path]
+            return {"_id": self.folders[path], "name": path.rpartition("/")[2] or "rootFolder",
+                    "docs": [{"_id": key, "name": doc["name"]} for key, doc in self.docs.items() if doc["folder"] == path],
+                    "fileRefs": [{"_id": item["id"], "name": name.rpartition("/")[2],
+                                  "hash": overleaf_sync.blob_sha(item["data"])}
+                                 for name, item in self.uploads.items() if name.rpartition("/")[0] == path],
+                    "folders": [folder(name) for name in inner]}
         return {"_id": PROJECT_ID, "name": "Paper", "rootDoc_id": "d-main",
-                "owner": {"_id": "u-me", "first_name": "Me"}, "members": [],
-                "rootFolder": [{"_id": "f0", "name": "rootFolder", "docs": docs("d-main"), "fileRefs": [],
-                                "folders": [{"_id": "f1", "name": "tex", "docs": docs("d-body"), "fileRefs": [],
-                                             "folders": []},
-                                            {"_id": "f2", "name": "fig", "docs": [], "folders": [], "fileRefs": [
-                                                {"_id": item["id"], "name": path.split("/", 1)[1],
-                                                 "hash": overleaf_sync.blob_sha(item["data"])}
-                                                for path, item in self.uploads.items()]}]}]}
+                "owner": {"_id": "u-me", "first_name": "Me"}, "members": [], "rootFolder": [folder("")]}
 
     async def _websocket(self, request: web.Request) -> web.WebSocketResponse:
         ws = web.WebSocketResponse()
@@ -852,7 +883,7 @@ async def test_by_hand_files_change_only_when_get_or_send_is_pressed(paper, over
     fake, link = overleaf_site
     opened = await Review(paper, fake, link, sync=False).open()
     try:
-        assert await hand_ready(opened) == {"read": True, "get": [], "send": [], "choose": [], "gone": []}
+        assert await hand_ready(opened) == {"read": True, "get": [], "send": [], "choose": [], "gone": [], "dropped": []}
         await fake.coauthor("d-body", [{"p": 0, "i": "New. "}])
         opened.write("main.tex", MAIN.replace("fast", "quick"))
         await asyncio.sleep(0.3)
@@ -900,7 +931,7 @@ async def test_by_hand_get_brings_both_sides_together_and_a_clash_waits_for_a_ch
         assert (await opened.client.post("/overleaf/sync", json={"path": "tex/body.tex", "choice": "here"})).status == 200
         now = await (await opened.client.post("/overleaf/files/send")).json()
         assert fake.docs["d-body"]["text"] == both.replace("Theirs.", "Mine?") and now == {
-            "read": True, "get": [], "send": [], "choose": [], "gone": []}
+            "read": True, "get": [], "send": [], "choose": [], "gone": [], "dropped": []}
         assert list((paper / ".tex-mcp-web" / "overleaf-sync" / "kept").rglob("body.tex.overleaf.*"))
         # Comments come in only once nothing is left to Get or Send.
         opened.write("main.tex", MAIN + "% here")
@@ -924,7 +955,7 @@ async def test_by_hand_files_pick_up_where_live_left_off(paper, overleaf_site) -
         await live.close()
     opened = await Review(paper, fake, link, sync=False).open()
     try:
-        assert await hand_ready(opened) == {"read": True, "get": [], "send": [], "choose": [], "gone": []}
+        assert await hand_ready(opened) == {"read": True, "get": [], "send": [], "choose": [], "gone": [], "dropped": []}
         await fake.coauthor("d-main", [{"p": 0, "i": "% hand\n"}])
         now = await (await opened.client.post("/overleaf/files/read")).json()
         assert now["get"] == ["main.tex"]
@@ -947,7 +978,7 @@ async def test_by_hand_get_and_send_move_uploaded_files_whole(paper, overleaf_si
     fake, link = overleaf_site
     opened = await Review(paper, fake, link, sync=False).open()
     try:
-        assert await hand_ready(opened) == {"read": True, "get": [], "send": [], "choose": [], "gone": []}
+        assert await hand_ready(opened) == {"read": True, "get": [], "send": [], "choose": [], "gone": [], "dropped": []}
         fake.replace("fig/plot.png", b"\x89PNG figure two")
         await fake.broadcast("reciveNewFile", "f2", {})
         await wait_for(lambda: opened.server.overleaf_live.tree()[0]["fig/plot.png"]["hash"]
@@ -1032,3 +1063,90 @@ async def test_the_agent_reads_where_the_folder_stands_and_brings_overleafs_edit
         assert fake.docs["d-main"]["text"] == MAIN
     finally:
         await opened.close()
+
+
+async def test_by_hand_send_adds_new_files_of_the_paper_and_leaves_others(paper, overleaf_site) -> None:
+    """A new file here matching overleaf_add, or of a kind the project holds, is counted by Send
+    and uploaded into its folder, made on Overleaf when missing. A text file becomes a
+    document there. The paper's compiled PDF and files of other kinds stay here."""
+    fake, link = overleaf_site
+    opened = await Review(paper, fake, link, sync=False).open()
+    try:
+        await hand_ready(opened)
+        (paper / "tex" / "intro.tex").write_text("\\section{Intro}\nNew.\n", encoding="utf-8")
+        (paper / "fig" / "more").mkdir()
+        (paper / "fig" / "more" / "arch.png").write_bytes(b"\x89PNG new figure")
+        (paper / "main.pdf").write_bytes(b"%PDF compiled")
+        (paper / "main.aux").write_text("aux", encoding="utf-8")
+        now = await (await opened.client.post("/overleaf/files/read")).json()
+        assert now["send"] == ["fig/more/arch.png", "tex/intro.tex"]
+        now = await (await opened.client.post("/overleaf/files/send")).json()
+        assert fake.uploads["fig/more/arch.png"]["data"] == b"\x89PNG new figure"
+        assert "fig/more" in fake.folders
+        added = next(doc for doc in fake.docs.values() if doc["name"] == "intro.tex")
+        assert (added["folder"], added["text"]) == ("tex", "\\section{Intro}\nNew.\n")
+        assert now["send"] == []
+        # The session joins again and finds both on Overleaf, the same as here.
+        await wait_for(lambda: "tex/intro.tex" in opened.server.overleaf_live.editor()[1].values(), timeout=10)
+        now = await (await opened.client.post("/overleaf/files/read")).json()
+        assert now == {"read": True, "get": [], "send": [], "choose": [], "gone": [], "dropped": []}
+        assert not any("main.pdf" in path or "main.aux" in path for path in fake.uploads)
+    finally:
+        await opened.close()
+
+
+async def test_by_hand_a_file_deleted_on_one_side_is_listed_and_deleted_only_when_chosen(paper, overleaf_site) -> None:
+    """A file deleted here stays on Overleaf, and one deleted on Overleaf stays here: each is
+    listed with a choice, to delete it on the other side too or to bring it back."""
+    fake, link = overleaf_site
+    opened = await Review(paper, fake, link, sync=False).open()
+    choose = lambda path, choice: opened.client.post("/overleaf/sync", json={"path": path, "choice": choice})
+    listed = lambda: opened.client.get("/overleaf/live")
+    try:
+        await hand_ready(opened)
+        (paper / "tex" / "body.tex").unlink()
+        now = await (await opened.client.post("/overleaf/files/read")).json()
+        assert (now["gone"], now["get"], now["send"]) == (["tex/body.tex"], [], [])
+        files = (await (await listed()).json())["files"]
+        assert [(file["path"], file["status"]) for file in files] == [("tex/body.tex", "gone")]
+        assert (await choose("tex/body.tex", "restore")).status == 200
+        assert opened.read("tex/body.tex") == BODY
+        (paper / "tex" / "body.tex").unlink()
+        await opened.client.post("/overleaf/files/read")
+        assert (await choose("tex/body.tex", "delete-there")).status == 200
+        assert fake.deleted == [("doc", "d-body")] and "d-body" not in fake.docs
+
+        # Deleted on Overleaf: listed until chosen, and nothing is deleted here meanwhile.
+        del fake.uploads["fig/plot.png"]
+        await fake.broadcast("removeEntity", "u-1", "editor")
+        await wait_for(lambda: "fig/plot.png" not in opened.server.overleaf_live.tree()[0], timeout=10)
+        now = await (await opened.client.post("/overleaf/files/read")).json()
+        assert now["dropped"] == ["fig/plot.png"] and (paper / "fig" / "plot.png").exists()
+        assert (await choose("fig/plot.png", "delete-here")).status == 200
+        assert not (paper / "fig" / "plot.png").exists()
+        assert list((paper / ".tex-mcp-web" / "overleaf-sync" / "kept").rglob("plot.png.here.*"))
+        del fake.docs["d-main"]
+        await fake.broadcast("removeEntity", "d-main", "editor")
+        await wait_for(lambda: "main.tex" not in opened.server.overleaf_live.editor()[1].values(), timeout=10)
+        now = await (await opened.client.post("/overleaf/files/read")).json()
+        assert now["dropped"] == ["main.tex"]
+        assert (await choose("main.tex", "restore")).status == 200
+        assert any(doc["name"] == "main.tex" and doc["text"] == MAIN for doc in fake.docs.values())
+    finally:
+        await opened.close()
+
+
+async def test_live_a_file_deleted_on_one_side_waits_for_a_choice(review) -> None:
+    fake = review.fake
+    await review.settled()
+    (review.folder / "tex" / "body.tex").unlink()
+    await wait_for(lambda: review.files().get("tex/body.tex") == "gone", timeout=10)
+    assert "d-body" in fake.docs
+    response = await review.client.post("/overleaf/sync", json={"path": "tex/body.tex", "choice": "restore"})
+    assert response.status == 200 and review.read("tex/body.tex") == BODY
+    await wait_for(lambda: review.files().get("tex/body.tex") == "synced", timeout=10)
+    del fake.uploads["fig/plot.png"]
+    await fake.broadcast("removeEntity", "u-1", "editor")
+    await wait_for(lambda: any(file["path"] == "fig/plot.png" and file["status"] == "dropped"
+                               for file in review.server.overleaf_sync.snapshot()), timeout=15)
+    assert (review.folder / "fig" / "plot.png").exists()
