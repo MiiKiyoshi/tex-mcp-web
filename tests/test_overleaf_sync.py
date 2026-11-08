@@ -986,3 +986,49 @@ async def test_live_uploaded_files_follow_by_themselves(review) -> None:
     review.write("main.tex", review.read("main.tex"))
     (review.folder / "fig" / "plot.png").write_bytes(b"\x89PNG from here")
     await wait_for(lambda: fake.uploads["fig/plot.png"]["data"] == b"\x89PNG from here", timeout=15)
+
+
+# ----- The agent -----
+
+async def test_the_agent_reads_where_the_folder_stands_and_brings_overleafs_edits_in(paper, overleaf_site) -> None:
+    """overleaf() names only what differs, read_comments(new=True) carries one line when
+    Overleaf has edits this folder lacks, and the agent brings them in itself. Sending
+    without git stays the reviewer's."""
+    pytest.importorskip("mcp")
+    from tex_mcp_web.mcp_server import create_server
+
+    fake, link = overleaf_site
+    opened = await Review(paper, fake, link, sync=False).open()
+    try:
+        await hand_ready(opened)
+
+        class Shared:
+            config_path = paper / ".tex-mcp-web.yaml"
+            watch_dir = paper
+
+        class Binding:
+            def require_shared(self):
+                return Shared
+
+            def base_url(self):
+                return str(opened.client.make_url("")).rstrip("/")
+
+        mcp = create_server(Binding())
+
+        async def call(tool, **arguments):
+            return json.loads((await mcp.call_tool(tool, arguments))[0].text)
+
+        assert await call("overleaf") == {"by": "hand"}
+        assert "overleaf" not in await call("read_comments", new=True)
+        await fake.coauthor("d-body", [{"p": 0, "i": "New. "}])
+        opened.write("main.tex", MAIN.replace("fast", "quick"))
+        assert await call("overleaf") == {"by": "hand", "get": ["tex/body.tex"], "send": ["main.tex"]}
+        told = await call("read_comments", new=True)
+        assert told["overleaf"].startswith("Overleaf has edits to tex/body.tex this folder lacks.")
+        assert await call("overleaf", action="get") == {"by": "hand", "send": ["main.tex"]}
+        assert opened.read("tex/body.tex") == "New. " + BODY
+        refused = await call("overleaf", action="push")
+        assert "the reviewer sends from the page" in refused["error"]
+        assert fake.docs["d-main"]["text"] == MAIN
+    finally:
+        await opened.close()

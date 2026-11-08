@@ -465,6 +465,8 @@ class TexMcpWebServer:
         # The files brought together with Overleaf by Get and Send, in a folder that is no
         # git clone of the project and does not follow it live.
         self.overleaf_hand: HandSync | None = None
+        # Where a git clone stood against Overleaf's branch when last read.
+        self._overleaf_git_now: dict[str, Any] | None = None
         # Texts the page may save over, by file and revision, for a save made over an
         # edit from Overleaf to be brought together with it.
         self._source_texts: dict[str, dict[str, str]] = {}
@@ -519,6 +521,8 @@ class TexMcpWebServer:
         app.router.add_post("/overleaf/comments", self._handle_overleaf_comments)
         app.router.add_post(r"/overleaf/git/{action:fetch|pull|push}", self._handle_overleaf_git)
         app.router.add_post(r"/overleaf/files/{action:read|get|send}", self._handle_overleaf_files)
+        app.router.add_get("/overleaf/upstream", self._handle_overleaf_upstream)
+        app.router.add_post("/overleaf/upstream", self._handle_overleaf_upstream)
         app.router.add_get("/overleaf/live", self._handle_overleaf_live)
         app.router.add_post("/overleaf/sync", self._handle_overleaf_sync)
         app.router.add_post("/overleaf/connect", self._handle_overleaf_connect)
@@ -971,12 +975,54 @@ class TexMcpWebServer:
                     now = await overleaf_git.follow(link, followed)
                 elif action == "fetch":
                     await overleaf_git.fetch(link)
-                    now = await overleaf_git.state(link)
+                    now = self._overleaf_git_now = await overleaf_git.state(link)
                 else:
                     now = await (overleaf_git.pull if action == "pull" else overleaf_git.push)(link, followed)
             except overleaf_git.GitError as error:
                 return web.json_response({"error": str(error)}, status=409)
+        self._overleaf_git_now = now
         return web.json_response(now)
+
+    async def _overleaf_upstream(self, fresh: bool) -> dict[str, Any]:
+        """Where the folder stands against Overleaf, in few words, for the agent: by git, by
+        hand or live, and only what is not yet the same. Fresh reads Overleaf again, otherwise
+        it is what was last read."""
+        if not self.config.overleaf:
+            return {"by": "none"}
+        link = await self._overleaf_git_link()
+        answer: dict[str, Any] = {}
+        if self.overleaf_sync is not None:
+            answer["by"] = "live"
+            if apart := self._overleaf_apart():
+                answer["apart"] = apart
+        if link is not None:
+            answer.setdefault("by", "git")
+            answer["git"] = True
+            now = self._overleaf_git_now
+            if fresh or now is None:
+                async with self._overleaf_git:
+                    await overleaf_git.fetch(link)
+                    now = self._overleaf_git_now = await overleaf_git.state(link)
+            answer.update({key: now[key] for key in ("behind", "ahead", "uncommitted") if now[key]})
+            return answer
+        if self.overleaf_sync is not None:
+            return answer
+        hand = self.overleaf_hand
+        if hand is None or (not fresh and not hand.read_once):
+            return {"by": "hand", "unread": "no review page is in the Overleaf project, which By hand reads through"}
+        now = await hand.read() if fresh else hand.state()
+        return {"by": "hand", **{key: now[key] for key in ("get", "send", "choose") if now[key]}}
+
+    async def _handle_overleaf_upstream(self, request: web.Request) -> web.Response:
+        try:
+            return web.json_response(await self._overleaf_upstream(fresh=request.method == "POST"))
+        except overleaf_git.GitError as error:
+            return web.json_response({"error": str(error)}, status=409)
+        except NotConnected as error:
+            return web.json_response({"by": "hand", "unread": str(error)})
+        except (ConnectionError, asyncio.TimeoutError):
+            return web.json_response({"error": "The connection to Overleaf closed before it answered. Try again."},
+                                     status=502)
 
     async def _read_overleaf_files(self) -> None:
         hand = self.overleaf_hand
@@ -1082,7 +1128,7 @@ class TexMcpWebServer:
             async with self._overleaf_git:
                 try:
                     await overleaf_git.fetch(link)
-                    now = await overleaf_git.state(link)
+                    now = self._overleaf_git_now = await overleaf_git.state(link)
                 except overleaf_git.GitError as error:
                     return web.json_response({"error": str(error)}, status=409)
             if now["state"] != "same":
@@ -1141,7 +1187,7 @@ class TexMcpWebServer:
             async with self._overleaf_git:
                 try:
                     await overleaf_git.fetch(link)
-                    now = await overleaf_git.state(link)
+                    now = self._overleaf_git_now = await overleaf_git.state(link)
                     for check in checks:
                         if not await overleaf_git.holds(link, now["branch"], check["file"], check["text"]):
                             committed = await overleaf_git.holds(link, "HEAD", check["file"], check["text"])

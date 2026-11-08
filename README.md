@@ -195,6 +195,14 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   nothing is left to Get or Send. Figures and other uploaded files move whole: Overleaf
   names each by a hash of its bytes, so the page compares that with the file here without
   downloading it, and a file replaced on both sides waits for a choice.
+- The agent reads where the folder stands with `overleaf()`, which reads Overleaf again and
+  names only what differs: files with edits on Overleaf not here, files with edits here
+  not on Overleaf, files waiting for a choice, and in a git clone the commits behind and
+  ahead. `read_comments(new=True)` adds one line when Overleaf has edits this folder lacks,
+  from what was last read, and nothing otherwise. `overleaf(action="get")` brings those
+  edits in, by Get or by git pull in a git clone, and changes nothing when they clash.
+  `overleaf(action="push")` runs git push in a git clone. Send stays the reviewer's,
+  from the page, as do replies sent to Overleaf and Resolve and Reopen.
 - In a git clone, git pull and git push go on beside Live. The files Live keeps hold
   Overleaf's text already when its commit arrives, so a git pull takes them as they are
   and brings in the rest, such as a figure added on Overleaf, and reading Overleaf's

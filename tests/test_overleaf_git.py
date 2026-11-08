@@ -372,6 +372,8 @@ async def test_the_page_pulls_pushes_and_downloads_comments_only_with_every_over
         git(coauthor, "push", "-q", "origin", "HEAD:main")
         now = await (await client.post("/overleaf/git/fetch")).json()
         assert (now["state"], now["behind"]) == ("behind", 1)
+        # The agent reads the same in few words: only what differs, from the last reading.
+        assert await (await client.get("/overleaf/upstream")).json() == {"by": "git", "git": True, "behind": 1}
         # Words Overleaf has and this folder lacks are nowhere to put a thread.
         refused = await client.post("/overleaf/comments")
         assert refused.status == 409 and "git pull first" in (await refused.json())["error"]
@@ -379,6 +381,7 @@ async def test_the_page_pulls_pushes_and_downloads_comments_only_with_every_over
         assert refused.status == 409 and "git pull first" in (await refused.json())["error"]
         now = await (await client.post("/overleaf/git/pull")).json()
         assert now["state"] == "same" and (paper / "paper.tex").read_text() == "ONE\ntwo\nthree\n"
+        assert await (await client.post("/overleaf/upstream")).json() == {"by": "git", "git": True}
         # Past the gate, the comments are read from Overleaf, which is not there in this test.
         assert (await client.post("/overleaf/comments")).status == 502
         # Live may be chosen in a git clone as well: Pull and Push go on beside it.

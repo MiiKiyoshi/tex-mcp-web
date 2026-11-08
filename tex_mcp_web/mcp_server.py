@@ -7,6 +7,7 @@ Exposes tools to agents via stdio:
     write_comments(...)     add/reply/suggest/withdraw/edit/delete
     compile()               compile, return structured errors
     image(...)              render a PDF page or exact region
+    overleaf(...)           this folder against its Overleaf project, and bringing Overleaf's edits in
     listen()                instructions for receiving review events
 
 Source is read with the agent's own file tools; each comment names its file and
@@ -324,6 +325,37 @@ def _range_text(watch_dir: Path, spec: str) -> dict[str, str]:
     if not 1 <= first <= last <= len(lines):
         raise ValueError(f"{spec} is outside {name}, which has {len(lines)} lines")
     return {"file": name, "text": "\n".join(lines[first - 1:last])}
+
+
+async def _upstream(binding: "ProjectBinding", method: str = "GET") -> dict[str, Any] | None:
+    """Where the folder stands against its Overleaf project, as the review server last read it
+    (GET) or reads it now (POST). None when the server does not answer."""
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.request(method, f"{binding.base_url()}/overleaf/upstream")
+    except Exception:
+        return None
+    return response.json() if response.headers.get("content-type", "").startswith("application/json") else None
+
+
+def _upstream_line(upstream: dict[str, Any] | None) -> str | None:
+    """One sentence on what keeps the folder from Overleaf's text before an edit, or None."""
+    if not upstream:
+        return None
+    if upstream.get("behind"):
+        count = upstream["behind"]
+        return (f"Overleaf has {count} commit{'' if count == 1 else 's'} this folder lacks. "
+                'overleaf(action="get") brings them in. Do it before editing.')
+    if upstream.get("get"):
+        return (f"Overleaf has edits to {', '.join(upstream['get'])} this folder lacks. "
+                'overleaf(action="get") brings them in. Do it before editing.')
+    if upstream.get("choose"):
+        return f"{', '.join(upstream['choose'])} wait for the reviewer to choose between this text and Overleaf's."
+    if upstream.get("apart"):
+        return f"Not yet the same as on Overleaf: {', '.join(upstream['apart'])}."
+    return None
 
 
 def _agent_comment_to_dict(comment, watch_dir: Path) -> dict[str, Any]:
@@ -655,7 +687,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         since. Times read and are written back as ``MM-DD HH:MM`` on this server's clock.
         ``save`` needs ids; edit only the draft's Reply and Edit blocks.
         """
-        _, watch_dir, store = _load_project(binding)
+        cfg, watch_dir, store = _load_project(binding)
         try:
             moment = parse_short_time(since) if since is not None else None
         except ValueError as error:
@@ -709,6 +741,8 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             if latest != previous:
                 write_cursor(watch_dir, latest)
             answer: dict[str, Any] = {"comments": fresh}
+            if cfg.overleaf and (line := _upstream_line(await _upstream(binding))) is not None:
+                answer["overleaf"] = line
             if previous is not None:
                 answer["from"] = short_time(previous)
             if latest is not None:
@@ -765,6 +799,48 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         if len(summaries) > limit:
             listed["older"] = len(summaries) - limit
         return _ok(listed)
+
+    @mcp.tool(structured_output=False)
+    async def overleaf(action: Literal["state", "get", "push"] = "state") -> str:
+        """This folder against its Overleaf project. state reads Overleaf again and names only
+        what differs: get, Overleaf's edits not here, send, edits here not on Overleaf, choose,
+        files waiting for the reviewer, and in a git clone the commits behind and ahead. get
+        brings Overleaf's edits here (git pull in a git clone, Get otherwise), changing only
+        files here, and a clash changes nothing. push sends a git clone's commits (git push).
+        Sending edits without git is the reviewer's, from the page."""
+        import httpx
+
+        cfg, _, _ = _load_project(binding)
+        if not cfg.overleaf:
+            return _err("this paper names no Overleaf project")
+        if action == "state":
+            upstream = await _upstream(binding, "POST")
+            return _ok(upstream) if upstream is not None else _err("the review server did not answer")
+        upstream = await _upstream(binding)
+        if upstream is None:
+            return _err("the review server did not answer")
+        if upstream.get("git"):
+            route = {"get": "git/pull", "push": "git/push"}[action]
+        elif action == "push":
+            return _err("only a git clone pushes. Without git, the reviewer sends from the page")
+        elif upstream.get("by") == "live":
+            return _ok({"by": "live", "note": "Overleaf's edits come into the files by themselves"})
+        elif "unread" in upstream:
+            return _err(upstream["unread"])
+        else:
+            route = "files/get"
+        try:
+            async with httpx.AsyncClient(timeout=300.0) as client:
+                response = await client.post(f"{binding.base_url()}/overleaf/{route}")
+        except Exception as exc:
+            return _err(f"review server request failed: {exc}")
+        if response.status_code != 200:
+            try:
+                return _err(response.json()["error"])
+            except Exception:
+                return _err(f"HTTP {response.status_code}")
+        after = await _upstream(binding)
+        return _ok(after if after is not None else {"done": action})
 
     @mcp.tool(structured_output=False)
     async def compile() -> str:

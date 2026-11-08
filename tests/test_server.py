@@ -1129,7 +1129,7 @@ async def test_mcp_contract_is_typed_and_nonduplicative(tmp_path: Path):
     tools = {tool.name: tool for tool in await mcp.list_tools()}
 
     assert set(tools) == {
-        "guide", "read_comments", "write_comments", "compile", "image", "listen", "setup_info",
+        "guide", "read_comments", "write_comments", "compile", "image", "listen", "setup_info", "overleaf",
     }
     # A structured answer repeats the content as JSON beside it, an image as base64 text,
     # and wraps a text answer in {"result": ...}, which the plugin's hook cannot read.
