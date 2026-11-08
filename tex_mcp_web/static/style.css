@@ -584,8 +584,10 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
   border-bottom: 1px solid var(--border);
   background: var(--bg);
 }
+/* Each tab is as wide as its words, which stay on one line, and the room left is shared. */
 .tab-btn {
-  flex: 1;
+  flex: 1 1 auto;
+  white-space: nowrap;
   padding: 0 0.5rem;
   border: none;
   background: none;
@@ -605,7 +607,12 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
   font-weight: 700;
   color: white;
 }
-#comments-tab-count { background: var(--accent); }
+/* A phone's width holds the four tabs, counts and all, once their paddings narrow. */
+@media (max-width: 560px) {
+  .tab-btn { padding: 0 0.2rem; }
+}
+#comments-tab-count, #overleaf-tab-count { background: var(--accent); }
+.tab-btn .leaf-icon { margin-right: 0.25rem; vertical-align: -0.15em; }
 #compile-tab-count { background: var(--warn); }
 #compile-tab-count.has-errors { background: var(--err); }
 .tab-pane {
@@ -674,13 +681,6 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 .filter-row.narrow .comment-rare-group .icon-btn:hover:not(:disabled) { background: var(--accent-soft); }
 .filter-row.narrow .comment-rare-group .icon-btn::after { content: attr(aria-label); }
 .filter-row.narrow .comment-rare-group .count { display: none; }
-/* The eye says whether Overleaf's comments are in view, and the button stands out while
-   they are not, so a short list is explained. */
-.overleaf-comments-btn.off { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
-.overleaf-hidden-note { margin: 4px 8px 8px; font-size: 12px; color: var(--fg-dim); }
-.overleaf-hidden-note .link-btn {
-  padding: 0; border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; text-decoration: underline;
-}
 .comment-pick { flex: none; margin: 0; width: 14px; height: 14px; cursor: pointer; }
 #call-agent-btn.agent-ready { color: var(--ok); border-color: var(--ok); background: #eef7ef; }
 #call-agent-btn.agent-ready .agent-dot { background: var(--ok); }

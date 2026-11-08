@@ -81,9 +81,8 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
 - **Resolve** a thread whose edit satisfies you, or **Reply** in it when it does not.
   **Archive** sets a thread aside, and it still takes replies.
 - The row above the comments acts on the threads picked by their boxes. The buttons
-  pressed less often, **Expand all**, **Archive**, **Reopen** and the eye for Overleaf's
-  comments, sit together at the row's end, and behind **⋯** with their names when the
-  panel is too narrow for the whole row.
+  pressed less often, **Expand all**, **Archive** and **Reopen**, sit together at the row's
+  end, and behind **⋯** with their names when the panel is too narrow for the whole row.
 - Edits in the Source tab are saved when you press **Save**.
 - **Settings**, the gear in the top bar (in the ⋯ menu on a phone), picks the page's look:
   **Light**, **Dark**, or **Warm**, a softer paper tone for long writing, as a screen looks with its blue light turned down. The PDF's pages
@@ -111,10 +110,12 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   changes nothing when the merge would conflict or write over a change not committed.
   **git push** sends the folder's commits, never forced, and leaves changes not committed
   where they are. A token in the remote's address never reaches the page.
-- Comments from Overleaf are kept as Overleaf has them. The sync button with the leaf
-  above the comments brings its open threads in as comments on the words they were
-  written about, with their replies. In a git clone it waits until the folder is at
-  Overleaf's commit, since a thread is on words.
+- Comments from Overleaf are kept as Overleaf has them, in their own tab: the leaf
+  **Comments** tab beside **Comments**, shown once the paper names an Overleaf project or
+  holds threads from one. The editor and the PDF mark the comments of the tab shown. The
+  sync button with the leaf atop that tab brings Overleaf's open threads in as comments on
+  the words they were written about, with their replies. In a git clone it waits until
+  the folder is at Overleaf's commit, since a thread is on words.
   With the files following Overleaf live there is no sync button: a new thread comes
   in by itself whenever every file is in step.
   A file whose text has the hash of Overleaf's text holds the same text, and there each
@@ -122,13 +123,13 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   that differs, a comment goes on its words, and this file's own edits keep it there. A
   thread whose words are on Overleaf but not yet in the file here sits on the paper, with
   its place on Overleaf shown under it, and moves onto its words once they reach the file.
-- A thread from Overleaf is open, resolved or gone as it is on Overleaf, so the page offers
-  no Resolve, Reopen, Archive or Delete on it. A message reworded or deleted there is
-  reworded or deleted here, a thread deleted there is deleted here, and one deleted here
-  comes back. Replies written here stay in their thread.
-- Once comments have come in from Overleaf, the eye button with the leaf above the comments
-  hides them from the list, the editor and the PDF, and shows them again. It changes
-  no comment and is kept per browser. While they are hidden, the list says how many.
+- A thread from Overleaf is open, resolved or gone as it is on Overleaf. **Resolve** and
+  **Reopen**, on its card or on the picked threads, do it on Overleaf first, for everyone
+  in the project, and then here. What Overleaf refuses stays as it was. The agent cannot
+  resolve or reopen. Overleaf has no archive and deletes a thread only there, so the page
+  offers neither on it. A message reworded or deleted there is reworded or deleted here,
+  a thread deleted there is deleted here, and one deleted here comes back. Replies
+  written here stay in their thread.
 - With `overleaf` set and the cookie kept, an open page also sits in the Overleaf project,
   read-only. The top bar shows a face for each collaborator there, which goes to the file
   and line they are on, their cursors are drawn in the editor on that file, and a file
@@ -144,9 +145,9 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
 - A thread from Overleaf has a box under it for a reply on Overleaf, which everyone in the
   project reads. The agent can put its draft there (`write_comments` with
   `action="overleaf"`), one per thread, and you edit it and send it with **Send to** and
-  the leaf. The send button with the leaf above the comments sends the reply of every
-  picked thread from Overleaf, one thread after another, and a refused one keeps its words
-  and says why on its card while the rest go. The agent cannot send. A plain reply stays
+  the leaf. The send button with the leaf atop the leaf **Comments** tab sends the reply
+  of every picked thread, one thread after another, and a refused one keeps its words and
+  says why on its card while the rest go. The agent cannot send. A plain reply stays
   here, since it may be an instruction to the agent, and each entry on such a thread says
   whether it went to Overleaf or stayed here. A draft naming the source ranges it
   describes goes only once Overleaf has what those ranges held, read from the files when

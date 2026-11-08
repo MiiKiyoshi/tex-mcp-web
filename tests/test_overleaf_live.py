@@ -416,9 +416,8 @@ async def test_a_thread_from_overleaf_is_as_overleaf_has_it_whatever_was_done_he
     await downloaded(client, server, 2)
     one, two = sorted(server.comments.list(), key=lambda comment: texts(comment)[0])
 
-    # The page does not close, archive or delete it: that is done on Overleaf.
-    for action in ("resolve", "archive"):
-        assert (await client.post(f"/comments/{one.id}/{action}", json={"summary": ""})).status == 409
+    # The page does not archive or delete it: Overleaf has no archive and deletes it there.
+    assert (await client.post(f"/comments/{one.id}/archive", json={})).status == 409
     assert (await client.delete(f"/comments/{one.id}")).status == 409
     # Closed or deleted here all the same, by another hand: the next reading puts it back.
     server.comments.resolve(one.id, summary="", author="human")
@@ -530,9 +529,30 @@ async def test_only_what_is_asked_to_goes_to_overleaf(review) -> None:
     assert (await (await client.get("/overleaf")).json())["imported"] == [comment.id]
     await client.post(f"/comments/{comment.id}/reply", json={"text": "Claude, fix this."})
     server.comments.reply(comment.id, "Done.", "agent")
-    await client.post(f"/comments/{comment.id}/resolve", json={"summary": ""})
-    await client.post(f"/comments/{comment.id}/reopen", json={})
     assert fake.written == []
+    await page.close()
+
+
+async def test_resolve_and_reopen_go_to_overleaf_first(review) -> None:
+    """The reviewer resolves a thread from Overleaf there, for everyone in the project, on the
+    file it is on, and then here. What Overleaf refuses stays open on both."""
+    client, server, fake = review
+    page, comment = await on_overleaf(client, server, fake)
+    assert (await client.post(f"/comments/{comment.id}/resolve", json={"summary": "ignored"})).status == 200
+    assert fake.written == [("resolve", "t1", "d-main")]
+    resolved = server.comments.get(comment.id)
+    assert resolved.status == "resolved" and texts(resolved) == ["[Overleaf · Ann] Which words?"]
+    assert (await client.post(f"/comments/{comment.id}/reopen", json={})).status == 200
+    assert fake.written[-1] == ("reopen", "t1", "d-main") and server.comments.get(comment.id).status == "open"
+    fake.refuse_writes = True
+    refused = await client.post(f"/comments/{comment.id}/resolve", json={"summary": ""})
+    assert refused.status == 502 and "nothing was changed there" in (await refused.json())["error"]
+    assert server.comments.get(comment.id).status == "open"
+    # A reading afterwards finds Overleaf as the page left it, and changes nothing.
+    fake.refuse_writes = False
+    await client.post(f"/comments/{comment.id}/resolve", json={"summary": ""})
+    await downloaded(client, server, 1)
+    assert server.comments.get(comment.id).status == "resolved"
     await page.close()
 
 

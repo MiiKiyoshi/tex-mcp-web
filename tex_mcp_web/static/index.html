@@ -117,6 +117,9 @@
       <div class="sidebar-tabs">
         <button class="tab-btn" data-tab="sections">Sections</button>
         <button class="tab-btn active" data-tab="comments">Comments<span id="comments-tab-count" class="tab-count hidden"></span></button>
+        <!-- Threads on Overleaf, and the ones drafted for it, kept apart from the comments
+             written here. Shown once the paper names an Overleaf project or has threads from one. -->
+        <button class="tab-btn" data-tab="overleaf-comments" hidden title="Comments on Overleaf"><svg class="leaf-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 13C3 7 7 3 13 3c0 6-4 10-10 10z"/><path d="M3 13l6-6"/></svg>Comments<span id="overleaf-tab-count" class="tab-count hidden"></span></button>
         <button class="tab-btn" data-tab="compile">Compile<span id="compile-tab-count" class="tab-count hidden"></span></button>
       </div>
 
@@ -128,8 +131,8 @@
             <option value="archived">archived</option>
             <option value="all">all</option>
           </select></span>
-          <!-- Shown while the paper is connected to Overleaf: brings its comments here as Overleaf
-               has them, with how many new threads wait. -->
+          <!-- Shown in the leaf Comments tab while the paper is connected to Overleaf: brings its
+               comments here as Overleaf has them, with how many new threads wait. -->
           <button id="overleaf-sync-comments-btn" class="icon-btn" type="button" hidden aria-label="Sync comments from Overleaf" title="Sync comments from Overleaf">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 6.5A5 5 0 0 0 3.6 4.4"/><path d="M3 2v3h3"/><path d="M3 9.5a5 5 0 0 0 9.4 2.1"/><path d="M13 14v-3h-3"/></svg>
             <svg class="leaf-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 13C3 7 7 3 13 3c0 6-4 10-10 10z"/><path d="M3 13l6-6"/></svg>
@@ -145,8 +148,8 @@
           <button id="resolve-picked-btn" class="icon-btn" type="button" disabled aria-label="Resolve" title="Resolve the picked comments">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M5 8l2 2 4-4"/></svg><span class="count"></span>
           </button>
-          <!-- Shown while the paper is connected to Overleaf: each picked thread from Overleaf
-               sends what its reply box holds to its own thread there. -->
+          <!-- Shown in the leaf Comments tab: each picked thread sends what its reply box holds
+               to its own thread on Overleaf. -->
           <button id="send-picked-btn" class="icon-btn" type="button" hidden disabled aria-label="Send to Overleaf" title="Send the picked replies to Overleaf">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2L7 9"/><path d="M14 2l-4.5 12L7 9 2 6.5z"/></svg>
             <svg class="leaf-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 13C3 7 7 3 13 3c0 6-4 10-10 10z"/><path d="M3 13l6-6"/></svg>
@@ -162,13 +165,6 @@
               <button id="fold-all-btn" class="icon-btn" type="button" aria-label="Expand all" title="Expand all">
                 <svg class="icon-expand" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4-4 4 4M4 10l4 4 4-4"/></svg>
                 <svg class="icon-collapse hidden" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 2l4 4 4-4M4 14l4-4 4 4"/></svg>
-              </button>
-              <!-- Shown once comments have come in from Overleaf: leaves them out of the list,
-                   the editor and the PDF on this page, or brings them back. Nothing is changed. -->
-              <button id="overleaf-comments-btn" class="icon-btn overleaf-comments-btn" type="button" hidden aria-pressed="true" aria-label="Hide comments from Overleaf" title="Hide comments from Overleaf">
-                <svg class="icon-shown" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8 12.1 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg>
-                <svg class="icon-hidden hidden" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 8s2.4-4.5 6.5-4.5c1.3 0 2.4.4 3.4 1M14.5 8s-2.4 4.5-6.5 4.5c-1.3 0-2.4-.4-3.4-1"/><path d="M2.5 13.5l11-11"/></svg>
-                <svg class="leaf-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 13C3 7 7 3 13 3c0 6-4 10-10 10z"/><path d="M3 13l6-6"/></svg>
               </button>
               <button id="archive-picked-btn" class="icon-btn" type="button" disabled aria-label="Archive" title="Archive the picked comments">
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 3h12v3H2z"/><path d="M3 6v7h10V6M6 9h4"/></svg><span class="count"></span>

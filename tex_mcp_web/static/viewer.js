@@ -44,10 +44,10 @@ const state = {
   overleafGitRead: 0,
   overleafGitTimer: null,
   overleafEdits: "",
-  // Comments brought in from Overleaf, and whether this page shows them (kept per viewer).
+  // Comments brought in from Overleaf, and which comment tab is shown: the comments written
+  // here, or the threads on Overleaf. The list, the editor and the PDF show that tab's.
   overleafImported: new Set(),
-  showOverleafComments: true,
-  hiddenOverleafComments: 0,
+  commentTab: "comments",
   editingEntry: null,
   focusedCommentId: null,
   annotationCommentById: new Map(),
@@ -522,7 +522,7 @@ async function initializePdfViewer(pdfView) {
     const commentId = state.annotationCommentById.get(annotationState.selectedUids[0]);
     if (commentId) {
       setSidebarCollapsed(false);
-      switchTab("comments");
+      switchTab(state.commentTab);
       const comment = state.comments.find((item) => item.id === commentId);
       if (comment) focusComment(comment);
       return;
@@ -1073,12 +1073,12 @@ function renderOverleafStatus({ project, cookie, sync = false, live = false, set
     box.checked = box.value === (sync ? "live" : "hand");
     box.disabled = !settable;
   }
-  // The sync button atop the comment list shows only its drawing, so the note shows it too.
+  // The sync button and the tab it is in show drawings, so the note shows them too.
   const syncDrawing = [...$("#overleaf-sync-comments-btn").querySelectorAll("svg")].map((svg) => svg.cloneNode(true));
   $("#overleaf-mode-hand-note").replaceChildren(git
     ? "Files change only when you press git pull or git push, which show in the top bar when there are commits to move. Overleaf gets nothing until you git push. A new comment thread on Overleaf comes in when you press "
     : "Nothing changes the files: this folder is not a git clone of the project. Who is on Overleaf still shows here, and a new comment thread there comes in when you press ",
-  ...syncDrawing, " atop the comments.");
+  ...syncDrawing, " in the ", leafIcon(), " Comments tab.");
   $("#overleaf-mode-live-note").textContent = git
     ? "While this review page is open, text files such as .tex change both ways within a second, and a new comment thread on Overleaf comes in by itself. Figures and other uploaded files go by git: one you commit here goes with git push, and one added on Overleaf comes in by itself, or with git pull when the top bar shows it."
     : "While this review page is open, text files such as .tex change both ways within a second, and a new comment thread on Overleaf comes in by itself. Figures and other uploaded files are not copied: a git clone of the project brings those.";
@@ -1114,7 +1114,7 @@ function renderOverleafThreadSync() {
   const side = $("#overleaf-sync-comments-btn");
   const waiting = state.overleafWaiting;
   // Files kept the same both ways bring new threads in by themselves: nothing to press.
-  side.hidden = !state.overleafProject || state.overleafFullSync;
+  side.hidden = !state.overleafProject || state.overleafFullSync || state.commentTab !== "overleaf-comments";
   side.querySelector(".count").textContent = waiting ? String(waiting) : "";
   const words = waiting ? `Sync comments from Overleaf (${waiting} new)` : "Sync comments from Overleaf";
   side.title = words;
@@ -2014,7 +2014,7 @@ function showCommentAtCursor() {
     return;
   }
   setSidebarCollapsed(false);
-  switchTab("comments");
+  switchTab(state.commentTab);
   focusComment(chosen);
 }
 
@@ -2060,7 +2060,7 @@ async function initializeSourceEditor() {
     if (!comments?.length || !event.domEvent.target.classList.contains("source-comment-line")) return;
     event.stop();
     setSidebarCollapsed(false);
-    switchTab("comments");
+    switchTab(state.commentTab);
     focusComment(comments[0]);
   });
   state.editor.commands.addCommand({
@@ -2230,6 +2230,7 @@ async function submitCompose(event) {
     }
     $("#compose-dialog").close();
     clearPendingSelection();
+    if (state.commentTab !== "comments") switchTab("comments");
     await refreshComments();
   } finally {
     applyComposeSubmitting(false);
@@ -2250,14 +2251,14 @@ async function refreshComments() {
   state.overleafProject = linked.project ?? null;
   state.overleafFullSync = Boolean(linked.live);
   state.overleafWaiting = linked.waiting ?? 0;
+  // The other tab's comments are left out here, once, so the list, the editor's marks and
+  // the PDF's highlights agree without each asking. Each tab counts its own open ones.
+  const opened = (comments) => comments.filter((comment) => comment.status === "open").length;
+  const onOverleaf = data.comments.filter((comment) => state.overleafImported.has(comment.id));
+  const here = data.comments.filter((comment) => !state.overleafImported.has(comment.id));
+  renderCommentTabs(opened(here), opened(onOverleaf));
+  data.comments = state.commentTab === "overleaf-comments" ? onOverleaf : here;
   renderOverleafThreadSync();
-  // Hidden comments are left out here, once, so the list, the editor's marks, the PDF's
-  // highlights and the count all agree without each asking.
-  const shown = state.showOverleafComments ? data.comments
-    : data.comments.filter((comment) => !state.overleafImported.has(comment.id));
-  state.hiddenOverleafComments = data.comments.length - shown.length;
-  data.comments = shown;
-  renderOverleafCommentsButton();
   // The open view keeps the order the comments were written in, which is the order the
   // paper reads in. The resolved view leads with the comment closed last, the one the
   // reader has just closed and looks for. The mixed view leads with the one written
@@ -2277,25 +2278,28 @@ async function refreshComments() {
   syncSourceCommentMarkers();
 }
 
-function renderOverleafCommentsButton() {
-  const button = $("#overleaf-comments-btn");
-  const shown = state.showOverleafComments;
-  button.hidden = state.overleafImported.size === 0 && shown;
-  button.setAttribute("aria-pressed", String(shown));
-  button.classList.toggle("off", !shown);
-  const words = shown ? "Hide comments from Overleaf" : "Show comments from Overleaf";
-  button.title = words;
-  button.setAttribute("aria-label", words);
-  button.querySelector(".icon-shown").classList.toggle("hidden", !shown);
-  button.querySelector(".icon-hidden").classList.toggle("hidden", shown);
-  fitCommentRow();
-}
-
-function setShowOverleafComments(shown) {
-  state.showOverleafComments = shown;
-  try { localStorage.setItem("texMcpShowOverleafComments", shown ? "1" : "0"); } catch { /* this visit only */ }
-  renderOverleafCommentsButton();
-  refreshComments().catch((error) => console.error(error));
+// The leaf tab shows once the paper names an Overleaf project or has threads from one. The
+// row above the list holds what the shown tab can do: Overleaf has no archive, and only its
+// threads sync and send.
+function renderCommentTabs(here, onOverleaf) {
+  const leafTab = $('.tab-btn[data-tab="overleaf-comments"]');
+  leafTab.hidden = !state.overleafProject && state.overleafImported.size === 0;
+  if (leafTab.hidden && state.commentTab === "overleaf-comments") {
+    state.commentTab = "comments";
+    if (leafTab.classList.contains("active")) switchTab("comments");
+  }
+  for (const [badge, count] of [[$("#comments-tab-count"), here], [$("#overleaf-tab-count"), onOverleaf]]) {
+    badge.textContent = String(count);
+    badge.classList.toggle("hidden", count === 0);
+  }
+  const leaf = state.commentTab === "overleaf-comments";
+  const filter = $("#comment-filter");
+  filter.querySelector('option[value="archived"]').hidden = leaf;
+  if (leaf && filter.value === "archived") {
+    filter.value = "open";
+    $("#comment-filter-name").textContent = "open";
+  }
+  $("#archive-picked-btn").hidden = leaf;
 }
 
 function renderComments() {
@@ -2312,13 +2316,6 @@ function renderComments() {
     scrollTop: activeInput.scrollTop,
   } : null;
   clear(list);
-  if (state.hiddenOverleafComments > 0) {
-    const count = state.hiddenOverleafComments;
-    list.appendChild(h("p", { class: "overleaf-hidden-note" },
-      `${count} comment${count === 1 ? "" : "s"} from Overleaf hidden · `,
-      h("button", { type: "button", class: "link-btn", text: "Show",
-        onclick: () => setShowOverleafComments(true) })));
-  }
   if (state.comments.length === 0) list.appendChild(placeholder("No comments at this filter."));
   else for (const comment of state.comments) list.appendChild(renderCommentItem(comment));
   list.scrollTop = scrollTop;
@@ -2337,7 +2334,6 @@ function renderComments() {
       input.scrollTop = inputState.scrollTop;
     }
   }
-  updateCommentCount();
   renderPickedActions();
   renderFoldAction();
 }
@@ -2346,12 +2342,11 @@ function renderComments() {
 // open ones close, unarchived ones archive, and closed ones reopen. The counts say
 // exactly what each press will touch.
 function renderPickedActions() {
-  // A thread from Overleaf is open, resolved or gone as it is there, so the picked actions
-  // leave it alone.
-  const picked = state.comments.filter((comment) => state.picked.has(comment.id)
-    && !state.overleafImported.has(comment.id));
+  // A thread from Overleaf resolves and reopens there too. Overleaf has no archive.
+  const picked = state.comments.filter((comment) => state.picked.has(comment.id));
   const open = picked.filter((comment) => comment.status === "open").map((comment) => comment.id);
-  const archivable = picked.filter((comment) => comment.status !== "archived").map((comment) => comment.id);
+  const archivable = picked.filter((comment) => comment.status !== "archived"
+    && !state.overleafImported.has(comment.id)).map((comment) => comment.id);
   const closed = picked.filter((comment) => comment.status !== "open").map((comment) => comment.id);
   const shown = state.comments.length;
   const all = $("#pick-all-btn");
@@ -2383,7 +2378,7 @@ function renderPickedActions() {
     && state.overleafImported.has(comment.id) && comment.status === "open"
     && overleafReplyText(comment).trim()).map((comment) => comment.id);
   const send = $("#send-picked-btn");
-  send.hidden = !state.overleafProject;
+  send.hidden = !state.overleafProject || state.commentTab !== "overleaf-comments";
   send.disabled = !state.overleafSignedIn || sendable.length === 0;
   send.querySelector(".count").textContent = sendable.length > 0 ? String(sendable.length) : "";
   send.setAttribute("aria-label", sendable.length > 0 ? `Send ${replies(sendable.length)} to Overleaf` : "Send to Overleaf");
@@ -2763,9 +2758,15 @@ function actionButtons(comment) {
   // empty summary flips the status without adding an entry. An archived thread still
   // takes replies, and goes back to open or resolved from the same row.
   const buttons = [];
-  // A thread from Overleaf is open, resolved or gone as it is there: here it is replied to.
+  // A thread from Overleaf resolves and reopens there, at once: Overleaf takes no summary,
+  // has no archive, and deletes a thread only there.
   if (state.overleafImported.has(comment.id)) {
-    return [actionButton("cmt-reply", "Reply", () => setActiveForm(comment.id, "reply"))];
+    return [
+      actionButton("cmt-reply", "Reply", () => setActiveForm(comment.id, "reply")),
+      comment.status === "open"
+        ? actionButton("cmt-resolve", "Resolve", () => mutateAndRefresh(comment.id, "resolve", { summary: "" }))
+        : actionButton("cmt-reopen", "Reopen", () => mutateAndRefresh(comment.id, "reopen", {})),
+    ];
   }
   if (comment.status !== "resolved") {
     buttons.push(actionButton("cmt-reply", "Reply", () => setActiveForm(comment.id, "reply")));
@@ -2878,13 +2879,6 @@ function anchorLabel(anchor) {
     case "area": return `p${anchor.page} area`;
     default: throw new Error(`unknown anchor kind: ${anchor.kind}`);
   }
-}
-
-function updateCommentCount() {
-  const openCount = state.comments.filter((comment) => comment.status === "open").length;
-  const badge = $("#comments-tab-count");
-  badge.textContent = String(openCount);
-  badge.classList.toggle("hidden", openCount === 0);
 }
 
 async function doMutation(commentId, action, body) {
@@ -3008,7 +3002,7 @@ function syncCommentBadges() {
           return;
         }
         setSidebarCollapsed(false);
-        switchTab("comments");
+        switchTab(state.commentTab);
         const comment = state.comments.find((item) => item.id === plan.comment.id);
         if (comment) focusComment(comment);
       });
@@ -3131,9 +3125,15 @@ function renderSections() {
   host.appendChild(list);
 }
 
+// The two comment tabs share one pane, which shows the chosen tab's comments.
 function switchTab(name) {
   for (const button of $$(".tab-btn")) button.classList.toggle("active", button.dataset.tab === name);
-  for (const pane of $$(".tab-pane")) pane.classList.toggle("active", pane.id === `tab-${name}`);
+  const pane = name === "overleaf-comments" ? "comments" : name;
+  for (const element of $$(".tab-pane")) element.classList.toggle("active", element.id === `tab-${pane}`);
+  if (pane !== "comments" || state.commentTab === name) return;
+  state.commentTab = name;
+  state.picked.clear();
+  refreshComments().catch((error) => console.error(error));
 }
 
 function applyCompileResult(result) {
@@ -4161,8 +4161,6 @@ async function init() {
     if (!$("#call-agent-btn").disabled) $("#call-agent-btn").click();
   }, true);
   $("#call-agent-btn").addEventListener("click", () => callAgent());
-  try { state.showOverleafComments = localStorage.getItem("texMcpShowOverleafComments") !== "0"; } catch { /* shown */ }
-  $("#overleaf-comments-btn").addEventListener("click", () => setShowOverleafComments(!state.showOverleafComments));
   $("#fold-all-btn").addEventListener("click", foldAll);
   $("#pick-all-btn").addEventListener("click", pickAll);
   $("#send-picked-btn").addEventListener("click", async () => {

@@ -1784,10 +1784,10 @@ def test_split_puts_the_translation_where_the_layout_menu_says(tmp_path: Path, m
 
 
 @pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
-def test_the_more_menu_opens_overleaf_and_its_comments_can_be_left_out_of_view(tmp_path: Path) -> None:
+def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_path: Path) -> None:
     """The top bar and the more menu open the Overleaf dialog, which asks for the
-    project's link first. Comments brought in from Overleaf can be hidden and shown
-    again, and the choice outlasts a reload."""
+    project's link first. Comments from Overleaf are in the leaf Comments tab, apart from
+    the comments written here."""
     import fitz
 
     from tex_mcp_web.comments import CommentStore, PaperAnchor
@@ -1850,30 +1850,27 @@ def test_the_more_menu_opens_overleaf_and_its_comments_can_be_left_out_of_view(t
             'return !document.querySelector("#overleaf-link-row").hidden'
             ' && document.querySelector("#overleaf-connected").hidden'
             ' && document.querySelector("#overleaf-mode").hidden'))
-        wait_until(lambda: browser.execute_script(
-            'return document.querySelector("#comments-list").textContent.includes("Say hello properly.")'))
-        # Comments from Overleaf can be left out of view and brought back; one written here stays.
-        post_json(f"{base}/comments", {"anchor": {"kind": "paper"}, "text": "Written here."})
+        # A paper with threads from Overleaf shows their tab, though it names no project.
+        leaf_tab = '.tab-btn[data-tab="overleaf-comments"]'
+        wait_until(lambda: browser.execute_script(f"return !document.querySelector('{leaf_tab}').hidden"))
         browser.execute_script('document.querySelector("#settings-dialog").close()')
+        post_json(f"{base}/comments", {"anchor": {"kind": "paper"}, "text": "Written here."})
         listed = 'return document.querySelector("#comments-list").textContent'
+        count = lambda selector: browser.execute_script(f'return document.querySelector("{selector}").textContent')
         wait_until(lambda: "Written here." in browser.execute_script(listed))
-        toggle = ('const b = document.querySelector("#overleaf-comments-btn");'
-                  ' return [b.hidden, b.getAttribute("aria-pressed")];')
-        assert browser.execute_script(toggle) == [False, "true"]
-        browser.execute_script('document.querySelector("#overleaf-comments-btn").click()')
-        wait_until(lambda: "Say hello properly." not in browser.execute_script(listed))
-        text = browser.execute_script(listed)
-        assert "Written here." in text and "1 comment from Overleaf hidden" in text
-        assert browser.execute_script(toggle) == [False, "false"]
-        assert browser.execute_script('return document.querySelector("#comments-tab-count").textContent') == "1"
-        # The choice is this viewer's and outlasts a reload.
-        browser.navigate(base)
-        wait_until(lambda: "1 comment from Overleaf hidden" in (browser.execute_script(
-            'const l = document.querySelector("#comments-list"); return l ? l.textContent : ""') or ""))
-        browser.execute_script('document.querySelector(".overleaf-hidden-note button").click()')
+        assert "Say hello properly." not in browser.execute_script(listed)
+        assert count("#comments-tab-count") == "1" and count("#overleaf-tab-count") == "1"
+        browser.execute_script(f"document.querySelector('{leaf_tab}').click()")
         wait_until(lambda: "Say hello properly." in browser.execute_script(listed))
-        assert "hidden" not in browser.execute_script(listed)
-        assert browser.execute_script(toggle) == [False, "true"]
+        assert "Written here." not in browser.execute_script(listed)
+        assert browser.execute_script('return document.querySelector("#tab-comments").classList.contains("active")')
+        # Overleaf has no archive, so the tab offers none, and its filter has no archived view.
+        assert browser.execute_script('return document.querySelector("#archive-picked-btn").hidden') is True
+        assert browser.execute_script(
+            'return document.querySelector(\'#comment-filter option[value="archived"]\').hidden') is True
+        browser.execute_script('document.querySelector(\'.tab-btn[data-tab="comments"]\').click()')
+        wait_until(lambda: "Written here." in browser.execute_script(listed))
+        assert browser.execute_script('return document.querySelector("#archive-picked-btn").hidden') is False
     finally:
         if browser is not None:
             try:
@@ -2001,9 +1998,10 @@ def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path
         assert shown("#overleaf-mode")
         assert browser.execute_script('return document.querySelector(\'#overleaf-mode input[value="hand"]\').checked') is True
         hand_note = browser.execute_script('return document.querySelector("#overleaf-mode-hand-note").textContent')
-        assert "git pull or git push" in hand_note and "atop the comments" in hand_note
-        # The note shows the sync button's drawing, the only thing that button shows.
-        assert browser.execute_script('return document.querySelectorAll("#overleaf-mode-hand-note svg").length') == 2
+        assert "git pull or git push" in hand_note and "Comments tab" in hand_note
+        # The note shows the sync button's drawing, the only thing that button shows, and the
+        # leaf the tab it is in shows.
+        assert browser.execute_script('return document.querySelectorAll("#overleaf-mode-hand-note svg").length') == 3
 
         field = browser.find_element("css selector", "#overleaf-cookie")
         field.send_keys(cookie)
@@ -2030,6 +2028,10 @@ def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path
         assert (paper / "notes.tex").exists() and status() == "git pull done."
         assert not disabled("#overleaf-sync-comments-btn") and hidden("#git-pull-btn") and hidden("#git-push-btn")
 
+        # The sync button sits in the leaf Comments tab, with the threads it brings.
+        assert hidden("#overleaf-sync-comments-btn")
+        browser.execute_script('document.querySelector(\'.tab-btn[data-tab="overleaf-comments"]\').click()')
+        wait_until(lambda: not hidden("#overleaf-sync-comments-btn"))
         browser.execute_script('document.querySelector("#overleaf-sync-comments-btn").click()')
         wait_until(lambda: status().startswith("Synced: 1 new comments"))
         wait_until(lambda: browser.execute_script(
@@ -2245,7 +2247,9 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
         assert text("#overleaf-file-notice").startswith("Co Author edited this file on Overleaf")
         assert "tex/body.tex" in text("#overleaf-live-changes")
 
-        # A comment written on Overleaf is counted on the sync button, and comes in from it.
+        # A comment written on Overleaf is counted on the sync button in the leaf Comments tab,
+        # and comes in from it.
+        browser.execute_script('document.querySelector(\'.tab-btn[data-tab="overleaf-comments"]\').click()')
         fake.threads["t1"] = {"messages": [{"user": {"first_name": "Ann"}, "content": "Came in when asked."}]}
         fake.ranges.append({"id": "c1", "op": {"c": "documentclass", "p": 1, "t": "t1"}})
         push(event("new-comment", "t1", {}))
@@ -2322,6 +2326,27 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
         assert browser.execute_script(
             f'return document.querySelector("[data-comment-id=\'{second.id}\'] .overleaf-reply-input").value') \
             == "Both go, the second."
+
+        # Resolve on a thread's card resolves it on Overleaf, for everyone, and then here.
+        # Reopen brings it back the same way. Overleaf has no archive, so neither does the tab.
+        assert text("#overleaf-tab-count") == "2"
+        assert browser.execute_script('return document.querySelector("#archive-picked-btn").hidden') is True
+        # Its card is still open from the reply written on it.
+        wait_until(lambda: browser.execute_script(
+            f'return document.querySelector("[data-comment-id=\'{brought.id}\'] .cmt-resolve") !== null'))
+        assert browser.execute_script(
+            f'return document.querySelector("[data-comment-id=\'{brought.id}\'] .cmt-archive")') is None
+        click(f"[data-comment-id='{brought.id}'] .cmt-resolve")
+        wait_until(lambda: fake.written[-1] == ("resolve", "t1", "d-main"), timeout=15)
+        wait_until(lambda: store.get(brought.id).status == "resolved")
+        wait_until(lambda: text("#overleaf-tab-count") == "1")
+        browser.execute_script('const f = document.querySelector("#comment-filter"); f.value = "resolved";'
+                               ' f.dispatchEvent(new Event("change"));')
+        wait_until(lambda: browser.execute_script(
+            f'return document.querySelector("[data-comment-id=\'{brought.id}\'] .cmt-reopen") !== null'), timeout=15)
+        click(f"[data-comment-id='{brought.id}'] .cmt-reopen")
+        wait_until(lambda: fake.written[-1] == ("reopen", "t1", "d-main"), timeout=15)
+        wait_until(lambda: store.get(brought.id).status == "open")
 
         # When comments cannot be read, the page says so.
         fake.cookie = "s%3Arotated"

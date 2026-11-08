@@ -2025,16 +2025,46 @@ class TexMcpWebServer:
         )
 
     def _follows_overleaf(self, cid: str) -> web.Response | None:
-        """A thread from Overleaf is open, resolved or gone as it is there, so it is not
-        closed, archived or deleted here."""
+        """A thread from Overleaf is as Overleaf has it, which has no archive and deletes a
+        thread only there, so it is not archived or deleted here."""
         if any(known["comment"] == cid for known in self._overleaf_ledger().values()):
-            return web.json_response({"error": "this thread follows Overleaf: close or delete it there"}, status=409)
+            return web.json_response({"error": "this thread follows Overleaf, which has no archive: "
+                                               "resolve it, or delete it on Overleaf"}, status=409)
         return None
+
+    async def _resolve_on_overleaf(self, cid: str, resolved: bool) -> web.Response | None:
+        """Resolve or reopen a thread from Overleaf there first, as the reviewer, then here:
+        what Overleaf refuses stays as it was on both. None for a thread written here."""
+        thread = next((key for key, known in self._overleaf_ledger().items() if known["comment"] == cid), None)
+        if thread is None:
+            return None
+        async with self._overleaf_import:
+            cookie = overleaf.read_cookie()
+            if cookie is None:
+                return web.json_response({"error": "paste your Overleaf session cookie first"}, status=401)
+            if not self.config.overleaf:
+                return web.json_response({"error": "name the Overleaf project in .tex-mcp-web.yaml first"}, status=409)
+            try:
+                await overleaf.set_resolved(self.config.overleaf, cookie, thread, resolved)
+            except overleaf.SignedOut as error:
+                return web.json_response({"error": f"{error} (the cookie has expired or is wrong)"}, status=401)
+            except overleaf.OverleafError as error:
+                return web.json_response({"error": str(error)}, status=502)
+            if self.overleaf_sync is not None and resolved:
+                self.overleaf_sync.resolved_threads.add(thread)
+            elif self.overleaf_sync is not None:
+                self.overleaf_sync.resolved_threads.discard(thread)
+            return await self._mutate_comment(
+                cid,
+                (lambda: self.comments.resolve(cid, summary="", author="human")) if resolved
+                else (lambda: self.comments.reopen(cid, author="human")),
+                acknowledge_only=True,
+            )
 
     async def _handle_resolve_comment(self, request: web.Request) -> web.Response:
         cid = request.match_info["id"]
-        if (refused := self._follows_overleaf(cid)) is not None:
-            return refused
+        if (answered := await self._resolve_on_overleaf(cid, True)) is not None:
+            return answered
         data, err = await self._read_json(request)
         if err is not None:
             return err
@@ -2052,8 +2082,8 @@ class TexMcpWebServer:
 
     async def _handle_reopen_comment(self, request: web.Request) -> web.Response:
         cid = request.match_info["id"]
-        if (refused := self._follows_overleaf(cid)) is not None:
-            return refused
+        if (answered := await self._resolve_on_overleaf(cid, False)) is not None:
+            return answered
         data, err = await self._read_json(request)
         if err is not None:
             return err

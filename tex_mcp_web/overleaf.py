@@ -238,6 +238,24 @@ async def post_reply(link: str, cookie: tuple[str, str], thread: str, content: s
                         {"content": content})
 
 
+async def set_resolved(link: str, cookie: tuple[str, str], thread: str, resolved: bool, *,
+                       timeout: float = 30) -> None:
+    """Resolve a thread on Overleaf, or reopen it, as the reviewer. Overleaf files the change
+    under the file the thread is on, which its ranges say."""
+    server, project = project_of(link)
+    async with _session(server, cookie, timeout) as session:
+        read = _Reader(session, server)
+        ranges = await read.get(f"/project/{project}/ranges")
+        docs = ranges.get("docs", []) if isinstance(ranges, dict) else ranges or []
+        doc = next((str(doc.get("id") or doc.get("_id")) for doc in docs if isinstance(doc, dict)
+                    for comment in (doc.get("ranges") or {}).get("comments") or []
+                    if str(((comment or {}).get("op") or {}).get("t")) == thread), None)
+        if doc is None:
+            raise OverleafError("Overleaf has this thread on no file, so nothing was changed there")
+        await read.post(f"/project/{project}/doc/{doc}/thread/{thread}/{'resolve' if resolved else 'reopen'}",
+                        await _write_token(read, project), {})
+
+
 async def fetch_export(link: str, cookie: tuple[str, str], *, timeout: float = 30) -> dict[str, Any]:
     """The project's threads and the words each is on: ``threads`` by id, with their
     messages and whether each is resolved, and ``comments``, one per place a thread is on,
