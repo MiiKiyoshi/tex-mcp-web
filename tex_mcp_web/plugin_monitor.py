@@ -29,7 +29,11 @@ def _parent_and_name(pid: int) -> tuple[int, str] | None:
 
 def claude_pid() -> int | None:
     """The nearest process above this one named claude, unless a codex comes first."""
-    pid = os.getppid()
+    return session_of(os.getppid())
+
+
+def session_of(pid: int) -> int | None:
+    """The nearest process at or above *pid* named claude, unless a codex comes first."""
     while pid > 1:
         found = _parent_and_name(pid)
         if found is None:

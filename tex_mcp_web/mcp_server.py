@@ -593,7 +593,7 @@ def _write_waiter(watch_dir: Path, port: int) -> Path:
         f"# Prints one line each time the reviewer presses 'Call agent' on http://127.0.0.1:{port},\n"
         "# at once if an unacknowledged press is waiting, and keeps waiting for the next. A server\n"
         "# that goes away is waited for too: one [gone] line, then [back] when it answers again.\n"
-        "# Presses go to one session: when another takes over listening, one [moved] line ends it.\n"
+        "# Presses go to one waiter: when a newer one takes over listening, one [moved] line ends this one.\n"
         "headers=$(mktemp) || exit 1\n"
         "trap 'rm -f \"$headers\"' EXIT\n"
         "gone=0\n"
@@ -1111,8 +1111,10 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         _, watch_dir, _ = _load_project(binding)
         import httpx
 
+        session = plugin_monitor.claude_pid()
         async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.post(f"{binding.base_url()}/wait-review/listen", params={"listener": LISTENER})
+            response = await client.post(f"{binding.base_url()}/wait-review/listen", params={
+                "listener": LISTENER, **({"session": session} if session is not None else {})})
         response.raise_for_status()
         command = f"{shlex.quote(str(_write_waiter(watch_dir, shared.port)))} {LISTENER}"
         return _ok({
@@ -1121,8 +1123,8 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                 _wait_method(ctx, command)
                 + " On [review], call read_comments(new=True) and handle the review. "
                 "[gone] means the review server is unreachable; the script keeps retrying. "
-                "[back] means it is reachable again. [moved] means another session took over "
-                "listening, and the script has ended."
+                "[back] means it is reachable again. [moved] means a newer waiter, in another "
+                "session or in this one as the line says, took over listening, and the script has ended."
             ),
         })
 
@@ -1200,12 +1202,13 @@ def _listen_from_start(shared: "SharedProjectServer") -> None:
     if plugin_monitor.claude_pid() is None:
         return
     deadline = time.monotonic() + MONITOR_START
-    while plugin_monitor.monitored_session() is None:
+    while (session := plugin_monitor.monitored_session()) is None:
         if time.monotonic() > deadline:
             return
         time.sleep(1)
     request = urllib.request.Request(
-        f"http://127.0.0.1:{shared.port}/wait-review/listen?listener={LISTENER}&if_free=1", method="POST")
+        f"http://127.0.0.1:{shared.port}/wait-review/listen?listener={LISTENER}&if_free=1&session={session}",
+        method="POST")
     with urllib.request.urlopen(request, timeout=10) as response:
         if not json.loads(response.read())["listening"]:
             return

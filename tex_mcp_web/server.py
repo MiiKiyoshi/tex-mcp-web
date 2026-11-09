@@ -78,6 +78,7 @@ from .synctex import (
 )
 from . import overleaf
 from . import overleaf_git
+from . import plugin_monitor
 from . import overleaf_ot
 from .overleaf_live import LivePresence
 from .overleaf_sync import HandSync, NotConnected, ProjectSync, Uploads
@@ -452,9 +453,11 @@ class TexMcpWebServer:
         self.review_waiters = 0
         # Presses go to one waiter, named by the id listen() gave it: two sessions answering
         # one press would edit the same threads. Its pid, which its polls report, says
-        # whether it still runs.
+        # whether it still runs, and the Claude Code session that named it, when known,
+        # whose own earlier waiter hears that it is that session listening on.
         self.review_listener: str | None = None
         self.review_listener_pid: int | None = None
+        self.review_listener_session: int | None = None
         self.review_listener_claimed = 0.0
         self.closing = False
         self.websockets: set[web.WebSocketResponse] = set()
@@ -1645,14 +1648,18 @@ class TexMcpWebServer:
     async def _handle_claim_review(self, request: web.Request) -> web.Response:
         """Make the waiter with this listener id the one presses go to. With if_free, only
         when no other waiter runs: a session listening from its start takes presses from
-        no one, and a session asked to listen takes them from whoever had them."""
+        no one, and a session asked to listen takes them from whoever had them. session,
+        when given, is the pid of the Claude Code process the listener runs under, which
+        tells a waiter left by the same session from one another session took over."""
         try:
             listener = request.query["listener"]
-        except KeyError as error:
-            raise web.HTTPBadRequest(text="listener is required") from error
+            session = int(request.query["session"]) if "session" in request.query else None
+        except (KeyError, ValueError) as error:
+            raise web.HTTPBadRequest(text="listener is required, and session is a pid") from error
         if "if_free" in request.query and self._review_listener_alive():
             return web.json_response({"listening": False})
         self.review_listener, self.review_listener_pid = listener, None
+        self.review_listener_session = session
         self.review_listener_claimed = asyncio.get_running_loop().time()
         # A waiter parked for the listener before is released to hear that it is not one.
         self._wake_review_waiters()
@@ -1678,8 +1685,11 @@ class TexMcpWebServer:
         try:
             while True:
                 if self.review_listener != listener:
+                    own = (self.review_listener_session is not None
+                           and plugin_monitor.session_of(pid) == self.review_listener_session)
                     return web.Response(
-                        text="[moved] another session took over listening for Call agent, so "
+                        text="[moved] this session listens for Call agent with a newer waiter, so this one ends"
+                        if own else "[moved] another session took over listening for Call agent, so "
                         "presses no longer come here; listen() takes them back",
                         headers={"X-Moved": "1"})
                 self.review_listener_pid = pid

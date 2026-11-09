@@ -2210,6 +2210,31 @@ async def test_presses_go_to_one_listener(client) -> None:
 
 
 @pytest.mark.asyncio
+async def test_a_waiter_its_own_session_replaced_hears_that_this_session_listens_on(client, monkeypatch) -> None:
+    """tex-mcp started again in a session listens with a new waiter. The waiter the session
+    ran before hears that its own session took the presses, and one in another session
+    hears that another did."""
+    from tex_mcp_web import plugin_monitor
+
+    test_client, server = client
+    pid = os.getpid()
+    monkeypatch.setattr(plugin_monitor, "session_of", lambda waiter: {pid: 111}.get(waiter))
+    await test_client.post("/wait-review/listen?listener=one&session=111")
+    parked = asyncio.ensure_future(test_client.get(f"/wait-review?listener=one&pid={pid}"))
+    for _ in range(50):
+        if server.review_waiters == 1:
+            break
+        await asyncio.sleep(0.02)
+    await test_client.post("/wait-review/listen?listener=two&session=111")
+    moved = await parked
+    assert moved.headers["X-Moved"] == "1"
+    assert await moved.text() == "[moved] this session listens for Call agent with a newer waiter, so this one ends"
+    await test_client.post("/wait-review/listen?listener=three&session=222")
+    taken = await test_client.get(f"/wait-review?listener=two&pid={pid}")
+    assert (await taken.text()).startswith("[moved] another session took over listening")
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("codex", [False, True])
 async def test_listen(bound_project, project, monkeypatch, codex):
     """The tool writes the waiter next to the comment store; run against the live review
