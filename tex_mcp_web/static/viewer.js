@@ -2638,7 +2638,10 @@ function renderCommentItem(comment) {
     })));
   }
   if (!expanded && comment.thread.length > 0) {
-    children.push(h("div", { class: "cmt-preview", text: comment.thread[0].text }));
+    // A thread from Overleaf names who opened it, since it may be anyone in the project.
+    const first = comment.thread[0];
+    children.push(h("div", { class: "cmt-preview",
+                             text: first.name !== undefined ? `${first.name}  ${first.text}` : first.text }));
     // The request, then whatever was last said about it: a thread someone has answered
     // must not read like one nobody has touched, and who answered has to be visible.
     // A long answer is cut to three lines here and opens in full on a click, so nothing
@@ -2648,7 +2651,7 @@ function renderCommentItem(comment) {
       children.push(h("div", { class: `cmt-latest author-${latest.author}`,
                                title: "expand thread",
                                onclick: toggle,
-                               text: `${latest.author}  ${latest.text}` }));
+                               text: `${writer(latest)}  ${latest.text}` }));
     }
   }
   const onOverleaf = state.overleafImported.has(comment.id);
@@ -2775,6 +2778,11 @@ function renderOverleafReply(comment) {
     h("div", { class: "cmt-form-actions" }, send));
 }
 
+// An entry Overleaf holds goes by the name Overleaf gives its writer, as on Overleaf.
+function writer(entry) {
+  return entry.name ?? entry.author;
+}
+
 // On a thread from Overleaf, each entry says whether Overleaf has it: one written there, one
 // sent there, or one that stays on this page.
 function overleafMark(entry) {
@@ -2784,7 +2792,7 @@ function overleafMark(entry) {
       title: entry.overleaf ? `Sent to Overleaf at commit ${entry.overleaf}` : "Sent to Overleaf",
     }, leafIcon(), "sent");
   }
-  if (entry.text.startsWith("[Overleaf ·")) return null;
+  if (entry.name !== undefined) return h("span", { class: "entry-overleaf", title: "Written on Overleaf" }, leafIcon());
   return h("span", { class: "entry-overleaf here", text: "here only", title: "Not sent to Overleaf" });
 }
 
@@ -2793,9 +2801,10 @@ function renderThreadEntry(entry, commentId, index, onOverleaf) {
     && state.editingEntry.index === index;
   const children = [
     h("div", { class: "thread-meta" },
-      h("span", { text: `${entry.author} · ${entry.at}` }),
+      h("span", { text: `${writer(entry)} · ${entry.at}` }),
       onOverleaf ? overleafMark(entry) : null,
-      entry.author === "human" && !editing
+      // Overleaf keeps what it holds as written there, so that is answered, not edited.
+      entry.author === "human" && !editing && entry.name === undefined && entry.overleaf === undefined
         ? actionButton("cmt-edit", "Edit", () => startEntryEdit(commentId, index, entry.text))
         : null),
   ];

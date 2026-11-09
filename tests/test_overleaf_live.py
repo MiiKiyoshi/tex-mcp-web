@@ -368,7 +368,8 @@ async def opened(client, fake):
 
 
 def texts(comment):
-    return [entry.text for entry in comment.thread]
+    """Who wrote each entry, as Overleaf names them, and what they said."""
+    return [(entry.name, entry.text) for entry in comment.thread]
 
 
 async def downloaded(client, server, count):
@@ -386,7 +387,7 @@ async def test_what_was_said_while_no_page_was_open_waits_on_opening_to_be_synce
     assert not server.comments.list()
     assert (await (await client.get("/overleaf")).json())["waiting"] == 1
     await downloaded(client, server, 1)
-    assert texts(server.comments.list()[0]) == ["[Overleaf · Ann] Earlier."]
+    assert texts(server.comments.list()[0]) == [("Ann", "Earlier.")]
     assert (await (await client.get("/overleaf")).json())["waiting"] == 0
     await page.close()
 
@@ -406,7 +407,7 @@ async def test_a_new_thread_waits_and_its_replies_come_in_by_themselves_and_clos
     assert not server.comments.list()
     await downloaded(client, server, 1)
     comment = server.comments.list()[0]
-    assert texts(comment) == ["[Overleaf · Ann] Which words?"]
+    assert texts(comment) == [("Ann", "Which words?")]
     assert comment.anchor.to_dict()["file"] == "main.tex" and comment.anchor.to_dict()["line_start"] == 3
     seen = []
     while not any(m.get("type") == "comment_added" for m in seen):
@@ -415,7 +416,7 @@ async def test_a_new_thread_waits_and_its_replies_come_in_by_themselves_and_clos
     fake.threads["t1"]["messages"].append(said("Bo", "These."))
     await fake.push(event("new-comment", "t1", {}))
     await wait_for(lambda: len(server.comments.get(comment.id).thread) == 2)
-    assert texts(server.comments.get(comment.id))[1] == "[Overleaf · Bo] These."
+    assert texts(server.comments.get(comment.id))[1] == ("Bo", "These.")
 
     # A reply taken back goes here too, and the next one still comes in.
     fake.threads["t1"]["messages"].pop()
@@ -424,7 +425,7 @@ async def test_a_new_thread_waits_and_its_replies_come_in_by_themselves_and_clos
     fake.threads["t1"]["messages"].append(said("Bo", "Those."))
     await fake.push(event("new-comment", "t1", {}))
     await wait_for(lambda: len(server.comments.get(comment.id).thread) == 2)
-    assert texts(server.comments.get(comment.id))[1] == "[Overleaf · Bo] Those."
+    assert texts(server.comments.get(comment.id))[1] == ("Bo", "Those.")
 
     fake.threads["t1"]["resolved"] = True
     await fake.push(event("resolve-thread", "t1", {}))
@@ -569,7 +570,7 @@ async def test_resolve_and_reopen_go_to_overleaf_first(review) -> None:
     assert (await client.post(f"/comments/{comment.id}/resolve", json={"summary": "ignored"})).status == 200
     assert fake.written == [("resolve", "t1", "d-main")]
     resolved = server.comments.get(comment.id)
-    assert resolved.status == "resolved" and texts(resolved) == ["[Overleaf · Ann] Which words?"]
+    assert resolved.status == "resolved" and texts(resolved) == [("Ann", "Which words?")]
     assert (await client.post(f"/comments/{comment.id}/reopen", json={})).status == 200
     assert fake.written[-1] == ("reopen", "t1", "d-main") and server.comments.get(comment.id).status == "open"
     fake.refuse_writes = True
@@ -590,20 +591,21 @@ async def test_a_reply_goes_to_overleaf_once_and_does_not_come_back_as_another(r
     response = await client.post(f"/comments/{comment.id}/reply", json={"text": "  Mine.  ", "overleaf": True})
     assert response.status == 200
     assert fake.written == [("reply", "t1", "Mine.")]
-    assert texts(server.comments.get(comment.id)) == ["[Overleaf · Ann] Which words?", "Mine."]
+    assert texts(server.comments.get(comment.id)) == [("Ann", "Which words?"), (None, "Mine.")]
     # Marked as sent; this folder does not follow Overleaf by git, so no commit is named.
     assert server.comments.get(comment.id).thread[-1].overleaf == ""
 
     read = fake.ranges_read
     await fake.push(event("new-comment", "t1", {}))      # Overleaf tells everyone, the sender too
     await wait_for(lambda: fake.ranges_read >= read + 2)
-    assert len(server.comments.get(comment.id).thread) == 2
+    # It comes back once, and only then is it known by the name Overleaf gives the sender.
+    assert texts(server.comments.get(comment.id)) == [("Ann", "Which words?"), ("Me", "Mine.")]
 
     # What others say afterwards still comes in.
     fake.threads["t1"]["messages"].append({"id": "m-next", **said("Bo", "Good.")})
     await fake.push(event("new-comment", "t1", {}))
     await wait_for(lambda: len(server.comments.get(comment.id).thread) == 3)
-    assert texts(server.comments.get(comment.id))[2] == "[Overleaf · Bo] Good."
+    assert texts(server.comments.get(comment.id))[2] == ("Bo", "Good.")
     await page.close()
 
 
@@ -619,7 +621,7 @@ async def test_a_reply_someone_else_wrote_in_the_same_moment_is_not_lost(review)
     read = fake.ranges_read
     await fake.push(event("new-comment", "t1", {}))
     await wait_for(lambda: fake.ranges_read >= read + 1)
-    assert sorted(texts(server.comments.get(comment.id))[1:]) == ["Mine.", "[Overleaf · Bo] Theirs."]
+    assert sorted(texts(server.comments.get(comment.id))[1:]) == [("Bo", "Theirs."), ("Me", "Mine.")]
     await page.close()
 
 

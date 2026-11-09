@@ -162,7 +162,8 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   of every picked thread, one thread after another, and a refused one keeps its words and
   says why on its card while the rest go. The agent cannot send. A plain reply stays
   here, since it may be an instruction to the agent, and each entry on such a thread says
-  whether it went to Overleaf or stayed here. A draft naming the source ranges it
+  whether it went to Overleaf or stayed here. An entry Overleaf holds goes by the name
+  Overleaf gives its writer, as there, and is answered rather than edited. A draft naming the source ranges it
   describes goes only once Overleaf has what those ranges held, read from the files when
   they follow Overleaf live and from Overleaf's branch in a git clone otherwise, and the
   refusal says whether to commit or to git push first. Overleaf takes the reply first, so what

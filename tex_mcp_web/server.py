@@ -1296,9 +1296,10 @@ class TexMcpWebServer:
     async def _bring_in_overleaf(self, data: dict[str, Any], deleted: Iterable[str] = (), *,
                                  new: bool) -> dict[str, int]:
         """Overleaf's threads, kept here as Overleaf has them. A thread here follows its thread
-        there: new messages come in, a message deleted or reworded there is deleted or
-        reworded here, it is open or resolved as it is there, and it sits where Overleaf has
-        it (see _place_overleaf_comment). A thread deleted there is deleted here, and one
+        there: new messages come in with the name Overleaf gives their writer, a message
+        deleted or reworded there is deleted or reworded here, it is open or resolved as it
+        is there, and it sits where Overleaf has it (see _place_overleaf_comment). A thread
+        deleted there is deleted here, and one
         deleted here comes back. Entries written here stay in their thread. A thread not yet
         here comes in only when *new* says so, the reviewer having asked or every file kept
         the same both ways being in step: otherwise it is counted as waiting. A reply the reviewer sent from here is known by its words, once,
@@ -1314,8 +1315,10 @@ class TexMcpWebServer:
         was_waiting = self._overleaf_waiting
 
         def said(message: dict[str, Any]) -> str:
-            name = (message.get("user") or {}).get("name") or "someone"
-            return f"[Overleaf · {name}] {str(message.get('content', '')).strip()}"
+            return str(message.get("content", "")).strip()
+
+        def by(message: dict[str, Any]) -> str:
+            return (message.get("user") or {}).get("name") or "someone"
 
         def keys(messages: list[dict[str, Any]]) -> list[str]:
             return [str(message.get("id") or f"#{index}") for index, message in enumerate(messages)]
@@ -1332,10 +1335,12 @@ class TexMcpWebServer:
             for key, message in zip(current, messages):
                 if key not in seen:
                     continue
-                words = str(message.get("content", "")).strip()
+                words = said(message)
+                # Such a ledger is older than entries carrying a name, when a message brought
+                # in began with its writer's name.
                 held = next((entry for entry in comment.thread if entry.author == "human"
                              and entry.id not in found.values()
-                             and entry.text in (said(message), words)), None)
+                             and entry.text in (f"[Overleaf · {by(message)}] {words}", words)), None)
                 found[key] = held.id if held is not None else ""
             return found
 
@@ -1354,13 +1359,11 @@ class TexMcpWebServer:
                     comment = self.comments.remove_entry(comment.id, entry_id)
                     changed = True
             for key, message in zip(current, messages):
-                words = str(message.get("content", "")).strip()
+                words = said(message)
                 if key in held:
                     entry = next((entry for entry in comment.thread if entry.id == held[key]), None)
-                    # A reply sent from here holds the words alone, as it was written.
-                    wanted = words if entry is not None and entry.overleaf is not None else said(message)
-                    if entry is not None and entry.text != wanted:
-                        comment = self.comments.rewrite_entry(comment.id, entry.id, wanted)
+                    if entry is not None and (entry.text, entry.name) != (words, by(message)):
+                        comment = self.comments.rewrite_entry(comment.id, entry.id, words, by(message))
                         changed = True
                     continue
                 if words in sent:
@@ -1368,8 +1371,12 @@ class TexMcpWebServer:
                     entry = next((entry for entry in comment.thread if entry.overleaf is not None
                                   and entry.text == words and entry.id not in held.values()), None)
                     held[key] = entry.id if entry is not None else ""
+                    # Overleaf names who sent it, which this page did not know.
+                    if entry is not None:
+                        comment = self.comments.rewrite_entry(comment.id, entry.id, words, by(message))
+                        changed = True
                     continue
-                comment = self.comments.reply(comment.id, said(message), "human")
+                comment = self.comments.reply(comment.id, said(message), "human", name=by(message))
                 held[key] = comment.thread[-1].id
                 counts["replies"] += 1
                 changed = True
@@ -1414,11 +1421,12 @@ class TexMcpWebServer:
                 anchor, resolved, selector, where, _ = self._overleaf_anchor(entry)
                 counts["unplaced"] += where is not None
                 comment = self.comments.add(anchor=anchor, text=said(messages[0]), author="human",
-                                            resolved_source=resolved, source_selector=selector)
+                                            resolved_source=resolved, source_selector=selector,
+                                            name=by(messages[0]))
                 current = keys(messages)
                 held = {current[0]: comment.thread[0].id}
                 for key, message in zip(current[1:], messages[1:]):
-                    comment = self.comments.reply(comment.id, said(message), "human")
+                    comment = self.comments.reply(comment.id, said(message), "human", name=by(message))
                     held[key] = comment.thread[-1].id
                 ledger[thread_id] = {"comment": comment.id, "entries": held}
                 if where is not None:

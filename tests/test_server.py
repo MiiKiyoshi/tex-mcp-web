@@ -1376,7 +1376,7 @@ async def test_mcp_drafts_an_overleaf_reply_only_on_a_thread_from_overleaf(bound
         return json.loads((await mcp.call_tool(tool_name, arguments))[0].text)
 
     store = CommentStore(project / ".tex-mcp-web" / "comments.json")
-    brought = store.add(PaperAnchor(), "[Overleaf · Ann] Which words?")
+    brought = store.add(PaperAnchor(), "Which words?", name="Ann")
     own = store.add(PaperAnchor(), "A note of mine.")
     overleaf.ledger_path(project).write_text(json.dumps({"t1": {"comment": brought.id, "messages": 1}}))
 
@@ -2888,19 +2888,20 @@ async def test_overleaf_threads_become_comments_on_their_words(client) -> None:
     }
     reply = await server._bring_in_overleaf(export, new=True)
     assert reply == {"added": 2, "replies": 0, "resolved": 1, "unplaced": 1}
-    comments = {c.thread[0].text.split("] ", 1)[1].split("\n")[0]: c for c in server.comments.list()}
+    comments = {c.thread[0].text.split("\n")[0]: c for c in server.comments.list()}
     placed = comments["Which prose?"]
     assert placed.anchor.to_dict() == {"kind": "source_range", "file": "paper.tex", "line_start": 5,
                                        "line_end": 5, "column_start": 5, "column_end": 10}
-    assert [e.text for e in placed.thread] == ["[Overleaf · A. Reviewer] Which prose?", "[Overleaf · Co Author] The intro."]
+    assert [(e.name, e.text) for e in placed.thread] == [("A. Reviewer", "Which prose?"), ("Co Author", "The intro.")]
     unplaced = comments["Gone from here."]
-    assert unplaced.anchor.kind == "paper" and unplaced.thread[0].text == "[Overleaf · A. Reviewer] Gone from here."
+    assert unplaced.anchor.kind == "paper" and unplaced.thread[0].text == "Gone from here."
     assert (await server._overleaf_status())["unplaced"] == {unplaced.id: "paper.tex:2"}
 
     export["threads"]["t1"]["messages"].append(message("A. Reviewer", "Thanks."))
     reply = await server._bring_in_overleaf(export, new=True)
     assert reply == {"added": 0, "replies": 1, "resolved": 1, "unplaced": 0}
-    assert server.comments.get(placed.id).thread[-1].text == "[Overleaf · A. Reviewer] Thanks."
+    assert (server.comments.get(placed.id).thread[-1].name, server.comments.get(placed.id).thread[-1].text) == (
+        "A. Reviewer", "Thanks.")
     assert len(server.comments.list()) == 2
 
     # The words reach the file, by a pull or by hand, and the comment moves onto them.
@@ -2958,13 +2959,13 @@ async def test_overleaf_threads_are_kept_as_overleaf_has_them(client) -> None:
     # A reply reworded and one deleted on Overleaf.
     export["threads"]["t1"]["messages"][1]["content"] = "The introduction."
     await server._bring_in_overleaf(export, new=False)
-    assert [e.text for e in server.comments.get(one.id).thread] == [
-        "[Overleaf · A. Reviewer] Which prose?", "[Overleaf · Co Author] The introduction."]
+    assert [(e.name, e.text) for e in server.comments.get(one.id).thread] == [
+        ("A. Reviewer", "Which prose?"), ("Co Author", "The introduction.")]
     server.comments.reply(one.id, "Claude, look.", "human")
     del export["threads"]["t1"]["messages"][1]
     await server._bring_in_overleaf(export, new=False)
-    assert [e.text for e in server.comments.get(one.id).thread] == [
-        "[Overleaf · A. Reviewer] Which prose?", "Claude, look."]
+    assert [(e.name, e.text) for e in server.comments.get(one.id).thread] == [
+        ("A. Reviewer", "Which prose?"), (None, "Claude, look.")]
 
     # Resolved there, resolved here; open there again, open here.
     export["threads"]["t1"]["resolved"] = True
@@ -2981,6 +2982,35 @@ async def test_overleaf_threads_are_kept_as_overleaf_has_them(client) -> None:
     export["comments"].pop(0)
     await server._bring_in_overleaf(export, new=False)
     assert server.comments.get(one.id) is None and len(server.comments.list()) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_message_from_overleaf_goes_by_its_writers_name_and_is_answered_not_edited(client) -> None:
+    """A message brought in from Overleaf carries the name Overleaf gives its writer apart
+    from its words, also one brought in when the name began the words, and the page does
+    not edit what Overleaf keeps as written there."""
+    from tex_mcp_web import overleaf
+    from tex_mcp_web.comments import PaperAnchor
+
+    http, server = client
+    message = lambda key, content: {"id": key, "user": {"name": "A. Reviewer"}, "content": content}
+    older = server.comments.add(PaperAnchor(), "[Overleaf · A. Reviewer] Which prose?")
+    oldest = server.comments.add(PaperAnchor(), "[Overleaf · A. Reviewer] And this?")
+    overleaf.ledger_path(server.watch_dir).write_text(json.dumps({
+        "t1": {"comment": older.id, "entries": {"m1": older.thread[0].id}},
+        "t2": {"comment": oldest.id, "messages": 1}}))
+    export = {"threads": {"t1": {"messages": [message("m1", "Which prose?")]},
+                          "t2": {"messages": [message("m2", "And this?")]}},
+              "comments": [{"thread_id": "t1", "pathname": "/paper.tex", "line": 1, "anchored_text": "Some"},
+                           {"thread_id": "t2", "pathname": "/paper.tex", "line": 1, "anchored_text": "Some"}]}
+    await server._bring_in_overleaf(export, new=False)
+    for comment, words in ((older, "Which prose?"), (oldest, "And this?")):
+        assert [(e.name, e.text) for e in server.comments.get(comment.id).thread] == [("A. Reviewer", words)]
+
+    refused = await http.post(f"/comments/{older.id}/edit", json={"index": 0, "text": "Mine now."})
+    assert refused.status == 400
+    assert (await refused.json())["error"] == "thread entry 0 is on Overleaf, which keeps it as written there: reply instead"
+    assert server.comments.get(older.id).thread[0].text == "Which prose?"
 
 
 # --- Completion lists for the source editor ---

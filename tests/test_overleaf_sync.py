@@ -532,7 +532,7 @@ async def test_a_new_thread_comes_in_by_itself_once_every_file_is_in_step(paper,
         await opened.settled()
         await wait_for(lambda: len(opened.server.comments.list()) == 1)
         brought = opened.server.comments.list()[0]
-        assert brought.thread[0].text == "[Overleaf · Ann] Faster?"
+        assert (brought.thread[0].name, brought.thread[0].text) == ("Ann", "Faster?")
         assert (brought.anchor.file, brought.anchor.line_start) == ("main.tex", MAIN[:MAIN.index("fast")].count("\n") + 1)
         assert opened.server._overleaf_waiting == 0
 

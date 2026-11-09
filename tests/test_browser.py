@@ -1798,7 +1798,7 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
         pdf.save(tmp_path / "paper.pdf")
     # A thread brought in from Overleaf earlier: its comment here, and the ledger naming it.
     brought = CommentStore(tmp_path / ".tex-mcp-web" / "comments.json").add(
-        PaperAnchor(), "[Overleaf · A. Reviewer] Say hello properly.")
+        PaperAnchor(), "Say hello properly.", name="A. Reviewer")
     (tmp_path / ".tex-mcp-web" / "overleaf-imported.json").write_text(json.dumps(
         {"t1": {"comment": brought.id, "messages": 1, "seen": ["#0"]}}), encoding="utf-8")
     port = available_port()
@@ -1863,6 +1863,18 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
         browser.execute_script(f"document.querySelector('{leaf_tab}').click()")
         wait_until(lambda: "Say hello properly." in browser.execute_script(listed))
         assert "Written here." not in browser.execute_script(listed)
+        # Its message goes by the name Overleaf gives the writer, with the leaf, and is
+        # answered rather than edited.
+        theirs = f"[data-comment-id='{brought.id}']"
+        assert browser.execute_script(f'return document.querySelector("{theirs} .cmt-preview").textContent') \
+            == "A. Reviewer  Say hello properly."
+        browser.execute_script(f'document.querySelector("{theirs} .cmt-head").click()')
+        wait_until(lambda: browser.execute_script(f'return document.querySelector("{theirs} .thread-meta") !== null'))
+        assert browser.execute_script(f'''
+          const meta = document.querySelector("{theirs} .thread-meta");
+          return [meta.firstChild.textContent.split(" · ")[0], meta.querySelector(".entry-overleaf").title,
+                  meta.querySelector(".cmt-edit") === null];
+        ''') == ["A. Reviewer", "Written on Overleaf", True]
         assert browser.execute_script('return document.querySelector("#tab-comments").classList.contains("active")')
         # Overleaf has no archive, so the tab offers none, and its filter has no archived view.
         assert browser.execute_script('return document.querySelector("#archive-picked-btn").hidden') is True

@@ -447,6 +447,8 @@ class ThreadEntry:
     # Set when the entry was sent to the Overleaf thread: the commit Overleaf's branch was
     # at, or "" for a folder that does not follow Overleaf by git.
     overleaf: str | None = None
+    # Who wrote it, as Overleaf names them, for an entry the Overleaf thread holds.
+    name: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {"id": self.id, "author": self.author, "at": self.at, "text": self.text}
@@ -456,6 +458,8 @@ class ThreadEntry:
             d["updated_at"] = self.updated_at
         if self.overleaf is not None:
             d["overleaf"] = self.overleaf
+        if self.name is not None:
+            d["name"] = self.name
         return d
 
     @classmethod
@@ -468,6 +472,7 @@ class ThreadEntry:
             id=str(d["id"]) if "id" in d else _new_entry_id(),
             updated_at=str(d["updated_at"]) if "updated_at" in d else None,
             overleaf=str(d["overleaf"]) if "overleaf" in d else None,
+            name=str(d["name"]) if "name" in d else None,
         )
 
 
@@ -1266,14 +1271,15 @@ class CommentStore:
         source_selector: SourceSelector | None = None,
         suggestion: SuggestedEdit | None = None,
         base_text: str | None = None,
+        name: str | None = None,
     ) -> Comment:
         """*base_text* is the file's text *resolved_source* was found in, which later edits
-        carry the comment from."""
+        carry the comment from. *name* is who wrote *text* on Overleaf."""
         now = _now()
         comment = Comment(
             id=_new_id(),
             anchor=anchor,
-            thread=[ThreadEntry(author=author, at=now, text=text)],
+            thread=[ThreadEntry(author=author, at=now, text=text, name=name)],
             status="open",
             resolved_source=resolved_source,
             source_selector=source_selector,
@@ -1337,6 +1343,7 @@ class CommentStore:
         *,
         edits: list[str] | None = None,
         new_status: Status | None = None,
+        name: str | None = None,
     ) -> Comment:
         """Locate a comment, append a thread entry, optionally update status.
 
@@ -1350,7 +1357,7 @@ class CommentStore:
                     now = _now()
                     if text.strip() or edits:
                         c.thread.append(
-                            ThreadEntry(author=author, at=now, text=text, edits=list(edits or []))
+                            ThreadEntry(author=author, at=now, text=text, edits=list(edits or []), name=name)
                         )
                     if new_status is not None:
                         c.status = new_status
@@ -1440,10 +1447,12 @@ class CommentStore:
         text: str,
         author: Author,
         edits: list[str] | None = None,
+        name: str | None = None,
     ) -> Comment:
+        """*name* is who wrote *text* on Overleaf, for a message brought in from there."""
         if not text.strip():
             raise ValueError("reply text must not be empty")
-        return self._append_entry(comment_id, author, text, edits=edits)
+        return self._append_entry(comment_id, author, text, edits=edits, name=name)
 
     def suggest(
         self,
@@ -1639,6 +1648,8 @@ class CommentStore:
                 entry = comment.thread[index]
                 if entry.author != author:
                     raise ValueError(f"thread entry {index} was written by {entry.author}")
+                if entry.name is not None or entry.overleaf is not None:
+                    raise ValueError(f"thread entry {index} is on Overleaf, which keeps it as written there: reply instead")
                 entry.text = text.strip()
                 comment.updated = _now()
                 comments[position] = comment
@@ -1646,15 +1657,16 @@ class CommentStore:
                 return comment
         raise KeyError(f"comment {comment_id!r} not found")
 
-    def rewrite_entry(self, comment_id: str, entry_id: str, text: str) -> Comment:
-        """Rewrite the entry named by its id, keeping its author and time."""
-        return self._change_entry(comment_id, entry_id, text)
+    def rewrite_entry(self, comment_id: str, entry_id: str, text: str, name: str | None = None) -> Comment:
+        """Rewrite the entry named by its id, keeping its author and time, and give it the
+        Overleaf *name* of who wrote it, if one is given."""
+        return self._change_entry(comment_id, entry_id, text, name)
 
     def remove_entry(self, comment_id: str, entry_id: str) -> Comment:
         """Take the entry named by its id out of its thread."""
         return self._change_entry(comment_id, entry_id, None)
 
-    def _change_entry(self, comment_id: str, entry_id: str, text: str | None) -> Comment:
+    def _change_entry(self, comment_id: str, entry_id: str, text: str | None, name: str | None = None) -> Comment:
         with self._locked():
             comments = self._all()
             for position, comment in enumerate(comments):
@@ -1667,6 +1679,8 @@ class CommentStore:
                     del comment.thread[index]
                 else:
                     comment.thread[index].text = text
+                    if name is not None:
+                        comment.thread[index].name = name
                 comment.updated = _now()
                 comments[position] = comment
                 self._save(comments)

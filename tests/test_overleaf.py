@@ -220,10 +220,10 @@ async def test_the_page_brings_in_overleaf_comments_with_the_reviewers_cookie(re
 
     counts = await (await client.post("/overleaf/comments")).json()
     assert counts == {"added": 3, "replies": 0, "resolved": 1, "unplaced": 1}
-    comments = {c.thread[0].text.split("] ", 1)[1].split("\n")[0]: c for c in server.comments.list()}
+    comments = {c.thread[0].text.split("\n")[0]: c for c in server.comments.list()}
     assert comments["Which prose?"].anchor.to_dict()["file"] == "paper.tex"
     assert comments["Which prose?"].anchor.to_dict()["line_start"] == 4
-    assert [e.text for e in comments["Which prose?"].thread][1] == "[Overleaf · Co Author] The intro."
+    assert [(e.name, e.text) for e in comments["Which prose?"].thread][1] == ("Co Author", "The intro.")
     assert comments["More of it?"].anchor.to_dict()["file"] == "tex/body.tex"
     assert comments["No longer here."].anchor.kind == "paper"
 
