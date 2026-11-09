@@ -483,29 +483,65 @@ class ThreadEntry:
 
 
 @dataclass
+class DraftRange:
+    """Source lines an Overleaf draft describes. *drafted* is what they held when the draft
+    was written. *source* and *selector* are where they are now, kept as a source-range
+    comment is: *base* names the text they were last exact in, and each edit to their file
+    since carries them as Overleaf carries a comment; without it they are found by their
+    words, and are *stale* while not found."""
+    drafted: str
+    source: ResolvedSource
+    selector: SourceSelector
+    base: str | None = None
+    stale: bool = False
+
+    @property
+    def label(self) -> str:
+        """The "file:first-last" an edits entry names a range by."""
+        return f"{self.source.file}:{self.source.line_start}-{self.source.line_end}"
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {"drafted": self.drafted, "source": self.source.to_dict(),
+                             "selector": self.selector.to_dict()}
+        if self.base is not None:
+            d["base"] = self.base
+        if self.stale:
+            d["stale"] = True
+        return d
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "DraftRange":
+        return cls(drafted=str(d["drafted"]), source=ResolvedSource.from_dict(d["source"]),
+                   selector=SourceSelector.from_dict(d["selector"]),
+                   base=str(d["base"]) if "base" in d else None, stale="stale" in d)
+
+
+@dataclass
 class OverleafDraft:
     """What the agent drafted for Overleaf, which the reviewer edits and sends: a reply to the
     thread a comment came from, or, on a comment with no entries yet, the first message of a
-    new thread on its lines. *edits* names the source ranges it describes, and *checks* holds
-    what each range read when it was drafted: the files a reply is compared in before it
-    goes, and the words that must be on Overleaf before a new thread goes.
-    *thread* is the id a new thread was given on Overleaf when it was first sent, so a send
-    that stopped halfway finishes that thread instead of opening another."""
+    new thread on its lines. *ranges* are the source lines it describes: the files a reply is
+    compared in before it goes, and the words that must be on Overleaf before a new thread
+    goes. *thread* is the id a new thread was given on Overleaf when it was first sent, so a
+    send that stopped halfway finishes that thread instead of opening another."""
     text: str
-    edits: list[str] = field(default_factory=list)
-    checks: list[dict[str, str]] = field(default_factory=list)
+    ranges: list[DraftRange] = field(default_factory=list)
     thread: str | None = None
 
+    @property
+    def checks(self) -> list[dict[str, str]]:
+        """What each range that held words held when the draft was written, by file."""
+        return [{"file": r.source.file, "text": r.drafted} for r in self.ranges if r.drafted.strip()]
+
     def to_dict(self) -> dict[str, Any]:
-        data = {"text": self.text, "edits": list(self.edits), "checks": [dict(check) for check in self.checks]}
+        data: dict[str, Any] = {"text": self.text, "ranges": [r.to_dict() for r in self.ranges]}
         if self.thread is not None:
             data["thread"] = self.thread
         return data
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "OverleafDraft":
-        return cls(text=str(d["text"]), edits=list(d["edits"]),
-                   checks=[{"file": str(check["file"]), "text": str(check["text"])} for check in d["checks"]],
+        return cls(text=str(d["text"]), ranges=[DraftRange.from_dict(r) for r in d["ranges"]],
                    thread=str(d["thread"]) if "thread" in d else None)
 
 
@@ -765,6 +801,29 @@ def reattach_source_lines(
             SourceSelector("\n".join(lines[first:last + 1]), selector.prefix, selector.suffix))
 
 
+def find_again(
+    source: ResolvedSource, selector: SourceSelector, watch_dir: Path
+) -> tuple[ResolvedSource, SourceSelector, bool] | None:
+    """Where a source range is now when the text it was last exact in is not known: its
+    exact characters or lines, found once, or else the text between its unchanged context.
+    The range, its selector, and whether it was found by its context, its words having
+    changed. None when neither is found."""
+    file_path = watch_dir / source.file
+    if not file_path.is_file():
+        return None
+    if source.column_start is not None:
+        located = find_source_characters(selector, file_path, source.file)
+        if located is not None:
+            return located, selector, False
+        reattached = reattach_source_characters(selector, file_path, source.file)
+    else:
+        lines = find_source_selector(selector, file_path)
+        if lines is not None:
+            return ResolvedSource(file=source.file, line_start=lines[0], line_end=lines[1]), selector, False
+        reattached = reattach_source_lines(selector, file_path, source.file)
+    return None if reattached is None else (*reattached, True)
+
+
 def _span(text: str, source: ResolvedSource) -> tuple[int, int]:
     """The Python offsets a resolved source range covers: its characters, or for whole lines
     their text without the last newline. Empty when its words were deleted."""
@@ -778,38 +837,38 @@ def _span(text: str, source: ResolvedSource) -> tuple[int, int]:
     return start, start + len("\n".join(lines[source.line_start - 1:source.line_end]))
 
 
-def follow_edits(base: str, now: str, comments: list["Comment"]) -> dict[str, tuple[ResolvedSource, SourceSelector, bool]]:
-    """Where comments exact in *base* sit in *now*, as Overleaf moves a comment through an
-    edit: the edit is the smallest one between the two texts, text inserted at or before a
-    comment's start moves it, inside it widens it, words written over its words take it, and
+def follow_edits(base: str, now: str, sources: dict[str, ResolvedSource]) -> dict[str, tuple[ResolvedSource, SourceSelector, bool]]:
+    """Where source ranges exact in *base* sit in *now*, as Overleaf moves a comment through
+    an edit: the edit is the smallest one between the two texts, text inserted at or before
+    a range's start moves it, inside it widens it, words written over its words take it, and
     a delete takes away what it removes of it, all of it leaving an empty range where the
-    words were. When what is left there shares little with the comment's words and those
-    occur once elsewhere in *now*, as a moved paragraph's do, the comment goes with them. By
-    comment id: the range in *now*, its selector, and whether its words changed."""
+    words were. When what is left there shares little with the range's words and those
+    occur once elsewhere in *now*, as a moved paragraph's do, the range goes with them. By
+    the key *sources* names each by: the range in *now*, its selector, and whether its words
+    changed."""
     from . import overleaf_ot as ot
 
     ranges, spans = [], {}
-    for comment in comments:
-        start, end = _span(base, comment.resolved_source)
-        spans[comment.id] = (start, end)
-        ranges.append({"t": comment.id, "p": ot.js_len(base[:start]), "n": ot.js_len(base[start:end])})
+    for key, source in sources.items():
+        start, end = _span(base, source)
+        spans[key] = (start, end)
+        ranges.append({"t": key, "p": ot.js_len(base[:start]), "n": ot.js_len(base[start:end])})
     moved = {r["t"]: r for r in ot.move_comments(ranges, ot.diff(base, now, ranges))}
     placed = {}
-    for comment in comments:
-        start, end = spans[comment.id]
+    for key, source in sources.items():
+        start, end = spans[key]
         words = base[start:end]
-        r = moved[comment.id]
+        r = moved[key]
         new_start = ot.py_index(now, r["p"])
         new_end = ot.py_index(now, r["p"] + r["n"])
         # A smallest edit cannot tell a moved paragraph from a rewritten one: the words left
-        # where the comment was may be another paragraph's. When they share little with the
-        # comment's own words and those occur once elsewhere, the comment goes with them.
+        # where the range was may be another paragraph's. When they share little with the
+        # range's own words and those occur once elsewhere, the range goes with them.
         taken = now[new_start:new_end]
         if (taken != words and words.strip() and now.count(words) == 1
                 and difflib.SequenceMatcher(None, words, taken).ratio() < 0.5):
             new_start = now.index(words)
             new_end = new_start + len(words)
-        source = comment.resolved_source
         if source.column_start is not None:
             ls, cs = _coordinate(now, new_start)
             le, ce = _coordinate(now, new_end)
@@ -823,7 +882,7 @@ def follow_edits(base: str, now: str, comments: list["Comment"]) -> dict[str, tu
             resolved = ResolvedSource(source.file, ls, le)
             selector = SourceSelector("\n".join(lines[ls - 1:le]), "\n".join(lines[max(0, ls - 3):ls - 1]),
                                       "\n".join(lines[le:le + 2]))
-        placed[comment.id] = (resolved, selector, now[new_start:new_end] != words)
+        placed[key] = (resolved, selector, now[new_start:new_end] != words)
     return placed
 
 
@@ -1133,7 +1192,27 @@ def canonicalize_pdf_selection(
 # ---------------------------------------------------------------------------
 
 
-STORE_VERSION = 7
+STORE_VERSION = 8
+
+
+def _ranges_of_version_7(edits: list[str], checks: list[dict[str, str]]) -> list[dict[str, Any]]:
+    """A version 7 draft's ranges as version 8 keeps them. Version 7 named each by a
+    "file:first-last" string fixed when it was drafted, and kept in *checks*, in the same
+    order, what each that held words held then. Those lines may have moved since, so each
+    range starts stale on them, holding those words, and the next refresh finds it by them."""
+    left, ranges = list(checks), []
+    for spec in edits:
+        name, _, lines = spec.rpartition(":")
+        first, _, last = lines.partition("-")
+        line_start = int(first)
+        line_end = int(last) if last else line_start
+        drafted = ""
+        if left and left[0]["file"] == name and left[0]["text"].count("\n") == line_end - line_start:
+            drafted = left.pop(0)["text"]
+        ranges.append({"drafted": drafted,
+                       "source": {"file": name, "line_start": line_start, "line_end": line_end},
+                       "selector": {"exact": drafted, "prefix": "", "suffix": ""}, "stale": True})
+    return ranges
 
 
 class CommentStore:
@@ -1166,17 +1245,24 @@ class CommentStore:
         lock. Version 5 called the archived status "reference"; version 6 held a
         suggestion as one before/after pair, which version 7 replaced with the pieces it
         changes. A pair cannot be read as pieces without the file it belongs to, and no
-        such proposal was ever applied, so version 6's are dropped rather than carried."""
+        such proposal was ever applied, so version 6's are dropped rather than carried.
+        Version 7 named the lines an Overleaf draft describes by fixed "file:first-last"
+        strings, which version 8 keeps as ranges that follow the edits (see
+        _ranges_of_version_7)."""
         with self._locked():
             try:
                 data = json.loads(self.path.read_text(encoding="utf-8"))
-                if data["version"] not in (5, 6):
+                if data["version"] not in (5, 6, 7):
                     return
                 for comment in data["comments"]:
                     if data["version"] == 5 and comment["status"] == "reference":
                         comment["status"] = "archived"
-                    comment.pop("suggestion", None)
-                    comment.pop("suggestion_applied", None)
+                    if data["version"] in (5, 6):
+                        comment.pop("suggestion", None)
+                        comment.pop("suggestion_applied", None)
+                    if "overleaf_draft" in comment and "edits" in comment["overleaf_draft"]:
+                        draft = comment["overleaf_draft"]
+                        draft["ranges"] = _ranges_of_version_7(draft.pop("edits"), draft.pop("checks"))
             except (OSError, ValueError, KeyError, TypeError):
                 return  # an unreadable store fails on its first operation, as before
             data["version"] = STORE_VERSION
@@ -1308,9 +1394,12 @@ class CommentStore:
         draft: "OverleafDraft",
         resolved_source: ResolvedSource,
         source_selector: SourceSelector,
+        texts: dict[str, str],
     ) -> Comment:
         """A new thread drafted for Overleaf on source lines: a comment with no entries, since
-        nothing has been said until the reviewer sends the draft."""
+        nothing has been said until the reviewer sends the draft. *texts* are the files' texts
+        its lines and the draft's ranges were read from, by file, which later edits carry
+        them from."""
         if not draft.text.strip():
             raise ValueError("a draft must not be empty")
         now = _now()
@@ -1321,11 +1410,14 @@ class CommentStore:
             status="open",
             resolved_source=resolved_source,
             source_selector=source_selector,
-            overleaf_draft=OverleafDraft(draft.text.strip(), draft.edits, draft.checks),
+            overleaf_draft=OverleafDraft(draft.text.strip(), draft.ranges),
             created=now,
             updated=now,
         )
         with self._locked():
+            if resolved_source.file in texts:
+                comment.base = self._keep_text(texts[resolved_source.file])
+            self._keep_draft_bases(comment.overleaf_draft, texts)
             all_comments = self._all()
             all_comments.append(comment)
             self._save(all_comments)
@@ -1493,11 +1585,19 @@ class CommentStore:
                 return comment
         raise KeyError(f"comment {comment_id!r} not found")
 
+    def _keep_draft_bases(self, draft: OverleafDraft, texts: dict[str, str]) -> None:
+        """Record for each of a draft's ranges the text it was read from, from *texts* by
+        file, which later edits carry it from. Called under the lock."""
+        for r in draft.ranges:
+            if r.source.file in texts:
+                r.base = self._keep_text(texts[r.source.file])
+
     def draft_overleaf(
-        self, comment_id: str, expected_updated: str, draft: OverleafDraft
+        self, comment_id: str, expected_updated: str, draft: OverleafDraft, texts: dict[str, str]
     ) -> Comment:
         """Put the agent's draft of an Overleaf reply on an open thread. A thread holds one,
-        which this replaces; it adds no entry, since nothing has been said until it is sent."""
+        which this replaces; it adds no entry, since nothing has been said until it is sent.
+        *texts* are the files' texts its ranges were read from, by file."""
         if not draft.text.strip():
             raise ValueError("a draft must not be empty")
         with self._locked():
@@ -1510,7 +1610,8 @@ class CommentStore:
                 if comment.status != "open":
                     raise ValueError("a draft belongs to a comment that is open")
                 kept = comment.overleaf_draft.thread if comment.overleaf_draft is not None else None
-                comment.overleaf_draft = OverleafDraft(draft.text.strip(), draft.edits, draft.checks, kept)
+                comment.overleaf_draft = OverleafDraft(draft.text.strip(), draft.ranges, kept)
+                self._keep_draft_bases(comment.overleaf_draft, texts)
                 comment.updated = _now()
                 comments[position] = comment
                 self._save(comments)
@@ -1519,14 +1620,14 @@ class CommentStore:
 
     def sent_to_overleaf(self, comment_id: str, text: str, commit: str) -> Comment:
         """Record the reviewer's reply as sent to Overleaf at *commit*, taking the draft it
-        came from off the thread, with the ranges that draft named."""
+        came from off the thread, with the lines its ranges are on now."""
         with self._locked():
             comments = self._all()
             for position, comment in enumerate(comments):
                 if comment.id != comment_id:
                     continue
                 now = _now()
-                edits = comment.overleaf_draft.edits if comment.overleaf_draft is not None else []
+                edits = [r.label for r in comment.overleaf_draft.ranges] if comment.overleaf_draft is not None else []
                 comment.thread.append(ThreadEntry(author="human", at=now, text=text, edits=list(edits),
                                                   overleaf=commit))
                 comment.overleaf_draft = None
@@ -1700,9 +1801,11 @@ class CommentStore:
         anchor: Anchor,
         resolved_source: ResolvedSource | None,
         source_selector: SourceSelector | None,
+        base_text: str | None,
     ) -> Comment:
         """Put a comment that was on the whole paper onto the words it was written about,
-        found only now."""
+        found only now. *base_text* is the file's text they were found in, which later edits
+        carry the comment from."""
         with self._locked():
             comments = self._all()
             for position, comment in enumerate(comments):
@@ -1711,8 +1814,7 @@ class CommentStore:
                 comment.anchor = anchor
                 comment.resolved_source = resolved_source
                 comment.source_selector = source_selector
-                # Placed on the file as it is now: the next refresh records that text.
-                comment.base = None
+                comment.base = None if base_text is None else self._keep_text(base_text)
                 comment.stale = False
                 comment.updated = _now()
                 comments[position] = comment
@@ -1736,36 +1838,69 @@ class CommentStore:
     def _bases(self) -> Path:
         return self.path.parent / "anchor-texts"
 
-    def _follow_edits(self, comments: list[Comment], watch_dir: Path) -> tuple[set[str], bool]:
-        """Move source-range comments through the edits made to their files since the text
-        they were last exact in, one smallest edit per file. Comments with no base text known
-        are left to be found by their words. The ids moved, and whether any changed."""
-        groups: dict[tuple[str, str], list[Comment]] = {}
-        for comment in comments:
-            if (isinstance(comment.anchor, SourceRangeAnchor) and comment.resolved_source is not None
-                    and comment.base is not None):
-                groups.setdefault((comment.resolved_source.file, comment.base), []).append(comment)
-        handled, changed = set(), False
+    def _carry(
+        self, held: dict[str, tuple[ResolvedSource, str]], watch_dir: Path
+    ) -> dict[str, tuple[ResolvedSource, SourceSelector, bool] | None]:
+        """Carry source ranges, each with the hash of the text it was last exact in, through
+        the edits made to their files since, one smallest edit per file and text (see
+        follow_edits). By key: where it is now, or None when its file is that text still. A
+        range whose text or file cannot be read is left out, to be found by its words."""
+        groups: dict[tuple[str, str], dict[str, ResolvedSource]] = {}
+        for key, (source, base_sha) in held.items():
+            groups.setdefault((source.file, base_sha), {})[key] = source
+        carried: dict[str, tuple[ResolvedSource, SourceSelector, bool] | None] = {}
         for (name, base_sha), group in groups.items():
             try:
                 base = (self._bases / f"{base_sha}.txt").read_text(encoding="utf-8")
                 now = (watch_dir / name).read_text(encoding="utf-8")
             except (OSError, UnicodeError):
                 continue
-            if now != base:
-                try:
-                    placed = follow_edits(base, now, group)
-                except ValueError:
-                    continue
-                for comment in group:
-                    resolved, selector, edited = placed[comment.id]
-                    if (resolved, selector) != (comment.resolved_source, comment.source_selector):
-                        comment.resolved_source, comment.source_selector = resolved, selector
-                        changed = True
-                    if edited and not comment.reanchored:
-                        comment.reanchored = changed = True
-            handled.update(comment.id for comment in group)
-        return handled, changed
+            if now == base:
+                carried.update(dict.fromkeys(group))
+                continue
+            try:
+                carried.update(follow_edits(base, now, group))
+            except ValueError:
+                continue
+        return carried
+
+    def _follow_edits(self, comments: list[Comment], watch_dir: Path) -> tuple[set[str], bool]:
+        """Move source-range comments through the edits made to their files since the text
+        they were last exact in. Comments with no base text known are left to be found by
+        their words. The ids moved, and whether any changed."""
+        carried = self._carry({comment.id: (comment.resolved_source, comment.base) for comment in comments
+                               if isinstance(comment.anchor, SourceRangeAnchor)
+                               and comment.resolved_source is not None and comment.base is not None},
+                              watch_dir)
+        changed = False
+        for comment in comments:
+            if carried.get(comment.id) is None:
+                continue
+            resolved, selector, edited = carried[comment.id]
+            if (resolved, selector) != (comment.resolved_source, comment.source_selector):
+                comment.resolved_source, comment.source_selector = resolved, selector
+                changed = True
+            if edited and not comment.reanchored:
+                comment.reanchored = changed = True
+        return set(carried), changed
+
+    def _follow_drafts(self, comments: list[Comment], watch_dir: Path) -> bool:
+        """Keep the lines each Overleaf draft describes as a source-range comment is kept:
+        carried through the edits to their files, or found by their words when the text they
+        were last exact in is not known, and stale while not found. Whether any changed."""
+        ranges = {f"{comment.id}/{index}": r for comment in comments if comment.overleaf_draft is not None
+                  for index, r in enumerate(comment.overleaf_draft.ranges)}
+        carried = self._carry({key: (r.source, r.base) for key, r in ranges.items() if r.base is not None},
+                              watch_dir)
+        changed = False
+        for key, r in ranges.items():
+            found = carried[key] if key in carried else find_again(r.source, r.selector, watch_dir)
+            if found is not None:
+                if (found[0], found[1]) != (r.source, r.selector):
+                    r.source, r.selector, changed = found[0], found[1], True
+            if r.stale != (key not in carried and found is None):
+                r.stale, changed = not r.stale, True
+        return changed
 
     def _keep_text(self, text: str) -> str:
         """Keep *text* under anchor-texts by its hash, which is returned."""
@@ -1779,25 +1914,33 @@ class CommentStore:
         return sha
 
     def _keep_bases(self, comments: list[Comment], watch_dir: Path, kinds: tuple[type, ...]) -> bool:
-        """Record for each comment of *kinds*, the ones just found in the files as they are,
-        the text its range is exact in now, by hash, and let go of texts no comment names.
-        Whether any comment's base changed."""
+        """Record for each comment of *kinds* and each range an Overleaf draft describes, the
+        ones just found in the files as they are, the text its range is exact in now, by
+        hash, and let go of texts none names. Whether any base changed."""
         changed, texts = False, {}
+
+        def kept(name: str) -> str | None:
+            if name not in texts:
+                try:
+                    texts[name] = self._keep_text((watch_dir / name).read_text(encoding="utf-8"))
+                except (OSError, UnicodeError):
+                    texts[name] = None
+            return texts[name]
+
         for comment in comments:
             if not isinstance(comment.anchor, kinds) or comment.resolved_source is None or comment.stale:
                 continue
-            name = comment.resolved_source.file
-            if name not in texts:
-                try:
-                    texts[name] = (watch_dir / name).read_text(encoding="utf-8")
-                except (OSError, UnicodeError):
-                    texts[name] = None
-            if texts[name] is None:
-                continue
-            sha = self._keep_text(texts[name])
-            if comment.base != sha:
+            sha = kept(comment.resolved_source.file)
+            if sha is not None and comment.base != sha:
                 comment.base, changed = sha, True
+        drafted = [r for comment in comments if comment.overleaf_draft is not None
+                   for r in comment.overleaf_draft.ranges]
+        for r in drafted:
+            sha = None if r.stale else kept(r.source.file)
+            if sha is not None and r.base != sha:
+                r.base, changed = sha, True
         named = {comment.base for comment in comments if comment.base is not None}
+        named |= {r.base for r in drafted if r.base is not None}
         if self._bases.is_dir():
             for kept in self._bases.glob("*.txt"):
                 if kept.stem not in named:
@@ -1819,6 +1962,7 @@ class CommentStore:
                 stale, modified = self._refresh_anchor(comment, watch_dir, None, "", None, None, None)
                 changed |= modified or stale != comment.stale
                 comment.stale = stale
+            changed |= self._follow_drafts(comments, watch_dir)
             changed |= self._keep_bases(comments, watch_dir, (SourceRangeAnchor,))
             if changed:
                 self._save(comments)
@@ -1880,6 +2024,7 @@ class CommentStore:
                 if text_index is not None:
                     text_index.close()
 
+            changed |= self._follow_drafts(comments, watch_dir)
             changed |= self._keep_bases(comments, watch_dir, (SourceRangeAnchor, SectionAnchor))
             if changed:
                 self._save(comments)
@@ -2002,38 +2147,14 @@ class CommentStore:
             return False, modified
 
         # Source-backed anchors reattach only the exact selected lines.
-        resolved = c.resolved_source
-        if c.source_selector is None or resolved is None:
+        if c.source_selector is None or c.resolved_source is None:
             return True, False
-        file_path = watch_dir / resolved.file
-        if not file_path.is_file():
+        found = find_again(c.resolved_source, c.source_selector, watch_dir)
+        if found is None:
             return True, False
-        if resolved.column_start is not None:
-            located = find_source_characters(c.source_selector, file_path, resolved.file)
-            if located is None:
-                reattached = reattach_source_characters(c.source_selector, file_path, resolved.file)
-                if reattached is None:
-                    return True, False
-                c.resolved_source, c.source_selector = reattached
-                c.reanchored = True
-                return False, True
-            modified = located != resolved
-            c.resolved_source = located
-            return False, modified
-        located = find_source_selector(c.source_selector, file_path)
-        if located is None:
-            reattached = reattach_source_lines(c.source_selector, file_path, resolved.file)
-            if reattached is None:
-                return True, False
-            c.resolved_source, c.source_selector = reattached
+        resolved, selector, reattached = found
+        modified = reattached or (resolved, selector) != (c.resolved_source, c.source_selector)
+        c.resolved_source, c.source_selector = resolved, selector
+        if reattached:
             c.reanchored = True
-            return False, True
-        ls, le = located
-        modified = False
-        if (resolved.line_start, resolved.line_end) != (ls, le):
-            c.resolved_source = ResolvedSource(
-                file=resolved.file, line_start=ls, line_end=le
-            )
-            modified = True
-
         return False, modified

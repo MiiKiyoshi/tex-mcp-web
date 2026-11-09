@@ -2823,11 +2823,19 @@ function renderOverleafReply(comment) {
       h("span", { text: draftedThread(comment) ? "New thread on Overleaf"
         : draft ? "Draft for Overleaf" : "Reply on Overleaf" })),
     textarea,
-    draft?.edits?.length
-      ? h("div", { class: "thread-edits" }, ...draft.edits.map((edit) => h("span", { class: "edit", text: edit })))
+    draft?.ranges?.length
+      ? h("div", { class: "thread-edits" }, ...draft.ranges.map(draftRange))
       : null,
     note,
     h("div", { class: "cmt-form-actions" }, send));
+}
+
+// The lines a draft describes, where they are now as a comment's are. A range not found has
+// no line to name, and one whose lines were edited after the draft was written says so.
+function draftRange(range) {
+  return h("span", { class: "edit", text: range.range },
+    range.stale ? h("span", { class: "stale", text: "STALE", title: "These lines are not found in the file any more" }) : null,
+    range.edited ? h("span", { class: "reanchored", text: "EDITED", title: "These lines were edited after the draft was written" }) : null);
 }
 
 // An entry Overleaf holds goes by the name Overleaf gives its writer, as on Overleaf.

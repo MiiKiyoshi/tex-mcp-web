@@ -867,7 +867,7 @@ async def test_a_thread_drafted_for_overleaf_opens_there_on_its_lines_when_sent(
     Overleaf's editor opens one: its first message, then an edit that changes no text and puts
     it on the lines it sits on here. The send is the reviewer's first entry, and a reading
     afterwards knows it as the one sent from here. By hand and live alike."""
-    from tex_mcp_web.comments import OverleafDraft, ResolvedSource, SourceRangeAnchor, capture_source_selector
+    from tex_mcp_web.comments import DraftRange, OverleafDraft, ResolvedSource, SourceRangeAnchor, capture_source_selector
 
     fake, link = overleaf_site
     opened = await Review(paper, fake, link, sync=live).open()
@@ -880,7 +880,8 @@ async def test_a_thread_drafted_for_overleaf_opens_there_on_its_lines_when_sent(
         drafted = store.add_overleaf_thread(
             SourceRangeAnchor(file="tex/body.tex", line_start=2, line_end=2), OverleafDraft("Enough?"),
             ResolvedSource(file="tex/body.tex", line_start=2, line_end=2),
-            capture_source_selector(paper / "tex" / "body.tex", 2, 2))
+            capture_source_selector(paper / "tex" / "body.tex", 2, 2),
+            {"tex/body.tex": (paper / "tex" / "body.tex").read_text()})
         assert drafted.thread == [] and fake.threads == {}
         response = await opened.client.post(f"/comments/{drafted.id}/reply",
                                             json={"text": "Is this enough?", "overleaf": True})
@@ -906,7 +907,7 @@ async def test_a_thread_drafted_for_overleaf_opens_there_on_its_lines_when_sent(
 async def test_a_drafted_thread_whose_lines_overleaf_lacks_is_not_opened_at_all(paper, overleaf_site) -> None:
     """The lines are looked for on Overleaf before anything is written there, so a thread
     whose words Overleaf lacks leaves no message behind, and keeps its draft here."""
-    from tex_mcp_web.comments import OverleafDraft, ResolvedSource, SourceRangeAnchor, capture_source_selector
+    from tex_mcp_web.comments import DraftRange, OverleafDraft, ResolvedSource, SourceRangeAnchor, capture_source_selector
 
     fake, link = overleaf_site
     opened = await Review(paper, fake, link, sync=False).open()
@@ -916,7 +917,8 @@ async def test_a_drafted_thread_whose_lines_overleaf_lacks_is_not_opened_at_all(
         drafted = opened.server.comments.add_overleaf_thread(
             SourceRangeAnchor(file="tex/body.tex", line_start=4, line_end=4), OverleafDraft("New?"),
             ResolvedSource(file="tex/body.tex", line_start=4, line_end=4),
-            capture_source_selector(paper / "tex" / "body.tex", 4, 4))
+            capture_source_selector(paper / "tex" / "body.tex", 4, 4),
+            {"tex/body.tex": (paper / "tex" / "body.tex").read_text()})
         response = await opened.client.post(f"/comments/{drafted.id}/reply", json={"text": "New?", "overleaf": True})
         assert response.status == 409
         assert "not in tex/body.tex on Overleaf yet" in (await response.json())["error"]
@@ -928,9 +930,11 @@ async def test_a_drafted_thread_whose_lines_overleaf_lacks_is_not_opened_at_all(
         # drafted, says so.
         stale = opened.server.comments.add_overleaf_thread(
             SourceRangeAnchor(file="tex/body.tex", line_start=1, line_end=1),
-            OverleafDraft("Reworded.", ["tex/body.tex:1-1"], [{"file": "tex/body.tex", "text": "Words gone."}]),
+            OverleafDraft("Reworded.", [DraftRange("Words gone.", ResolvedSource(file="tex/body.tex", line_start=1, line_end=1),
+                                                   capture_source_selector(paper / "tex" / "body.tex", 1, 1))]),
             ResolvedSource(file="tex/body.tex", line_start=1, line_end=1),
-            capture_source_selector(paper / "tex" / "body.tex", 1, 1))
+            capture_source_selector(paper / "tex" / "body.tex", 1, 1),
+            {"tex/body.tex": (paper / "tex" / "body.tex").read_text()})
         response = await opened.client.post(f"/comments/{stale.id}/reply", json={"text": "Reworded.", "overleaf": True})
         assert response.status == 409 and (await response.json())["error"] == (
             "The lines of tex/body.tex this reply describes changed after it was drafted. Ask the agent to draft it again.")

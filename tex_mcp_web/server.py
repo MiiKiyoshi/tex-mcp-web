@@ -102,6 +102,13 @@ def _comment_to_dict(c: Comment) -> dict[str, Any]:
     # the page and the agent name a moment alike.
     for entry in d["thread"]:
         entry["when"] = short_time(entry["at"])
+    if c.overleaf_draft is not None:
+        # The lines each range a draft describes is on now, or its file alone while it is
+        # not found, and whether those lines were edited after the draft was written.
+        d["overleaf_draft"]["ranges"] = [
+            {"range": r.source.file, "stale": True} if r.stale
+            else {"range": r.label, **({"edited": True} if r.selector.exact != r.drafted else {})}
+            for r in c.overleaf_draft.ranges]
     return d
 
 
@@ -1306,7 +1313,8 @@ class TexMcpWebServer:
     async def _send_to_overleaf(self, cid: str, reply: str, anyway: bool) -> tuple[web.Response | None, str]:
         """Send the reviewer's reply to the Overleaf thread a comment came from, or open the
         thread a comment with no entries was drafted as, before anything changes here, so
-        that what Overleaf does not take is not shown as said. A new thread goes once the
+        that what Overleaf does not take is not shown as said. Nothing goes while a range the
+        draft describes is not found here (stale), since its lines cannot be named. A new thread goes once the
         words its draft describes are on Overleaf. A reply whose draft names files not the
         same here as on Overleaf goes only *anyway*, since it may describe an edit Overleaf
         does not have yet: the refusal names those files. Answers a refusal, or None with
@@ -1317,6 +1325,11 @@ class TexMcpWebServer:
             return web.json_response({"error": "paste your Overleaf session cookie first"}, status=401), ""
         comment = self.comments.get(cid)
         checks = comment.overleaf_draft.checks if comment is not None and comment.overleaf_draft is not None else []
+        lost = next((r.source.file for r in comment.overleaf_draft.ranges if r.stale), None) \
+            if comment is not None and comment.overleaf_draft is not None else None
+        if lost is not None:
+            return web.json_response({"error": f"The lines of {lost} this reply describes are not found here any "
+                                               "more. Ask the agent to draft it again."}, status=409), ""
         async with self._overleaf_import:
             ledger = self._overleaf_ledger()
             thread = next((key for key, known in ledger.items() if known["comment"] == cid), None)
@@ -1506,7 +1519,7 @@ class TexMcpWebServer:
                 counts["unplaced"] += where is not None
                 comment = self.comments.add(anchor=anchor, text=said(messages[0]), author="human",
                                             resolved_source=resolved, source_selector=selector,
-                                            name=by(messages[0]))
+                                            base_text=self._base_text(anchor, resolved), name=by(messages[0]))
                 current = keys(messages)
                 held = {current[0]: comment.thread[0].id}
                 for key, message in zip(current[1:], messages[1:]):
@@ -1546,14 +1559,14 @@ class TexMcpWebServer:
         if comment.anchor.kind != "paper":
             known.pop("place", None)
             if exact and anchor.to_dict() != comment.anchor.to_dict():
-                moved = self.comments.place(comment.id, anchor, resolved, selector)
+                moved = self.comments.place(comment.id, anchor, resolved, selector, self._base_text(anchor, resolved))
                 await self.broadcast({"type": "comment_updated", "comment": _comment_to_dict(moved)})
             return
         if where is not None:
             known["place"] = _overleaf_place(entry)
             return
         known.pop("place", None)
-        placed = self.comments.place(comment.id, anchor, resolved, selector)
+        placed = self.comments.place(comment.id, anchor, resolved, selector, self._base_text(anchor, resolved))
         await self.broadcast({"type": "comment_updated", "comment": _comment_to_dict(placed)})
 
     async def _place_overleaf_comments_in(self, relative: str) -> None:
@@ -2121,14 +2134,16 @@ class TexMcpWebServer:
             resolved_source=resolved,
             source_selector=source_selector,
             suggestion=suggestion,
-            base_text=self._section_base(anchor, resolved),
+            base_text=self._base_text(anchor, resolved),
         )
         await self.broadcast({"type": "comment_added", "comment": _comment_to_dict(comment)})
         return web.json_response(_comment_to_dict(comment), status=201)
 
-    def _section_base(self, anchor: Any, resolved: ResolvedSource | None) -> str | None:
-        """The text a section comment's heading was just found in, which later edits carry it from."""
-        if not isinstance(anchor, SectionAnchor) or resolved is None:
+    def _base_text(self, anchor: Any, resolved: ResolvedSource | None) -> str | None:
+        """The text a source-range comment's words or a section comment's heading were just
+        found in, which later edits carry it from, as Overleaf carries a comment from the
+        moment it is made."""
+        if not isinstance(anchor, (SourceRangeAnchor, SectionAnchor)) or resolved is None:
             return None
         return self._resolve_source_path(resolved.file).read_text(encoding="utf-8")
 
@@ -2333,6 +2348,9 @@ class TexMcpWebServer:
         if not text:
             return web.json_response({"error": "text is required"}, status=400)
         if data.get("overleaf"):
+            # The lines the draft describes, where the files have them now, are what is sent
+            # and recorded, not where the last change the watcher reported left them.
+            self.comments.refresh_source_anchors(self.watch_dir)
             refused, commit = await self._send_to_overleaf(cid, text, bool(data.get("anyway")))
             if refused is not None:
                 return refused

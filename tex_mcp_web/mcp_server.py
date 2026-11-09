@@ -311,7 +311,7 @@ def _unplaced(watch_dir: Path, comment_id: str) -> str | None:
 
 
 def _range_text(watch_dir: Path, spec: str) -> dict[str, str]:
-    """What a "file:first-last" range of the source holds now."""
+    """What a "file:first-last" range of the source holds now, and the file's whole text."""
     from .server import _parse_source_range
 
     name, first, last = _parse_source_range(spec)
@@ -319,12 +319,31 @@ def _range_text(watch_dir: Path, spec: str) -> dict[str, str]:
     if not file.is_relative_to(watch_dir.resolve()):
         raise ValueError(f"{name} is not in the paper's folder")
     try:
-        lines = file.read_text(encoding="utf-8").split("\n")
+        whole = file.read_text(encoding="utf-8")
     except (OSError, UnicodeError) as error:
         raise ValueError(f"{name} cannot be read") from error
+    lines = whole.split("\n")
     if not 1 <= first <= last <= len(lines):
         raise ValueError(f"{spec} is outside {name}, which has {len(lines)} lines")
-    return {"file": name, "text": "\n".join(lines[first - 1:last])}
+    return {"file": name, "text": "\n".join(lines[first - 1:last]), "whole": whole}
+
+
+def _draft_ranges(watch_dir: Path, specs: list[str]) -> tuple[list["DraftRange"], dict[str, str]]:
+    """The "file:first-last" ranges a draft describes, each holding what it holds now, and
+    the texts of their files, from which later edits carry them as they carry a comment."""
+    from .comments import DraftRange, ResolvedSource, capture_source_selector
+    from .server import _parse_source_range
+
+    ranges, texts = [], {}
+    for spec in specs:
+        held = _range_text(watch_dir, spec)
+        _, first, last = _parse_source_range(spec)
+        selector = capture_source_selector(watch_dir / held["file"], first, last)
+        if selector is None:
+            raise ValueError(f"{spec} does not identify readable source lines")
+        ranges.append(DraftRange(held["text"], ResolvedSource(held["file"], first, last), selector))
+        texts[held["file"]] = held["whole"]
+    return ranges, texts
 
 
 async def _upstream(binding: "ProjectBinding", method: str = "GET") -> dict[str, Any] | None:
@@ -452,6 +471,7 @@ def _comment_add(
 
     resolved: ResolvedSource | None = None
     source_selector = None
+    base_text = None
     anchor_data = anchor.model_dump(exclude_none=True)
     kind = anchor_data["kind"]
 
@@ -465,6 +485,7 @@ def _comment_add(
         if source_selector is None:
             return _err("source_range does not identify readable source lines")
         resolved = ResolvedSource(file=file, line_start=ls, line_end=le)
+        base_text = (watch_dir / file).read_text(encoding="utf-8")
     elif kind == "section":
         try:
             resolved = resolve_section_to_source(
@@ -475,6 +496,8 @@ def _comment_add(
             )
         except AmbiguousSection as exc:
             return _err(f"{exc}. Give the label, or anchor on the heading's lines with source_range.")
+        if resolved is not None:
+            base_text = (watch_dir / resolved.file).read_text(encoding="utf-8")
 
     a = anchor_from_dict(anchor_data)
 
@@ -484,9 +507,9 @@ def _comment_add(
         author="agent",
         resolved_source=resolved,
         source_selector=source_selector,
-        # The text the heading was just found in, which later edits carry the comment from.
-        base_text=((watch_dir / resolved.file).read_text(encoding="utf-8")
-                   if kind == "section" and resolved is not None else None),
+        # The text the lines or the heading were just found in, which later edits carry the
+        # comment from.
+        base_text=base_text,
     )
     return _ok({"id": comment.id, "status": comment.status, "rev": revision_of(comment.updated)})
 
@@ -499,17 +522,19 @@ def _overleaf_thread_add(store, watch_dir: Path, text: str, anchor: "CommentAnch
 
     if anchor.kind != "source_range":
         return _err("a thread on Overleaf is on words in a file: give a source_range anchor")
-    if not _range_text(watch_dir, f"{anchor.file}:{anchor.start}-{anchor.end}")["text"].strip():
+    held = _range_text(watch_dir, f"{anchor.file}:{anchor.start}-{anchor.end}")
+    if not held["text"].strip():
         return _err("those lines are blank, and a thread on Overleaf is on words")
     selector = capture_source_selector(watch_dir / anchor.file, anchor.start, anchor.end)
     if selector is None:
         return _err("source_range does not identify readable source lines")
-    checks = [check for check in (_range_text(watch_dir, edit) for edit in edits) if check["text"].strip()]
+    ranges, texts = _draft_ranges(watch_dir, edits)
     comment = store.add_overleaf_thread(
         SourceRangeAnchor(file=anchor.file, line_start=anchor.start, line_end=anchor.end),
-        OverleafDraft(text, edits, checks),
+        OverleafDraft(text, ranges),
         ResolvedSource(file=anchor.file, line_start=anchor.start, line_end=anchor.end),
         selector,
+        {**texts, held["file"]: held["whole"]},
     )
     return _ok({"id": comment.id, "status": comment.status, "rev": revision_of(comment.updated)})
 
@@ -918,7 +943,8 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         the conversation stays whole, and it is refused on a thread the reviewer has not
         written in: propose on theirs rather than opening your own. withdraw: id, text,
         rev. overleaf: id, text, rev, and edits naming the source ranges the reply
-        describes. On a thread that came from Overleaf (on_overleaf), it puts the reply the
+        describes, as their lines are now: later edits move them as they move a comment, so
+        a draft is not written again when lines shift. On a thread that came from Overleaf (on_overleaf), it puts the reply the
         reviewer may send there: a thread holds one draft, which this replaces, and only
         the reviewer sends it, asked first when a file those ranges are in is not the same
         here as on Overleaf. With anchor, a source_range, instead of id and rev, it drafts a
@@ -991,9 +1017,8 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                 drafted = target is not None and not target.thread and target.overleaf_draft is not None
                 if id not in _on_overleaf(watch_dir) and not drafted:
                     return _err("this comment did not come from Overleaf")
-                checks = [check for check in (_range_text(watch_dir, edit) for edit in edits or [])
-                          if check["text"].strip()]
-                return receipt(store.draft_overleaf(id, stamp_for(id), OverleafDraft(text, edits or [], checks)))
+                ranges, texts = _draft_ranges(watch_dir, edits or [])
+                return receipt(store.draft_overleaf(id, stamp_for(id), OverleafDraft(text, ranges), texts))
             if action == "edit":
                 if not id or not entry or not text or not rev:
                     return _err("edit requires id, entry, text and rev")

@@ -666,7 +666,7 @@ async def test_a_reply_whose_files_are_not_the_same_on_overleaf_goes_only_when_s
     the same it goes at once."""
     import subprocess
 
-    from tex_mcp_web.comments import OverleafDraft
+    from tex_mcp_web.comments import DraftRange, OverleafDraft, ResolvedSource, capture_source_selector
 
     client, server, fake = review
     remote = tmp_path.parent / f"{tmp_path.name}-git" / PROJECT_ID
@@ -682,7 +682,8 @@ async def test_a_reply_whose_files_are_not_the_same_on_overleaf_goes_only_when_s
     page, comment = await on_overleaf(client, server, fake)
     send = lambda text, **more: client.post(f"/comments/{comment.id}/reply", json={"text": text, "overleaf": True, **more})
     draft = lambda text: server.comments.draft_overleaf(comment.id, server.comments.get(comment.id).updated, OverleafDraft(
-        text, ["main.tex:3-3"], [{"file": "main.tex", "text": "Hello there."}]))
+        text, [DraftRange("Hello there.", ResolvedSource("main.tex", 3, 3), capture_source_selector(tmp_path / "main.tex", 3, 3))]),
+        {"main.tex": (tmp_path / "main.tex").read_text()})
 
     (tmp_path / "main.tex").write_text(MAIN.replace("Hi there.", "Hello there."))
     draft("Reworded it.")
@@ -714,13 +715,15 @@ async def test_a_reply_whose_files_are_not_the_same_on_overleaf_goes_only_when_s
 async def test_by_hand_a_reply_is_held_for_files_overleaf_has_otherwise_until_send_makes_them_the_same(review) -> None:
     """In a folder that is no git clone, by hand, each file a draft names is read from
     Overleaf's own text and compared with the file here."""
-    from tex_mcp_web.comments import OverleafDraft
+    from tex_mcp_web.comments import DraftRange, OverleafDraft, ResolvedSource, capture_source_selector
 
     client, server, fake = review
     page, comment = await on_overleaf(client, server, fake)
-    (server.watch_dir / "main.tex").write_text(MAIN.replace("Hi there.", "Hello there."))
+    main = server.watch_dir / "main.tex"
+    main.write_text(MAIN.replace("Hi there.", "Hello there."))
     server.comments.draft_overleaf(comment.id, server.comments.get(comment.id).updated, OverleafDraft(
-        "Reworded it.", ["main.tex:3-3"], [{"file": "main.tex", "text": "Hello there."}]))
+        "Reworded it.", [DraftRange("Hello there.", ResolvedSource("main.tex", 3, 3), capture_source_selector(main, 3, 3))]),
+        {"main.tex": main.read_text()})
     response = await client.post(f"/comments/{comment.id}/reply", json={"text": "Reworded it.", "overleaf": True})
     assert response.status == 409 and (await response.json())["apart"] == ["main.tex"]
     assert fake.written == [] and server.comments.get(comment.id).overleaf_draft is not None
@@ -728,6 +731,58 @@ async def test_by_hand_a_reply_is_held_for_files_overleaf_has_otherwise_until_se
     assert fake.texts["d-main"] == MAIN.replace("Hi there.", "Hello there.")
     response = await client.post(f"/comments/{comment.id}/reply", json={"text": "Reworded it.", "overleaf": True})
     assert response.status == 200 and fake.written == [("reply", "t1", "Reworded it.")]
+    await page.close()
+
+
+async def test_a_draft_names_the_lines_it_describes_where_they_are_now(review) -> None:
+    """The lines a draft describes move with the edits made after it was written, as a
+    comment does. Lines put in above them move them, here lines that start as they do, so
+    the page names where they are now, and the reply sent names where they are as it goes.
+    Lines whose words were edited say so, and lines not found any more name no line and
+    keep the reply here."""
+    from tex_mcp_web.comments import OverleafDraft
+    from tex_mcp_web.mcp_server import _draft_ranges
+
+    client, server, fake = review
+    page, comment = await on_overleaf(client, server, fake)
+    folder, main = server.watch_dir, server.watch_dir / "main.tex"
+
+    def draft(text: str, *specs: str) -> None:
+        ranges, texts = _draft_ranges(folder, list(specs))   # as write_comments(action="overleaf") does
+        server.comments.draft_overleaf(comment.id, server.comments.get(comment.id).updated,
+                                       OverleafDraft(text, ranges), texts)
+
+    async def shown() -> list[dict]:
+        listed = (await (await client.get("/comments")).json())["comments"]
+        return next(c for c in listed if c["id"] == comment.id)["overleaf_draft"]["ranges"]
+
+    draft("Opened it.", "main.tex:2-2")
+    assert await shown() == [{"range": "main.tex:2-2"}]
+    main.write_text(MAIN.replace("\\begin", "\\usepackage{a}\n\\usepackage{b}\n\\begin"))
+    server.comments.refresh_source_anchors(folder)
+    assert await shown() == [{"range": "main.tex:4-4"}]
+    main.write_text(MAIN.replace("\\begin", "\\usepackage{a}\n\\usepackage{b}\n\\usepackage{c}\n\\begin"))
+    assert (await client.post(f"/comments/{comment.id}/reply",
+                              json={"text": "Opened it.", "overleaf": True, "anyway": True})).status == 200
+    assert fake.written[-1] == ("reply", "t1", "Opened it.")
+    assert server.comments.get(comment.id).thread[-1].edits == ["main.tex:5-5"]
+
+    draft("Greeted.", "main.tex:6-6")
+    main.write_text(main.read_text().replace("Hi there.", "Hello there."))
+    server.comments.refresh_source_anchors(folder)
+    assert await shown() == [{"range": "main.tex:6-6", "edited": True}]
+
+    (folder / "extra.tex").write_text("An extra line.\n")
+    draft("Added a line.", "extra.tex:1-1")
+    (folder / "extra.tex").unlink()
+    server.comments.refresh_source_anchors(folder)
+    assert await shown() == [{"range": "extra.tex", "stale": True}]
+    response = await client.post(f"/comments/{comment.id}/reply",
+                                 json={"text": "Added a line.", "overleaf": True, "anyway": True})
+    assert response.status == 409 and (await response.json())["error"] == (
+        "The lines of extra.tex this reply describes are not found here any more. Ask the agent to draft it again.")
+    assert fake.written[-1] == ("reply", "t1", "Opened it.")
+    assert server.comments.get(comment.id).overleaf_draft is not None
     await page.close()
 
 

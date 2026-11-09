@@ -8,6 +8,7 @@ import pymupdf
 import pytest
 
 from tex_mcp_web.comments import (
+    STORE_VERSION,
     AreaAnchor,
     CommentStore,
     PageSelection,
@@ -553,7 +554,7 @@ def test_a_version_6_store_loses_its_before_and_after_proposals(tmp_path: Path):
     ]}), encoding="utf-8")
 
     store = CommentStore(path)
-    assert json.loads(path.read_text(encoding="utf-8"))["version"] == 7
+    assert json.loads(path.read_text(encoding="utf-8"))["version"] == STORE_VERSION
     kept = store.get("c-1")
     assert kept.suggestion is None
     assert [entry.text for entry in kept.thread] == ["tighten this"]
@@ -573,13 +574,42 @@ def test_a_version_5_store_is_raised_and_its_reference_threads_become_archived(t
     ]}), encoding="utf-8")
 
     store = CommentStore(path)
-    assert json.loads(path.read_text(encoding="utf-8"))["version"] == 7
+    assert json.loads(path.read_text(encoding="utf-8"))["version"] == STORE_VERSION
     assert [c.id for c in store.list(status="archived")] == ["c-1"]
     assert [c.id for c in store.list(status="open")] == ["c-2"]
     assert store.get("c-1").thread[0].text == "set aside"   # the rewrite left the thread alone
 
     CommentStore(path)                                      # opening again changes nothing
-    assert json.loads(path.read_text(encoding="utf-8"))["version"] == 7
+    assert json.loads(path.read_text(encoding="utf-8"))["version"] == STORE_VERSION
+
+
+def test_a_version_7_store_keeps_its_drafts_ranges_found_again_by_their_words(tmp_path: Path):
+    """Version 7 named the lines an Overleaf draft describes by fixed strings, and those
+    lines may have moved since. Each range starts stale on them, shown with no line, until
+    a refresh finds it by the words it held when drafted, and from then on edits carry it."""
+    (tmp_path / "a.tex").write_text("New first line.\nOpening words.\nMiddle words.\n\nClosing words here.\n")
+    path = tmp_path / "comments.json"
+    path.write_text(json.dumps({"version": 7, "comments": [
+        {"id": "c-1", "anchor": {"kind": "paper"}, "status": "open",
+         "thread": [{"id": "e-1", "author": "human", "at": "2026-01-01T00:00:00+00:00", "text": "which lines?"}],
+         "overleaf_draft": {"text": "These.", "edits": ["a.tex:1-2", "a.tex:3", "a.tex:4-4"],
+                            "checks": [{"file": "a.tex", "text": "Opening words.\nMiddle words."}]},
+         "created": "2026-01-01T00:00:00+00:00", "updated": "2026-01-01T00:00:00+00:00"},
+    ]}), encoding="utf-8")
+
+    store = CommentStore(path)
+    assert json.loads(path.read_text(encoding="utf-8"))["version"] == STORE_VERSION
+    ranges = store.get("c-1").overleaf_draft.ranges
+    assert [(r.label, r.drafted, r.stale) for r in ranges] == [
+        ("a.tex:1-2", "Opening words.\nMiddle words.", True), ("a.tex:3-3", "", True), ("a.tex:4-4", "", True)]
+    assert store.get("c-1").overleaf_draft.checks == [{"file": "a.tex", "text": "Opening words.\nMiddle words."}]
+
+    store.refresh_source_anchors(tmp_path)
+    ranges = store.get("c-1").overleaf_draft.ranges
+    assert [(r.label, r.stale) for r in ranges] == [("a.tex:2-3", False), ("a.tex:3-3", True), ("a.tex:4-4", True)]
+    (tmp_path / "a.tex").write_text("\\top\nNew first line.\nOpening words.\nMiddle words.\n\nClosing words here.\n")
+    store.refresh_source_anchors(tmp_path)
+    assert store.get("c-1").overleaf_draft.ranges[0].label == "a.tex:3-4"
 
 
 def test_an_archived_thread_stays_readable_and_comes_back(store: CommentStore):
@@ -799,7 +829,7 @@ def test_a_comment_placed_anew_follows_edits_from_the_text_it_was_placed_on(stor
     source.write_text(placed)
     at = placed.index("ZZZZZ")
     store.place(comment.id, store.get(comment.id).anchor, ResolvedSource("paper.tex", 1, 1, at, at + 5),
-                capture_source_selector(source, 1, 1, column_start=at, column_end=at + 5))
+                capture_source_selector(source, 1, 1, column_start=at, column_end=at + 5), placed)
     store.refresh_source_anchors(tmp_path)
     assert store.get(comment.id).source_selector.exact == "ZZZZZ"
     moved, words = _after(store, source, "More. " + placed, comment)

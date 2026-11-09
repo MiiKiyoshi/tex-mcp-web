@@ -253,6 +253,17 @@ def diff(old: str, new: str, comments: list[dict] | None = None) -> Op:
     end = 0
     while end < limit - start and old[len(old) - 1 - end] == new[len(new) - 1 - end]:
         end += 1
+    if "\n" in old[start:len(old) - end] or "\n" in new[start:len(new) - end]:
+        # Lines added or removed go in or out whole, as an editor writes them. Characters a
+        # neighbouring line shares with them would otherwise put the change inside that
+        # line, where a comment on it widens over new lines or loses its first characters.
+        start = old.rfind("\n", 0, start) + 1
+        end = 0
+        while end < limit - start and old[len(old) - 1 - end] == new[len(new) - 1 - end]:
+            end += 1
+        while end and not ((len(old) - end == start or old[len(old) - end - 1] == "\n")
+                           and (len(new) - end == start or new[len(new) - end - 1] == "\n")):
+            end -= 1
     a, b = old[start:len(old) - end], new[start:len(new) - end]
     pairs: list[tuple[str, str, str]] = []   # (kind, removed, inserted), in order
     lines_a, lines_b = a.splitlines(keepends=True), b.splitlines(keepends=True)

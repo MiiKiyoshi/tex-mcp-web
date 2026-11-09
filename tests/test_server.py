@@ -20,6 +20,7 @@ import yaml
 from aiohttp.test_utils import TestClient, TestServer
 
 from tex_mcp_web.comments import (
+    STORE_VERSION,
     ResolvedSource,
     SourceRangeAnchor,
     SourceSelector,
@@ -653,10 +654,11 @@ async def test_two_pieces_touching_one_anchor_carry_it_across_together(client, p
 
 @pytest.mark.asyncio
 async def test_a_thread_whose_anchor_came_loose_can_still_be_proposed_on(client, project):
-    """Applying one proposal moves the text every other comment on that line was written
-    against, and those comments go stale. That is the moment a proposal is most needed,
-    so a loose anchor cannot bar one: the pieces are found in the file, not in the range
-    the comment was written against."""
+    """A comment whose words are not found goes stale, which is when a proposal is most
+    needed, so a loose anchor cannot bar one: the pieces are found in the file, not in the
+    range the comment was written against."""
+    import shutil
+
     tc, server = client
     from tex_mcp_web.server import derive_suggestion
 
@@ -664,6 +666,8 @@ async def test_a_thread_whose_anchor_came_loose_can_still_be_proposed_on(client,
         "anchor": {"kind": "source_range", "file": "paper.tex", "line_start": 5,
                    "line_end": 5, "column_start": 0, "column_end": 10},
         "text": "이 표현 손봐줘"})).json()
+    # Without the text it was made in, the comment is looked for by its words.
+    shutil.rmtree(project / ".tex-mcp-web" / "anchor-texts")
     (project / "paper.tex").write_text(
         (project / "paper.tex").read_text(encoding="utf-8").replace("Some prose with", "Rewritten using"),
         encoding="utf-8")
@@ -1385,7 +1389,7 @@ async def test_mcp_drafts_an_overleaf_reply_only_on_a_thread_from_overleaf(bound
     receipt = await call("write_comments", action="overleaf", id=brought.id, text="Fixed it.",
                          edits=["paper.tex:5-5"], rev=revision_of(brought.updated))
     draft = store.get(brought.id).overleaf_draft
-    assert (draft.text, draft.edits, draft.checks) == (
+    assert (draft.text, [r.label for r in draft.ranges], draft.checks) == (
         "Fixed it.", ["paper.tex:5-5"], [{"file": "paper.tex", "text": "Some prose with \\cite{ref1}."}])
     assert len(store.get(brought.id).thread) == 1
     told = (await call("read_comments", ids=[brought.id]))["comments"][0]
@@ -1649,7 +1653,7 @@ async def test_mcp_comment_and_section_runtime_contract(bound_project, project):
     )
     comment = json.loads(added[0].text)
     stored = json.loads((project / ".tex-mcp-web" / "comments.json").read_text())
-    assert stored["version"] == 7
+    assert stored["version"] == STORE_VERSION
     assert stored["comments"][0]["thread"][0]["author"] == "agent"
     assert set(comment) == {"id", "status", "rev"}
     assert stored["comments"][0]["thread"][0]["text"] == "review this"

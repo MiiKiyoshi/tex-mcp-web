@@ -1956,15 +1956,23 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
         # A thread the agent drafted for Overleaf waits in this tab, with nothing said in it
         # yet: its first message is the draft, and it is sent or deleted.
         from tex_mcp_web.comments import OverleafDraft, ResolvedSource, SourceRangeAnchor, capture_source_selector
+        from tex_mcp_web.mcp_server import _draft_ranges
 
         store = CommentStore(tmp_path / ".tex-mcp-web" / "comments.json")
+        ranges, texts = _draft_ranges(tmp_path, ["paper.tex:3-3"])
         drafted = store.add_overleaf_thread(
-            SourceRangeAnchor(file="paper.tex", line_start=3, line_end=3), OverleafDraft("Feedback and answer."),
+            SourceRangeAnchor(file="paper.tex", line_start=3, line_end=3), OverleafDraft("Feedback and answer.", ranges),
             ResolvedSource(file="paper.tex", line_start=3, line_end=3),
-            capture_source_selector(tmp_path / "paper.tex", 3, 3))
+            capture_source_selector(tmp_path / "paper.tex", 3, 3), texts)
         card = f"[data-comment-id='{drafted.id}']"
         wait_until(lambda: browser.execute_script(f'return document.querySelector("{card} .overleaf-reply-input")?.value')
                    == "Feedback and answer.")
+        # The lines it describes are named where they are now: lines put in above them, even
+        # ones starting as they do, move them, as they move a comment.
+        label = f'return document.querySelector("{card} .cmt-overleaf .edit").textContent'
+        assert browser.execute_script(label) == "paper.tex:3-3"
+        (tmp_path / "paper.tex").write_text(PAPER.replace("\\section", "\\relax\n\\relax\n\\section"), encoding="utf-8")
+        wait_until(lambda: browser.execute_script(label) == "paper.tex:5-5", timeout=15)
         assert "New thread on Overleaf" in browser.execute_script(f'return document.querySelector("{card}").textContent')
         assert count("#overleaf-tab-count") == "4"
         browser.execute_script(f'document.querySelector("{card} .cmt-head").click()')
@@ -2563,11 +2571,11 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
         assert text("#overleaf-sync-comments-btn .count") == ""
 
         # The agent's draft waits under the thread, even folded; a plain reply stays here.
-        from tex_mcp_web.comments import CommentStore, OverleafDraft
+        from tex_mcp_web.comments import CommentStore, DraftRange, OverleafDraft, ResolvedSource, capture_source_selector
 
         store = CommentStore(tmp_path / ".tex-mcp-web" / "comments.json")
         brought = store.list()[0]
-        store.draft_overleaf(brought.id, brought.updated, OverleafDraft("Drafted for Ann.", [], []))
+        store.draft_overleaf(brought.id, brought.updated, OverleafDraft("Drafted for Ann."), {})
         wait_until(lambda: browser.execute_script(
             'const box = document.querySelector(".overleaf-reply-input"); return box ? box.value : ""')
             == "Drafted for Ann.", timeout=15)
@@ -2611,9 +2619,10 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
         second = next(c for c in store.list() if "A second one." in c.thread[0].text)
         main = tmp_path / "main.tex"
         main.write_text(main.read_text().replace("Hello world.", "Hello world, reworded."))
-        store.draft_overleaf(brought.id, store.get(brought.id).updated, OverleafDraft("Both go, the first.", [], []))
-        store.draft_overleaf(second.id, second.updated, OverleafDraft(
-            "Both go, the second.", ["main.tex:3-3"], [{"file": "main.tex", "text": "Hello world, reworded."}]))
+        store.draft_overleaf(brought.id, store.get(brought.id).updated, OverleafDraft("Both go, the first."), {})
+        store.draft_overleaf(second.id, second.updated, OverleafDraft("Both go, the second.", [DraftRange(
+            "Hello world, reworded.", ResolvedSource("main.tex", 3, 3), capture_source_selector(main, 3, 3))]),
+            {"main.tex": main.read_text()})
         wait_until(lambda: browser.execute_script(
             'return [...document.querySelectorAll(".overleaf-reply-input")].map((box) => box.value).sort().join("|")')
             == "Both go, the first.|Both go, the second.", timeout=15)
@@ -2639,8 +2648,9 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
         click("#send-picked-btn")
         wait_until(lambda: fake.written[-1] == ("reply", "t2", "Both go, the second."), timeout=15)
         # Sent alone from its card, such a reply asks the same before it goes.
-        store.draft_overleaf(second.id, store.get(second.id).updated, OverleafDraft(
-            "Once more.", ["main.tex:3-3"], [{"file": "main.tex", "text": "Hello world, reworded."}]))
+        store.draft_overleaf(second.id, store.get(second.id).updated, OverleafDraft("Once more.", [DraftRange(
+            "Hello world, reworded.", ResolvedSource("main.tex", 3, 3), capture_source_selector(main, 3, 3))]),
+            {"main.tex": main.read_text()})
         wait_until(lambda: browser.execute_script(
             f'return document.querySelector("[data-comment-id=\'{second.id}\'] .overleaf-reply-input")?.value || ""')
             == "Once more.", timeout=15)

@@ -857,6 +857,9 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
   font-size: 0.78rem;
   color: var(--fg-dim);
 }
+.edit .stale, .edit .reanchored {
+  margin-left: 0.4rem;
+}
 .cmt-actions {
   display: flex;
   gap: 0.3rem;
