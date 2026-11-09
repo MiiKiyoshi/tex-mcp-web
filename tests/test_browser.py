@@ -1590,12 +1590,11 @@ def test_archived_threads_have_their_own_view_and_picked_archive_action(tmp_path
                 '  .map((card) => card.dataset.commentId);'
                 f'return JSON.stringify([...ids].sort()) === {json.dumps(json.dumps(sorted(expected), separators=(",", ":")))} ? ids : false;'))
 
+        # The tab of comments written here offers these views, and no unanswered one.
         assert browser.execute_script(
-            'return Array.from(document.querySelectorAll("#comment-filter option")).map((o) => o.value);'
-        ) == ["open", "resolved", "archived", "all"]
-        assert browser.execute_script(
-            'return Array.from(document.querySelectorAll("#comment-filter option")).map((o) => o.textContent);'
-        ) == ["open", "resolved", "archived", "all"]
+            'return Array.from(document.querySelectorAll("#comment-filter option")).filter((o) => !o.hidden)'
+            '.map((o) => [o.value, o.textContent]);'
+        ) == [["open", "open"], ["resolved", "resolved"], ["archived", "archived"], ["all", "all"]]
         assert shown("open", [working, untouched]) == [working, untouched]
         assert shown("archived", [kept]) == [kept]
 
@@ -1796,11 +1795,19 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
     with fitz.open() as pdf:
         pdf.new_page().insert_text((72, 72), "Hello world.")
         pdf.save(tmp_path / "paper.pdf")
-    # A thread brought in from Overleaf earlier: its comment here, and the ledger naming it.
-    brought = CommentStore(tmp_path / ".tex-mcp-web" / "comments.json").add(
-        PaperAnchor(), "Say hello properly.", name="A. Reviewer")
+    # Threads brought in from Overleaf earlier: their comments here, and the ledger naming
+    # them. The first waits for the reviewer, who answered the second from here and the
+    # third on Overleaf.
+    kept = CommentStore(tmp_path / ".tex-mcp-web" / "comments.json")
+    brought = kept.add(PaperAnchor(), "Say hello properly.", name="A. Reviewer")
+    answered = kept.add(PaperAnchor(), "Which words?", name="A. Reviewer")
+    kept.sent_to_overleaf(answered.id, "These.", "")
+    answered_there = kept.add(PaperAnchor(), "Is this clear?", name="A. Reviewer")
+    kept.reply(answered_there.id, "Yes, see the intro.", "human", name="Me Myself")
     (tmp_path / ".tex-mcp-web" / "overleaf-imported.json").write_text(json.dumps(
-        {"t1": {"comment": brought.id, "messages": 1, "seen": ["#0"]}}), encoding="utf-8")
+        {"t1": {"comment": brought.id, "messages": 1, "seen": ["#0"]},
+         "t2": {"comment": answered.id, "entries": {}}, "t3": {"comment": answered_there.id, "entries": {}}}),
+        encoding="utf-8")
     port = available_port()
     config_path = tmp_path / ".tex-mcp-web.yaml"
     config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
@@ -1859,10 +1866,26 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
         count = lambda selector: browser.execute_script(f'return document.querySelector("{selector}").textContent')
         wait_until(lambda: "Written here." in browser.execute_script(listed))
         assert "Say hello properly." not in browser.execute_script(listed)
-        assert count("#comments-tab-count") == "1" and count("#overleaf-tab-count") == "1"
+        assert count("#comments-tab-count") == "1" and count("#overleaf-tab-count") == "3"
         browser.execute_script(f"document.querySelector('{leaf_tab}').click()")
         wait_until(lambda: "Say hello properly." in browser.execute_script(listed))
         assert "Written here." not in browser.execute_script(listed)
+        # The tab opens on the threads whose last message on Overleaf is someone else's. Who
+        # the reviewer is on Overleaf comes with the page's place in the project.
+        assert browser.execute_script('const f = document.querySelector("#comment-filter");'
+                                      ' return [f.value, f.options[0].value, f.options[0].hidden,'
+                                      ' document.querySelector("#comment-filter-name").textContent];') \
+            == ["unanswered", "unanswered", False, "unanswered"]
+        assert "Which words?" not in browser.execute_script(listed)
+        assert "Is this clear?" in browser.execute_script(listed)
+        import asyncio
+        asyncio.run_coroutine_threadsafe(shared.server.broadcast(
+            {"type": "overleaf_live", "status": "off", "me": "Me Myself"}), shared.loop).result(5)
+        wait_until(lambda: "Is this clear?" not in browser.execute_script(listed))
+        assert "Say hello properly." in browser.execute_script(listed)
+        browser.execute_script('const f = document.querySelector("#comment-filter"); f.value = "open";'
+                               ' f.dispatchEvent(new Event("change"));')
+        wait_until(lambda: "Which words?" in browser.execute_script(listed) and "Is this clear?" in browser.execute_script(listed))
         # Its message goes by the name Overleaf gives the writer, with the leaf, and is
         # answered rather than edited.
         theirs = f"[data-comment-id='{brought.id}']"
@@ -1893,13 +1916,15 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
         wait_until(lambda: browser.execute_script(f'return document.querySelector("{card} .overleaf-reply-input")?.value')
                    == "Feedback and answer.")
         assert "New thread on Overleaf" in browser.execute_script(f'return document.querySelector("{card}").textContent')
-        assert count("#overleaf-tab-count") == "2"
+        assert count("#overleaf-tab-count") == "4"
         browser.execute_script(f'document.querySelector("{card} .cmt-head").click()')
         wait_until(lambda: browser.execute_script(f'return document.querySelector("{card} .cmt-actions") !== null'))
         assert browser.execute_script(
             f'return [...document.querySelectorAll("{card} .cmt-actions button")].map((b) => b.textContent)') == ["Delete"]
         browser.execute_script('document.querySelector(\'.tab-btn[data-tab="comments"]\').click()')
         wait_until(lambda: "Written here." in browser.execute_script(listed))
+        assert browser.execute_script(
+            'return document.querySelector(\'#comment-filter option[value="unanswered"]\').hidden') is True
         assert "Feedback and answer." not in browser.execute_script(
             'return [...document.querySelectorAll(".overleaf-reply-input")].map((b) => b.value).join("|")')
         assert browser.execute_script('return document.querySelector("#archive-picked-btn").hidden') is False
@@ -2496,6 +2521,12 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
         write(".overleaf-reply-input", "Drafted for Ann, and checked.")
         click(".overleaf-send")
         wait_until(lambda: fake.written == [("reply", "t1", "Drafted for Ann, and checked.")], timeout=15)
+        # Answered, it leaves the threads that wait for the reviewer, the view the tab opened
+        # on, and stays among the open ones.
+        wait_until(lambda: not browser.execute_script(
+            'return document.querySelector("#comments-list").textContent.includes("Came in when asked.")'), timeout=15)
+        browser.execute_script('const f = document.querySelector("#comment-filter"); f.value = "open";'
+                               ' f.dispatchEvent(new Event("change"));')
         wait_until(lambda: "sent" in text("[data-comment-id] .cmt-thread .entry-overleaf.sent"), timeout=15)
         assert browser.execute_script('return document.querySelector(".overleaf-reply-input").value') == ""
 

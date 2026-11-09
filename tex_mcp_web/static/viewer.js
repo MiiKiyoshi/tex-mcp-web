@@ -39,6 +39,8 @@ const state = {
   // cloned by git stands against Overleaf's branch (null until read, or no git).
   overleafSignedIn: false,
   overleafProject: null,
+  // The reviewer's own name on Overleaf, once the page sits in the project.
+  overleafMe: "",
   overleafFullSync: false,
   overleafWaiting: 0,
   overleafGit: null,
@@ -1495,6 +1497,10 @@ async function chooseOverleafText(path, choice, label) {
 
 function renderOverleafLive(snapshot) {
   overleafLive.snapshot = snapshot;
+  if ((snapshot.me ?? "") !== state.overleafMe) {
+    state.overleafMe = snapshot.me ?? "";
+    if ($("#comment-filter").value === "unanswered") refreshComments().catch((error) => console.error(error));
+  }
   if (snapshot.by_hand) renderOverleafFiles(snapshot.by_hand);
   else if (state.overleafFiles) {
     state.overleafFiles = null;
@@ -2333,7 +2339,7 @@ async function submitCompose(event) {
 
 async function refreshComments() {
   const status = $("#comment-filter").value;
-  const url = status === "all" ? "/comments" : `/comments?status=${status}`;
+  const url = status === "all" ? "/comments" : `/comments?status=${status === "unanswered" ? "open" : status}`;
   const [response, overleaf] = await Promise.all([fetch(url), fetch("/overleaf")]);
   if (!response.ok) throw new Error(await responseError(response));
   const data = await response.json();
@@ -2351,7 +2357,8 @@ async function refreshComments() {
   const onOverleaf = data.comments.filter(forOverleaf);
   const here = data.comments.filter((comment) => !forOverleaf(comment));
   renderCommentTabs(opened(here), opened(onOverleaf));
-  data.comments = state.commentTab === "overleaf-comments" ? onOverleaf : here;
+  data.comments = state.commentTab !== "overleaf-comments" ? here
+    : status === "unanswered" ? onOverleaf.filter(answeredByOthers) : onOverleaf;
   renderOverleafThreadSync();
   // The open view keeps the server's order: the comments written here in the order they
   // were written, and Overleaf's threads in the order the paper reads them, as Overleaf's
@@ -2365,7 +2372,7 @@ async function refreshComments() {
     ? (comment) => comment.resolved ?? comment.created
     : status === "archived" ? (comment) => comment.updated
     : (comment) => comment.created;
-  state.comments = status === "open" ? data.comments
+  state.comments = status === "open" || status === "unanswered" ? data.comments
     : [...data.comments].sort((first, second) => (moment(first) < moment(second) ? 1
       : moment(first) > moment(second) ? -1 : 0));
   renderComments();
@@ -2381,6 +2388,14 @@ function draftedThread(comment) {
 
 function forOverleaf(comment) {
   return state.overleafImported.has(comment.id) || draftedThread(comment);
+}
+
+// A thread from Overleaf whose last message there is someone else's: one sent from here,
+// or written there under the reviewer's own name, is the reviewer's answer. Entries that
+// stay here are not on Overleaf, and a thread drafted for it has nothing said in it yet.
+function answeredByOthers(comment) {
+  const last = comment.thread.filter((entry) => entry.name !== undefined || entry.overleaf !== undefined).at(-1);
+  return last !== undefined && last.overleaf === undefined && last.name !== state.overleafMe;
 }
 
 // The leaf tab shows once the paper names an Overleaf project or has threads from one. The
@@ -2400,10 +2415,8 @@ function renderCommentTabs(here, onOverleaf) {
   const leaf = state.commentTab === "overleaf-comments";
   const filter = $("#comment-filter");
   filter.querySelector('option[value="archived"]').hidden = leaf;
-  if (leaf && filter.value === "archived") {
-    filter.value = "open";
-    $("#comment-filter-name").textContent = "open";
-  }
+  filter.querySelector('option[value="unanswered"]').hidden = !leaf;
+  if (filter.value === (leaf ? "archived" : "unanswered")) setCommentFilter("open");
   $("#archive-picked-btn").hidden = leaf;
 }
 
@@ -3247,6 +3260,12 @@ function renderSections() {
 }
 
 // The two comment tabs share one pane, which shows the chosen tab's comments.
+function setCommentFilter(value) {
+  const filter = $("#comment-filter");
+  filter.value = value;
+  $("#comment-filter-name").textContent = filter.selectedOptions[0].textContent;
+}
+
 function switchTab(name) {
   for (const button of $$(".tab-btn")) button.classList.toggle("active", button.dataset.tab === name);
   const pane = name === "overleaf-comments" ? "comments" : name;
@@ -3254,6 +3273,8 @@ function switchTab(name) {
   if (pane !== "comments" || state.commentTab === name) return;
   state.commentTab = name;
   state.picked.clear();
+  // The leaf tab opens on the threads that wait for the reviewer's answer.
+  if (name === "overleaf-comments") setCommentFilter("unanswered");
   refreshComments().catch((error) => console.error(error));
 }
 
@@ -4343,8 +4364,8 @@ async function init() {
     $("#compose-dialog").close();
     clearPendingSelection();
   });
-  $("#comment-filter").addEventListener("change", (event) => {
-    $("#comment-filter-name").textContent = event.target.selectedOptions[0].textContent;
+  $("#comment-filter").addEventListener("change", () => {
+    setCommentFilter($("#comment-filter").value);
     refreshComments().catch((error) => console.error(error));
   });
   for (const button of $$(".tab-btn")) {

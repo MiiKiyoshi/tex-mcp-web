@@ -149,6 +149,9 @@ class LivePresence:
         self.message = ""
         # The project's name on Overleaf, which a downloaded PDF is named after.
         self.project_name = ""
+        # The reviewer's own name on Overleaf, read with who is in the project, which tells
+        # the threads the reviewer answered last from those someone else did.
+        self.me = ""
         self._me = ""
         self._main_doc = ""
         self._docs: dict[str, str] = {}
@@ -170,7 +173,7 @@ class LivePresence:
         changes = sorted(self._changes.values(), key=lambda change: change["at"], reverse=True)
         return {"status": self.status, "message": self.message, "project": self.link,
                 "users": sorted(users, key=lambda user: user["name"]), "changes": changes,
-                "comments_trouble": self.comments_trouble, "doc_type": self.doc_type,
+                "comments_trouble": self.comments_trouble, "doc_type": self.doc_type, "me": self.me,
                 "files": (self.sync.snapshot() if self.sync is not None
                           else self.files.snapshot() if self.files is not None else []),
                 "by_hand": self.files.state() if self.files is not None else None}
@@ -431,6 +434,8 @@ class LivePresence:
 
     def _connected_users(self, reply: list) -> None:
         users = reply[1] if len(reply) > 1 and isinstance(reply[1], list) else []
+        self.me = next((_name(user) for user in users if isinstance(user, dict)
+                        and str(user.get("client_id")) == self._me), self.me)
         self._users = {
             str(user["client_id"]): {
                 "user_id": str(user.get("user_id", "")), "name": _name(user),

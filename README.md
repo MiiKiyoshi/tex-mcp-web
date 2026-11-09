@@ -130,8 +130,12 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
 - Comments from Overleaf are kept as Overleaf has them, in their own tab: the leaf
   **Comments** tab beside **Comments**, shown once the paper names an Overleaf project or
   holds threads from one. The editor and the PDF mark the comments of the tab shown. The
-  sync button with the leaf atop that tab brings Overleaf's open threads in as comments on
-  the words they were written about, with their replies. In a git clone it waits until
+  tab lists the threads in the order the paper reads them and opens on **unanswered**, the
+  open threads whose last message on Overleaf is someone else's: a reply sent from here,
+  or one written on Overleaf under your name, takes a thread out of it. The list atop the
+  tab also shows the open, resolved and all threads. The sync button with the leaf atop
+  that tab brings Overleaf's open threads in as comments on the words they were written
+  about, with their replies. In a git clone it waits until
   the folder is at Overleaf's commit, since a thread is on words.
   With the files following Overleaf live there is no sync button: a new thread comes
   in by itself whenever every file is in step.
