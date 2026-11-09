@@ -119,10 +119,14 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   Overleaf's commits in, as a fast-forward or as a merge git makes without conflicts, and
   changes nothing when the merge would conflict or write over a change not committed.
   **git push** sends the folder's commits, never forced, and leaves changes not committed
-  where they are. A token in the remote's address never reaches the page. The page's own
-  records, `.tex-mcp-web/`, with the comments and copies of the text, are named in the
-  clone's local exclude file, so a commit of every file leaves them out, and git push
-  refuses commits that hold them.
+  where they are. A token in the remote's address never reaches the page, and git push
+  refuses a commit that holds the page's own records.
+- The page's own records, `.tex-mcp-web/`, with the comments, copies of the text and the
+  page's locks, sit beside the paper. In any git repository the paper's folder is in, a
+  clone of the Overleaf project or one of your own, such as a backup kept on a free plan,
+  the page names them in the repository's local exclude file when it starts, so a commit
+  of every file leaves them out. A repository with no remote of the project is no git
+  clone of it here, and the files follow Overleaf by **Get** and **Send**, or Live.
 - Comments from Overleaf are kept as Overleaf has them, in their own tab: the leaf
   **Comments** tab beside **Comments**, shown once the paper names an Overleaf project or
   holds threads from one. The editor and the PDF mark the comments of the tab shown. The

@@ -372,11 +372,6 @@ async def test_the_page_pulls_pushes_and_downloads_comments_only_with_every_over
         git(coauthor, "push", "-q", "origin", "HEAD:main")
         now = await (await client.post("/overleaf/git/fetch")).json()
         assert (now["state"], now["behind"]) == ("behind", 1)
-        # The page's own records, comments and copies of the text, stay out of a commit of
-        # every file, by the clone's local exclude file.
-        (paper / ".tex-mcp-web").mkdir(exist_ok=True)
-        (paper / ".tex-mcp-web" / "comments.json").write_text("{}", encoding="utf-8")
-        assert ".tex-mcp-web/" not in git(paper, "status", "--porcelain", "--untracked-files=all")
         # The agent reads the same in few words: only what differs, from the last reading.
         assert await (await client.get("/overleaf/upstream")).json() == {"by": "git", "git": True, "behind": 1}
         # Words Overleaf has and this folder lacks are nowhere to put a thread.
@@ -401,8 +396,8 @@ async def test_a_push_holding_the_review_pages_records_is_refused(sides) -> None
     them out of a commit of every file, and a commit that holds them anyway is not pushed."""
     paper, _ = sides
     link = await overleaf_git.link_of(paper, PROJECT)
-    await overleaf_git.keep_records_out(link)
-    await overleaf_git.keep_records_out(link)
+    await overleaf_git.keep_records_out(paper)
+    await overleaf_git.keep_records_out(paper)
     exclude = paper / ".git" / "info" / "exclude"
     assert exclude.read_text(encoding="utf-8").splitlines().count(".tex-mcp-web/") == 1
     (paper / ".tex-mcp-web").mkdir()
@@ -413,3 +408,42 @@ async def test_a_push_holding_the_review_pages_records_is_refused(sides) -> None
     git(paper, "-c", "user.name=S", "-c", "user.email=s@example.com", "commit", "-q", "-m", "records")
     with pytest.raises(overleaf_git.GitError, match="hold .tex-mcp-web/"):
         await overleaf_git.push(link)
+
+
+async def test_the_review_pages_records_stay_out_of_any_git_the_paper_is_in(tmp_path: Path) -> None:
+    """A paper in a git repository of the reviewer's own, a backup with no Overleaf remote
+    and the paper in a folder of it, follows Overleaf without git, and once the page starts
+    a commit of every file leaves the page's records out. A folder in no git repository is
+    left as it is."""
+    import socket
+
+    from tex_mcp_web.comments import PaperAnchor
+    from tex_mcp_web.config import load_config
+    from tex_mcp_web.server import TexMcpWebServer
+
+    backup = tmp_path / "backup"
+    subprocess.run(["git", "init", "-q", str(backup)], check=True)
+    git(backup, "remote", "add", "origin", "https://example.com/someone/papers.git")
+    paper = backup / "paper"
+    paper.mkdir()
+    (paper / "paper.tex").write_text("\\documentclass{article}\\begin{document}Hi.\\end{document}\n", encoding="utf-8")
+    (paper / ".tex-mcp-web.yaml").write_text(
+        f"main: paper.tex\noverleaf: http://127.0.0.1:9/project/{PROJECT}\n", encoding="utf-8")
+    server = TexMcpWebServer(load_config(paper / ".tex-mcp-web.yaml"))
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    await server.setup(port)
+    try:
+        server.comments.add(PaperAnchor(), "A note.")
+        assert await server._overleaf_git_link() is None
+        status = git(backup, "status", "--porcelain", "--untracked-files=all")
+        assert (paper / ".tex-mcp-web" / "comments.json").is_file()
+        assert "paper/paper.tex" in status and ".tex-mcp-web/" not in status
+    finally:
+        await server.cleanup()
+
+    alone = tmp_path / "alone"
+    alone.mkdir()
+    await overleaf_git.keep_records_out(alone)
+    assert list(alone.iterdir()) == []

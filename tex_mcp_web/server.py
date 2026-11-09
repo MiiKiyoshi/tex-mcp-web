@@ -471,8 +471,6 @@ class TexMcpWebServer:
         self.overleaf_hand: HandSync | None = None
         # Where a git clone stood against Overleaf's branch when last read.
         self._overleaf_git_now: dict[str, Any] | None = None
-        # The clone whose exclude file already names the review page's records.
-        self._overleaf_records_kept_out: overleaf_git.Link | None = None
         # Texts the page may save over, by file and revision, for a save made over an
         # edit from Overleaf to be brought together with it.
         self._source_texts: dict[str, dict[str, str]] = {}
@@ -945,11 +943,7 @@ class TexMcpWebServer:
     async def _overleaf_git_link(self) -> overleaf_git.Link | None:
         if not self.config.overleaf:
             return None
-        link = await overleaf_git.link_of(self.watch_dir, overleaf.project_of(self.config.overleaf)[1])
-        if link is not None and link != self._overleaf_records_kept_out:
-            await overleaf_git.keep_records_out(link)
-            self._overleaf_records_kept_out = link
-        return link
+        return await overleaf_git.link_of(self.watch_dir, overleaf.project_of(self.config.overleaf)[1])
 
     async def _overleaf_live_misplaced(self) -> str | None:
         """Why the files cannot follow Overleaf live here, or None. In a git clone of the
@@ -2778,11 +2772,13 @@ class TexMcpWebServer:
             await asyncio.sleep(1.0)
 
     async def setup(self, port: int) -> None:
-        """Bind the port, start watching, and kick off the first compile.
+        """Keep the records out of git, bind the port, start watching, and kick off the
+        first compile.
 
         The port binds before compiling so a caller that waits for readiness
         is not blocked by a LaTeX run.
         """
+        await overleaf_git.keep_records_out(self.watch_dir)
         self._runner = web.AppRunner(self.app)
         await self._runner.setup()
         await web.TCPSite(self._runner, "127.0.0.1", port).start()

@@ -87,12 +87,20 @@ async def link_of(folder: Path, project_id: str) -> Link | None:
     return None
 
 
-async def keep_records_out(link: Link) -> None:
-    """Name the review page's own records, .tex-mcp-web/, in the clone's local exclude file,
-    so a commit of every file leaves them out: they hold the comments and copies of the text.
-    The exclude file is the clone's own and is never committed."""
-    _, out = await _git(link.folder, "rev-parse", "--git-path", "info/exclude")
-    exclude = (link.folder / out.strip()).resolve()
+async def keep_records_out(folder: Path) -> None:
+    """Name the review page's own records, .tex-mcp-web/, in the local exclude file of the
+    git repository *folder* is in, a clone of Overleaf or one of the reviewer's own, so a
+    commit of every file leaves them out: they hold the comments, copies of the text and the
+    page's locks, which a checkout of an older commit would set back under an open page.
+    The exclude file is the repository's own and is never committed. A folder in no git
+    repository, or on a machine without git, is left as it is."""
+    try:
+        code, out = await _git(folder, "rev-parse", "--git-path", "info/exclude", check=False)
+    except FileNotFoundError:
+        return
+    if code != 0:
+        return
+    exclude = (folder / out.strip()).resolve()
     text = exclude.read_text(encoding="utf-8") if exclude.exists() else ""
     if RECORDS not in text.splitlines():
         exclude.parent.mkdir(parents=True, exist_ok=True)
