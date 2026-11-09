@@ -4275,8 +4275,19 @@ function holdZoomOnFields() {
   document.addEventListener("focusin", () => release(500), true);
 }
 
+// A pinch on a trackpad reaches the page as a wheel turned with Ctrl held. Over the Preview
+// the viewer zooms the PDF with it. Anywhere else the browser would magnify the whole page
+// and push the panel's right edge out of the window, so there it does nothing. Cmd or Ctrl
+// with + and - still zoom the page.
+function holdPinchOutsidePreview() {
+  document.addEventListener("wheel", (event) => {
+    if (event.ctrlKey && !event.target.closest?.("#pdf-viewer")) event.preventDefault();
+  }, { passive: false });
+}
+
 async function init() {
   holdZoomOnFields();
+  holdPinchOutsidePreview();
   attachKeyboardNavigation();
   attachSidebarToggle();
   attachSidebarResize();

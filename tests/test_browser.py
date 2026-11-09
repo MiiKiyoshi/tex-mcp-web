@@ -542,6 +542,12 @@ def test_highlight_badges_leave_pdf_text_selectable(tmp_path: Path) -> None:
         for delta_y, exact in ((-3, False),) * 6 + ((-3, True), (3, True)):
             x, y, width = wheel_on_segment(delta_y)
             wait_until(lambda: settled(x, y, width * (1.25 if delta_y < 0 else 1 / 1.25), exact))
+        # Outside the Preview the same pinch does nothing, where the browser would magnify the
+        # whole page. A wheel without Ctrl still scrolls there.
+        assert browser.execute_script('''
+          const turn = (ctrlKey) => document.querySelector(".sidebar-tabs").dispatchEvent(
+            new WheelEvent("wheel", {deltaY: -3, ctrlKey, bubbles: true, cancelable: true}));
+          return [turn(true), turn(false)];''') == [False, True]
         # A paper is read a column at a time: from a page a little narrower than the pane to
         # one a little wider, a pinch on a column leaves that column, the half of the page it
         # was on, whole in the pane rather than pushing its outer edge off.
