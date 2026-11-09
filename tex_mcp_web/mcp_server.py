@@ -672,7 +672,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         ids: list[str] | None = None,
         new: Annotated[bool, Field(description="Only what the reviewer has written since this call last answered; excludes ids.")] = False,
         status: Literal["open", "resolved", "archived", "all"] = "open",
-        unanswered: Annotated[bool, Field(description="Only threads whose latest entry is the human's.")] = False,
+        unanswered: Annotated[bool, Field(description="Only threads whose latest entry is the human's, other than a reply sent to Overleaf.")] = False,
         since: Annotated[str | None, Field(description="A time this server printed, like '09-19 00:52'; only what came after it.")] = None,
         limit: Annotated[int, Field(ge=1, le=200)] = 50,
         save: bool = False,
@@ -681,9 +681,10 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
 
         ``new`` answers a Call agent in one step: on open threads, what the reviewer has
         written that this has neither carried before nor already taken up, thread by
-        thread, each with the rev a write quotes back. It reports the moment it read
-        ``from`` and the one it moved to, so a turn that went wrong is taken again with
-        since=<from>; to see again what was already answered, ask for the thread by id.
+        thread, each with the rev a write quotes back. A reply the reviewer sent to
+        Overleaf is for the people there, so it is not among them. It reports the moment
+        it read ``from`` and the one it moved to, so a turn that went wrong is taken again
+        with since=<from>; to see again what was already answered, ask for the thread by id.
 
         ``ids`` gives those threads whole, which is what to ask for when the conversation
         is no longer in mind; with ``since`` it gives only the entries after that time.
@@ -722,7 +723,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                 answered = max((position for position, entry in enumerate(comment.thread)
                                 if entry.author == "agent"), default=-1)
                 said = [entry for entry in comment.thread[answered + 1:]
-                        if entry.author == "human" and _after(entry, edge)]
+                        if entry.asks_agent and _after(entry, edge)]
                 if not said:
                     continue
                 told = {"id": comment.id, "rev": revision_of(comment.updated),
@@ -780,9 +781,9 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             return _err("save needs the ids of the threads to write out")
         summaries = []
         for comment in store.list(status=None if status == "all" else status):
-            if unanswered and (not comment.thread or comment.thread[-1].author != "human"):
+            if unanswered and (not comment.thread or not comment.thread[-1].asks_agent):
                 continue
-            human = next((entry for entry in reversed(comment.thread) if entry.author == "human"), None)
+            human = next((entry for entry in reversed(comment.thread) if entry.asks_agent), None)
             if moment is not None and (human is None or not _after(human, moment)):
                 continue
             request = human.text if human is not None else comment.text

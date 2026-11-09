@@ -1938,9 +1938,10 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
         wait_until(lambda: browser.execute_script(f'return document.querySelector("{theirs} .thread-meta") !== null'))
         assert browser.execute_script(f'''
           const meta = document.querySelector("{theirs} .thread-meta");
-          return [meta.firstChild.textContent.split(" · ")[0], meta.querySelector(".entry-overleaf").title,
+          const [who, when] = meta.firstChild.textContent.split(" · ");
+          return [who, /^\\d\\d-\\d\\d \\d\\d:\\d\\d$/.test(when), meta.querySelector(".entry-overleaf").title,
                   meta.querySelector(".cmt-edit") === null];
-        ''') == ["A. Reviewer", "Written on Overleaf", True]
+        ''') == ["A. Reviewer", True, "Written on Overleaf", True]
         assert browser.execute_script('return document.querySelector("#tab-comments").classList.contains("active")')
         # Overleaf has no archive, so the tab offers none, and its filter has no archived view.
         assert browser.execute_script('return document.querySelector("#archive-picked-btn").hidden') is True

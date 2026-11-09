@@ -1476,6 +1476,25 @@ async def test_mcp_drafts_a_new_overleaf_thread_on_source_lines(bound_project, p
 
 
 @pytest.mark.asyncio
+async def test_a_reply_sent_to_overleaf_waits_for_the_people_there_not_the_agent(bound_project, project):
+    pytest.importorskip("mcp")
+    from tex_mcp_web.comments import CommentStore, PaperAnchor
+    from tex_mcp_web.mcp_server import create_server
+
+    mcp = create_server(bound_project)
+
+    async def call(tool_name, **arguments):
+        return json.loads((await mcp.call_tool(tool_name, arguments))[0].text)
+
+    store = CommentStore(project / ".tex-mcp-web" / "comments.json")
+    thread = store.add(PaperAnchor(), "Say hello properly.", name="A. Reviewer")
+    store.sent_to_overleaf(thread.id, "Thanks, fixed!", "")
+    assert (await call("read_comments", unanswered=True))["comments"] == []
+    [new] = (await call("read_comments", new=True))["comments"]
+    assert [entry["text"] for entry in new["entries"]] == ["Say hello properly."]
+
+
+@pytest.mark.asyncio
 async def test_mcp_comment_discovery_reads_only_selected_history(bound_project, project, monkeypatch):
     pytest.importorskip("mcp")
     from tex_mcp_web.comments import CommentStore, PaperAnchor, ResolvedSource, SectionAnchor
@@ -2079,6 +2098,11 @@ async def test_call_button_wakes_a_parked_waiter_and_keeps_an_early_press(client
     asked = server.comments.add(PaperAnchor(), "Is this right?")
     assert "1 unanswered comments" in server._review_line()
     server.comments.reply(asked.id, "Yes, checked.", author="agent")
+    assert "no unanswered comments" in server._review_line()
+    # A reply sent to Overleaf is for the people there, so its thread waits for them.
+    server.comments.reply(asked.id, "Sure?", author="human")
+    assert "1 unanswered comments" in server._review_line()
+    server.comments.sent_to_overleaf(asked.id, "Thanks, fixed!", "")
     assert "no unanswered comments" in server._review_line()
 
     # Not acked yet (the line may never have reached the harness), so it is offered again.

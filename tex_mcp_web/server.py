@@ -55,6 +55,7 @@ from .comments import (
 )
 from .compiler import CompileResult, compile_tex, source_dependencies
 from .config import Config, get_main_file, get_watch_dir, load_config
+from .mcp_server import short_time
 from .structure import (
     AmbiguousSection,
     DocumentStructure,
@@ -95,7 +96,12 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 
 def _comment_to_dict(c: Comment) -> dict[str, Any]:
-    return c.to_dict()
+    d = c.to_dict()
+    # Each entry's time as the agent reads it too, MM-DD HH:MM on this server's clock, so
+    # the page and the agent name a moment alike.
+    for entry in d["thread"]:
+        entry["when"] = short_time(entry["at"])
+    return d
 
 
 def _result_to_dict(r: CompileResult | None) -> dict[str, Any] | None:
@@ -906,9 +912,9 @@ class TexMcpWebServer:
         staging.replace(self.review_state_path)
 
     def _review_line(self) -> str:
-        # The line counts what a wake-up is for: open threads whose last word is the
-        # reviewer's. A count of open threads sent an agent to read one it had answered.
-        waiting = sum(bool(comment.thread) and comment.thread[-1].author == "human"
+        # The line counts what a wake-up is for: open threads whose last word waits for the
+        # agent. A count of open threads sent an agent to read one it had answered.
+        waiting = sum(bool(comment.thread) and comment.thread[-1].asks_agent
                       for comment in self.comments.list(status="open"))
         return (f"[review] reviewer called (press #{self.review_calls}): "
                 + (f"{waiting} unanswered comments" if waiting else "no unanswered comments")

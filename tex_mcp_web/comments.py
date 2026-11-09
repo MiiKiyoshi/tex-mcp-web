@@ -450,6 +450,12 @@ class ThreadEntry:
     # Who wrote it, as Overleaf names them, for an entry the Overleaf thread holds.
     name: str | None = None
 
+    @property
+    def asks_agent(self) -> bool:
+        """Whether it waits for the agent: the reviewer's word, or a message from Overleaf,
+        but not a reply the reviewer sent to Overleaf, which is for the people there."""
+        return self.author == "human" and self.overleaf is None
+
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {"id": self.id, "author": self.author, "at": self.at, "text": self.text}
         if self.edits:

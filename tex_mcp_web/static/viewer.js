@@ -2853,7 +2853,7 @@ function renderThreadEntry(entry, commentId, index, onOverleaf) {
     && state.editingEntry.index === index;
   const children = [
     h("div", { class: "thread-meta" },
-      h("span", { text: `${writer(entry)} · ${entry.at}` }),
+      h("span", { text: `${writer(entry)} · ${entry.when}` }),
       onOverleaf ? overleafMark(entry) : null,
       // Overleaf keeps what it holds as written there, so that is answered, not edited.
       entry.author === "human" && !editing && entry.name === undefined && entry.overleaf === undefined
