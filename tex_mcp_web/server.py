@@ -1213,10 +1213,10 @@ class TexMcpWebServer:
         path.write_text(json.dumps(ledger, indent=1), encoding="utf-8")
 
     async def _overleaf_lacks(self, checks: list[dict[str, str]]) -> tuple[str | None, str]:
-        """Whether the words a reply describes are on Overleaf: why not, or None with the
-        commit Overleaf's branch is at ("" for a folder that does not follow it by git). Files
-        kept the same with Overleaf say what it holds; otherwise a git clone reads Overleaf's
-        branch afresh."""
+        """Whether the words a new thread's draft describes are on Overleaf: why not, or None
+        with the commit Overleaf's branch is at ("" for a folder that does not follow it by
+        git). Files kept the same with Overleaf say what it holds; otherwise a git clone
+        reads Overleaf's branch afresh."""
         link = await self._overleaf_git_link() if self.overleaf_sync is None else None
         if link is not None:
             async with self._overleaf_git:
@@ -1253,6 +1253,37 @@ class TexMcpWebServer:
                         "")
         return None, ""
 
+    async def _overleaf_differs(self, files: list[str]) -> tuple[list[str], str]:
+        """Which of *files* are not the same here as on Overleaf, with the commit Overleaf's
+        branch is at ("" for a folder that does not follow it by git). In a git clone a file
+        is the same when the folder has it as Overleaf's branch, read afresh, does, so with
+        nothing to commit or git push and nothing to git pull. Files kept the same live say
+        what Overleaf holds, and by hand Overleaf's own text is read."""
+        link = await self._overleaf_git_link() if self.overleaf_sync is None else None
+        if link is not None:
+            async with self._overleaf_git:
+                now = await self._read_overleaf_git(link)
+                return [file for file in files if not await overleaf_git.same(link, now["branch"], file)], now["there"]
+        if self.overleaf_sync is not None:
+            docs = {doc.path: doc for doc in self.overleaf_sync.docs.values()}
+            return [file for file in files if file not in docs or docs[file].status != "synced"
+                    or docs[file].server != self._text_here(file)], ""
+        if self.overleaf_hand is None:
+            return list(files), ""
+        apart = []
+        for file in files:
+            try:
+                there = await self.overleaf_hand.text_of(file)
+            except (ConnectionError, asyncio.TimeoutError):
+                there = None
+            if there is None or there != self._text_here(file):
+                apart.append(file)
+        return apart, ""
+
+    def _text_here(self, file: str) -> str | None:
+        path = self.watch_dir / file
+        return path.read_text(encoding="utf-8") if path.is_file() else None
+
     def _changed_since_drafted(self, check: dict[str, str]) -> str | None:
         """Why a reply cannot go when the file here no longer holds the words it describes:
         they changed after the draft was written, so the reply may not say what they hold.
@@ -1263,13 +1294,15 @@ class TexMcpWebServer:
         return (f"The lines of {check['file']} this reply describes changed after it was drafted. "
                 "Ask the agent to draft it again.")
 
-    async def _send_to_overleaf(self, cid: str, reply: str) -> tuple[web.Response | None, str]:
+    async def _send_to_overleaf(self, cid: str, reply: str, anyway: bool) -> tuple[web.Response | None, str]:
         """Send the reviewer's reply to the Overleaf thread a comment came from, or open the
-        thread a comment with no entries was drafted as, once the words its draft describes are
-        on Overleaf, and before anything changes here, so that what Overleaf does not take is
-        not shown as said. Answers a refusal, or None with the commit Overleaf's branch was at.
-        Readings wait meanwhile: one begun before this would bring the reply in again as
-        someone else's."""
+        thread a comment with no entries was drafted as, before anything changes here, so
+        that what Overleaf does not take is not shown as said. A new thread goes once the
+        words its draft describes are on Overleaf. A reply whose draft names files not the
+        same here as on Overleaf goes only *anyway*, since it may describe an edit Overleaf
+        does not have yet: the refusal names those files. Answers a refusal, or None with
+        the commit Overleaf's branch was at. Readings wait meanwhile: one begun before this
+        would bring the reply in again as someone else's."""
         cookie = overleaf.read_cookie()
         if cookie is None:
             return web.json_response({"error": "paste your Overleaf session cookie first"}, status=401), ""
@@ -1283,9 +1316,20 @@ class TexMcpWebServer:
                 return web.json_response({"error": "this comment did not come from Overleaf"}, status=409), ""
             if not self.config.overleaf:
                 return web.json_response({"error": "name the Overleaf project in .tex-mcp-web.yaml first"}, status=409), ""
-            lacking, commit = await self._overleaf_lacks(checks)
+            try:
+                if opening:
+                    lacking, commit = await self._overleaf_lacks(checks)
+                else:
+                    apart, commit = await self._overleaf_differs(sorted({check["file"] for check in checks}))
+                    lacking = None if anyway or not apart else (
+                        f"{', '.join(apart)} {'is' if len(apart) == 1 else 'are'} not the same here as on "
+                        "Overleaf, so this reply may describe an edit Overleaf does not have yet.")
+            except overleaf_git.GitError as error:
+                lacking, apart = f"Overleaf's branch could not be read: {error}", []
+            except NotConnected as error:
+                lacking, apart = str(error), []
             if lacking is not None:
-                return web.json_response({"error": lacking}, status=409), ""
+                return web.json_response({"error": lacking, "apart": [] if opening else apart}, status=409), ""
             try:
                 if opening:
                     refused, thread = await self._open_on_overleaf(comment, reply, cookie)
@@ -2273,7 +2317,7 @@ class TexMcpWebServer:
         if not text:
             return web.json_response({"error": "text is required"}, status=400)
         if data.get("overleaf"):
-            refused, commit = await self._send_to_overleaf(cid, text)
+            refused, commit = await self._send_to_overleaf(cid, text, bool(data.get("anyway")))
             if refused is not None:
                 return refused
             return await self._mutate_comment(cid, lambda: self.comments.sent_to_overleaf(cid, text, commit))

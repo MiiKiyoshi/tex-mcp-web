@@ -172,12 +172,13 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   says why on its card while the rest go. The agent cannot send. A plain reply stays
   here, since it may be an instruction to the agent, and each entry on such a thread says
   whether it went to Overleaf or stayed here. An entry Overleaf holds goes by the name
-  Overleaf gives its writer, as there, and is answered rather than edited. A draft naming the source ranges it
-  describes goes only once Overleaf has what those ranges held, read from the files when
-  they follow Overleaf live and from Overleaf's branch in a git clone otherwise, and the
-  refusal says whether to commit or to git push first, or, when the files here no longer
-  hold those words, that the lines changed after the draft and it is drafted again.
-  Overleaf takes the reply first, so what it refuses is not shown as said here.
+  Overleaf gives its writer, as there, and is answered rather than edited. A reply whose
+  draft names source ranges in a file that is not the same here as on Overleaf may
+  describe an edit Overleaf does not have yet, so the page asks first whether to send it
+  anyway. In a git clone that is a change not committed, not pushed or not pulled, read
+  against Overleaf's branch afresh. Picked replies sent together ask once, at the end,
+  naming every such file. Overleaf takes the reply first, so what it refuses is not shown
+  as said here.
 - The agent can also draft a new thread for Overleaf on source lines (`write_comments` with
   `action="overleaf"` and an `anchor` instead of an `id`). It waits in the leaf
   **Comments** tab as a card with nothing said in it yet, the draft being its first
@@ -186,6 +187,11 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   looked for in Overleaf's file first, the occurrence nearest the line they are on here,
   then the message goes, then an edit that changes no text puts the thread on them. Lines
   Overleaf does not have yet leave nothing behind there, and the card keeps its draft.
+  A draft naming the source ranges it describes goes only once Overleaf has what those
+  ranges held, read from the files when they follow Overleaf live and from Overleaf's
+  branch in a git clone otherwise, and the refusal says whether to commit or to git push
+  first, or, when the files here no longer hold those words, that the lines changed after
+  the draft and it is drafted again.
 - Settings chooses how the files follow Overleaf. **By hand**, the default, changes them
   only when you ask: by git pull and git push in a git clone, and by **Get** and **Send**
   otherwise (below). **Live** (`overleaf_sync: true`) keeps the paper's files and the

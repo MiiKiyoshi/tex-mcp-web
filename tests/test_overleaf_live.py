@@ -658,10 +658,12 @@ async def test_a_comment_that_did_not_come_from_overleaf_cannot_be_sent_there(re
     await page.close()
 
 
-async def test_the_agents_draft_is_sent_by_the_reviewer_once_its_edit_is_on_overleaf(review, tmp_path) -> None:
-    """The agent drafts; the reviewer edits and sends. A draft naming an edit goes only once
-    Overleaf has the words that edit left: here the folder is a git clone of the project,
-    and the reply is refused until the edit is committed and pushed."""
+async def test_a_reply_whose_files_are_not_the_same_on_overleaf_goes_only_when_sent_anyway(review, tmp_path) -> None:
+    """The agent drafts; the reviewer edits and sends. A reply whose draft names files that
+    are not the same here as on Overleaf may describe an edit Overleaf does not have yet:
+    here the folder is a git clone of the project, so a change not committed or not pushed
+    is one. Such a reply goes only when the reviewer sends it anyway, and with the files
+    the same it goes at once."""
     import subprocess
 
     from tex_mcp_web.comments import OverleafDraft
@@ -678,34 +680,40 @@ async def test_the_agents_draft_is_sent_by_the_reviewer_once_its_edit_is_on_over
     run("remote", "add", "overleaf", str(remote))
     run("push", "-q", "-u", "overleaf", "main")
     page, comment = await on_overleaf(client, server, fake)
+    send = lambda text, **more: client.post(f"/comments/{comment.id}/reply", json={"text": text, "overleaf": True, **more})
+    draft = lambda text: server.comments.draft_overleaf(comment.id, server.comments.get(comment.id).updated, OverleafDraft(
+        text, ["main.tex:3-3"], [{"file": "main.tex", "text": "Hello there."}]))
 
     (tmp_path / "main.tex").write_text(MAIN.replace("Hi there.", "Hello there."))
-    server.comments.draft_overleaf(comment.id, server.comments.get(comment.id).updated, OverleafDraft(
-        "Reworded it.", ["main.tex:3-3"], [{"file": "main.tex", "text": "Hello there."}]))
-    # Lines reworded again after the draft: no commit or push brings its words to Overleaf.
-    (tmp_path / "main.tex").write_text(MAIN.replace("Hi there.", "Hey there."))
-    response = await client.post(f"/comments/{comment.id}/reply", json={"text": "Reworded it, see L3.", "overleaf": True})
-    assert response.status == 409 and (await response.json())["error"] == (
-        "The lines of main.tex this reply describes changed after it was drafted. Ask the agent to draft it again.")
-    (tmp_path / "main.tex").write_text(MAIN.replace("Hi there.", "Hello there."))
-    for said_back, then in (("not committed. Commit it, then press git push.", ("commit", "-q", "-am", "reworded")),
-                            ("committed but not on Overleaf. Press git push first.", ("push", "-q", "overleaf", "main"))):
-        response = await client.post(f"/comments/{comment.id}/reply", json={"text": "Reworded it, see L3.", "overleaf": True})
-        assert response.status == 409 and (await response.json())["error"].endswith(said_back)
+    draft("Reworded it.")
+    for then in (("commit", "-q", "-am", "reworded"), ("push", "-q", "overleaf", "main")):
+        response = await send("Reworded it, see L3.")
+        assert response.status == 409 and await response.json() == {
+            "error": "main.tex is not the same here as on Overleaf, so this reply may describe an edit "
+                     "Overleaf does not have yet.", "apart": ["main.tex"]}
         run(*then)
-    response = await client.post(f"/comments/{comment.id}/reply", json={"text": "Reworded it, see L3.", "overleaf": True})
+    assert fake.written == []
+    response = await send("Reworded it, see L3.")
     assert response.status == 200
     assert fake.written == [("reply", "t1", "Reworded it, see L3.")]
     sent = server.comments.get(comment.id)
     assert sent.overleaf_draft is None
     assert (sent.thread[-1].text, sent.thread[-1].edits) == ("Reworded it, see L3.", ["main.tex:3-3"])
     assert sent.thread[-1].overleaf == run("rev-parse", "--short", "HEAD").strip()
+
+    # The lines changed again after the draft, in a way that keeps the reply true: it goes
+    # when sent anyway.
+    draft("Thanks!")
+    (tmp_path / "main.tex").write_text(MAIN.replace("Hi there.", "\\red{Hello there.}"))
+    assert (await send("Thanks!")).status == 409
+    response = await send("Thanks!", anyway=True)
+    assert response.status == 200 and fake.written[-1] == ("reply", "t1", "Thanks!")
     await page.close()
 
 
-async def test_a_draft_naming_an_edit_waits_by_hand_until_send_makes_it_on_overleaf(review) -> None:
-    """In a folder that is no git clone, by hand, the words a draft describes are read from
-    Overleaf's own text, and the refusal says to Send first."""
+async def test_by_hand_a_reply_is_held_for_files_overleaf_has_otherwise_until_send_makes_them_the_same(review) -> None:
+    """In a folder that is no git clone, by hand, each file a draft names is read from
+    Overleaf's own text and compared with the file here."""
     from tex_mcp_web.comments import OverleafDraft
 
     client, server, fake = review
@@ -713,12 +721,8 @@ async def test_a_draft_naming_an_edit_waits_by_hand_until_send_makes_it_on_overl
     (server.watch_dir / "main.tex").write_text(MAIN.replace("Hi there.", "Hello there."))
     server.comments.draft_overleaf(comment.id, server.comments.get(comment.id).updated, OverleafDraft(
         "Reworded it.", ["main.tex:3-3"], [{"file": "main.tex", "text": "Hello there."}]))
-    (server.watch_dir / "main.tex").write_text(MAIN.replace("Hi there.", "Hey there."))
     response = await client.post(f"/comments/{comment.id}/reply", json={"text": "Reworded it.", "overleaf": True})
-    assert response.status == 409 and (await response.json())["error"].endswith("Ask the agent to draft it again.")
-    (server.watch_dir / "main.tex").write_text(MAIN.replace("Hi there.", "Hello there."))
-    response = await client.post(f"/comments/{comment.id}/reply", json={"text": "Reworded it.", "overleaf": True})
-    assert response.status == 409 and (await response.json())["error"].endswith("Press Send first.")
+    assert response.status == 409 and (await response.json())["apart"] == ["main.tex"]
     assert fake.written == [] and server.comments.get(comment.id).overleaf_draft is not None
     assert (await (await client.post("/overleaf/files/send")).json())["send"] == []
     assert fake.texts["d-main"] == MAIN.replace("Hi there.", "Hello there.")

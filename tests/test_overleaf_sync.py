@@ -923,6 +923,18 @@ async def test_a_drafted_thread_whose_lines_overleaf_lacks_is_not_opened_at_all(
         assert fake.threads == {} and not fake.docs["d-body"]["comments"]
         kept = opened.server.comments.get(drafted.id)
         assert kept.thread == [] and kept.overleaf_draft.text == "New?"
+
+        # One whose draft describes words the lines no longer hold, changed after it was
+        # drafted, says so.
+        stale = opened.server.comments.add_overleaf_thread(
+            SourceRangeAnchor(file="tex/body.tex", line_start=1, line_end=1),
+            OverleafDraft("Reworded.", ["tex/body.tex:1-1"], [{"file": "tex/body.tex", "text": "Words gone."}]),
+            ResolvedSource(file="tex/body.tex", line_start=1, line_end=1),
+            capture_source_selector(paper / "tex" / "body.tex", 1, 1))
+        response = await opened.client.post(f"/comments/{stale.id}/reply", json={"text": "Reworded.", "overleaf": True})
+        assert response.status == 409 and (await response.json())["error"] == (
+            "The lines of tex/body.tex this reply describes changed after it was drafted. Ask the agent to draft it again.")
+        assert fake.threads == {}
     finally:
         await opened.close()
 

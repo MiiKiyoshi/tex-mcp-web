@@ -2570,25 +2570,63 @@ async function setPickedStatus(ids, status) {
   await refreshComments();
 }
 
-// Each picked reply goes to its own thread on Overleaf, one after another. One that is
-// refused keeps its words and says why on its card, opened, and the rest still go.
+// A reply sent to its thread on Overleaf: null once sent, or why not, with the files its
+// draft names that are not the same here as on Overleaf when that is the only reason.
+async function sendOverleafReply(id, text, anyway = false) {
+  const response = await fetch(`/comments/${id}/reply`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, overleaf: true, anyway }),
+  });
+  if (response.ok) return null;
+  const raw = await response.text();
+  try {
+    const { error, apart = [] } = JSON.parse(raw);
+    return { error, apart };
+  } catch (error) {
+    return { error: `${response.status}: ${raw}`, apart: [] };
+  }
+}
+
+// Each picked reply goes to its own thread on Overleaf, one after another. Those whose
+// files are not the same here as on Overleaf wait for one question at the end and go
+// anyway when it is answered yes. One that is refused keeps its words and says why on
+// its card, opened, and the rest still go.
 async function sendPickedToOverleaf(ids) {
+  const waiting = [];
+  const refused = (id, text, from, error) => {
+    state.overleafReplies.set(id, { text, from, error });
+    state.expanded.add(id);
+  };
   for (const id of ids) {
     const comment = state.comments.find((item) => item.id === id);
     const text = comment ? overleafReplyText(comment) : "";
     if (!text.trim()) continue;
-    const response = await fetch(`/comments/${id}/reply`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: text.trim(), overleaf: true }),
-    });
-    if (response.ok) {
+    const answer = await sendOverleafReply(id, text.trim());
+    if (answer === null) {
       state.overleafReplies.delete(id);
       state.picked.delete(id);
-      continue;
+    } else if (answer.apart.length) {
+      waiting.push({ id, text, from: comment.overleaf_draft?.text, ...answer });
+    } else {
+      refused(id, text, comment.overleaf_draft?.text, answer.error);
     }
-    state.overleafReplies.set(id, { text, from: comment.overleaf_draft?.text, error: await responseError(response) });
-    state.expanded.add(id);
+  }
+  const files = [...new Set(waiting.flatMap((reply) => reply.apart))];
+  if (waiting.length && confirm(`${files.join(", ")} ${files.length === 1 ? "is" : "are"} not the same here as on `
+    + `Overleaf, so ${waiting.length === 1 ? "a reply" : replies(waiting.length)} may describe an edit Overleaf `
+    + `does not have yet. Send ${waiting.length === 1 ? "it" : "them"} anyway?`)) {
+    for (const reply of waiting) {
+      const answer = await sendOverleafReply(reply.id, reply.text.trim(), true);
+      if (answer === null) {
+        state.overleafReplies.delete(reply.id);
+        state.picked.delete(reply.id);
+      } else {
+        refused(reply.id, reply.text, reply.from, answer.error);
+      }
+    }
+  } else {
+    for (const reply of waiting) refused(reply.id, reply.text, reply.from, reply.error);
   }
   await refreshComments();
 }
@@ -2765,19 +2803,17 @@ function renderOverleafReply(comment) {
     if (!text) return;
     send.disabled = textarea.disabled = true;
     note.textContent = "Sending…";
-    const response = await fetch(`/comments/${comment.id}/reply`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, overleaf: true }),
-    });
-    if (response.ok) {
+    let answer = await sendOverleafReply(comment.id, text);
+    if (answer?.apart.length && confirm(`${answer.error} Send it anyway?`)) {
+      answer = await sendOverleafReply(comment.id, text, true);
+    }
+    if (answer === null) {
       state.overleafReplies.delete(comment.id);
       await refreshComments();
       return;
     }
-    const error = await responseError(response);
-    state.overleafReplies.set(comment.id, { text: textarea.value, from: draft?.text, error });
-    note.textContent = error;
+    state.overleafReplies.set(comment.id, { text: textarea.value, from: draft?.text, error: answer.error });
+    note.textContent = answer.error;
     send.disabled = textarea.disabled = false;
   });
   return h("div", { class: "cmt-overleaf" },

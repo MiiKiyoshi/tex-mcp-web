@@ -360,6 +360,11 @@ async def push(link: Link, followed: Collection[str] | None = None) -> dict:
     return await state(link, followed or ())
 
 
+async def same(link: Link, revision: str, path: str) -> bool:
+    """Whether the file at *path*, relative to the folder, is in the folder as at *revision*."""
+    return await _blob(link, revision, f"./{path}") == await _in_folder(link, path)
+
+
 async def holds(link: Link, revision: str, path: str, text: str) -> bool:
     """Whether the file at *path*, relative to the folder, holds *text* at *revision*."""
     code, out = await _git(link.folder, "show", f"{revision}:./{path}", check=False)

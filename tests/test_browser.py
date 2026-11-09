@@ -2558,8 +2558,9 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
         wait_until(lambda: "sent" in text("[data-comment-id] .cmt-thread .entry-overleaf.sent"), timeout=15)
         assert browser.execute_script('return document.querySelector(".overleaf-reply-input").value') == ""
 
-        # Picked threads send their replies together. One whose edit Overleaf does not hold is
-        # refused on its card and stays picked, while the other goes.
+        # Picked threads send their replies together. One whose file is not the same here as
+        # on Overleaf waits for a question at the end: answered no, it stays picked with the
+        # reason on its card, while the other goes. Answered yes, it goes anyway.
         fake.threads["t2"] = {"messages": [{"user": {"first_name": "Ann"}, "content": "A second one."}]}
         fake.ranges.append({"id": "c2", "op": {"c": "Hello", "p": (tmp_path / "main.tex").read_text().index("Hello"),
                                                "t": "t2"}})
@@ -2582,16 +2583,36 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
         for cid in (brought.id, second.id):
             click(f"[data-comment-id='{cid}'] .comment-pick")
         assert text("#send-picked-btn .count") == "2"
-        browser.execute_script("(window.wrappedJSObject || window).confirm = () => true;", sandbox=None)
+        browser.execute_script("const page = window.wrappedJSObject || window; page.asked = [];"
+                               "page.confirm = (message) => page.asked.push(message) === 1;", sandbox=None)
         click("#send-picked-btn")
         wait_until(lambda: browser.execute_script(
             f'return document.querySelector("[data-comment-id=\'{second.id}\'] .overleaf-reply-note")?.textContent || ""')
-            .startswith("The edit to main.tex this reply describes is not on Overleaf"), timeout=15)
+            .startswith("main.tex is not the same here as on Overleaf"), timeout=15)
         assert fake.written[1:] == [("reply", "t1", "Both go, the first.")]
+        assert browser.execute_script("return (window.wrappedJSObject || window).asked", sandbox=None)[1:] == [
+            "main.tex is not the same here as on Overleaf, so a reply may describe an edit Overleaf does not have yet. "
+            "Send it anyway?"]
         assert text("#send-picked-btn .count") == "1"
         assert browser.execute_script(
             f'return document.querySelector("[data-comment-id=\'{second.id}\'] .overleaf-reply-input").value') \
             == "Both go, the second."
+        browser.execute_script("(window.wrappedJSObject || window).confirm = () => true;", sandbox=None)
+        click("#send-picked-btn")
+        wait_until(lambda: fake.written[-1] == ("reply", "t2", "Both go, the second."), timeout=15)
+        # Sent alone from its card, such a reply asks the same before it goes.
+        store.draft_overleaf(second.id, store.get(second.id).updated, OverleafDraft(
+            "Once more.", ["main.tex:3-3"], [{"file": "main.tex", "text": "Hello world, reworded."}]))
+        wait_until(lambda: browser.execute_script(
+            f'return document.querySelector("[data-comment-id=\'{second.id}\'] .overleaf-reply-input")?.value || ""')
+            == "Once more.", timeout=15)
+        browser.execute_script("const page = window.wrappedJSObject || window; page.asked = [];"
+                               "page.confirm = (message) => page.asked.push(message) > 0;", sandbox=None)
+        click(f"[data-comment-id='{second.id}'] .overleaf-send")
+        wait_until(lambda: fake.written[-1] == ("reply", "t2", "Once more."), timeout=15)
+        assert browser.execute_script("return (window.wrappedJSObject || window).asked", sandbox=None) == [
+            "main.tex is not the same here as on Overleaf, so this reply may describe an edit Overleaf does not have yet. "
+            "Send it anyway?"]
 
         # Resolve on a thread's card resolves it on Overleaf, for everyone, and then here.
         # Reopen brings it back the same way. Overleaf has no archive, so neither does the tab.

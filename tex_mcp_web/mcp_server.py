@@ -919,10 +919,11 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         rev. overleaf: id, text, rev, and edits naming the source ranges the reply
         describes. On a thread that came from Overleaf (on_overleaf), it puts the reply the
         reviewer may send there: a thread holds one draft, which this replaces, and only
-        the reviewer sends it, once what those ranges now hold is on Overleaf. With anchor,
-        a source_range, instead of id and rev, it drafts a new thread for Overleaf on those
-        lines, text being its first message: a comment with no entries and that draft, which
-        id and rev then redraft and only the reviewer sends. edit: id,
+        the reviewer sends it, asked first when a file those ranges are in is not the same
+        here as on Overleaf. With anchor, a source_range, instead of id and rev, it drafts a
+        new thread for Overleaf on those lines, text being its first message: a comment with
+        no entries and that draft, which id and rev then redraft and only the reviewer
+        sends, once what those ranges now hold is on Overleaf. edit: id,
         entry, text, rev, rewriting an entry you wrote. delete: id,
         refused once the reviewer has written in the thread.
 
