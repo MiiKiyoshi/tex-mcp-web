@@ -126,6 +126,9 @@ def test_browser_comment_actions(tmp_path: Path) -> None:
         browser.navigate(base)
         wait_until(lambda: browser.execute_script(
             'return document.querySelectorAll("[data-comment-id]").length === 1'))
+        # A paper with no Overleaf project and no threads from one has no leaf tab.
+        assert browser.execute_script(
+            'return getComputedStyle(document.querySelector(\'.tab-btn[data-tab="overleaf-comments"]\')).display') == "none"
         assert browser.execute_script(
             'return document.querySelectorAll(".sugg-apply").length') == 0
         pdf_zoom = wait_until(lambda: browser.execute_script('''
@@ -1895,6 +1898,18 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
         wait_until(lambda: "Written here." in browser.execute_script(listed))
         assert "Say hello properly." not in browser.execute_script(listed)
         assert count("#comments-tab-count") == "1" and count("#overleaf-tab-count") == "3"
+        # However narrow the panel, its four tabs and their counts show: the words give way.
+        for width in (520, 240):
+            assert browser.execute_script(f'''
+              document.querySelector(".layout").style.setProperty("--tex-mcp-sidebar-width", "{width}px");
+              const bar = document.querySelector(".sidebar-tabs").getBoundingClientRect();
+              const tabs = [...document.querySelectorAll(".tab-btn:not([hidden])")];
+              return tabs.length === 4 && tabs.every((tab) => {{
+                const box = tab.getBoundingClientRect();
+                const count = tab.querySelector(".tab-count:not(.hidden)")?.getBoundingClientRect() ?? box;
+                return box.left >= bar.left && box.right <= bar.right + 0.5 && count.right <= box.right + 0.5;
+              }});''') is True
+        browser.execute_script('document.querySelector(".layout").style.removeProperty("--tex-mcp-sidebar-width")')
         browser.execute_script(f"document.querySelector('{leaf_tab}').click()")
         wait_until(lambda: "Say hello properly." in browser.execute_script(listed))
         assert "Written here." not in browser.execute_script(listed)
@@ -2514,6 +2529,22 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
         wait_until(lambda: browser.execute_script(
             'return document.querySelector("#overleaf-sync-comments-btn").title') == "Sync comments from Overleaf (1 new)", timeout=15)
         assert text("#overleaf-sync-comments-btn .count") == "1"
+        # However narrow the panel, the row over the threads keeps every button inside it and
+        # none over another or over the list: past the dots it takes two lines.
+        fits = '''
+          const row = document.querySelector(".filter-row");
+          const box = row.getBoundingClientRect();
+          const items = [...row.children].filter((node) => node.offsetWidth > 0).map((node) => node.getBoundingClientRect());
+          const list = document.querySelector("#comment-filter");
+          const apart = (a, b) => a.right <= b.left + 0.5 || b.right <= a.left + 0.5 || a.bottom <= b.top + 0.5 || b.bottom <= a.top + 0.5;
+          return items.length === 7 && items.every((a, i) => a.left >= box.left - 0.5 && a.right <= box.right + 0.5
+              && items.every((b, j) => i === j || apart(a, b)))
+            && list.getBoundingClientRect().right <= list.parentElement.getBoundingClientRect().right + 0.5;'''
+        for width in (520, 240):
+            browser.execute_script(
+                f'document.querySelector(".layout").style.setProperty("--tex-mcp-sidebar-width", "{width}px")')
+            wait_until(lambda: browser.execute_script(fits), timeout=5)
+        browser.execute_script('document.querySelector(".layout").style.removeProperty("--tex-mcp-sidebar-width")')
         assert not browser.execute_script('return document.body.textContent.includes("Came in when asked.")')
         # The button atop the comment list syncs them in place, with no dialog.
         click = lambda selector: browser.execute_script(f'document.querySelector("{selector}").click()')

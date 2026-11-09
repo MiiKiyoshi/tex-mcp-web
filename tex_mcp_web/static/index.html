@@ -118,12 +118,12 @@
       <div id="sidebar-width-grip" class="sidebar-width-grip" role="separator" tabindex="0" aria-orientation="vertical"
            aria-controls="workspace sidebar" aria-label="Resize the review panel width" title="Drag to resize"></div>
       <div class="sidebar-tabs">
-        <button class="tab-btn" data-tab="sections">Sections</button>
-        <button class="tab-btn active" data-tab="comments">Comments<span id="comments-tab-count" class="tab-count hidden"></span></button>
+        <button class="tab-btn" data-tab="sections"><span class="tab-label">Sections</span></button>
+        <button class="tab-btn active" data-tab="comments"><span class="tab-label">Comments</span><span id="comments-tab-count" class="tab-count hidden"></span></button>
         <!-- Threads on Overleaf, and the ones drafted for it, kept apart from the comments
              written here. Shown once the paper names an Overleaf project or has threads from one. -->
-        <button class="tab-btn" data-tab="overleaf-comments" hidden title="Comments on Overleaf"><svg class="leaf-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 13C3 7 7 3 13 3c0 6-4 10-10 10z"/><path d="M3 13l6-6"/></svg>Comments<span id="overleaf-tab-count" class="tab-count hidden"></span></button>
-        <button class="tab-btn" data-tab="compile">Compile<span id="compile-tab-count" class="tab-count hidden"></span></button>
+        <button class="tab-btn" data-tab="overleaf-comments" hidden title="Comments on Overleaf"><svg class="leaf-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 13C3 7 7 3 13 3c0 6-4 10-10 10z"/><path d="M3 13l6-6"/></svg><span class="tab-label">Comments</span><span id="overleaf-tab-count" class="tab-count hidden"></span></button>
+        <button class="tab-btn" data-tab="compile"><span class="tab-label">Compile</span><span id="compile-tab-count" class="tab-count hidden"></span></button>
       </div>
 
       <div id="tab-comments" class="tab-pane active">

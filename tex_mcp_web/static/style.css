@@ -316,7 +316,7 @@ textarea {
   }
 }
 .source-file-pick .pick-name { font: 0.8rem var(--mono); }
-.filter-row .pick { min-width: 5.5rem; }
+.filter-row .pick { flex: none; }
 .source-toolbar select {
   min-width: 12rem;
   max-width: 50%;
@@ -580,14 +580,22 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 /* ----- sidebar tabs ----- */
 .sidebar-tabs {
+  container-type: inline-size;
   display: flex;
   min-height: var(--panel-bar);
   border-bottom: 1px solid var(--border);
   background: var(--bg);
 }
-/* Each tab is as wide as its words, which stay on one line, and the room left is shared. */
+/* Each tab is as wide as its words, which stay on one line, and the room left is shared.
+   A narrow panel narrows the paddings first, then keeps the leaf alone on the leaf tab,
+   and past that ends the words in an ellipsis, so the four tabs and their counts show at
+   any width the panel takes. */
 .tab-btn {
   flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   white-space: nowrap;
   padding: 0 0.5rem;
   border: none;
@@ -608,9 +616,15 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
   font-weight: 700;
   color: white;
 }
-/* A phone's width holds the four tabs, counts and all, once their paddings narrow. */
-@media (max-width: 560px) {
+.tab-btn[hidden] { display: none; }
+.tab-label { overflow: hidden; text-overflow: ellipsis; }
+.tab-count, .tab-btn .leaf-icon { flex: none; }
+@container (max-width: 400px) {
   .tab-btn { padding: 0 0.2rem; }
+}
+@container (max-width: 360px) {
+  .tab-btn[data-tab="overleaf-comments"] { flex-shrink: 0; }
+  .tab-btn[data-tab="overleaf-comments"] .tab-label { display: none; }
 }
 #comments-tab-count, #overleaf-tab-count { background: var(--accent); }
 .tab-btn .leaf-icon { margin-right: 0.25rem; vertical-align: -0.15em; }
@@ -642,6 +656,13 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
   gap: 0.4rem;
   margin-bottom: 0.5rem;
 }
+/* Too narrow even with the less pressed buttons behind the dots, the row takes two lines
+   rather than going past its edge: the list and the sync button on the first, the other
+   buttons together on the second, at its right. The break between is a line of its own,
+   as tall as the gap. */
+.filter-row.wrapped { flex-wrap: wrap; row-gap: 0; }
+.filter-row.wrapped .pick, .filter-row.wrapped #overleaf-sync-comments-btn { order: -1; }
+.filter-row.wrapped::before { content: ""; flex-basis: 100%; height: 0.4rem; }
 .filter-row select {
   padding: 0.25rem 0.5rem;
   border: 1px solid var(--border);

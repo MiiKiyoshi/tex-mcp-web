@@ -2511,9 +2511,11 @@ function renderPickedActions() {
 // behind the dots once the row would spill over.
 function fitCommentRow() {
   const row = $(".filter-row");
-  row.classList.remove("narrow");
-  const narrow = row.scrollWidth > row.clientWidth;
+  row.classList.remove("narrow", "wrapped");
+  const over = () => row.scrollWidth > row.clientWidth;
+  const narrow = over();
   row.classList.toggle("narrow", narrow);
+  row.classList.toggle("wrapped", narrow && over());
   if (!narrow) closeCommentRare();
 }
 
