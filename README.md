@@ -174,8 +174,9 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   Overleaf gives its writer, as there, and is answered rather than edited. A draft naming the source ranges it
   describes goes only once Overleaf has what those ranges held, read from the files when
   they follow Overleaf live and from Overleaf's branch in a git clone otherwise, and the
-  refusal says whether to commit or to git push first. Overleaf takes the reply first, so what
-  it refuses is not shown as said here.
+  refusal says whether to commit or to git push first, or, when the files here no longer
+  hold those words, that the lines changed after the draft and it is drafted again.
+  Overleaf takes the reply first, so what it refuses is not shown as said here.
 - The agent can also draft a new thread for Overleaf on source lines (`write_comments` with
   `action="overleaf"` and an `anchor` instead of an `id`). It waits in the leaf
   **Comments** tab as a card with nothing said in it yet, the draft being its first

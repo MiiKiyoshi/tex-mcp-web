@@ -2570,6 +2570,8 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
         wait_until(lambda: browser.execute_script(
             'return document.body.textContent.includes("A second one.")'), timeout=15)
         second = next(c for c in store.list() if "A second one." in c.thread[0].text)
+        main = tmp_path / "main.tex"
+        main.write_text(main.read_text().replace("Hello world.", "Hello world, reworded."))
         store.draft_overleaf(brought.id, store.get(brought.id).updated, OverleafDraft("Both go, the first.", [], []))
         store.draft_overleaf(second.id, second.updated, OverleafDraft(
             "Both go, the second.", ["main.tex:3-3"], [{"file": "main.tex", "text": "Hello world, reworded."}]))

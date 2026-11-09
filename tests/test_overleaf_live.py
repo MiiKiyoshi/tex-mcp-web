@@ -682,6 +682,12 @@ async def test_the_agents_draft_is_sent_by_the_reviewer_once_its_edit_is_on_over
     (tmp_path / "main.tex").write_text(MAIN.replace("Hi there.", "Hello there."))
     server.comments.draft_overleaf(comment.id, server.comments.get(comment.id).updated, OverleafDraft(
         "Reworded it.", ["main.tex:3-3"], [{"file": "main.tex", "text": "Hello there."}]))
+    # Lines reworded again after the draft: no commit or push brings its words to Overleaf.
+    (tmp_path / "main.tex").write_text(MAIN.replace("Hi there.", "Hey there."))
+    response = await client.post(f"/comments/{comment.id}/reply", json={"text": "Reworded it, see L3.", "overleaf": True})
+    assert response.status == 409 and (await response.json())["error"] == (
+        "The lines of main.tex this reply describes changed after it was drafted. Ask the agent to draft it again.")
+    (tmp_path / "main.tex").write_text(MAIN.replace("Hi there.", "Hello there."))
     for said_back, then in (("not committed. Commit it, then press git push.", ("commit", "-q", "-am", "reworded")),
                             ("committed but not on Overleaf. Press git push first.", ("push", "-q", "overleaf", "main"))):
         response = await client.post(f"/comments/{comment.id}/reply", json={"text": "Reworded it, see L3.", "overleaf": True})
@@ -707,6 +713,10 @@ async def test_a_draft_naming_an_edit_waits_by_hand_until_send_makes_it_on_overl
     (server.watch_dir / "main.tex").write_text(MAIN.replace("Hi there.", "Hello there."))
     server.comments.draft_overleaf(comment.id, server.comments.get(comment.id).updated, OverleafDraft(
         "Reworded it.", ["main.tex:3-3"], [{"file": "main.tex", "text": "Hello there."}]))
+    (server.watch_dir / "main.tex").write_text(MAIN.replace("Hi there.", "Hey there."))
+    response = await client.post(f"/comments/{comment.id}/reply", json={"text": "Reworded it.", "overleaf": True})
+    assert response.status == 409 and (await response.json())["error"].endswith("Ask the agent to draft it again.")
+    (server.watch_dir / "main.tex").write_text(MAIN.replace("Hi there.", "Hello there."))
     response = await client.post(f"/comments/{comment.id}/reply", json={"text": "Reworded it.", "overleaf": True})
     assert response.status == 409 and (await response.json())["error"].endswith("Press Send first.")
     assert fake.written == [] and server.comments.get(comment.id).overleaf_draft is not None

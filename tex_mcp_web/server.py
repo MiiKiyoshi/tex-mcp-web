@@ -1203,9 +1203,10 @@ class TexMcpWebServer:
                     for check in checks:
                         if not await overleaf_git.holds(link, now["branch"], check["file"], check["text"]):
                             committed = await overleaf_git.holds(link, "HEAD", check["file"], check["text"])
-                            return (f"The edit to {check['file']} this reply describes is "
-                                    + ("committed but not on Overleaf. Press git push first." if committed
-                                       else "not committed. Commit it, then press git push."), "")
+                            gone = None if committed else self._changed_since_drafted(check)
+                            return gone or (f"The edit to {check['file']} this reply describes is "
+                                            + ("committed but not on Overleaf. Press git push first." if committed
+                                               else "not committed. Commit it, then press git push.")), ""
                 except overleaf_git.GitError as error:
                     return f"Overleaf's branch could not be read: {error}", ""
             return None, now["there"]
@@ -1216,17 +1217,29 @@ class TexMcpWebServer:
                 except (ConnectionError, asyncio.TimeoutError):
                     there = None
                 if there is None or check["text"] not in there:
-                    return f"The edit to {check['file']} this reply describes is not on Overleaf. Press Send first.", ""
+                    return (self._changed_since_drafted(check)
+                            or f"The edit to {check['file']} this reply describes is not on Overleaf. Press Send first."), ""
             return None, ""
         for check in checks:
             doc = next((doc for doc in self.overleaf_sync.docs.values() if doc.path == check["file"]), None) \
                 if self.overleaf_sync is not None else None
             if doc is None or doc.status != "synced" or check["text"] not in doc.server:
-                return (f"The edit to {check['file']} this reply describes is not on Overleaf"
+                return (self._changed_since_drafted(check)
+                        or f"The edit to {check['file']} this reply describes is not on Overleaf"
                         + ("." if self.overleaf_sync is not None else ", and nothing here follows Overleaf: "
                            "this folder is not a git clone of the project, and keeping the files the same is off."),
                         "")
         return None, ""
+
+    def _changed_since_drafted(self, check: dict[str, str]) -> str | None:
+        """Why a reply cannot go when the file here no longer holds the words it describes:
+        they changed after the draft was written, so the reply may not say what they hold.
+        None while the file holds them."""
+        path = self.watch_dir / check["file"]
+        if path.is_file() and check["text"] in path.read_text(encoding="utf-8"):
+            return None
+        return (f"The lines of {check['file']} this reply describes changed after it was drafted. "
+                "Ask the agent to draft it again.")
 
     async def _send_to_overleaf(self, cid: str, reply: str) -> tuple[web.Response | None, str]:
         """Send the reviewer's reply to the Overleaf thread a comment came from, or open the
