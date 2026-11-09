@@ -3686,13 +3686,16 @@ function focusComment(comment) {
 }
 
 function attachKeyboardNavigation() {
-  // EmbedPDF handles copy on document. Keep native sidebar selections out of that handler.
+  // EmbedPDF handles copy on document. Keep text selected outside the Preview, in the
+  // sidebar, a dialog or a notice, out of that handler. A field such as the editor's copies
+  // its own, which EmbedPDF leaves alone too.
   document.addEventListener("keydown", (event) => {
     if (!(event.metaKey || event.ctrlKey) || event.altKey || event.key.toLowerCase() !== "c") return;
+    if (event.target.closest?.("input, textarea, [contenteditable]")) return;
     const selection = window.getSelection();
-    const sidebar = $("#sidebar");
+    const viewer = $("#pdf-viewer");
     if (selection && !selection.isCollapsed
-      && sidebar.contains(selection.anchorNode) && sidebar.contains(selection.focusNode)) {
+      && !viewer.contains(selection.anchorNode) && !viewer.contains(selection.focusNode)) {
       event.stopImmediatePropagation();
     }
   }, { capture: true });

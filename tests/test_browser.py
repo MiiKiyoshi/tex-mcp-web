@@ -305,25 +305,48 @@ def test_browser_comment_actions(tmp_path: Path) -> None:
             key: "c", metaKey: true, bubbles: true, cancelable: true, composed: true,
           }));
         '''))
+        # Text selected outside the Preview copies natively: the sidebar, the Settings
+        # dialog, the note above the editor.
         assert browser.execute_script('''
-          const text = document.querySelector(".thread-text");
-          const range = document.createRange();
-          range.selectNodeContents(text);
           const selection = window.getSelection();
-          selection.removeAllRanges();
-          selection.addRange(range);
+          const select = (node) => {
+            const range = document.createRange();
+            range.selectNodeContents(node);
+            selection.removeAllRanges();
+            selection.addRange(range);
+            return selection.toString();
+          };
           const allowed = (target, modifier) => target.dispatchEvent(new KeyboardEvent(
             "keydown", { key: "c", [modifier]: true, bubbles: true,
               cancelable: true, composed: true }));
+          const text = document.querySelector(".thread-text");
           const result = {
-            selected: selection.toString(),
+            selected: select(text),
             mac: allowed(text, "metaKey"),
             ctrl: allowed(document.body, "ctrlKey"),
           };
+          // The editor takes its own Ctrl+C, whatever is selected elsewhere.
+          const field = document.querySelector("#source-editor textarea");
+          result.field = false;
+          field.addEventListener("keydown", () => { result.field = true; }, { once: true });
+          allowed(field, "ctrlKey");
+          const dialog = document.querySelector("#settings-dialog");
+          dialog.showModal();
+          result.settings = [select(dialog.querySelector("h3")), allowed(dialog, "ctrlKey")];
+          dialog.close();
+          document.querySelector("[data-view=split]").click();
+          const notice = document.querySelector("#overleaf-file-notice");
+          notice.textContent = "Co Author edited this file on Overleaf.";
+          notice.hidden = false;
+          result.notice = [select(notice), allowed(notice, "ctrlKey")];
+          notice.hidden = true;
+          document.querySelector("[data-view=pdf]").click();
           selection.removeAllRanges();
           result.pdf = allowed(document.querySelector("embedpdf-container"), "metaKey");
           return result;
-        ''') == {"selected": "typo herre", "mac": True, "ctrl": True, "pdf": False}
+        ''') == {"selected": "typo herre", "mac": True, "ctrl": True, "field": True,
+                 "settings": ["Settings", True],
+                 "notice": ["Co Author edited this file on Overleaf.", True], "pdf": False}
 
         browser.execute_script(f'''
           const findCard = () => Array.from(document.querySelectorAll("[data-comment-id]"))
@@ -610,6 +633,11 @@ def test_highlight_badges_leave_pdf_text_selectable(tmp_path: Path) -> None:
           return Array.from(root.querySelectorAll("button")).some((button) =>
             /comment/i.test(button.textContent) && button.getBoundingClientRect().width > 0);
         '''))
+        # Ctrl+C over words picked in the Preview is still the Preview's to copy.
+        assert browser.execute_script('''
+          return !document.querySelector("embedpdf-container").dispatchEvent(new KeyboardEvent(
+            "keydown", { key: "c", ctrlKey: true, bubbles: true, cancelable: true, composed: true }));
+        ''') is True
         ActionSequence(browser, "pointer", "mouse", {"pointerType": "mouse"}) \
             .pointer_move(int(first["right"] + 250), int(first["y"] + 260)) \
             .pointer_down().pointer_up() \
