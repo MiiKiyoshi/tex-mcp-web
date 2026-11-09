@@ -20,6 +20,8 @@ The editing scope is the sections and kinds of change the requester has asked fo
 
 1.6 **Report conflicts, never silently resolve them.** Report a conflict between a requester decision and a rule, current evidence, or another active requirement, without silently changing the decision, suppressing the observation, or dropping the requirement.
 
+1.7 **Recommended conventions give way to the venue and the requester.** A convention this guideline calls recommended is the field's usual practice. Follow it unless the venue's format or a requester decision sets another, and then follow that.
+
 ## Article 2. Plan the argument
 
 2.1 **Derive questions from the request, not sources.** Before planning, establish purpose and intended use, the reader's starting knowledge, and the understanding or decision they require. Derive the questions the paper answers, their content, and its level of detail from the current request and discussion, not from sources, available material, or the slots of an existing structure, and do not substitute an easier, documented, or measurable question for the one requested.
@@ -48,11 +50,11 @@ Record this sequence and grouping before drafting, as the section map, showing e
 
 If the needed explanation exceeds a page limit, reduce the scope within authorized constraints. Do not meet a length by inventing terms, obscuring relationships, or omitting needed explanation. When removing content, remove what fails 1.4 or repeats a claim. Keep the prerequisites, definitions, mechanism or calculation steps, conditions, evidence, local context, and details the reader needs to follow each answer and its reasoning.
 
-Spend the page budget on the paper's own contribution. Explain the method's components in detail, and keep the Introduction and Background together to about a third of the page limit, and when they exceed it, shorten or drop first the background subsections the method's explanation needs least. When a subsection's components each need more than one paragraph, give each component its own subsubsection.
+Spend the page budget on the paper's own contribution. Explain the method's components in detail. Keeping the Introduction and Background together to about a third of the page limit is recommended (1.7), and when they exceed it, shorten or drop first the background subsections the method's explanation needs least. When a subsection's components each need more than one paragraph, give each component its own subsubsection.
 
 2.7 **Order sections by prerequisites.** Order sections by prerequisites under 6.1. Distinguish background from the subject by explanatory role, not source or novelty, and make headings match. For empirical work, present method, setup, then results.
 
-In the method, a problem formulation comes before the overview and states only the inputs, constraints, output, and objective. Definitions that only the procedure uses, such as its intermediate states and transitions, go with the procedure. In the experiments, after the setup, report the accuracy of any model or estimator the method relies on first, then the comparison with baselines, the ablation, a case study, and runtime.
+In the method, a problem formulation comes before the overview and states only the inputs, constraints, output, and objective. Definitions that only the procedure uses, such as its intermediate states and transitions, go with the procedure. In the experiments, after the setup, the recommended order (1.7) is the accuracy of any model or estimator the method relies on, then the comparison with baselines, the ablation, a case study, and runtime.
 
 2.8 **Keep planning records in one file.** Keep the planning records in one file outside the paper's LaTeX sources, in the paper's language, recording choices as they are made. The file holds:
 
@@ -155,7 +157,7 @@ In text, identify quantities and drawn elements by established names or their de
 
 Use one equation per definition step, numbered and labeled when the text refers to it. Give each symbol one role and distinguish assumed from solved values.
 
-4.7 **Headings are English noun phrases naming subjects.** Head sections and subsections with English noun phrases in Title Case naming the subject at the level explained, such as Proxy Dev Sets or Interference-Aware Rank Allocation, not its conclusion, incidental source, or an action used merely to obtain it. Do not use a bare generic word, such as Approach or Plan, as a subsection heading, and do not head a subsection in another language.
+4.7 **Headings are noun phrases naming subjects.** Head sections and subsections with noun phrases naming the subject at the level explained, such as Proxy Dev Sets or Interference-Aware Rank Allocation, not its conclusion, incidental source, or an action used merely to obtain it. Do not use a bare generic word, such as Approach or Plan, as a subsection heading. English headings in Title Case are recommended (1.7), in a paper written in another language too.
 
 4.8 **Punctuate without semicolons or clauses in parentheses.** Write no semicolon in prose, captions, table cells, notes, or replies. Parentheses hold a noun or symbol list, a value, or a pointer such as a table or equation number, never a definition, condition, or reason, which becomes its own sentence.
 
@@ -208,9 +210,9 @@ When a column repeats one value in every row, state the value once outside the c
 
 A list of names, such as datasets or models with their sizes or roles, goes in a table, not in a sentence.
 
-Apart from such labeled aggregates, no column holds a value the reader can compute from the other columns of its row, and a reported total stands without its breakdown unless the breakdown is the claim. Show a result against its reference: give the reference values, and each method's value with its change as a percentage in parentheses after it, as in -2,168 (+22%), never as a number of its own, with a positive change meaning an improvement. Keep a row per benchmark instance, each cell the mean over runs with its spread and change, and let an aggregate row cover only the instances every column has.
+Apart from such labeled aggregates, no column holds a value the reader can compute from the other columns of its row, and a reported total stands without its breakdown unless the breakdown is the claim. Show a result against its reference: give the reference values, and each method's value with its change as a percentage in parentheses after it, as in 80 (+25%), never as a number of its own, with a positive change meaning an improvement. Keep a row per benchmark instance, each cell the mean over runs with its spread and change, and let an aggregate row cover only the instances every column has.
 
-List a model's input features one scalar per row, with the columns Input (the indexed symbol), Feature (an English name), and Value (definition with unit). Give each object one symbol, list features shared by several models once, and put a diagram of input vector, model, and output beside the table. Do not paraphrase input features in prose or merge several into one row.
+List the quantities the paper defines side by side for one object, such as a model's input features or a method's parameters, in a table, one scalar per row, with three columns: the indexed symbol, an English name, and the definition with its unit. For input features these are headed Input, Feature, and Value, and a diagram of input vector, model, and output goes beside the table. Give each object one symbol, list quantities shared by several objects once, and do not paraphrase such quantities in prose or merge several into one row.
 
 5.10 **Reuse the existing figures' visual style.** When extending or restyling a paper, reuse the palette, line and arrow styles, typography, and panel label placement of its existing figures, use existing visual distinctions before adding new ones, and preserve their meanings when adapting figures.
 
@@ -218,7 +220,7 @@ List a model's input features one scalar per row, with the columns Input (the in
 
 ## Article 6. The paper
 
-6.1 **Follow the paper's fixed section order.** A paper, a proposal included, begins with its Introduction rather than with the headings of a funding or research-plan form. Its sections, in order, are:
+6.1 **Follow the usual section order.** A paper, a proposal included, begins with its Introduction rather than with the headings of a funding or research-plan form. The recommended order (1.7) of its sections is, for example:
 
 1. Introduction,
 2. Background, with related work as its subsection,
@@ -232,7 +234,7 @@ Leave out a section the argument does not need, and name a section added for a n
 
 The abstract names the surrounding work in one clause, without citations or system names. It states each limitation of prior work that the method addresses in its own sentence, and what the method does that prior work does not, gives the method's overall flow in one sentence, and ends with the result and its numbers. It compares against a general baseline or one representative prior work, or reports metrics alone, never against a list of specific configurations. When the submission system limits the abstract's words, keep a version within the limit as a comment in the abstract's source.
 
-6.3 **The Introduction moves from general use to the problem and the method.** The Introduction gives the general use of the paper's technique in one paragraph, without limitations when that use lies outside the paper's problem. The next paragraph states the problem through the direction of the work closest to it and that work's limits at a general level, leaving each work's detail to the Background. Then it states the method with one sentence per component, and ends with a short list of contributions, about three, that names baselines by their feature, not their name, and lists no ablation or validation. The Conclusion names baselines as the Introduction does. The contribution list holds no list of tasks or hypotheses: detail of hypotheses and their tests belongs in the experimental sections.
+6.3 **The Introduction moves from general use to the problem and the method.** The Introduction gives the general use of the paper's technique in one paragraph, without limitations when that use lies outside the paper's problem. The next paragraph states the problem through the direction of the work closest to it and that work's limits at a general level, leaving each work's detail to the Background. Then it states the method with one sentence per component, and ends with a short list of contributions, three or four as recommended (1.7), that names baselines by their feature, not their name, and lists no ablation or validation. The Conclusion names baselines as the Introduction does. The contribution list holds no list of tasks or hypotheses: detail of hypotheses and their tests belongs in the experimental sections.
 
 6.4 **Each paragraph advances one line of thought.** Write each paragraph as one line of thought that every sentence advances. A Korean paper uses the plain written style, ending its sentences in -다, not the polite style.
 
