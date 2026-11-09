@@ -1493,9 +1493,9 @@ async def test_a_reply_sent_to_overleaf_waits_for_the_people_there_not_the_agent
     store = CommentStore(project / ".tex-mcp-web" / "comments.json")
     thread = store.add(PaperAnchor(), "Say hello properly.", name="A. Reviewer")
     store.sent_to_overleaf(thread.id, "Thanks, fixed!", "")
+    # The reply answers what the thread said before it, so neither lists the thread.
     assert (await call("read_comments", unanswered=True))["comments"] == []
-    [new] = (await call("read_comments", new=True))["comments"]
-    assert [entry["text"] for entry in new["entries"]] == ["Say hello properly."]
+    assert (await call("read_comments", new=True))["comments"] == []
 
 
 @pytest.mark.asyncio
@@ -2075,6 +2075,48 @@ def test_resolve_section_to_source_returns_none_for_unknown(project):
 
 
 @pytest.mark.asyncio
+async def test_a_press_counts_the_threads_new_gives_by_the_rule_unanswered_lists_by(bound_project, project) -> None:
+    """Of eight open threads the reviewer wrote in, one waits for the agent: a suggestion
+    applied asks nothing, and a draft for Overleaf answers what its thread said before it.
+    The line a press prints, read_comments(new=True) and read_comments(unanswered=True)
+    name that one alike. A word written after a draft makes its thread wait again. The
+    press and new=True leave out what new=True has carried before, which unanswered=True
+    still lists while it has no answer."""
+    pytest.importorskip("mcp")
+    from tex_mcp_web.comments import CommentStore, OverleafDraft, PaperAnchor
+    from tex_mcp_web.mcp_server import create_server
+
+    mcp = create_server(bound_project)
+
+    async def ids(**arguments) -> list[str]:
+        return [c["id"] for c in json.loads((await mcp.call_tool("read_comments", arguments))[0].text)["comments"]]
+
+    store = CommentStore(project / ".tex-mcp-web" / "comments.json")
+    server = TexMcpWebServer(Config(main="paper.tex", config_path=project / ".tex-mcp-web.yaml"))
+    for n in range(4):
+        asked = store.add(PaperAnchor(), f"Tighten sentence {n}.")
+        proposed = store.suggest(asked.id, asked.updated, "Shorter.",
+                                 lambda current: SuggestedEdit("paper.tex", [("Some prose", "Prose")]))
+        applied = store.apply_suggestion(asked.id, proposed.updated, lambda current: ["paper.tex:5-5"])
+        assert applied.thread[-1].applied and not applied.thread[-1].asks_agent
+    drafted = []
+    for n in range(3):
+        brought = store.add(PaperAnchor(), f"Question {n} from a coauthor.", name="Ann")
+        drafted.append(store.draft_overleaf(brought.id, brought.updated, OverleafDraft(f"Answer {n}."), {}))
+    request = store.add(PaperAnchor(), "Add a citation here.")
+
+    assert "1 new comments" in server._review_line()
+    assert await ids(unanswered=True) == [request.id]
+    assert await ids(new=True) == [request.id]
+
+    store.reply(drafted[0].id, "And the figure?", author="human")
+    assert "1 new comments" in server._review_line()
+    assert await ids(new=True) == [drafted[0].id]
+    assert await ids(unanswered=True) == [drafted[0].id, request.id]
+    assert "no new comments" in server._review_line()
+
+
+@pytest.mark.asyncio
 async def test_call_button_wakes_a_parked_waiter_and_keeps_an_early_press(client) -> None:
     """The reviewer's press is an interrupt, not a message the agent must be listening for.
     The server keeps the press count and the consumption watermark, so a press made while
@@ -2096,18 +2138,18 @@ async def test_call_button_wakes_a_parked_waiter_and_keeps_an_early_press(client
     line = await early.text()
     assert line.startswith("[review] reviewer called (press #2)")
     assert "read_comments(new=True)" in line
-    # The line counts threads whose last word is the reviewer's: a count of open threads
-    # sent an agent to read one it had already answered.
-    assert "no unanswered comments" in line
+    # The line counts threads with words for the agent it has not answered: a count of open
+    # threads sent an agent to read one it had already answered.
+    assert "no new comments" in line
     asked = server.comments.add(PaperAnchor(), "Is this right?")
-    assert "1 unanswered comments" in server._review_line()
+    assert "1 new comments" in server._review_line()
     server.comments.reply(asked.id, "Yes, checked.", author="agent")
-    assert "no unanswered comments" in server._review_line()
+    assert "no new comments" in server._review_line()
     # A reply sent to Overleaf is for the people there, so its thread waits for them.
     server.comments.reply(asked.id, "Sure?", author="human")
-    assert "1 unanswered comments" in server._review_line()
+    assert "1 new comments" in server._review_line()
     server.comments.sent_to_overleaf(asked.id, "Thanks, fixed!", "")
-    assert "no unanswered comments" in server._review_line()
+    assert "no new comments" in server._review_line()
 
     # Not acked yet (the line may never have reached the harness), so it is offered again.
     again = await test_client.get(wait)

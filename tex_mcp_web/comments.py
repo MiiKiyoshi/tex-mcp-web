@@ -64,6 +64,12 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _moment(stamp: str) -> datetime:
+    """A stored time as a moment, one written without a zone being in UTC."""
+    at = datetime.fromisoformat(stamp)
+    return at if at.tzinfo else at.replace(tzinfo=timezone.utc)
+
+
 def _new_entry_id() -> str:
     return f"e-{secrets.token_hex(4)}"
 
@@ -449,12 +455,15 @@ class ThreadEntry:
     overleaf: str | None = None
     # Who wrote it, as Overleaf names them, for an entry the Overleaf thread holds.
     name: str | None = None
+    # Set on the entry that records the reviewer applying a suggestion, which asks nothing.
+    applied: bool = False
 
     @property
     def asks_agent(self) -> bool:
         """Whether it waits for the agent: the reviewer's word, or a message from Overleaf,
-        but not a reply the reviewer sent to Overleaf, which is for the people there."""
-        return self.author == "human" and self.overleaf is None
+        but not a reply the reviewer sent to Overleaf, which is for the people there, nor
+        the record of a suggestion applied."""
+        return self.author == "human" and self.overleaf is None and not self.applied
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {"id": self.id, "author": self.author, "at": self.at, "text": self.text}
@@ -466,6 +475,8 @@ class ThreadEntry:
             d["overleaf"] = self.overleaf
         if self.name is not None:
             d["name"] = self.name
+        if self.applied:
+            d["applied"] = True
         return d
 
     @classmethod
@@ -479,6 +490,7 @@ class ThreadEntry:
             updated_at=str(d["updated_at"]) if "updated_at" in d else None,
             overleaf=str(d["overleaf"]) if "overleaf" in d else None,
             name=str(d["name"]) if "name" in d else None,
+            applied="applied" in d,
         )
 
 
@@ -523,10 +535,12 @@ class OverleafDraft:
     new thread on its lines. *ranges* are the source lines it describes: the files a reply is
     compared in before it goes, and the words that must be on Overleaf before a new thread
     goes. *thread* is the id a new thread was given on Overleaf when it was first sent, so a
-    send that stopped halfway finishes that thread instead of opening another."""
+    send that stopped halfway finishes that thread instead of opening another. *at* is when
+    it was put on the thread: it answers what the thread said before then."""
     text: str
     ranges: list[DraftRange] = field(default_factory=list)
     thread: str | None = None
+    at: str = field(default_factory=_now)
 
     @property
     def checks(self) -> list[dict[str, str]]:
@@ -534,7 +548,7 @@ class OverleafDraft:
         return [{"file": r.source.file, "text": r.drafted} for r in self.ranges if r.drafted.strip()]
 
     def to_dict(self) -> dict[str, Any]:
-        data: dict[str, Any] = {"text": self.text, "ranges": [r.to_dict() for r in self.ranges]}
+        data: dict[str, Any] = {"text": self.text, "ranges": [r.to_dict() for r in self.ranges], "at": self.at}
         if self.thread is not None:
             data["thread"] = self.thread
         return data
@@ -542,7 +556,7 @@ class OverleafDraft:
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "OverleafDraft":
         return cls(text=str(d["text"]), ranges=[DraftRange.from_dict(r) for r in d["ranges"]],
-                   thread=str(d["thread"]) if "thread" in d else None)
+                   thread=str(d["thread"]) if "thread" in d else None, at=str(d["at"]))
 
 
 @dataclass
@@ -571,6 +585,18 @@ class Comment:
     def text(self) -> str:
         """The original comment text (first thread entry)."""
         return self.thread[0].text if self.thread else ""
+
+    def waiting(self, after: datetime | None = None) -> list[ThreadEntry]:
+        """The entries that wait for the agent: those asking it that came after the last
+        answer the thread has, an entry the agent wrote or a reply sent to Overleaf, and
+        after the draft the agent put up for Overleaf, which answers what came before it.
+        *after* leaves only those written after that moment."""
+        answered = max((position for position, entry in enumerate(self.thread)
+                        if entry.author == "agent" or entry.overleaf is not None), default=-1)
+        drafted = _moment(self.overleaf_draft.at) if self.overleaf_draft is not None else None
+        return [entry for entry in self.thread[answered + 1:] if entry.asks_agent
+                and (drafted is None or _moment(entry.at) >= drafted)
+                and (after is None or _moment(entry.at) > after)]
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -1192,7 +1218,7 @@ def canonicalize_pdf_selection(
 # ---------------------------------------------------------------------------
 
 
-STORE_VERSION = 8
+STORE_VERSION = 9
 
 
 def _ranges_of_version_7(edits: list[str], checks: list[dict[str, str]]) -> list[dict[str, Any]]:
@@ -1248,11 +1274,14 @@ class CommentStore:
         such proposal was ever applied, so version 6's are dropped rather than carried.
         Version 7 named the lines an Overleaf draft describes by fixed "file:first-last"
         strings, which version 8 keeps as ranges that follow the edits (see
-        _ranges_of_version_7)."""
+        _ranges_of_version_7). Through version 8 a draft did not say when it was put on
+        the thread, and the record of a suggestion applied was told from a request only by
+        its words. Version 9 gives a draft the time its comment last changed, which is
+        when it was put there unless the thread changed after, and marks those records."""
         with self._locked():
             try:
                 data = json.loads(self.path.read_text(encoding="utf-8"))
-                if data["version"] not in (5, 6, 7):
+                if data["version"] not in (5, 6, 7, 8):
                     return
                 for comment in data["comments"]:
                     if data["version"] == 5 and comment["status"] == "reference":
@@ -1263,6 +1292,12 @@ class CommentStore:
                     if "overleaf_draft" in comment and "edits" in comment["overleaf_draft"]:
                         draft = comment["overleaf_draft"]
                         draft["ranges"] = _ranges_of_version_7(draft.pop("edits"), draft.pop("checks"))
+                    if "overleaf_draft" in comment and "at" not in comment["overleaf_draft"]:
+                        comment["overleaf_draft"]["at"] = comment["updated"]
+                    for entry in comment["thread"]:
+                        if (entry["author"] == "human" and entry["text"] == "Applied suggestion."
+                                and entry.get("edits") and "overleaf" not in entry):
+                            entry["applied"] = True
             except (OSError, ValueError, KeyError, TypeError):
                 return  # an unreadable store fails on its first operation, as before
             data["version"] = STORE_VERSION
@@ -1410,7 +1445,7 @@ class CommentStore:
             status="open",
             resolved_source=resolved_source,
             source_selector=source_selector,
-            overleaf_draft=OverleafDraft(draft.text.strip(), draft.ranges),
+            overleaf_draft=OverleafDraft(draft.text.strip(), draft.ranges, at=now),
             created=now,
             updated=now,
         )
@@ -1610,9 +1645,10 @@ class CommentStore:
                 if comment.status != "open":
                     raise ValueError("a draft belongs to a comment that is open")
                 kept = comment.overleaf_draft.thread if comment.overleaf_draft is not None else None
-                comment.overleaf_draft = OverleafDraft(draft.text.strip(), draft.ranges, kept)
+                now = _now()
+                comment.overleaf_draft = OverleafDraft(draft.text.strip(), draft.ranges, kept, now)
                 self._keep_draft_bases(comment.overleaf_draft, texts)
-                comment.updated = _now()
+                comment.updated = now
                 comments[position] = comment
                 self._save(comments)
                 return comment
@@ -1708,7 +1744,7 @@ class CommentStore:
                 edits = write_to_source(comment)
                 now = _now()
                 comment.thread.append(
-                    ThreadEntry(author="human", at=now, text="Applied suggestion.", edits=edits)
+                    ThreadEntry(author="human", at=now, text="Applied suggestion.", edits=edits, applied=True)
                 )
                 comment.suggestion = None
                 comment.updated = now

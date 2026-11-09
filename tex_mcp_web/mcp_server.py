@@ -216,6 +216,15 @@ def read_cursor(watch_dir: Path) -> str | None:
         return None
 
 
+def cursor_moment(watch_dir: Path) -> datetime | None:
+    """The moment read_comments(new=True) last carried the reviewer's words up to, or None."""
+    previous = read_cursor(watch_dir)
+    if previous is None:
+        return None
+    edge = datetime.fromisoformat(previous)
+    return edge if edge.tzinfo else edge.replace(tzinfo=timezone.utc)
+
+
 def write_cursor(watch_dir: Path, at: str) -> None:
     path = _cursor_path(watch_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -697,7 +706,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         ids: list[str] | None = None,
         new: Annotated[bool, Field(description="Only what the reviewer has written since this call last answered; excludes ids.")] = False,
         status: Literal["open", "resolved", "archived", "all"] = "open",
-        unanswered: Annotated[bool, Field(description="Only threads whose latest entry is the human's, other than a reply sent to Overleaf.")] = False,
+        unanswered: Annotated[bool, Field(description="Only threads where the reviewer wrote to you after the thread's last answer: your reply, your Overleaf draft, or a reply sent to Overleaf.")] = False,
         since: Annotated[str | None, Field(description="A time this server printed, like '09-19 00:52'; only what came after it.")] = None,
         limit: Annotated[int, Field(ge=1, le=200)] = 50,
         save: bool = False,
@@ -706,8 +715,9 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
 
         ``new`` answers a Call agent in one step: on open threads, what the reviewer has
         written that this has neither carried before nor already taken up, thread by
-        thread, each with the rev a write quotes back. A reply the reviewer sent to
-        Overleaf is for the people there, so it is not among them. It reports the moment
+        thread, each with the rev a write quotes back. A thread's last answer takes up
+        what came before it: your reply, your Overleaf draft, or a reply the reviewer sent
+        to Overleaf, which is for the people there. A suggestion applied asks nothing. It reports the moment
         it read ``from`` and the one it moved to, so a turn that went wrong is taken again
         with since=<from>; to see again what was already answered, ask for the thread by id.
 
@@ -731,24 +741,17 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             previous = read_cursor(watch_dir)
             # The cursor is the server's own note to itself, kept exact; only what it
             # shows an agent is cut to the minute.
-            edge = moment
-            if edge is None and previous is not None:
-                edge = datetime.fromisoformat(previous)
-                if edge.tzinfo is None:
-                    edge = edge.replace(tzinfo=timezone.utc)
+            edge = moment if moment is not None else cursor_moment(watch_dir)
             fresh, latest = [], previous
             brought = _on_overleaf(watch_dir)
             # Open threads only. A resolved or archived one is not where a new request
             # arrives; the reviewer reopens it first, and it comes back open.
             for comment in store.list(status="open"):
                 # Unread and unanswered, both. The cursor says what has been carried
-                # before; the last thing this agent said in the thread says what it has
-                # already taken up. Asked for the first time there is no cursor, and the
-                # second half alone is what keeps that call off the whole history.
-                answered = max((position for position, entry in enumerate(comment.thread)
-                                if entry.author == "agent"), default=-1)
-                said = [entry for entry in comment.thread[answered + 1:]
-                        if entry.asks_agent and _after(entry, edge)]
+                # before; the thread's last answer says what has been taken up already.
+                # Asked for the first time there is no cursor, and the second half alone
+                # is what keeps that call off the whole history.
+                said = comment.waiting(edge)
                 if not said:
                     continue
                 told = {"id": comment.id, "rev": revision_of(comment.updated),
@@ -806,7 +809,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             return _err("save needs the ids of the threads to write out")
         summaries = []
         for comment in store.list(status=None if status == "all" else status):
-            if unanswered and (not comment.thread or not comment.thread[-1].asks_agent):
+            if unanswered and not comment.waiting():
                 continue
             human = next((entry for entry in reversed(comment.thread) if entry.asks_agent), None)
             if moment is not None and (human is None or not _after(human, moment)):

@@ -612,6 +612,38 @@ def test_a_version_7_store_keeps_its_drafts_ranges_found_again_by_their_words(tm
     assert store.get("c-1").overleaf_draft.ranges[0].label == "a.tex:3-4"
 
 
+def test_a_version_8_store_dates_its_drafts_and_marks_suggestions_applied(tmp_path: Path):
+    """Through version 8 a draft did not say when it was put on its thread, and a
+    suggestion applied was recorded as the reviewer's words. Opening such a store dates
+    each draft by its comment's last change and marks those records, so neither leaves
+    its thread waiting for the agent. A word the reviewer wrote at that last change still
+    waits."""
+    path = tmp_path / "comments.json"
+    entry = lambda key, author, at, text, **more: {"id": key, "author": author, "at": at, "text": text, **more}
+    path.write_text(json.dumps({"version": 8, "comments": [
+        {"id": "c-1", "anchor": {"kind": "paper"}, "status": "open",
+         "thread": [entry("e-1", "human", "2026-01-01T00:00:00+00:00", "shorter?"),
+                    entry("e-2", "agent", "2026-01-01T00:01:00+00:00", "like this", ),
+                    entry("e-3", "human", "2026-01-01T00:02:00+00:00", "Applied suggestion.", edits=["a.tex:1-1"])],
+         "created": "2026-01-01T00:00:00+00:00", "updated": "2026-01-01T00:02:00+00:00"},
+        {"id": "c-2", "anchor": {"kind": "paper"}, "status": "open",
+         "thread": [entry("e-4", "human", "2026-01-01T00:00:00+00:00", "why?", name="Ann")],
+         "overleaf_draft": {"text": "Because.", "ranges": []},
+         "created": "2026-01-01T00:00:00+00:00", "updated": "2026-01-01T00:03:00+00:00"},
+        {"id": "c-3", "anchor": {"kind": "paper"}, "status": "open",
+         "thread": [entry("e-5", "human", "2026-01-01T00:00:00+00:00", "where?", name="Ann"),
+                    entry("e-6", "human", "2026-01-01T00:04:00+00:00", "and when?", name="Ann")],
+         "overleaf_draft": {"text": "Here.", "ranges": []},
+         "created": "2026-01-01T00:00:00+00:00", "updated": "2026-01-01T00:04:00+00:00"},
+    ]}), encoding="utf-8")
+
+    store = CommentStore(path)
+    assert json.loads(path.read_text(encoding="utf-8"))["version"] == STORE_VERSION
+    assert store.get("c-1").thread[-1].applied and store.get("c-1").waiting() == []
+    assert store.get("c-2").overleaf_draft.at == "2026-01-01T00:03:00+00:00" and store.get("c-2").waiting() == []
+    assert [e.text for e in store.get("c-3").waiting()] == ["and when?"]
+
+
 def test_an_archived_thread_stays_readable_and_comes_back(store: CommentStore):
     """Archived is a third status beside open and resolved, for a thread worth reading
     again: it takes replies without changing, and goes back to either with one flip."""

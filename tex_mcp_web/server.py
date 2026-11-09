@@ -922,12 +922,15 @@ class TexMcpWebServer:
         staging.replace(self.review_state_path)
 
     def _review_line(self) -> str:
-        # The line counts what a wake-up is for: open threads whose last word waits for the
-        # agent. A count of open threads sent an agent to read one it had answered.
-        waiting = sum(bool(comment.thread) and comment.thread[-1].asks_agent
-                      for comment in self.comments.list(status="open"))
+        # The line counts what a wake-up is for: the open threads read_comments(new=True)
+        # gives, with words for the agent it has neither answered nor carried before. A
+        # count of open threads sent an agent to read one it had answered.
+        from .mcp_server import cursor_moment
+
+        edge = cursor_moment(self.watch_dir)
+        waiting = sum(bool(comment.waiting(edge)) for comment in self.comments.list(status="open"))
         return (f"[review] reviewer called (press #{self.review_calls}): "
-                + (f"{waiting} unanswered comments" if waiting else "no unanswered comments")
+                + (f"{waiting} new comments" if waiting else "no new comments")
                 + " -- read them with read_comments(new=True)")
 
     async def _overleaf_status(self) -> dict[str, Any]:
