@@ -25,7 +25,7 @@ import json
 import logging
 import re
 import time
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Collection
 
 import aiohttp
 
@@ -372,13 +372,25 @@ class LivePresence:
             if self.sync is not None:
                 self.sync.remote(first)
             path = self._docs.get(str(first.get("doc")))
-            if path is None:
+            # The files kept the same live take the edit in by themselves.
+            doc = self.sync.docs.get(str(first.get("doc"))) if self.sync is not None else None
+            if path is None or doc is not None and doc.status in ("joining", "synced", "sending"):
                 return
             meta = first.get("meta") or {}
             by = self._people.get(str(meta.get("user_id")), "") or next(
                 (user["name"] for user in self._users.values() if user["user_id"] == str(meta.get("user_id"))), "someone")
             change = self._changes.setdefault(path, {"file": path, "by": by, "at": 0.0, "count": 0})
             change.update(by=by, at=time.time(), count=change["count"] + 1)
+            self._notify()
+
+    def brought_in(self, incoming: Collection[str], since: float) -> None:
+        """Let go of the edits made on Overleaf before *since* to files the folder now holds
+        as Overleaf does, read from then on: all but the *incoming* ones, which Overleaf
+        changed and the folder lacks."""
+        here = [path for path, change in self._changes.items() if change["at"] < since and path not in incoming]
+        for path in here:
+            del self._changes[path]
+        if here:
             self._notify()
 
     def editor(self) -> tuple[_Session | None, dict[str, str], str]:

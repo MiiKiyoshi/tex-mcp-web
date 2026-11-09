@@ -23,7 +23,8 @@ import os
 import re
 import stat
 import tempfile
-from collections.abc import Callable, Iterable
+import time
+from collections.abc import Awaitable, Callable, Iterable
 from pathlib import Path
 from typing import Any
 
@@ -975,19 +976,42 @@ class TexMcpWebServer:
                 return web.json_response({"error": f"Not yet the same as on Overleaf: {', '.join(apart)}. Settle it first."
                                           if apart else "The files are still being read from Overleaf. Try again in a moment."},
                                          status=409)
+        since = time.time()
         async with self._overleaf_git:
             try:
                 if action == "fetch" and followed is not None:
                     now = await overleaf_git.follow(link, followed)
                 elif action == "fetch":
                     await overleaf_git.fetch(link)
-                    now = self._overleaf_git_now = await overleaf_git.state(link)
+                    now = await overleaf_git.state(link)
                 else:
                     now = await (overleaf_git.pull if action == "pull" else overleaf_git.push)(link, followed)
             except overleaf_git.GitError as error:
                 return web.json_response({"error": str(error)}, status=409)
+        return web.json_response(self._seen_overleaf_git(now, since))
+
+    async def _read_overleaf_git(self, link: overleaf_git.Link) -> dict[str, Any]:
+        """Overleaf's branch fetched afresh, and where the folder stands against it."""
+        since = time.time()
+        await overleaf_git.fetch(link)
+        return self._seen_overleaf_git(await overleaf_git.state(link), since)
+
+    def _seen_overleaf_git(self, now: dict[str, Any], since: float) -> dict[str, Any]:
+        """Keep where the folder stands against Overleaf's branch, read from *since* on, and
+        let go of the edits seen on Overleaf before then that the folder holds."""
         self._overleaf_git_now = now
-        return web.json_response(now)
+        if self.overleaf_live is not None:
+            self.overleaf_live.brought_in(now["incoming"], since)
+        return now
+
+    async def _read_overleaf_hand(self, read: Callable[[], Awaitable[dict]]) -> dict:
+        """Where the files stand against Overleaf's documents after *read*, a read, a Get or a
+        Send by hand, with the edits seen on Overleaf before it that the files hold let go."""
+        since = time.time()
+        now = await read()
+        if self.overleaf_live is not None:
+            self.overleaf_live.brought_in(now["get"] + now["choose"], since)
+        return now
 
     async def _overleaf_upstream(self, fresh: bool) -> dict[str, Any]:
         """Where the folder stands against Overleaf, in few words, for the agent: by git, by
@@ -1007,8 +1031,7 @@ class TexMcpWebServer:
             now = self._overleaf_git_now
             if fresh or now is None:
                 async with self._overleaf_git:
-                    await overleaf_git.fetch(link)
-                    now = self._overleaf_git_now = await overleaf_git.state(link)
+                    now = await self._read_overleaf_git(link)
             answer.update({key: now[key] for key in ("behind", "ahead", "uncommitted") if now[key]})
             return answer
         if self.overleaf_sync is not None:
@@ -1016,7 +1039,7 @@ class TexMcpWebServer:
         hand = self.overleaf_hand
         if hand is None or (not fresh and not hand.read_once):
             return {"by": "hand", "unread": "no review page is in the Overleaf project, which By hand reads through"}
-        now = await hand.read() if fresh else hand.state()
+        now = await self._read_overleaf_hand(hand.read) if fresh else hand.state()
         return {"by": "hand", **{key: now[key] for key in ("get", "send", "choose") if now[key]}}
 
     async def _handle_overleaf_upstream(self, request: web.Request) -> web.Response:
@@ -1040,7 +1063,7 @@ class TexMcpWebServer:
         hand = self.overleaf_hand
         try:
             if hand is not None:
-                await hand.read()
+                await self._read_overleaf_hand(hand.read)
         except (NotConnected, ConnectionError, asyncio.TimeoutError) as error:
             logger.info("Overleaf files: %s", error)
 
@@ -1053,7 +1076,8 @@ class TexMcpWebServer:
                                      status=409)
         action = request.match_info["action"]
         try:
-            now = await (hand.read if action == "read" else hand.get if action == "get" else hand.send)()
+            now = await self._read_overleaf_hand(hand.read if action == "read" else hand.get if action == "get"
+                                                 else hand.send)
         except NotConnected as error:
             return web.json_response({"error": str(error)}, status=409)
         except (ConnectionError, asyncio.TimeoutError):
@@ -1139,8 +1163,7 @@ class TexMcpWebServer:
         if link is not None:
             async with self._overleaf_git:
                 try:
-                    await overleaf_git.fetch(link)
-                    now = self._overleaf_git_now = await overleaf_git.state(link)
+                    now = await self._read_overleaf_git(link)
                 except overleaf_git.GitError as error:
                     return web.json_response({"error": str(error)}, status=409)
             if now["state"] != "same":
@@ -1159,7 +1182,7 @@ class TexMcpWebServer:
             # Files brought together by hand stand in for the commit: nothing left to Get or
             # Send, read afresh as a git clone reads Overleaf's branch.
             try:
-                now = await self.overleaf_hand.read()
+                now = await self._read_overleaf_hand(self.overleaf_hand.read)
             except NotConnected as error:
                 return web.json_response({"error": str(error)}, status=409)
             except (ConnectionError, asyncio.TimeoutError):
@@ -1198,8 +1221,7 @@ class TexMcpWebServer:
         if link is not None:
             async with self._overleaf_git:
                 try:
-                    await overleaf_git.fetch(link)
-                    now = self._overleaf_git_now = await overleaf_git.state(link)
+                    now = await self._read_overleaf_git(link)
                     for check in checks:
                         if not await overleaf_git.holds(link, now["branch"], check["file"], check["text"]):
                             committed = await overleaf_git.holds(link, "HEAD", check["file"], check["text"])

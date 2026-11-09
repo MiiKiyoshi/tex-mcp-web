@@ -153,9 +153,10 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   written here stay in their thread.
 - With `overleaf` set and the cookie kept, an open page also sits in the Overleaf project.
   The top bar shows a face for each collaborator there, which goes to the file and line
-  they are on, their cursors are drawn in the editor on that file, and a file they edit
-  says so above the editor. Settings lists who is where and what was edited while the page
-  was open. A leaf button shows in the top bar only when something needs a look: signed
+  they are on, their cursors are drawn in the editor on that file, and a file edited there
+  says so above the editor until this folder holds those edits too, by git pull, by Get, or
+  by itself when the files follow Overleaf live. Settings lists who is where and those
+  files. A leaf button shows in the top bar only when something needs a look: signed
   out, reconnecting, comments not coming in, or files waiting for a choice. The page sends
   Overleaf no edit to the text unless the files follow it live or you press Send (below).
   It opens the main file and puts one cursor at its top, which is what makes the others'

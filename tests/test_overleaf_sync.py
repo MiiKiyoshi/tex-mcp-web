@@ -383,6 +383,8 @@ async def test_edits_go_both_ways_as_small_edits(review) -> None:
 
     await fake.coauthor("d-body", [{"p": 0, "i": "New. "}])
     await wait_for(lambda: review.read("tex/body.tex").startswith("New. Body"))
+    # It came in by itself, so nothing waits to be brought in.
+    assert review.server.overleaf_live.snapshot()["changes"] == []
 
     review.write("main.tex", MAIN.replace("is fast", "is very fast"))
     await review.settled()
@@ -608,6 +610,62 @@ async def test_live_files_and_git_go_on_together_in_a_git_clone(paper, overleaf_
         await wait_for(lambda: opened.files()["main.tex"] == "stopped")
         refused = await opened.client.post("/overleaf/git/pull")
         assert refused.status == 409 and "main.tex" in (await refused.json())["error"]
+    finally:
+        await opened.close()
+
+
+async def test_in_a_git_clone_an_edit_on_overleaf_waits_to_come_in_only_until_the_folder_holds_it(
+        paper, overleaf_site, tmp_path_factory, monkeypatch) -> None:
+    """The folder's own git push comes back from Overleaf as an edit there, which the folder
+    already holds: once Overleaf's branch is read, nothing waits to be brought in. Someone
+    else's edit waits until git pull brings it in."""
+    import subprocess
+
+    fake, link = overleaf_site
+    for key, value in (("GIT_AUTHOR_NAME", "Someone"), ("GIT_COMMITTER_NAME", "Someone"),
+                       ("GIT_AUTHOR_EMAIL", "someone@example.com"), ("GIT_COMMITTER_EMAIL", "someone@example.com")):
+        monkeypatch.setenv(key, value)
+    git = lambda folder, *args: subprocess.run(["git", "-C", str(folder), *args], check=True,
+                                               capture_output=True, text=True).stdout
+    bare = tmp_path_factory.mktemp("overleaf-git") / PROJECT_ID
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(bare)], check=True)
+    git(paper, "init", "-q", "-b", "main")
+    git(paper, "add", "main.tex", "tex/body.tex")
+    git(paper, "commit", "-q", "-m", "first")
+    git(paper, "remote", "add", "overleaf", str(bare))
+    git(paper, "push", "-q", "-u", "overleaf", "main")
+    bridge = tmp_path_factory.mktemp("bridge") / "clone"
+    subprocess.run(["git", "clone", "-q", str(bare), str(bridge)], check=True, capture_output=True)
+
+    def snapshot() -> None:
+        """Overleaf's git server, read: a commit of the project as it is now."""
+        git(bridge, "pull", "-q", "--ff-only", "origin", "main")
+        for doc in fake.docs.values():
+            (bridge / ("tex/" if doc["name"] == "body.tex" else "") / doc["name"]).write_text(doc["text"], encoding="utf-8")
+        git(bridge, "commit", "-q", "-am", "Update on Overleaf.")
+        git(bridge, "push", "-q", "origin", "HEAD:main")
+
+    opened = await Review(paper, fake, link, sync=False).open()
+    edited = lambda: [change["file"] for change in opened.server.overleaf_live.snapshot()["changes"]]
+    try:
+        await wait_for(lambda: opened.server.overleaf_live is not None
+                       and opened.server.overleaf_live.snapshot()["status"] == "live")
+        # git push from the folder, which Overleaf makes as an edit of its own.
+        opened.write("tex/body.tex", "New. " + BODY)
+        git(paper, "commit", "-q", "-am", "reworded")
+        git(paper, "push", "-q", "overleaf", "main")
+        await fake.coauthor("d-body", [{"p": 0, "i": "New. "}])
+        await wait_for(lambda: edited() == ["tex/body.tex"])
+        now = await (await opened.client.post("/overleaf/git/fetch")).json()
+        assert now["state"] == "same" and edited() == []
+
+        await fake.coauthor("d-main", [{"p": len(MAIN), "i": "\n% theirs"}])
+        await wait_for(lambda: edited() == ["main.tex"])
+        snapshot()
+        now = await (await opened.client.post("/overleaf/git/fetch")).json()
+        assert (now["state"], now["incoming"]) == ("behind", ["main.tex"]) and edited() == ["main.tex"]
+        now = await (await opened.client.post("/overleaf/git/pull")).json()
+        assert now["state"] == "same" and opened.read("main.tex").endswith("% theirs") and edited() == []
     finally:
         await opened.close()
 
@@ -890,9 +948,12 @@ async def test_by_hand_files_change_only_when_get_or_send_is_pressed(paper, over
         assert opened.read("tex/body.tex") == BODY and fake.docs["d-main"]["text"] == MAIN
         now = await (await opened.client.post("/overleaf/files/read")).json()
         assert (now["get"], now["send"]) == (["tex/body.tex"], ["main.tex"])
+        edited = lambda: [change["file"] for change in opened.server.overleaf_live.snapshot()["changes"]]
+        assert edited() == ["tex/body.tex"]
 
         now = await (await opened.client.post("/overleaf/files/get")).json()
         assert opened.read("tex/body.tex") == "New. " + BODY and (now["get"], now["send"]) == ([], ["main.tex"])
+        assert edited() == []
         assert fake.docs["d-main"]["text"] == MAIN
         now = await (await opened.client.post("/overleaf/files/send")).json()
         assert fake.docs["d-main"]["text"] == MAIN.replace("fast", "quick") and now["send"] == []

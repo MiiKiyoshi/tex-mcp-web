@@ -129,12 +129,15 @@ async def _tracking(link: Link) -> str:
 
 async def state(link: Link, followed: Collection[str] = ()) -> dict:
     """Where the folder stands against Overleaf's branch as last fetched: the two commits,
-    how many each has that the other lacks, and the files with changes not committed,
-    leaving out the *followed* ones, which are on Overleaf as they are here."""
+    how many each has that the other lacks, the files Overleaf's commits changed that this
+    folder lacks, named from the top of the repository as Overleaf names them, and the files
+    with changes not committed, leaving out the *followed* ones, which are on Overleaf as
+    they are here."""
     branch = await _tracking(link)
     _, here = await _git(link.folder, "rev-parse", "--short", "HEAD")
     _, there = await _git(link.folder, "rev-parse", "--short", branch)
     _, counts = await _git(link.folder, "rev-list", "--left-right", "--count", f"HEAD...{branch}")
+    _, incoming = await _git(link.folder, "diff", "--name-only", "-z", f"HEAD...{branch}")
     ahead, behind = (int(count) for count in counts.split())
     _, porcelain = await _git(link.folder, "status", "--porcelain", "-z", "--untracked-files=no", "--", ".")
     uncommitted, records = [], iter(_paths(porcelain))
@@ -144,7 +147,7 @@ async def state(link: Link, followed: Collection[str] = ()) -> dict:
         if record[3:] not in followed:
             uncommitted.append(record[3:])
     return {"remote": link.remote, "branch": branch, "here": here.strip(), "there": there.strip(),
-            "ahead": ahead, "behind": behind,
+            "ahead": ahead, "behind": behind, "incoming": _paths(incoming),
             "state": "same" if not ahead and not behind else "ahead" if not behind
             else "behind" if not ahead else "diverged",
             "uncommitted": uncommitted}
