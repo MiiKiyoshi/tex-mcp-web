@@ -54,7 +54,7 @@ Spend the page budget on the paper's own contribution. Explain the method's comp
 
 2.7 **Order sections by prerequisites.** Order sections by prerequisites under 6.1. Distinguish background from the subject by explanatory role, not source or novelty, and make headings match. For empirical work, present method, setup, then results.
 
-When the method has a problem formulation, it comes before the overview. Definitions that only the procedure uses, such as its intermediate states and transitions, go with the procedure. In the experiments, after the setup, the recommended order (1.7) is the accuracy of any model or estimator the method relies on, then the comparison with baselines, the ablation, a case study, and runtime.
+In the method, definitions that only the procedure uses, such as its intermediate states and transitions, go with the procedure. In the experiments, after the setup, the recommended order (1.7) is the accuracy of any model or estimator the method relies on, then the comparison with baselines, the ablation, a case study, and runtime.
 
 2.8 **Keep planning records in one file.** Keep the planning records in one file outside the paper's LaTeX sources, in the paper's language, recording choices as they are made. The file holds:
 
