@@ -134,34 +134,38 @@ def _resolve_input(arg: str, parent_dir: Path, watch_dir: Path) -> Path | None:
 
 
 def _files_reachable_from(main_file: Path, watch_dir: Path) -> list[Path]:
-    """Walk \\input / \\include from *main_file* and return the set of
-    .tex files actually used in the build.  Avoids picking up unbuilt
-    variant files that happen to live in the same directory.
+    """The .tex files actually used in the build, in the order the paper reads them.
+    Avoids picking up unbuilt variant files that happen to live in the same directory.
     """
-    seen: set[Path] = set()
-    out: list[Path] = []
-    stack: list[Path] = [main_file.resolve()]
-    while stack:
-        path = stack.pop()
-        if path in seen or not path.is_file():
-            continue
-        seen.add(path)
-        out.append(path)
+    return list(reading_places(main_file, watch_dir))
+
+
+def reading_places(main_file: Path, watch_dir: Path) -> dict[Path, tuple[tuple[int, int], ...]]:
+    """Walk \\input / \\include from *main_file*: each .tex file of the build, in the order
+    the paper reads them, with the (line, column) of each \\input in the chain that brings
+    it in, the main file's being (). A place (line, column) of a file reads at its chain
+    followed by that pair, so sorting those tuples puts places in the order the paper reads.
+    """
+    where: dict[Path, tuple[tuple[int, int], ...]] = {}
+
+    def walk(path: Path, chain: tuple[tuple[int, int], ...]) -> None:
+        if path in where or not path.is_file():
+            return
+        where[path] = chain
         try:
             content = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
-            continue
-        children: list[Path] = []
-        for raw_line in content.splitlines():
+            return
+        for line_no, raw_line in enumerate(content.splitlines(), start=1):
             if raw_line.lstrip().startswith("%"):
                 continue
             for m in _INPUT_RE.finditer(_strip_comment(raw_line)):
                 resolved = _resolve_input(m.group(1).strip(), path.parent, watch_dir)
-                if resolved is not None and resolved not in seen:
-                    children.append(resolved)
-        # Pre-order DFS: reversed so the LIFO pop yields \input order.
-        stack.extend(reversed(children))
-    return out
+                if resolved is not None:
+                    walk(resolved, chain + ((line_no, m.start()),))
+
+    walk(main_file.resolve(), ())
+    return where
 
 
 # ---------------------------------------------------------------------------

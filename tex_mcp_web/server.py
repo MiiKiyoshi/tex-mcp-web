@@ -58,8 +58,10 @@ from .structure import (
     AmbiguousSection,
     DocumentStructure,
     _files_reachable_from,
+    _relative,
     find_section,
     parse_structure,
+    reading_places,
     section_end,
 )
 from .synctex import (
@@ -1908,6 +1910,25 @@ class TexMcpWebServer:
         if status not in ("open", "resolved", "archived"):
             status = None  # type: ignore[assignment]
         comments = self.comments.list(status=status)  # type: ignore[arg-type]
+        # The leaf tab lists Overleaf's threads in the order the paper reads them, as
+        # Overleaf's review panel does: they come in many at once, in the order Overleaf
+        # hands them out. A thread on no line of the paper goes last. The comments
+        # written here keep the order they were written in.
+        brought = {known["comment"] for known in self._overleaf_ledger().values()}
+        chains = {_relative(path, self.watch_dir): chain
+                  for path, chain in reading_places(self.main_file, self.watch_dir).items()}
+
+        def place(comment: Comment) -> tuple[Any, ...]:
+            if comment.id not in brought and (comment.thread or comment.overleaf_draft is None):
+                return ()
+            source = comment.resolved_source
+            if source is None:
+                return (2,)
+            at = (source.line_start, source.column_start or 0)
+            chain = chains.get(source.file)
+            return (0, *chain, at) if chain is not None else (1, source.file, at)
+
+        comments.sort(key=place)
         return web.json_response(
             {"comments": [_comment_to_dict(c) for c in comments]}
         )

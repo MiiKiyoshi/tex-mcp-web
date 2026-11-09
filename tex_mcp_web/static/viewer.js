@@ -2353,8 +2353,9 @@ async function refreshComments() {
   renderCommentTabs(opened(here), opened(onOverleaf));
   data.comments = state.commentTab === "overleaf-comments" ? onOverleaf : here;
   renderOverleafThreadSync();
-  // The open view keeps the order the comments were written in, which is the order the
-  // paper reads in. The resolved view leads with the comment closed last, the one the
+  // The open view keeps the server's order: the comments written here in the order they
+  // were written, and Overleaf's threads in the order the paper reads them, as Overleaf's
+  // review panel has them. The resolved view leads with the comment closed last, the one the
   // reader has just closed and looks for. The mixed view leads with the one written
   // last, by when it was written and not by when it was last touched: closing a comment
   // touches it, so by that measure every closed comment stood above every open one.

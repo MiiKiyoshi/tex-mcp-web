@@ -3013,6 +3013,44 @@ async def test_a_message_from_overleaf_goes_by_its_writers_name_and_is_answered_
     assert server.comments.get(older.id).thread[0].text == "Which prose?"
 
 
+@pytest.mark.asyncio
+async def test_overleafs_threads_are_listed_in_the_order_the_paper_reads_them(client) -> None:
+    """Threads that came in from Overleaf all at once, in Overleaf's order, are listed by
+    where the paper reads them, a file at the \\input that brings it in, and those on no
+    line of the paper last. The comments written here keep the order they were written in."""
+    from tex_mcp_web import overleaf
+    from tex_mcp_web.comments import PaperAnchor
+
+    http, server = client
+    (server.watch_dir / "tex").mkdir()
+    (server.watch_dir / "paper.tex").write_text(
+        "\\documentclass{article}\n\\begin{document}\nOpening words.\n\\input{tex/a}\n"
+        "Between.  \\input{tex/b}\nClosing words.\n\\end{document}\n")
+    (server.watch_dir / "tex" / "a.tex").write_text("First of a.\nSecond.\nThird.\n")
+    (server.watch_dir / "tex" / "b.tex").write_text("First of b.\nSecond.\n")
+    (server.watch_dir / "notes.tex").write_text("Not in the build.\n")
+
+    def on(file: str, line: int, column: int = 0):
+        return {"anchor": SourceRangeAnchor(file=file, line_start=line, line_end=line, column_start=column,
+                                            column_end=column + 1),
+                "resolved_source": ResolvedSource(file=file, line_start=line, line_end=line,
+                                                  column_start=column, column_end=column + 1)}
+
+    mine = server.comments.add(PaperAnchor(), "Written here first.")
+    brought = {words: server.comments.add(text=words, **where) for words, where in (
+        ("b 2", on("tex/b.tex", 2)), ("main 6", on("paper.tex", 6)), ("a 3", on("tex/a.tex", 3)),
+        ("notes 1", on("notes.tex", 1)), ("a 1 at 4", on("tex/a.tex", 1, 4)), ("main 5", on("paper.tex", 5)),
+        ("main 3", on("paper.tex", 3)), ("a 1", on("tex/a.tex", 1)))}
+    brought["paper"] = server.comments.add(PaperAnchor(), "paper")
+    overleaf.ledger_path(server.watch_dir).write_text(json.dumps(
+        {f"t{index}": {"comment": comment.id} for index, comment in enumerate(brought.values())}))
+    mine_later = server.comments.add(PaperAnchor(), "Written here after.")
+
+    listed = [c["thread"][0]["text"] for c in (await (await http.get("/comments")).json())["comments"]]
+    assert listed == [mine.text, mine_later.text, "main 3", "a 1", "a 1 at 4", "a 3", "main 5", "b 2",
+                      "main 6", "notes 1", "paper"]
+
+
 # --- Completion lists for the source editor ---
 
 @pytest.mark.asyncio
