@@ -200,7 +200,7 @@ Show purpose, operation, and conditions and scope beyond the instance, including
 
 When a table or plot first shows an unfamiliar computed quantity, define it before the visual by an equation in the paper's notation, writing a constant taken from data or a setting as a defined symbol.
 
-A caption is one short line naming what is shown. A format shared by several tables is described once in the text, and their captions refer to it as the form of the first such table. The interpretation of a figure or table, and any worked calculation with its values, go in the paragraph that references it.
+A caption opens with a short line naming what is shown, and may add up to two sentences that tell how to read it, such as its stages or the conditions of its values. A format shared by several tables is described once in the text, and their captions refer to it as the form of the first such table. The interpretation of a figure or table, and any worked calculation with its values, go in the paragraph that references it.
 
 5.9 **Table cells hold labels, numbers, or marks.** Use rows for entities or conditions unless transposing clarifies comparison. Rows and columns must belong to their header's set at the same grouping level. A cell holds a short label, a number, or a mark, never a sentence: move explanation into the text. Put conclusions and facts of another kind outside the table. Aggregates computed from member rows or columns may remain if labeled and set apart. Order entries meaningfully, state units once, identify sources of differing measurements, and keep group conditions and needed explanation with results.
 
