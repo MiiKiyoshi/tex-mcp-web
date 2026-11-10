@@ -1204,6 +1204,7 @@ async def test_mcp_contract_is_typed_and_nonduplicative(tmp_path: Path):
     assert "compile() once" in mcp.instructions
     assert "Within the user's editing scope" in mcp.instructions
     assert "Respect read-only or discussion-only requests" in mcp.instructions
+    assert "with a reply in its thread, with or without an edit, on a thread from Overleaf too" in mcp.instructions
     assert "its dir can name the paper's folder anywhere" in mcp.instructions
     assert "write in chat only what no thread carries" in mcp.instructions
     assert "not the replies or the edits they report" in mcp.instructions
@@ -1412,6 +1413,17 @@ async def test_mcp_drafts_an_overleaf_reply_only_on_a_thread_from_overleaf(bound
     refused = await call("write_comments", action="suggest", id=brought.id, text="Shorter.",
                          changes=[{"old": "Some methods.", "new": "Methods."}], rev=receipt["rev"])
     assert "on Overleaf at paper.tex:3" in refused["error"]
+
+    # What the reviewer asks after the draft is answered with a reply, which stays here and
+    # leaves the draft for the people on Overleaf.
+    store.reply(brought.id, text="Explain it to me, not in the draft.", author="human")
+    asked = next(c for c in (await call("read_comments", new=True))["comments"] if c["id"] == brought.id)
+    assert asked["on_overleaf"] is True
+    assert [e["text"] for e in asked["entries"]] == ["Explain it to me, not in the draft."]
+    await call("write_comments", action="reply", id=brought.id, text="It names the cited words.")
+    store.reply(own.id, text="And this?", author="human")
+    assert [c["id"] for c in (await call("read_comments", new=True))["comments"]] == [own.id]
+    assert store.get(brought.id).overleaf_draft.text == "Fixed it better."
 
 
 @pytest.mark.asyncio

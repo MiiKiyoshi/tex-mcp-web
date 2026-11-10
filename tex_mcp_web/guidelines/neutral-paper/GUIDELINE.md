@@ -264,7 +264,7 @@ The abstract names the surrounding work in one clause, without citations or syst
 4. After moves or removals, read connected instructions together, preserving distinctions and excluding rejected content.
 5. If materially different readings remain, ask one focused question.
 
-8.2 **A question about meaning reports confusion.** Answer each question in its thread. A question about what any part of the paper means also reports that it confuses its reader, and a thread answer does not repair the paper. Within the editing scope, repair the paper under 8.3. Outside it, answer without editing, reassess in the order of 8.3, and propose the repair or report the defect.
+8.2 **A question about meaning reports confusion.** A question about what any part of the paper means also reports that it confuses its reader, and a thread answer does not repair the paper. Within the editing scope, repair the paper under 8.3. Outside it, answer without editing, reassess in the order of 8.3, and propose the repair or report the defect.
 
 Comments in the paper's review threads come from the requester unless the requester says otherwise. Findings from an independent reviewer, or from any reviewer without delegated authority, are proposals, not requester decisions (1.5). Hold one that conflicts with an active requirement under 1.6 rather than applying it.
 

@@ -676,6 +676,8 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             "after the batch, verify, and reply naming the ranges you changed. When the wording "
             "is the reviewer's to decide, put a suggestion on their own thread rather than "
             "opening another comment. Respect read-only or discussion-only requests. "
+            "Answer a question or a request to explain with a reply in its thread, with or "
+            "without an edit, on a thread from Overleaf too. "
             "After replying, write in chat only what no thread carries, such as a failed tool or a choice left to the user, not the replies or the edits they report. Call listen() when the user asks to listen and follow "
             "how. Do not poll or duplicate it. Unacknowledged presses stay queued. "
             "The config sits in the startup directory, and its dir can name the paper's folder anywhere. "
@@ -950,7 +952,8 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         a draft is not written again when lines shift. On a thread that came from Overleaf (on_overleaf), it puts the reply the
         reviewer may send there: a thread holds one draft, which this replaces, and only
         the reviewer sends it, asked first when a file those ranges are in is not the same
-        here as on Overleaf. With anchor, a source_range, instead of id and rev, it drafts a
+        here as on Overleaf. The draft is for the people on Overleaf. What the reviewer asks
+        you in the thread is answered with reply. With anchor, a source_range, instead of id and rev, overleaf drafts a
         new thread for Overleaf on those lines, text being its first message: a comment with
         no entries and that draft, which id and rev then redraft and only the reviewer
         sends, once what those ranges now hold is on Overleaf. edit: id,
