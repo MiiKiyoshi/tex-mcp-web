@@ -2417,9 +2417,7 @@ function answeredByOthers(comment) {
   return last !== undefined && last.overleaf === undefined && last.name !== state.overleafMe;
 }
 
-// The leaf tab shows once the paper names an Overleaf project or has threads from one. The
-// row above the list holds what the shown tab can do: Overleaf has no archive, and only its
-// threads sync and send.
+// The leaf tab shows once the paper names an Overleaf project or has threads from one.
 function renderCommentTabs(here, onOverleaf) {
   const leafTab = $('.tab-btn[data-tab="overleaf-comments"]');
   leafTab.hidden = !state.overleafProject && state.overleafImported.size === 0;
@@ -2431,6 +2429,12 @@ function renderCommentTabs(here, onOverleaf) {
     badge.textContent = String(count);
     badge.classList.toggle("hidden", count === 0);
   }
+  renderCommentFilter();
+}
+
+// The row above the list holds what the shown tab can do, from the moment the tab is chosen:
+// Overleaf has no archive, and only its threads wait for an answer.
+function renderCommentFilter() {
   const leaf = state.commentTab === "overleaf-comments";
   const filter = $("#comment-filter");
   filter.querySelector('option[value="archived"]').hidden = leaf;
@@ -3340,6 +3344,7 @@ function switchTab(name) {
   state.picked.clear();
   // The leaf tab opens on the threads that wait for the reviewer's answer.
   if (name === "overleaf-comments") setCommentFilter("unanswered");
+  renderCommentFilter();
   refreshComments().catch((error) => console.error(error));
 }
 

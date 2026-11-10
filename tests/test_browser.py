@@ -2011,10 +2011,16 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
         wait_until(lambda: browser.execute_script(f'return document.querySelector("{card} .cmt-actions") !== null'))
         assert browser.execute_script(
             f'return [...document.querySelectorAll("{card} .cmt-actions button")].map((b) => b.textContent)') == ["Delete"]
-        browser.execute_script('document.querySelector(\'.tab-btn[data-tab="comments"]\').click()')
-        wait_until(lambda: "Written here." in browser.execute_script(listed))
+        # The other tab has no unanswered view from the moment it is chosen, not from when its
+        # comments arrive.
+        browser.execute_script('const f = document.querySelector("#comment-filter"); f.value = "unanswered";'
+                               ' f.dispatchEvent(new Event("change"));')
         assert browser.execute_script(
-            'return document.querySelector(\'#comment-filter option[value="unanswered"]\').hidden') is True
+            'document.querySelector(\'.tab-btn[data-tab="comments"]\').click();'
+            ' const f = document.querySelector("#comment-filter");'
+            ' return [f.value, f.querySelector(\'option[value="unanswered"]\').hidden,'
+            ' document.querySelector("#comment-filter-name").textContent];') == ["open", True, "open"]
+        wait_until(lambda: "Written here." in browser.execute_script(listed))
         assert "Feedback and answer." not in browser.execute_script(
             'return [...document.querySelectorAll(".overleaf-reply-input")].map((b) => b.value).join("|")')
         assert browser.execute_script('return document.querySelector("#archive-picked-btn").hidden') is False
