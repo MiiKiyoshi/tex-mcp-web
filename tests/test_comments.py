@@ -174,13 +174,13 @@ def test_locate_pdf_quote_reconstructs_line_end_hyphen(tmp_path: Path):
     pdf = tmp_path / "hyphenated.pdf"
     document = pymupdf.open()
     page = document.new_page()
-    page.insert_text((72, 72), "where interconnect estimates become ac-", fontsize=11)
+    page.insert_text((72, 72), "where the field notes become ac-", fontsize=11)
     page.insert_text((72, 88), "curate enough to act on", fontsize=11)
     document.save(pdf)
     document.close()
 
     selection = locate_pdf_quote(
-        pdf, "where interconnect estimates become accurate enough to act on"
+        pdf, "where the field notes become accurate enough to act on"
     )
     assert selection is not None
     assert len(selection.rects) == 2
@@ -497,9 +497,8 @@ def test_character_selector_rejects_half_surrogate(tmp_path):
 
 
 SENTENCE = (
-    "We present \\emph{AlignSearch}, a framework that searches pre-route optimization "
-    "algorithms and evaluates the resulting design states in terms of Routed Quality: "
-    "timing and power after detailed routing."
+    "We present \\emph{TideNote}, a tool that sorts field notes by topic and checks the "
+    "resulting summaries in terms of Plain Reading: clarity and length after final editing."
 )
 
 
@@ -507,14 +506,14 @@ def test_swap_fragments_rewrites_only_the_quoted_parts():
     """The agent quotes what changes; everything it did not quote is carried over, so a
     three-word change costs three words and not the whole sentence twice."""
     rewritten = swap_fragments(SENTENCE, [
-        ("searches pre-route optimization algorithms",
-         "searches the procedures of pre-route optimization algorithms rather than their parameters"),
-        ("after detailed routing.",
-         "after detailed routing; the name reflects that the search is aligned with routed results."),
+        ("sorts field notes by topic",
+         "sorts the pages of field notes by topic rather than by date"),
+        ("after final editing.",
+         "after final editing; the name reflects that notes come in like a tide."),
     ])
-    assert "rather than their parameters and evaluates" in rewritten
-    assert rewritten.endswith("aligned with routed results.")
-    assert "in terms of Routed Quality" in rewritten      # untouched text is kept verbatim
+    assert "rather than by date and checks" in rewritten
+    assert rewritten.endswith("come in like a tide.")
+    assert "in terms of Plain Reading" in rewritten      # untouched text is kept verbatim
 
 
 def test_swap_fragments_applies_back_to_front_so_earlier_edits_do_not_move_later_ones():
@@ -528,15 +527,15 @@ def test_swap_fragments_refuses_what_it_cannot_place_exactly():
     with pytest.raises(ValueError, match="which text to replace"):
         swap_fragments(SENTENCE, [("", "x")])
     with pytest.raises(ValueError, match="not found in the source"):
-        swap_fragments(SENTENCE, [("post-route optimization", "x")])
+        swap_fragments(SENTENCE, [("sorts field photos", "x")])
     # An ambiguous quote comes back with the lines it was found on, so it can be
     # extended on purpose rather than by guessing.
     with pytest.raises(ValueError, match="occurs 2 times, on lines 1, 1"):
         swap_fragments(SENTENCE, [("and", "x")])
     with pytest.raises(ValueError, match="same text"):
-        swap_fragments(SENTENCE, [("searches pre-route", "x"), ("pre-route optimization", "y")])
+        swap_fragments(SENTENCE, [("sorts field", "x"), ("field notes", "y")])
     with pytest.raises(ValueError, match="leave the text as it is"):
-        swap_fragments(SENTENCE, [("Routed Quality", "Routed Quality")])
+        swap_fragments(SENTENCE, [("Plain Reading", "Plain Reading")])
 
 
 def test_a_version_6_store_loses_its_before_and_after_proposals(tmp_path: Path):

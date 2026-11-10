@@ -2966,7 +2966,7 @@ def test_the_editor_completes_labels_citations_environments_files_and_commands(t
     (tmp_path / "sec").mkdir()
     (tmp_path / "sec" / "a.tex").write_text("\\section{A}\\label{sec:a}\nWords.\\label{fig:flow}\n", encoding="utf-8")
     (tmp_path / "refs.bib").write_text(
-        "@article{kim23, title = {Fusion Cells for Placement}, author = {Kim, A. and Lee, B.}, year = 2023}\n"
+        "@article{kim23, title = {Paper Trails for Reading}, author = {Kim, A. and Lee, B.}, year = 2023}\n"
         "@article{zed19, title = {Another Study}, author = {Zed, C.}, year = 2019}\n", encoding="utf-8")
     (tmp_path / "fig").mkdir()
     (tmp_path / "fig" / "flow.pdf").write_bytes(b"%PDF-1.4")
@@ -3044,7 +3044,7 @@ def test_the_editor_completes_labels_citations_environments_files_and_commands(t
         assert wait_until(lambda: line(row).endswith("\\ref{fig:flow}") and line(row))
 
         row = new_line_after(row)
-        type_at_end_of(row, "\\cite{Placement")
+        type_at_end_of(row, "\\cite{Reading")
         assert wait_until(lambda: (now := shown()) and now[0].startswith("kim23") and now)
         enter()
         assert wait_until(lambda: line(row) == "\\cite{kim23}" and line(row))

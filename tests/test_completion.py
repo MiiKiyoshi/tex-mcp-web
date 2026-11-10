@@ -21,12 +21,12 @@ def test_labels_carry_their_line_and_skip_comments():
     ]
 
 
-BIB = r"""@string{dac = "Design Automation Conference"}
+BIB = r"""@string{conf = "Conference on Writing Tools"}
 @comment{ not an entry }
-@inproceedings{kim2023fusion,
+@inproceedings{kim2023trails,
   author    = {Kim, Ji-Hoon and Lee, Su and Park, Min},
-  title     = {{Fusion} Cells for {Standard-Cell} Placement},
-  booktitle = dac,
+  title     = {{Paper} Trails for {Long-Form} Reading},
+  booktitle = conf,
   year      = 2023,
 }
 
@@ -41,7 +41,7 @@ BIB = r"""@string{dac = "Design Automation Conference"}
 
 def test_bib_entries_read_key_title_first_author_and_year():
     assert bib_entries(BIB, "main.bib") == [
-        {"key": "kim2023fusion", "title": "Fusion Cells for Standard-Cell Placement",
+        {"key": "kim2023trails", "title": "Paper Trails for Long-Form Reading",
          "author": "Kim et al.", "year": "2023", "file": "main.bib", "line": 3},
         {"key": "solo24", "title": 'A Single "Author" Study', "author": "Doe",
          "year": "2024", "file": "main.bib", "line": 10},
