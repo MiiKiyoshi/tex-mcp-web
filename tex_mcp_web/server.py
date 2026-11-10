@@ -2060,6 +2060,12 @@ class TexMcpWebServer:
             return web.json_response(
                 {"error": "anchor and text are required"}, status=400
             )
+        # A compile writes the PDF in place, so until it ends the file is neither the PDF
+        # the selection was made on nor the next one, which the page has yet to load.
+        if anchor_d.get("kind") in ("text_selection", "area") and self.compiling:
+            return web.json_response(
+                {"error": "the PDF is being rebuilt. Select again once it reloads"}, status=409
+            )
         try:
             # A box carries what its pixels show now, read from the PDF it was drawn on.
             if anchor_d.get("kind") == "area":

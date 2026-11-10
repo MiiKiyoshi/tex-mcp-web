@@ -1906,6 +1906,28 @@ async def test_text_selection_canonicalizes_text_engine_difference(client_with_p
 
 
 @pytest.mark.asyncio
+async def test_a_selection_saved_while_the_pdf_is_rebuilt_is_refused_as_changed(client_with_pdf):
+    """A compile writes the PDF in place while the page still shows the one before it,
+    whose digest the server keeps until the compile ends. A selection saved meanwhile is
+    refused as made on a PDF that changed, not checked against a file half written."""
+    import fitz
+
+    tc, server = client_with_pdf
+    selection = {"page": 1, "bbox": [70, 60, 110, 80], "rects": [[70, 60, 110, 80]]}
+    with fitz.open() as pdf:
+        pdf.new_page().insert_text((72, 300), "Rebuilt")
+        pdf.save(server.last_result.output_file)
+    server.compiling = True
+    for anchor in ({"kind": "text_selection", "quote": "Page 1", "selection": selection},
+                   {"kind": "area", "page": 1, "bbox": [60, 60, 200, 100]}):
+        resp = await tc.post("/comments", json={
+            "anchor": {**anchor, "pdf_digest": server.pdf_digest}, "text": "review this"})
+        assert resp.status == 409
+        assert "being rebuilt" in (await resp.json())["error"]
+    assert server.comments.list() == []
+
+
+@pytest.mark.asyncio
 async def test_text_selection_records_verified_source(
     client_with_pdf, monkeypatch
 ):
