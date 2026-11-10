@@ -1219,7 +1219,7 @@ def canonicalize_pdf_selection(
 
 
 STORE_VERSION = 9
-# How many times a refresh is taken again when a file it reads is written during it.
+# How many passes a refresh makes at most while the files it reads are written during each.
 _PASSES = 3
 
 
