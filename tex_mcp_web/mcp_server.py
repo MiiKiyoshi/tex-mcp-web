@@ -673,7 +673,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             "read_comments(ids=[...]) gives a thread whole when its conversation is no "
             "longer in mind. Read source with your own file tools. "
             "Within the user's editing scope, correct what a thread reports, compile() once "
-            "after the batch, verify, and reply naming the ranges you changed. When the wording "
+            "after the batch, verify, and reply with edits naming the ranges you changed. When the wording "
             "is the reviewer's to decide, put a suggestion on their own thread rather than "
             "opening another comment. Respect read-only or discussion-only requests. "
             "Answer a question or a request to explain with a reply in its thread, with or "
