@@ -583,6 +583,57 @@ def test_a_version_5_store_is_raised_and_its_reference_threads_become_archived(t
     assert json.loads(path.read_text(encoding="utf-8"))["version"] == STORE_VERSION
 
 
+def test_a_file_written_during_a_refresh_is_read_again_before_its_ranges_move(tmp_path: Path, monkeypatch):
+    """A refresh places each range in its file as it reads it, and keeps that text as the one
+    later edits carry the range from. A write that lands during the pass would leave a range
+    found by its words in the new text named by the old one, where its lines hold other
+    words. Such a pass leaves the store as it was and is taken again."""
+    from tex_mcp_web.comments import DraftRange, OverleafDraft
+
+    source = tmp_path / "a.tex"
+    first = "one\ntwo\nthree\nfour\n"
+    source.write_text(first)
+    store = CommentStore(tmp_path / "comments.json")
+    # The comment is carried from the text it was made in, and the draft, with no text
+    # known, is found by its words.
+    noted = store.add(SourceRangeAnchor(file="a.tex", line_start=3, line_end=3), "this line",
+                      resolved_source=ResolvedSource("a.tex", 3, 3),
+                      source_selector=SourceSelector("three", "one\ntwo", "four"), base_text=first)
+    asked = store.add(PaperAnchor(), "which line?")
+    store.draft_overleaf(asked.id, store.get(asked.id).updated, OverleafDraft("That one.", [DraftRange(
+        "three", ResolvedSource("a.tex", 3, 3), SourceSelector("three", "one\ntwo", "four"))]), {})
+
+    def where() -> list[tuple[int, str]]:
+        lines = source.read_text().split("\n")
+        held = [store.get(noted.id).resolved_source.line_start,
+                store.get(asked.id).overleaf_draft.ranges[0].source.line_start]
+        return [(line, lines[line - 1]) for line in held]
+
+    follow = CommentStore._follow_edits
+    writes = iter(["top\nstart\n" + first])
+
+    def written_meanwhile(self, comments, texts):
+        moved = follow(self, comments, texts)
+        source.write_text(next(writes, source.read_text()))
+        return moved
+
+    source.write_text("start\n" + first)
+    monkeypatch.setattr(CommentStore, "_follow_edits", written_meanwhile)
+    store.refresh_source_anchors(tmp_path)
+    assert where() == [(5, "three"), (5, "three")]
+    store.refresh_source_anchors(tmp_path)
+    assert where() == [(5, "three"), (5, "three")]
+
+    # Written during every pass: the store stays as it was, for the next refresh.
+    before = store.path.read_text()
+    writes = iter(["a\n" * n + "top\nstart\n" + first for n in range(1, 4)])
+    store.refresh_source_anchors(tmp_path)
+    assert store.path.read_text() == before
+    monkeypatch.setattr(CommentStore, "_follow_edits", follow)
+    store.refresh_source_anchors(tmp_path)
+    assert where() == [(8, "three"), (8, "three")]
+
+
 def test_a_version_7_store_keeps_its_drafts_ranges_found_again_by_their_words(tmp_path: Path):
     """Version 7 named the lines an Overleaf draft describes by fixed strings, and those
     lines may have moved since. Each range starts stale on them, shown with no line, until

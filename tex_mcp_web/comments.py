@@ -1219,6 +1219,8 @@ def canonicalize_pdf_selection(
 
 
 STORE_VERSION = 9
+# How many times a refresh is taken again when a file it reads is written during it.
+_PASSES = 3
 
 
 def _ranges_of_version_7(edits: list[str], checks: list[dict[str, str]]) -> list[dict[str, Any]]:
@@ -1874,21 +1876,41 @@ class CommentStore:
     def _bases(self) -> Path:
         return self.path.parent / "anchor-texts"
 
+    @staticmethod
+    def _sources(files: Iterable[str], watch_dir: Path) -> dict[str, str | None]:
+        """The text of each of *files* now, None for one that cannot be read."""
+        texts: dict[str, str | None] = {}
+        for name in files:
+            try:
+                texts[name] = (watch_dir / name).read_text(encoding="utf-8")
+            except (OSError, UnicodeError):
+                texts[name] = None
+        return texts
+
+    @staticmethod
+    def _files(comments: list[Comment]) -> set[str]:
+        """The files comments and the ranges their Overleaf drafts describe are on."""
+        files = {comment.resolved_source.file for comment in comments if comment.resolved_source is not None}
+        return files | {r.source.file for comment in comments if comment.overleaf_draft is not None
+                        for r in comment.overleaf_draft.ranges}
+
     def _carry(
-        self, held: dict[str, tuple[ResolvedSource, str]], watch_dir: Path
+        self, held: dict[str, tuple[ResolvedSource, str]], texts: dict[str, str | None]
     ) -> dict[str, tuple[ResolvedSource, SourceSelector, bool] | None]:
         """Carry source ranges, each with the hash of the text it was last exact in, through
-        the edits made to their files since, one smallest edit per file and text (see
-        follow_edits). By key: where it is now, or None when its file is that text still. A
-        range whose text or file cannot be read is left out, to be found by its words."""
+        the edits made to their files since, into *texts*, one smallest edit per file and
+        text (see follow_edits). By key: where it is now, or None when its file is that text
+        still. A range whose text or file cannot be read is left out, to be found by its words."""
         groups: dict[tuple[str, str], dict[str, ResolvedSource]] = {}
         for key, (source, base_sha) in held.items():
             groups.setdefault((source.file, base_sha), {})[key] = source
         carried: dict[str, tuple[ResolvedSource, SourceSelector, bool] | None] = {}
         for (name, base_sha), group in groups.items():
+            now = texts.get(name)
+            if now is None:
+                continue
             try:
                 base = (self._bases / f"{base_sha}.txt").read_text(encoding="utf-8")
-                now = (watch_dir / name).read_text(encoding="utf-8")
             except (OSError, UnicodeError):
                 continue
             if now == base:
@@ -1900,14 +1922,14 @@ class CommentStore:
                 continue
         return carried
 
-    def _follow_edits(self, comments: list[Comment], watch_dir: Path) -> tuple[set[str], bool]:
+    def _follow_edits(self, comments: list[Comment], texts: dict[str, str | None]) -> tuple[set[str], bool]:
         """Move source-range comments through the edits made to their files since the text
         they were last exact in. Comments with no base text known are left to be found by
         their words. The ids moved, and whether any changed."""
         carried = self._carry({comment.id: (comment.resolved_source, comment.base) for comment in comments
                                if isinstance(comment.anchor, SourceRangeAnchor)
                                and comment.resolved_source is not None and comment.base is not None},
-                              watch_dir)
+                              texts)
         changed = False
         for comment in comments:
             if carried.get(comment.id) is None:
@@ -1920,14 +1942,14 @@ class CommentStore:
                 comment.reanchored = changed = True
         return set(carried), changed
 
-    def _follow_drafts(self, comments: list[Comment], watch_dir: Path) -> bool:
+    def _follow_drafts(self, comments: list[Comment], watch_dir: Path, texts: dict[str, str | None]) -> bool:
         """Keep the lines each Overleaf draft describes as a source-range comment is kept:
         carried through the edits to their files, or found by their words when the text they
         were last exact in is not known, and stale while not found. Whether any changed."""
         ranges = {f"{comment.id}/{index}": r for comment in comments if comment.overleaf_draft is not None
                   for index, r in enumerate(comment.overleaf_draft.ranges)}
         carried = self._carry({key: (r.source, r.base) for key, r in ranges.items() if r.base is not None},
-                              watch_dir)
+                              texts)
         changed = False
         for key, r in ranges.items():
             found = carried[key] if key in carried else find_again(r.source, r.selector, watch_dir)
@@ -1949,19 +1971,18 @@ class CommentStore:
             os.replace(staging, kept)
         return sha
 
-    def _keep_bases(self, comments: list[Comment], watch_dir: Path, kinds: tuple[type, ...]) -> bool:
+    def _keep_bases(self, comments: list[Comment], texts: dict[str, str | None], kinds: tuple[type, ...]) -> bool:
         """Record for each comment of *kinds* and each range an Overleaf draft describes, the
-        ones just found in the files as they are, the text its range is exact in now, by
-        hash, and let go of texts none names. Whether any base changed."""
-        changed, texts = False, {}
+        ones just found in *texts*, the text its range is exact in now, by hash, and let go
+        of texts none names. A file *texts* does not hold keeps its bases. Whether any base
+        changed."""
+        changed, hashes = False, {}
 
         def kept(name: str) -> str | None:
-            if name not in texts:
-                try:
-                    texts[name] = self._keep_text((watch_dir / name).read_text(encoding="utf-8"))
-                except (OSError, UnicodeError):
-                    texts[name] = None
-            return texts[name]
+            if name not in hashes:
+                text = texts.get(name)
+                hashes[name] = None if text is None else self._keep_text(text)
+            return hashes[name]
 
         for comment in comments:
             if not isinstance(comment.anchor, kinds) or comment.resolved_source is None or comment.stale:
@@ -1985,9 +2006,17 @@ class CommentStore:
 
     def refresh_source_anchors(self, watch_dir: Path) -> None:
         """Update source comments even when automatic compilation is disabled."""
+        for _ in range(_PASSES):
+            if self._refresh_source_anchors(watch_dir):
+                return
+
+    def _refresh_source_anchors(self, watch_dir: Path) -> bool:
+        """One pass of refresh_source_anchors. False, the store left as it was, when a file
+        it reads was written during the pass (see _settled)."""
         with self._locked():
             comments = self._all()
-            handled, changed = self._follow_edits(comments, watch_dir)
+            texts = self._sources(self._files(comments), watch_dir)
+            handled, changed = self._follow_edits(comments, texts)
             for comment in comments:
                 if not isinstance(comment.anchor, SourceRangeAnchor):
                     continue
@@ -1998,10 +2027,20 @@ class CommentStore:
                 stale, modified = self._refresh_anchor(comment, watch_dir, None, "", None, None, None)
                 changed |= modified or stale != comment.stale
                 comment.stale = stale
-            changed |= self._follow_drafts(comments, watch_dir)
-            changed |= self._keep_bases(comments, watch_dir, (SourceRangeAnchor,))
+            changed |= self._follow_drafts(comments, watch_dir, texts)
+            if not self._settled(texts, watch_dir):
+                return False
+            changed |= self._keep_bases(comments, texts, (SourceRangeAnchor,))
             if changed:
                 self._save(comments)
+        return True
+
+    def _settled(self, texts: dict[str, str | None], watch_dir: Path) -> bool:
+        """Whether the files a pass read hold what they held when it began. A range is placed
+        in the file as the pass reads it, and the base it records must be that text: a write
+        during the pass would leave a range on the lines its words held before, named by a
+        text in which those lines hold other words."""
+        return self._sources(texts, watch_dir) == texts
 
     def refresh_anchors(
         self,
@@ -2021,10 +2060,22 @@ class CommentStore:
         Returns the list of comment IDs that became stale on this pass
         (i.e. were not stale before, but are now).
         """
+        for _ in range(_PASSES):
+            newly_stale = self._refresh_anchors(watch_dir, pdf_path, sections_resolver, text_resolver)
+            if newly_stale is not None:
+                return newly_stale
+        return []
+
+    def _refresh_anchors(
+        self, watch_dir: Path, pdf_path: Path, sections_resolver, text_resolver
+    ) -> list[str] | None:
+        """One pass of refresh_anchors. None, the store left as it was, when a file it reads
+        was written during the pass (see _settled)."""
         with self._locked():
             comments = self._all()
+            texts = self._sources(self._files(comments), watch_dir)
             newly_stale: list[str] = []
-            handled, changed = self._follow_edits(comments, watch_dir)
+            handled, changed = self._follow_edits(comments, texts)
             digest = pdf_digest(pdf_path)
             text_index = (
                 PdfTextIndex(pdf_path)
@@ -2060,8 +2111,10 @@ class CommentStore:
                 if text_index is not None:
                     text_index.close()
 
-            changed |= self._follow_drafts(comments, watch_dir)
-            changed |= self._keep_bases(comments, watch_dir, (SourceRangeAnchor, SectionAnchor))
+            changed |= self._follow_drafts(comments, watch_dir, texts)
+            if not self._settled(texts, watch_dir):
+                return None
+            changed |= self._keep_bases(comments, texts, (SourceRangeAnchor, SectionAnchor))
             if changed:
                 self._save(comments)
 
