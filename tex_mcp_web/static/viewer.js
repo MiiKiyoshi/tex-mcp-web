@@ -8,6 +8,7 @@ const $$ = (selector) => Array.from(document.querySelectorAll(selector));
 
 const state = {
   viewer: null,
+  sendKey: null,
   selection: null,
   areaMode: false,
   annotations: null,
@@ -2284,12 +2285,30 @@ async function handleSourceChanged(message) {
   await openSource(state.sourcePath, line, true);
 }
 
-// Enter writes a new line, as it does in any box of text. What sends it is shift with
-// enter, which keeps the hand on the keyboard, or the command or control key with it.
+// What sends a comment, as Settings chooses: shift with enter, Enter writing a new line as
+// in any box of text, or Enter, shift with it writing the new line. The command or control
+// key with enter sends either way. The choice is kept for next time.
+function enterSends() {
+  return state.sendKey === "enter";
+}
+
+function applySendKey() {
+  const key = enterSends() ? "enter" : "shift";
+  for (const button of document.querySelectorAll("[data-send-choice]")) {
+    button.setAttribute("aria-checked", String(button.dataset.sendChoice === key));
+  }
+}
+
 function sendOn(input, send) {
   input.addEventListener("keydown", (event) => {
-    if (event.key !== "Enter") return;
-    if (!(event.shiftKey || event.metaKey || event.ctrlKey) || event.altKey) return;
+    if (event.key !== "Enter" || event.altKey) return;
+    if (!(event.metaKey || event.ctrlKey || (enterSends() ? !event.shiftKey : event.shiftKey))) return;
+    // An Enter that ends a word an input method is still composing, as Korean is typed,
+    // comes before the box holds that word, which is sent once composing ends.
+    if (event.isComposing) {
+      input.addEventListener("compositionend", () => setTimeout(send), { once: true });
+      return;
+    }
     event.preventDefault();
     send();
   });
@@ -3867,6 +3886,15 @@ function attachSidebarToggle() {
     if (chosen === null) applyTheme(event.matches ? "dark" : "light");
   });
   applyTheme(document.documentElement.dataset.theme);
+  for (const button of document.querySelectorAll("[data-send-choice]")) {
+    button.addEventListener("click", () => {
+      state.sendKey = button.dataset.sendChoice;
+      try { localStorage.setItem("texMcpSendKey", state.sendKey); } catch { /* the choice lasts this visit */ }
+      applySendKey();
+    });
+  }
+  try { state.sendKey = localStorage.getItem("texMcpSendKey"); } catch { /* shift with enter sends */ }
+  applySendKey();
   $("#sidebar-toggle-btn").addEventListener("click", () =>
     setSidebarCollapsed(!$(".layout").classList.contains("sidebar-collapsed")));
   document.addEventListener("keydown", (event) => {

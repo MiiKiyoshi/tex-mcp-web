@@ -1238,6 +1238,38 @@ def test_browser_source_selection_and_split_resize(tmp_path: Path) -> None:
             'return getComputedStyle(document.body).backgroundColor') == "rgb(231, 225, 215)"
         browser.execute_script(pick % "light")
         assert browser.execute_script(theme) == ["light", "light", "ace/theme/textmate", "light", "light"]
+        # Shift with enter sends a comment, Enter writing a new line, until Settings chooses
+        # Enter, and shift with enter then writes the new line. The control key with enter
+        # sends either way, and an Enter that ends a word an input method is still composing
+        # sends once composing ends. The choice is kept for next time.
+        browser.execute_script('''
+          window.sent = 0;
+          document.querySelector("#compose-form").requestSubmit = () => { window.sent += 1; };
+        ''', sandbox=None)
+        press = '''
+          const event = new KeyboardEvent("keydown",
+            {key: "Enter", bubbles: true, cancelable: true, ...arguments[0]});
+          document.querySelector("#compose-text").dispatchEvent(event);
+          return [window.sent, event.defaultPrevented];
+        '''
+        assert browser.execute_script(press, script_args=[{}], sandbox=None) == [0, False]
+        assert browser.execute_script(press, script_args=[{"shiftKey": True}], sandbox=None) == [1, True]
+        browser.execute_script('document.querySelector("[data-send-choice=enter]").click()')
+        assert browser.execute_script('''
+          return [localStorage.getItem("texMcpSendKey"),
+                  document.querySelector("[data-send-choice=enter]").getAttribute("aria-checked"),
+                  document.querySelector("[data-send-choice=shift]").getAttribute("aria-checked")];
+        ''') == ["enter", "true", "false"]
+        assert browser.execute_script(press, script_args=[{"shiftKey": True}], sandbox=None) == [1, False]
+        assert browser.execute_script(press, script_args=[{}], sandbox=None) == [2, True]
+        assert browser.execute_script(press, script_args=[{"ctrlKey": True}], sandbox=None) == [3, True]
+        assert browser.execute_script(press, script_args=[{"isComposing": True}], sandbox=None) == [3, False]
+        browser.execute_script(
+            'document.querySelector("#compose-text").dispatchEvent(new CompositionEvent("compositionend", {data: "가"}))')
+        assert wait_until(lambda: browser.execute_script("return window.sent;", sandbox=None) == 4)
+        browser.execute_script('document.querySelector("[data-send-choice=shift]").click()')
+        assert browser.execute_script(press, script_args=[{}], sandbox=None) == [4, False]
+        assert browser.execute_script(press, script_args=[{"ctrlKey": True}], sandbox=None) == [5, True]
         # Ctrl+Enter in the editor compiles, as the button does.
         browser.execute_script('''
           window.compiles = 0;
