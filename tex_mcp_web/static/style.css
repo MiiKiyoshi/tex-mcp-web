@@ -340,6 +340,9 @@ textarea {
 .source-toolbar button:disabled { cursor: default; opacity: 0.5; }
 .source-toolbar button svg,
 .translation-head button svg { display: block; }
+/* Commenting is what the source is opened for most, so its button takes a thumb's width
+   on every screen. */
+.source-toolbar #source-comment-btn { min-width: 44px; justify-content: center; }
 #source-vim-btn.active,
 #source-wrap-btn.active { background: var(--accent-soft); border-color: var(--accent); }
 .source-status {
@@ -484,8 +487,6 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
   .source-toolbar { flex-wrap: nowrap; gap: 0.25rem; padding: 0.1rem 0.35rem; }
   .source-toolbar button { padding: 0.2rem 0.25rem; }
   .source-toolbar button svg { width: 14px; height: 14px; }
-  /* Commenting is what the phone is held for, so its button takes a thumb's width. */
-  .source-toolbar #source-comment-btn { min-width: 44px; justify-content: center; }
   .source-status { order: 2; flex: 0 0 auto; font-size: 0.62rem; }
   /* The room the row has to spare goes between the file and the buttons, which keep to
      the right beside Saved. */
