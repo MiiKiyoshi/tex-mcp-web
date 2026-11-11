@@ -523,6 +523,7 @@ class TexMcpWebServer:
             self._handle_apply_suggestion,
         )
         app.router.add_post(r"/comments/{id}/reply", self._handle_reply_comment)
+        app.router.add_post("/comments/status", self._handle_set_status)
         app.router.add_post(r"/comments/{id}/resolve", self._handle_resolve_comment)
         app.router.add_post(r"/comments/{id}/reopen", self._handle_reopen_comment)
         app.router.add_post(r"/comments/{id}/archive", self._handle_archive_comment)
@@ -2382,12 +2383,11 @@ class TexMcpWebServer:
                                                "resolve it, or delete it on Overleaf"}, status=409)
         return None
 
-    async def _resolve_on_overleaf(self, cid: str, resolved: bool) -> web.Response | None:
-        """Resolve or reopen a thread from Overleaf there first, as the reviewer, then here:
-        what Overleaf refuses stays as it was on both. None for a thread written here."""
-        thread = next((key for key, known in self._overleaf_ledger().items() if known["comment"] == cid), None)
-        if thread is None:
-            return None
+    async def _set_on_overleaf(self, threads: dict[str, str], resolved: bool) -> web.Response | None:
+        """Resolve or reopen threads from Overleaf there first, as the reviewer, and each one
+        Overleaf takes here too. *threads* maps a thread on Overleaf to its comment here. What
+        Overleaf refuses, and every thread after it, stays as it was on both, and the refusal
+        is returned. None once Overleaf has taken them all."""
         async with self._overleaf_import:
             cookie = overleaf.read_cookie()
             if cookie is None:
@@ -2395,22 +2395,63 @@ class TexMcpWebServer:
             if not self.config.overleaf:
                 return web.json_response({"error": "name the Overleaf project in .tex-mcp-web.yaml first"}, status=409)
             try:
-                await overleaf.set_resolved(self.config.overleaf, cookie, thread, resolved)
+                async for thread in overleaf.set_resolved(self.config.overleaf, cookie, list(threads), resolved):
+                    for follower in (self.overleaf_sync, self.overleaf_hand):
+                        if follower is not None and resolved:
+                            follower.resolved_threads.add(thread)
+                        elif follower is not None:
+                            follower.resolved_threads.discard(thread)
+                    if resolved:
+                        self.comments.resolve(threads[thread], summary="", author="human")
+                    else:
+                        self.comments.reopen(threads[thread], author="human")
             except overleaf.SignedOut as error:
                 return web.json_response({"error": f"{error} (the cookie has expired or is wrong)"}, status=401)
             except overleaf.OverleafError as error:
                 return web.json_response({"error": str(error)}, status=502)
-            for follower in (self.overleaf_sync, self.overleaf_hand):
-                if follower is not None and resolved:
-                    follower.resolved_threads.add(thread)
-                elif follower is not None:
-                    follower.resolved_threads.discard(thread)
-            return await self._mutate_comment(
-                cid,
-                (lambda: self.comments.resolve(cid, summary="", author="human")) if resolved
-                else (lambda: self.comments.reopen(cid, author="human")),
-                acknowledge_only=True,
-            )
+        return None
+
+    async def _resolve_on_overleaf(self, cid: str, resolved: bool) -> web.Response | None:
+        """Resolve or reopen a thread from Overleaf there first, then here. None for a thread
+        written here."""
+        thread = next((key for key, known in self._overleaf_ledger().items() if known["comment"] == cid), None)
+        if thread is None:
+            return None
+        if (refused := await self._set_on_overleaf({thread: cid}, resolved)) is not None:
+            return refused
+        return await self._mutate_comment(cid, lambda: self.comments.get(cid), acknowledge_only=True)
+
+    async def _handle_set_status(self, request: web.Request) -> web.Response:
+        """Give the picked comments one status in one call, and the page one notice. The
+        threads from Overleaf go there first, together, as each would alone."""
+        data, err = await self._read_json(request)
+        if err is not None:
+            return err
+        ids, status = data.get("ids"), data.get("status")
+        if not isinstance(ids, list) or not all(isinstance(cid, str) for cid in ids):
+            return web.json_response({"error": "ids must be a list of comment ids"}, status=400)
+        if status not in ("open", "resolved", "archived"):
+            return web.json_response({"error": "status must be open, resolved or archived"}, status=400)
+        present = {comment.id for comment in self.comments.list()}
+        if missing := [cid for cid in ids if cid not in present]:
+            return web.json_response({"error": f"no comment {', '.join(missing)}"}, status=404)
+        followed = {known["comment"]: thread for thread, known in self._overleaf_ledger().items()}
+        threads = {followed[cid]: cid for cid in ids if cid in followed}
+        if threads and status == "archived":
+            return self._follows_overleaf(next(iter(threads.values())))
+        refused = await self._set_on_overleaf(threads, status == "resolved") if threads else None
+        if refused is None:
+            for cid in ids:
+                if cid in followed:
+                    continue
+                if status == "resolved":
+                    self.comments.resolve(cid, summary="", author="human")
+                elif status == "open":
+                    self.comments.reopen(cid, author="human")
+                else:
+                    self.comments.archive(cid, author="human")
+        await self.broadcast({"type": "comments_changed"})
+        return refused if refused is not None else web.json_response({"ids": ids, "status": status})
 
     async def _handle_resolve_comment(self, request: web.Request) -> web.Response:
         cid = request.match_info["id"]

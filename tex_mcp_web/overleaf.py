@@ -22,6 +22,7 @@ import os
 import re
 import secrets
 import time
+from collections.abc import AsyncIterator
 from html import unescape
 from pathlib import Path
 from typing import Any
@@ -344,22 +345,28 @@ def new_thread_id() -> str:
     return f"{int(time.time()):08x}{secrets.token_hex(8)}"
 
 
-async def set_resolved(link: str, cookie: tuple[str, str], thread: str, resolved: bool, *,
-                       timeout: float = 30) -> None:
-    """Resolve a thread on Overleaf, or reopen it, as the reviewer. Overleaf files the change
-    under the file the thread is on, which its ranges say."""
+async def set_resolved(link: str, cookie: tuple[str, str], threads: list[str], resolved: bool, *,
+                       timeout: float = 30) -> AsyncIterator[str]:
+    """Resolve threads on Overleaf, or reopen them, as the reviewer, one after another on one
+    connection, giving each thread once Overleaf has taken it. Overleaf files the change
+    under the file the thread is on, which its ranges say. The first thread Overleaf refuses
+    raises, and it and the threads after it stay as they were there."""
     server, project = project_of(link)
     async with _session(server, cookie, timeout) as session:
         read = _Reader(session, server)
         ranges = await read.get(f"/project/{project}/ranges")
         docs = ranges.get("docs", []) if isinstance(ranges, dict) else ranges or []
-        doc = next((str(doc.get("id") or doc.get("_id")) for doc in docs if isinstance(doc, dict)
-                    for comment in (doc.get("ranges") or {}).get("comments") or []
-                    if str(((comment or {}).get("op") or {}).get("t")) == thread), None)
-        if doc is None:
-            raise OverleafError("Overleaf has this thread on no file, so nothing was changed there")
-        await read.post(f"/project/{project}/doc/{doc}/thread/{thread}/{'resolve' if resolved else 'reopen'}",
-                        await _write_token(read, project), {})
+        doc_of: dict[str, str] = {}
+        for doc in docs:
+            for comment in ((doc.get("ranges") or {}).get("comments") or []) if isinstance(doc, dict) else []:
+                doc_of.setdefault(str(((comment or {}).get("op") or {}).get("t")), str(doc.get("id") or doc.get("_id")))
+        token = await _write_token(read, project)
+        for thread in threads:
+            if thread not in doc_of:
+                raise OverleafError("Overleaf has this thread on no file, so nothing was changed there")
+            await read.post(f"/project/{project}/doc/{doc_of[thread]}/thread/{thread}/{'resolve' if resolved else 'reopen'}",
+                            token, {})
+            yield thread
 
 
 async def fetch_export(link: str, cookie: tuple[str, str], *, timeout: float = 30) -> dict[str, Any]:

@@ -911,6 +911,22 @@ async def test_reopen_comment(client):
 
 
 @pytest.mark.asyncio
+async def test_picked_comments_change_status_in_one_call(client):
+    tc, _ = client
+    ids = [(await (await tc.post("/comments", json={"anchor": {"kind": "paper"}, "text": t})).json())["id"]
+           for t in ("a", "b", "c")]
+    for status in ("resolved", "archived", "open"):
+        resp = await tc.post("/comments/status", json={"ids": ids[:2], "status": status})
+        assert resp.status == 200 and await resp.json() == {"ids": ids[:2], "status": status}
+        stored = {c["id"]: c for c in (await (await tc.get("/comments")).json())["comments"]}
+        assert [stored[cid]["status"] for cid in ids] == [status, status, "open"]
+        assert [len(stored[cid]["thread"]) for cid in ids] == [1, 1, 1]  # a status change adds no entry
+    resp = await tc.post("/comments/status", json={"ids": [ids[0], "c-00000000"], "status": "resolved"})
+    assert resp.status == 404 and (await (await tc.get(f"/comments/{ids[0]}")).json())["status"] == "open"
+    assert (await tc.post("/comments/status", json={"ids": ids, "status": "done"})).status == 400
+
+
+@pytest.mark.asyncio
 async def test_resolve_comment(client):
     tc, _ = client
     # Create

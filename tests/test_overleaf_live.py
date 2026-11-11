@@ -52,6 +52,7 @@ class FakeRealtime:
         self.threads: dict = {}
         self.ranges: list = []             # what /ranges gives, the words each thread is on
         self.ranges_read = 0
+        self.pages_read = 0                # the editor's page, which gives the token to write with
         self.ranges_after_first_read: list = []
         self.hold_next_reading: asyncio.Event | None = None
         self.reading_held = asyncio.Event()
@@ -75,6 +76,7 @@ class FakeRealtime:
 
     async def _editor_page(self, request: web.Request) -> web.Response:
         self._refuse(request)
+        self.pages_read += 1
         return web.Response(text='<html><head><meta name="ol-csrfToken" content="token-1"></head></html>',
                             content_type="text/html")
 
@@ -583,6 +585,28 @@ async def test_resolve_and_reopen_go_to_overleaf_first(review) -> None:
     await client.post(f"/comments/{comment.id}/resolve", json={"summary": ""})
     await downloaded(client, server, 1)
     assert server.comments.get(comment.id).status == "resolved"
+    await page.close()
+
+
+async def test_picked_threads_go_to_overleaf_on_one_token(review) -> None:
+    """Threads resolved together ask Overleaf for the token to write with once, not once
+    each. What Overleaf refuses stays open on both, and none is archived."""
+    client, server, fake = review
+    fake.threads = {"t1": {"messages": [said("Ann", "One.")]}, "t2": {"messages": [said("Ann", "Two.")]}}
+    fake.ranges += [on_the_words("t1"), on_the_words("t2", "Hi")]
+    page = await opened(client, fake)
+    await downloaded(client, server, 2)
+    ids = [comment.id for comment in server.comments.list()]
+    fake.refuse_writes = True
+    refused = await client.post("/comments/status", json={"ids": ids, "status": "resolved"})
+    assert refused.status == 502 and [comment.status for comment in server.comments.list()] == ["open", "open"]
+    fake.refuse_writes = False
+    pages = fake.pages_read
+    assert (await client.post("/comments/status", json={"ids": ids, "status": "resolved"})).status == 200
+    assert sorted(fake.written) == [("resolve", "t1", "d-main"), ("resolve", "t2", "d-main")]
+    assert fake.pages_read == pages + 1
+    assert [comment.status for comment in server.comments.list()] == ["resolved", "resolved"]
+    assert (await client.post("/comments/status", json={"ids": ids, "status": "archived"})).status == 409
     await page.close()
 
 

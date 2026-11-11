@@ -2580,19 +2580,17 @@ function pickAll() {
   renderComments();
 }
 
-// A picked status change is one call per comment; the thread already holds what was said.
+// The picked comments change status in one call, and the list is drawn again once. The
+// thread already holds what was said.
 async function setPickedStatus(ids, status) {
-  const action = status === "open" ? "reopen" : status === "archived" ? "archive" : "resolve";
-  for (const id of ids) {
-    const response = await fetch(`/comments/${id}/${action}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(action === "resolve" ? { summary: "" } : {}),
-    });
-    if (!response.ok) throw new Error(await responseError(response));
-    state.picked.delete(id);
-  }
+  const response = await fetch("/comments/status", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids, status }),
+  });
+  if (response.ok) for (const id of ids) state.picked.delete(id);
   await refreshComments();
+  if (!response.ok) throw new Error(await responseError(response));
 }
 
 // A reply sent to its thread on Overleaf: null once sent, or why not, with the files its
