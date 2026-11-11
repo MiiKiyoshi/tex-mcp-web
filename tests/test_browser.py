@@ -1858,24 +1858,37 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
     the comments written here."""
     import fitz
 
-    from tex_mcp_web.comments import CommentStore, PaperAnchor
+    from tex_mcp_web.comments import (CommentStore, OverleafDraft, PaperAnchor, ResolvedSource,
+                                      SourceRangeAnchor, capture_source_selector)
+    from tex_mcp_web.mcp_server import _draft_ranges
 
     (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
     with fitz.open() as pdf:
         pdf.new_page().insert_text((72, 72), "Hello world.")
         pdf.save(tmp_path / "paper.pdf")
-    # Threads brought in from Overleaf earlier: their comments here, and the ledger naming
-    # them. The first waits for the reviewer, who answered the second from here and the
-    # third on Overleaf.
+    # Threads on Overleaf earlier: their comments here, and the ledger naming them. The first
+    # waits for the reviewer, who answered the second from here and the third on Overleaf,
+    # and opened the fourth from a draft here.
     kept = CommentStore(tmp_path / ".tex-mcp-web" / "comments.json")
     brought = kept.add(PaperAnchor(), "Say hello properly.", name="A. Reviewer")
     answered = kept.add(PaperAnchor(), "Which words?", name="A. Reviewer")
     kept.sent_to_overleaf(answered.id, "These.", "")
     answered_there = kept.add(PaperAnchor(), "Is this clear?", name="A. Reviewer")
     kept.reply(answered_there.id, "Yes, see the intro.", "human", name="Me Myself")
+
+    def draft(text):
+        ranges, texts = _draft_ranges(tmp_path, ["paper.tex:3-3"])
+        return kept.add_overleaf_thread(
+            SourceRangeAnchor(file="paper.tex", line_start=3, line_end=3), OverleafDraft(text, ranges),
+            ResolvedSource(file="paper.tex", line_start=3, line_end=3),
+            capture_source_selector(tmp_path / "paper.tex", 3, 3), texts)
+
+    opened_here = draft("Opened from here.")
+    kept.sent_to_overleaf(opened_here.id, "Opened from here.", "")
     (tmp_path / ".tex-mcp-web" / "overleaf-imported.json").write_text(json.dumps(
         {"t1": {"comment": brought.id, "messages": 1, "seen": ["#0"]},
-         "t2": {"comment": answered.id, "entries": {}}, "t3": {"comment": answered_there.id, "entries": {}}}),
+         "t2": {"comment": answered.id, "entries": {}}, "t3": {"comment": answered_there.id, "entries": {}},
+         "t4": {"comment": opened_here.id, "entries": {}}}),
         encoding="utf-8")
     port = available_port()
     config_path = tmp_path / ".tex-mcp-web.yaml"
@@ -1935,7 +1948,7 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
         count = lambda selector: browser.execute_script(f'return document.querySelector("{selector}").textContent')
         wait_until(lambda: "Written here." in browser.execute_script(listed))
         assert "Say hello properly." not in browser.execute_script(listed)
-        assert count("#comments-tab-count") == "1" and count("#overleaf-tab-count") == "3"
+        assert count("#comments-tab-count") == "1" and count("#overleaf-tab-count") == "4"
         # However narrow the panel, its four tabs and their counts show: the words give way.
         for width in (520, 240):
             assert browser.execute_script(f'''
@@ -1987,15 +2000,7 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
             'return document.querySelector(\'#comment-filter option[value="archived"]\').hidden') is True
         # A thread the agent drafted for Overleaf waits in this tab, with nothing said in it
         # yet: its first message is the draft, and it is sent or deleted.
-        from tex_mcp_web.comments import OverleafDraft, ResolvedSource, SourceRangeAnchor, capture_source_selector
-        from tex_mcp_web.mcp_server import _draft_ranges
-
-        store = CommentStore(tmp_path / ".tex-mcp-web" / "comments.json")
-        ranges, texts = _draft_ranges(tmp_path, ["paper.tex:3-3"])
-        drafted = store.add_overleaf_thread(
-            SourceRangeAnchor(file="paper.tex", line_start=3, line_end=3), OverleafDraft("Feedback and answer.", ranges),
-            ResolvedSource(file="paper.tex", line_start=3, line_end=3),
-            capture_source_selector(tmp_path / "paper.tex", 3, 3), texts)
+        drafted = draft("Feedback and answer.")
         card = f"[data-comment-id='{drafted.id}']"
         wait_until(lambda: browser.execute_script(f'return document.querySelector("{card} .overleaf-reply-input")?.value')
                    == "Feedback and answer.")
@@ -2006,11 +2011,21 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
         (tmp_path / "paper.tex").write_text(PAPER.replace("\\section", "\\relax\n\\relax\n\\section"), encoding="utf-8")
         wait_until(lambda: browser.execute_script(label) == "paper.tex:5-5", timeout=15)
         assert "New thread on Overleaf" in browser.execute_script(f'return document.querySelector("{card}").textContent')
-        assert count("#overleaf-tab-count") == "4"
+        assert count("#overleaf-tab-count") == "5"
         browser.execute_script(f'document.querySelector("{card} .cmt-head").click()')
         wait_until(lambda: browser.execute_script(f'return document.querySelector("{card} .cmt-actions") !== null'))
         assert browser.execute_script(
             f'return [...document.querySelectorAll("{card} .cmt-actions button")].map((b) => b.textContent)') == ["Delete"]
+        # The new-thread view, under unanswered, holds the threads opened from here: the
+        # drafts still to send, then those already on Overleaf.
+        assert browser.execute_script(
+            'return [...document.querySelectorAll("#comment-filter option")].filter((o) => !o.hidden)'
+            '.map((o) => o.textContent);') == ["unanswered", "new thread", "open", "resolved", "all"]
+        browser.execute_script('const f = document.querySelector("#comment-filter"); f.value = "new";'
+                               ' f.dispatchEvent(new Event("change"));')
+        assert wait_until(lambda: browser.execute_script(
+            'const ids = [...document.querySelectorAll("[data-comment-id]")].map((c) => c.dataset.commentId);'
+            ' return ids.length === 2 ? ids : false;')) == [drafted.id, opened_here.id]
         # The other tab has no unanswered view from the moment it is chosen, not from when its
         # comments arrive.
         browser.execute_script('const f = document.querySelector("#comment-filter"); f.value = "unanswered";'
@@ -2019,7 +2034,8 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
             'document.querySelector(\'.tab-btn[data-tab="comments"]\').click();'
             ' const f = document.querySelector("#comment-filter");'
             ' return [f.value, f.querySelector(\'option[value="unanswered"]\').hidden,'
-            ' document.querySelector("#comment-filter-name").textContent];') == ["open", True, "open"]
+            ' f.querySelector(\'option[value="new"]\').hidden,'
+            ' document.querySelector("#comment-filter-name").textContent];') == ["open", True, True, "open"]
         wait_until(lambda: "Written here." in browser.execute_script(listed))
         assert "Feedback and answer." not in browser.execute_script(
             'return [...document.querySelectorAll(".overleaf-reply-input")].map((b) => b.value).join("|")')

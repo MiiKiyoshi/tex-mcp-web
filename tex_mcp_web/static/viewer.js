@@ -2358,7 +2358,8 @@ async function submitCompose(event) {
 
 async function refreshComments() {
   const status = $("#comment-filter").value;
-  const url = status === "all" ? "/comments" : `/comments?status=${status === "unanswered" ? "open" : status}`;
+  const url = status === "all" ? "/comments"
+    : `/comments?status=${status === "unanswered" || status === "new" ? "open" : status}`;
   const [response, overleaf] = await Promise.all([fetch(url), fetch("/overleaf")]);
   if (!response.ok) throw new Error(await responseError(response));
   const data = await response.json();
@@ -2377,21 +2378,25 @@ async function refreshComments() {
   const here = data.comments.filter((comment) => !forOverleaf(comment));
   renderCommentTabs(opened(here), opened(onOverleaf));
   data.comments = state.commentTab !== "overleaf-comments" ? here
-    : status === "unanswered" ? onOverleaf.filter(answeredByOthers) : onOverleaf;
+    : status === "unanswered" ? onOverleaf.filter(answeredByOthers)
+    : status === "new" ? [...onOverleaf.filter(draftedThread), ...onOverleaf.filter(openedHere)]
+    : onOverleaf;
   renderOverleafThreadSync();
   // The open view keeps the server's order: the comments written here in the order they
   // were written, and Overleaf's threads in the order the paper reads them, as Overleaf's
-  // review panel has them. The resolved view leads with the comment closed last, the one the
-  // reader has just closed and looks for. The mixed view leads with the one written
-  // last, by when it was written and not by when it was last touched: closing a comment
-  // touches it, so by that measure every closed comment stood above every open one.
+  // review panel has them. The new-thread view puts the drafts still to send above the
+  // threads already opened from them, each in the paper's order. The resolved view leads
+  // with the comment closed last, the one the reader has just closed and looks for. The
+  // mixed view leads with the one written last, by when it was written and not by when it
+  // was last touched: closing a comment touches it, so by that measure every closed comment
+  // stood above every open one.
   // The archive view leads with the thread touched last: what was kept to be read
   // again is read again when something is added to it.
   const moment = status === "resolved"
     ? (comment) => comment.resolved ?? comment.created
     : status === "archived" ? (comment) => comment.updated
     : (comment) => comment.created;
-  state.comments = status === "open" || status === "unanswered" ? data.comments
+  state.comments = status === "open" || status === "unanswered" || status === "new" ? data.comments
     : [...data.comments].sort((first, second) => (moment(first) < moment(second) ? 1
       : moment(first) > moment(second) ? -1 : 0));
   renderComments();
@@ -2403,6 +2408,11 @@ async function refreshComments() {
 // has been said in it until the reviewer sends its draft.
 function draftedThread(comment) {
   return comment.thread.length === 0 && Boolean(comment.overleaf_draft);
+}
+
+// A thread opened on Overleaf from here: its first message is the draft the reviewer sent.
+function openedHere(comment) {
+  return comment.thread[0]?.overleaf !== undefined;
 }
 
 function forOverleaf(comment) {
@@ -2433,13 +2443,13 @@ function renderCommentTabs(here, onOverleaf) {
 }
 
 // The row above the list holds what the shown tab can do, from the moment the tab is chosen:
-// Overleaf has no archive, and only its threads wait for an answer.
+// Overleaf has no archive, and only its threads wait for an answer or are opened from here.
 function renderCommentFilter() {
   const leaf = state.commentTab === "overleaf-comments";
   const filter = $("#comment-filter");
   filter.querySelector('option[value="archived"]').hidden = leaf;
-  filter.querySelector('option[value="unanswered"]').hidden = !leaf;
-  if (filter.value === (leaf ? "archived" : "unanswered")) setCommentFilter("open");
+  for (const value of ["unanswered", "new"]) filter.querySelector(`option[value="${value}"]`).hidden = !leaf;
+  if (filter.selectedOptions[0].hidden) setCommentFilter("open");
   $("#archive-picked-btn").hidden = leaf;
 }
 
