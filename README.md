@@ -4,9 +4,14 @@
 
 Review a LaTeX paper from its rendered PDF, on a desktop, tablet, or phone, while Claude Code or Codex edits the source.
 
-> ⭐ **If this helps your writing, please give it a star.** It helps others find the project.
+![A sentence selected in the PDF takes a comment asking for a number. Called, the agent proposes a wording as a −/+ pair, the source marks the words it would replace, and once the wording is applied and the paper compiled, the PDF shows the new sentence.](docs/images/pdf-review.gif)
 
-![A caption flagged in the PDF, the source line the agent proposes to change marked in red, and its proposed \vspace with Apply suggestion.](docs/images/discussion.png)
+Select words in the PDF, or draw a box over part of a figure, and write what should change.
+Press **Call agent**, the bell above the comments, when they are ready. The agent edits the
+source, compiles, and answers in the thread, at times with a wording to apply. The keys at the
+bottom right are the ones pressed.
+
+> ⭐ **If this helps your writing, please give it a star.** It helps others find the project.
 
 ## Quick start
 
@@ -22,35 +27,40 @@ Review a LaTeX paper from its rendered PDF, on a desktop, tablet, or phone, whil
 2. Start the agent in the paper's folder and say `do tex init`. It finds the main `.tex` file
    and a free port, shows you the settings, and writes `.tex-mcp-web.yaml` once you agree.
 
-3. Open `http://localhost:<port>`. With the plugin the install adds, a recent Claude Code
-   session started in the paper's folder listens for your comments by itself. Elsewhere,
-   say `do tex listen`, and again after the agent restarts.
-
-## Comment on the PDF, and the agent edits the source
-
-Select words in the PDF, or draw a box over part of a figure, and write what should change.
-Press **Call agent** when your comments are ready. The agent edits the source, compiles, and
-answers in the same thread, naming the lines it changed. A wording it proposes shows as a −/+
-pair with **Apply suggestion**. **Resolve** a thread you are happy with, or **Reply** when you
-are not.
+3. Open `http://localhost:<port>`. The agent acts when you press **Call agent**. With the
+   plugin the install adds, a Claude Code session started in the paper's folder waits for
+   that press by itself. In Codex, or a Claude Code that runs no plugin monitors, say
+   `do tex listen` first, and again after the agent restarts.
 
 ## Answer your co-authors' Overleaf comments, with the agent
 
-Paste the Overleaf project's link in **Settings**, and its comment threads come into the leaf
-**Comments** tab, on the words they were written about. Each thread holds everything said
-about those words, in the order it was said: your co-authors' messages from Overleaf, the
-replies you sent, and the talk you have with the agent in between, where you correct it,
-think aloud and settle what to answer. That talk stays on this page. Overleaf gets only the
-reply you send, which the agent drafts under the thread and you edit first.
+Press **Connect Overleaf** in the top bar and paste the project's link. Its comment threads
+come into a tab of their own, **Comments** with a leaf, beside the comments you write here. In
+a thread you talk with the agent, which drafts the reply for Overleaf under it, and you send
+that reply once it reads right.
 
-How the paper's files keep in step with Overleaf, by git, by Get and Send, or live, is in
+![A co-author's thread from Overleaf, where the agent misread the request and drafted a gushing reply. A reply to the agent sets it right, and once called, the agent fixes the sentence, the PDF shows it, and the draft for Overleaf becomes one short line, sent with ss.](docs/images/overleaf-thread.gif)
+
+Your talk with the agent stays on the page, in the thread between your co-authors' messages,
+so the whole exchange reads in order. Overleaf gets only the replies you send.
+
+![The same thread twice. On the review page it holds the co-author's comment, the talk with the agent, each entry of it marked here only, and the reply sent. On Overleaf it holds the comment and the reply sent, and nothing else.](docs/images/overleaf-thread-split.png)
+
+Keeping the paper's files in step with Overleaf, by git, by hand or live, is in
 [Working with Overleaf](docs/overleaf.md).
+
+## Raise a point with your co-authors on Overleaf
+
+![A paper note asks the agent to put a question to the co-author. Called, the agent drafts a new thread on the table's header row, which waits in the leaf Comments tab under new thread. A few words added with i, it is sent with ss and its first message shows as sent.](docs/images/new-thread.gif)
+
+Ask the agent, in a note or in any thread, to put a question to your co-authors. It drafts a
+new thread on the lines in question, which waits in the leaf **Comments** tab under **new
+thread**. Edit it there and send it, and it opens on Overleaf on those lines.
 
 ## Go through the comments by keyboard
 
-The comment list goes by keys, as a notebook's cells do. The ringed comment stays a third of
-the way down the list, and Space shows its words in the source a third of the way down the
-editor, so the eye stays put.
+The comment list goes by keys, as a notebook's cells do. A ring marks the comment the keys act
+on, and the list moves under it, so the eye stays put.
 
 | Key | Does |
 |---|---|
@@ -63,18 +73,19 @@ editor, so the eye stays put.
 | `?` | Every key |
 
 Keys that change the file, post to Overleaf or delete are pressed twice. Once you move by keys,
-the ringed comment's buttons show their letters. The editor has Vim keys too. Both are in
+the ringed comment's buttons show their letters. Every key, and the editor's Vim keys, are in
 [Reviewing in detail](docs/reviewing.md).
 
 ## Review on a tablet or phone
 
-![The review page on a tablet and a phone, zoomed to a commented caption: the PDF above, its thread below.](docs/images/mobile.png)
+![The review page at a tablet's width and at a phone's, each on the same comment: the PDF above, zoomed to the commented sentence, and the thread with the agent's proposal below.](docs/images/mobile.png)
 
-Forward the port you chose at init over SSH, from Termux on Android or iSH on iOS, then open
-`http://localhost:<port>` in the phone's browser.
+The page is served where the agent runs. From a phone, forward its port over SSH from that
+machine, with Termux on Android or iSH on iOS, then open `http://localhost:<port>` in the
+phone's browser:
 
 ```
-ssh -L <port>:localhost:<port> <server>
+ssh -L <port>:localhost:<port> <the machine the agent runs on>
 ```
 
 ## Writes in your field's terms
@@ -82,13 +93,12 @@ ssh -L <port>:localhost:<port> <server>
 Left alone, an agent describes a concept in words of its own where the papers of your field
 use one term. Convert the papers yours builds on to Markdown with
 [marker](https://github.com/datalab-to/marker), keep them in one folder, and set `references`
-to it. In Claude Code the tools then stay locked until the agent has read the terms those
-papers share, and lock again after every compaction.
+to it. In Claude Code the agent then cannot use tex-mcp's tools until it has read the terms
+those papers share, and reads them again after its context is compacted.
 
 ## Configuration
 
-`.tex-mcp-web.yaml` sits at the paper's root. A saved change applies at once, except `port` and
-`dir`, which apply when Claude Code or Codex restarts.
+`do tex init` writes `.tex-mcp-web.yaml` at the paper's root:
 
 ```yaml
 main: main.tex
@@ -106,20 +116,7 @@ translation:
 overleaf: https://www.overleaf.com/project/0123456789abcdef01234567
 ```
 
-| Field | Effect |
-|---|---|
-| `main` | Top-level source file compiled into the PDF. |
-| `dir` | Folder holding the paper, relative to this file or absolute. Unset means this file's folder. |
-| `watch` | Source files the Source tab offers. |
-| `ignore` | Patterns excluded even when they match `watch`. |
-| `compiler` | `auto` (latexmk for LaTeX, pandoc for Markdown or text), `latexmk`, `pdflatex`, `xelatex`, `lualatex`, or `pandoc`. |
-| `port` | This paper's review page port. Any free port works. Init picks the first free one from 8765, so each paper can have its own. |
-| `guideline` | The writing guideline the agent reads before editing, by its folder's name. `neutral-paper` is installed. A folder of your own under `~/.config/tex-mcp-web/guidelines/<name>/` holding a `GUIDELINE.md` is chosen the same way, and replaces an installed one of the same name. A guideline whose file opens with front matter `extends: <name>` is read after the one it names. Unset means none. |
-| `references` | Folder holding only the papers yours builds on, converted to Markdown, relative to this file or absolute. Unset means no list of their terms. |
-| `translation` | `language` puts a button for that language beside **+ Note** that shows each paragraph of the source translated by `claude -p`, with those on the current page marked. `instructions` adds rules for the translator, one per line. A paragraph is translated once per text, and of a figure or table only the caption is. Unset means no translation. |
-| `overleaf` | The paper's Overleaf project, by its link, which an open page follows and the sync button reads. Unset means none. |
-| `overleaf_add` | Patterns for the files only here that go to the Overleaf project, by **Send** or under **Live** by themselves, in a folder that is no git clone. Unset means the paper's sources and figures: `*.tex`, `*.bib`, `*.sty`, `*.cls`, `*.bst`, `*.png`, `*.jpg`, `*.jpeg`, `*.pdf`, `*.eps` and `*.svg`. A file of a kind the project already holds is added too, and the paper's compiled PDF never is. |
-| `overleaf_sync` | `true` is **Live** in Settings, which keeps the paper's files and the project's the same both ways while a page is open, and brings new threads in by themselves. Unset is **By hand**: files change only by git pull and commit & push in a git clone, or by Get and Send otherwise. |
+Every field is in [Configuration](docs/configuration.md).
 
 ## See also
 
@@ -127,4 +124,4 @@ overleaf: https://www.overleaf.com/project/0123456789abcdef01234567
 
 ## Acknowledgements
 
-tex-mcp-web is a hard fork of [queelius/scholia at commit `e6c7454`](https://github.com/queelius/scholia/commit/e6c745400d2ad70fb43eca053e31183d48765f89) (version 0.6.1), independently developed since under the MIT license. See [`LICENSE`](LICENSE). PDF viewing uses [EmbedPDF](https://github.com/embedpdf/embed-pdf-viewer) and its PDFium WebAssembly engine, whose notices are in [`tex_mcp_web/static/embedpdf/LICENSE`](tex_mcp_web/static/embedpdf/LICENSE) and [`tex_mcp_web/static/embedpdf/LICENSE.pdfium`](tex_mcp_web/static/embedpdf/LICENSE.pdfium). The bundled viewer differs from its release in its zoom gesture alone: a wheel or pinch inside a column keeps that column, the half of the page it is on, whole in the pane while the pane holds it and filling the pane once it is wider. On the middle of the page it zooms about the pointer, and a mouse notch steps by a quarter. Source highlighting and completion use [Ace Editor builds 1.44.0](https://github.com/ajaxorg/ace-builds/tree/v1.44.0) under the BSD-3-Clause license, and its notice is in [`tex_mcp_web/static/ace/LICENSE`](tex_mcp_web/static/ace/LICENSE).
+tex-mcp-web is a hard fork of [queelius/scholia at commit `e6c7454`](https://github.com/queelius/scholia/commit/e6c745400d2ad70fb43eca053e31183d48765f89) (version 0.6.1), independently developed since under the MIT license. See [`LICENSE`](LICENSE). PDF viewing uses [EmbedPDF](https://github.com/embedpdf/embed-pdf-viewer) and its PDFium WebAssembly engine, whose notices are in [`tex_mcp_web/static/embedpdf/LICENSE`](tex_mcp_web/static/embedpdf/LICENSE) and [`tex_mcp_web/static/embedpdf/LICENSE.pdfium`](tex_mcp_web/static/embedpdf/LICENSE.pdfium). The bundled viewer differs from its release only in its zoom gesture, described in [Reviewing in detail](docs/reviewing.md#the-pdf). Source highlighting and completion use [Ace Editor builds 1.44.0](https://github.com/ajaxorg/ace-builds/tree/v1.44.0) under the BSD-3-Clause license, and its notice is in [`tex_mcp_web/static/ace/LICENSE`](tex_mcp_web/static/ace/LICENSE).

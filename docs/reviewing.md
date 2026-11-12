@@ -21,6 +21,12 @@
   listening agent edits the source, compiles, and replies in the same thread. Without
   listen, ask the agent in chat to handle the tex comments.
 
+## The PDF
+
+A wheel or pinch over one column of a two-column page keeps that column in view: whole while
+it fits the pane, and filling the pane's width once it is wider. Over the middle of the page the
+zoom centres on the pointer. A mouse-wheel notch zooms by a quarter.
+
 ## Threads
 
 - **Resolve** a thread whose edit satisfies you, or **Reply** in it when it does not.

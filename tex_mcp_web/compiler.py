@@ -455,7 +455,15 @@ async def compile_tex(
         else:
             unwrapped = _unwrap_log(log_output)
             errors = _parse_errors(unwrapped, str(main_file.name))
-            warnings = _parse_warnings(unwrapped, str(main_file.name))
+            # latexmk runs the engine until the references settle, and each pass prints the
+            # warnings it met, a reference not yet defined among them. The warnings that stand
+            # are the last pass's, which its log file holds.
+            final_log = work_dir / f"{main_file.stem}.log"
+            if final_log.is_file() and final_log.stat().st_mtime >= start_time.timestamp():
+                standing = _unwrap_log(final_log.read_text(encoding="utf-8", errors="replace"))
+            else:
+                standing = unwrapped
+            warnings = _parse_warnings(standing, str(main_file.name))
 
         if process.returncode != 0 and not errors:
             raw_output = "\n".join(part for part in (log_output, stderr_text) if part)

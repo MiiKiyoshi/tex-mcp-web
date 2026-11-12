@@ -513,3 +513,22 @@ async def test_compile_rebuilds_a_pdf_built_outside_without_synctex(tmp_path):
 
     assert result.success is True
     assert (tmp_path / "main.synctex.gz").exists()
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(shutil.which("latexmk") is None, reason="latexmk is required")
+async def test_warnings_are_those_the_last_pass_leaves(tmp_path):
+    """A first build's first pass meets a reference not yet defined, and the pass after it
+    resolves it: the build ends with no warning, while one that stands is kept."""
+    main_file = tmp_path / "main.tex"
+    main_file.write_text(
+        "\\documentclass{article}\n\\begin{document}\nSee Section~\\ref{sec:end}.\n"
+        "\\section{End}\\label{sec:end}\nDone.\n\\end{document}\n", encoding="utf-8")
+
+    settled = await compile_tex(main_file, work_dir=tmp_path)
+
+    assert settled.success is True and settled.warnings == []
+    main_file.write_text(main_file.read_text(encoding="utf-8").replace("sec:end}.", "sec:gone}."),
+                         encoding="utf-8")
+    standing = await compile_tex(main_file, work_dir=tmp_path)
+    assert any("sec:gone" in warning.message for warning in standing.warnings)
