@@ -4036,15 +4036,21 @@ function pressPickedOr(rows, card) {
   }
 }
 
-// The keys move the ring alone: every card stays as it was, and the list scrolls only to keep
-// the ring in sight.
+// Where the keys keep the ringed card's top: a third of the way down the list, so the eye stays
+// put while the comments move under it. The list's two ends hold it back where it cannot scroll.
+const RING_AT = 1 / 3;
+
+// The keys move the ring alone: every card stays as it was, and the list scrolls at once, not
+// smoothly, to put the ring in its place.
 function moveFocus(to) {
   const last = state.comments.length - 1;
   if (last < 0) return;
   const comment = state.comments[to(state.comments.findIndex((item) => item.id === state.focusedCommentId), last)];
   state.focusedCommentId = comment.id;
   renderComments();
-  $(`#comments-list [data-comment-id="${CSS.escape(comment.id)}"]`)?.scrollIntoView({ block: "nearest" });
+  const card = $(`#comments-list [data-comment-id="${CSS.escape(comment.id)}"]`);
+  const list = $("#comments-list");
+  if (card) list.scrollTop += card.getBoundingClientRect().top - list.getBoundingClientRect().top - list.clientHeight * RING_AT;
 }
 
 async function showFocused() {
@@ -4052,12 +4058,19 @@ async function showFocused() {
   await jumpToComment(state.focusedCommentId);
 }
 
+// A card opened shows its end, where the thread's latest words and the draft for Overleaf are,
+// before its top when it is taller than the list.
 function foldFocused() {
   const comment = focused();
   if (comment === undefined) return;
-  if (state.expanded.has(comment.id)) state.expanded.delete(comment.id);
-  else state.expanded.add(comment.id);
+  const opening = !state.expanded.has(comment.id);
+  if (opening) state.expanded.add(comment.id);
+  else state.expanded.delete(comment.id);
   renderComments();
+  const card = $(`#comments-list [data-comment-id="${CSS.escape(comment.id)}"]`);
+  const list = $("#comments-list");
+  const below = card ? card.getBoundingClientRect().bottom - list.getBoundingClientRect().bottom + 8 : 0;
+  if (opening && below > 0) list.scrollTop += below;
 }
 
 function writeForOverleaf() {
