@@ -539,7 +539,8 @@ async function initializePdfViewer(pdfView) {
       setSidebarCollapsed(false);
       switchTab(state.commentTab);
       const comment = state.comments.find((item) => item.id === commentId);
-      if (comment) focusComment(comment);
+      // The comment the list has just opened and shown here is left as the list has it.
+      if (comment && !(comment.id === state.focusedCommentId && state.expanded.has(comment.id))) focusComment(comment);
       return;
     }
     const selected = state.annotations.getSelectedAnnotation();
@@ -3920,9 +3921,8 @@ const COMMENT_KEYS = [
       run: () => moveFocus((at) => Math.max(at - 1, 0)) },
     { keys: ["gg", "Home"], does: "First comment", inRange: true, run: () => moveFocus(() => 0) },
     { keys: ["G", "End"], does: "Last comment", inRange: true, run: () => moveFocus((at, last) => last) },
-    { keys: ["Enter"], does: "Show where it is in the paper or the source, keeping the keys here",
-      run: () => showFocused() },
-    { keys: [" "], does: "Open or close it", inRange: true, run: () => foldFocused() },
+    { keys: [" "], does: "Open or close it, opening it showing where it is in the paper or the source",
+      inRange: true, run: () => foldFocused() },
     { keys: ["Shift+Space"], does: "Open or close every comment", run: () => foldAll() },
   ]],
   ["Write", [
@@ -4057,13 +4057,9 @@ function moveFocus(to) {
   list.scrollTop += it.top - box.top - Math.max(0, list.clientHeight * RING_AT - it.height / 2);
 }
 
-async function showFocused() {
-  if (focusedCard() === null) return;
-  await jumpToComment(state.focusedCommentId);
-}
-
 // A card opened shows its end, where the thread's latest words and the draft for Overleaf are,
-// before its top when it is taller than the list.
+// before its top when it is taller than the list, and the paper or the source shows where the
+// comment is. The keys stay with the list.
 function foldFocused() {
   const comment = focused();
   if (comment === undefined) return;
@@ -4074,7 +4070,9 @@ function foldFocused() {
   const card = $(`#comments-list [data-comment-id="${CSS.escape(comment.id)}"]`);
   const list = $("#comments-list");
   const below = card ? card.getBoundingClientRect().bottom - list.getBoundingClientRect().bottom + 8 : 0;
-  if (opening && below > 0) list.scrollTop += below;
+  if (!opening) return;
+  if (below > 0) list.scrollTop += below;
+  jumpToComment(comment.id).catch((error) => console.error(error));
 }
 
 function writeForOverleaf() {
@@ -4187,8 +4185,8 @@ function attachCommentKeys() {
     if (event.metaKey || event.ctrlKey || event.altKey || document.querySelector("dialog[open]")) return;
     if (target.isContentEditable || target.closest?.("textarea, select, [contenteditable]")
         || (target.tagName === "INPUT" && !["checkbox", "radio"].includes(target.type))) return;
-    // Enter and Space on a button or a box press it.
-    if ((event.key === "Enter" || event.key === " ") && target.closest?.("button, a, summary, input")) return;
+    // Space on a button or a box presses it.
+    if (event.key === " " && target.closest?.("button, a, summary, input")) return;
     // A Korean input method gives a letter key as the letter it composes.
     const typed = event.isComposing || event.key === "Process" || COMPOSED.test(event.key)
       ? keyByPosition(event) : event.key;

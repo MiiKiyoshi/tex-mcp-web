@@ -306,13 +306,13 @@ choice.
 
 - `j` and `k`, or ↓ and ↑, move the ring to the next and the previous comment, and leave
   every card as it was. The list moves under the ring, whose card keeps its middle a third
-  of the way down but at the list's two ends, so the eye stays put. `gg` or Home goes to the first, and `G`
-  or End to the last. Space opens or closes the ringed card, and an opened card shows its
-  end, where the thread's latest words and the draft for Overleaf are. Shift+Space opens or
-  closes every card.
-- Enter shows where the comment is, in the PDF or the source, and the keys stay with the
-  list. A click on a comment does the same and puts the ring on it, and choosing a comment
-  tab or a view in the list atop gives the keys back to the comments.
+  of the way down but at the list's two ends, so the eye stays put. `gg` or Home goes to
+  the first, and `G` or End to the last.
+- Space opens or closes the ringed card. An opened card shows its end, where the thread's
+  latest words and the draft for Overleaf are, and the PDF or the source shows where the
+  comment is, the keys staying with the list. Shift+Space opens or closes every card. A
+  click on a card puts the ring on it as well, and choosing a comment tab or a view in the
+  list atop gives the keys back to the comments.
 - `r` replies here, where the agent reads it and Overleaf does not, `i` puts the cursor in
   the thread's reply for Overleaf, `e` edits the last thing you wrote in the thread, and `c`
   adds a paper note. Escape leaves the box and gives the keys back to the comments: a reply

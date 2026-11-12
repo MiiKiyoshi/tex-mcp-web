@@ -1756,7 +1756,7 @@ def test_the_comment_list_goes_by_keys(tmp_path: Path) -> None:
         def status(comment_id):
             return get_json(f"{base}/comments/{comment_id}")["status"]
 
-        escape, enter, home, end = "", "", "", ""
+        escape, home, end = "", "", ""
         # The ring moves and opens no card.
         press("j")
         assert [ringed(), opened()] == [first, []]
@@ -1805,10 +1805,16 @@ def test_the_comment_list_goes_by_keys(tmp_path: Path) -> None:
         assert browser.execute_script(letters)[0] is True
         assert ringed() == source
 
-        # Enter shows the comment's words in the source, and the keys stay with the list.
+        # Space opening a card shows the comment's words in the source, and the keys stay with
+        # the list. Closing it shows nothing.
         editor = '''const page = window.wrappedJSObject || window;
           const editor = page.ace.edit("source-editor");'''
-        press(enter)
+        browser.execute_script(f'{editor} editor.moveCursorTo(0, 0); document.querySelector("[data-view=pdf]").click();')
+        wait_until(lambda: browser.execute_script('return document.querySelector(".layout").classList.contains("view-pdf")'))
+        browser.execute_script("document.activeElement.blur();")
+        press(" ")
+        assert browser.execute_script('return document.querySelector(".layout").classList.contains("view-pdf")')
+        press(" ")
         wait_until(lambda: browser.execute_script(
             f'{editor} return editor.getCursorPosition().row === 3'
             ' && document.querySelector(".layout").classList.contains("view-source");'))
