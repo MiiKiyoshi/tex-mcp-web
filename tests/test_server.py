@@ -1311,13 +1311,14 @@ def test_tools_keep_the_bound_project_when_a_closer_config_appears(tmp_path, mon
 
 
 @pytest.mark.asyncio
-async def test_setup_info_reports_paths_without_connecting(tmp_path):
+async def test_setup_info_reports_paths_without_connecting(tmp_path, monkeypatch):
     pytest.importorskip("mcp")
     import threading
 
     from tex_mcp_web.mcp_client import ProjectBinding
     from tex_mcp_web.mcp_server import create_server
 
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "home"))
     parent = tmp_path / "parent"
     child = parent / "child"
     child.mkdir(parents=True)
@@ -1333,7 +1334,7 @@ async def test_setup_info_reports_paths_without_connecting(tmp_path):
     files = sorted(tmp_path.rglob("*"))
     try:
         told = await setup_info()
-        assert "neutral-paper" in told.pop("guidelines")["built_in"]["entries"]
+        assert told.pop("guidelines")["entries"] is None
         assert told == {
             "startup_dir": str(child.resolve()),
             "discovered_config_path": str(config.resolve()),
@@ -1449,9 +1450,12 @@ async def test_guide_lists_the_papers_guideline_base_first(bound_project, projec
     from tex_mcp_web.mcp_server import create_server
 
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "home"))
-    mine = tmp_path / "home" / "tex-mcp-web" / "guidelines" / "my-field"
-    mine.mkdir(parents=True)
-    (mine / "GUIDELINE.md").write_text("---\nextends: neutral-paper\n---\n# My field\n")
+    base = tmp_path / "home" / "tex-mcp-web" / "guidelines" / "plain-writing"
+    base.mkdir(parents=True)
+    (base / "GUIDELINE.md").write_text("# Plain writing\n")
+    mine = base.parent / "my-field"
+    mine.mkdir()
+    (mine / "GUIDELINE.md").write_text("---\nextends: plain-writing\n---\n# My field\n")
     mcp = create_server(bound_project)
 
     async def guide():
@@ -1461,7 +1465,7 @@ async def test_guide_lists_the_papers_guideline_base_first(bound_project, projec
     assert (await guide())["read"] == []
     config.write_text(config.read_text() + "guideline: my-field\n")
     read = (await guide())["read"]
-    assert [Path(path).parent.name for path in read] == ["neutral-paper", "my-field"]
+    assert [Path(path).parent.name for path in read] == ["plain-writing", "my-field"]
     config.write_text(config.read_text().replace("my-field", "nowhere"))
     assert "guideline not found" in (await guide())["error"]
 

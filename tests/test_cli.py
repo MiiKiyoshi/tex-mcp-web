@@ -102,12 +102,11 @@ def test_config_sets_the_reference_papers(project_dir, capsys):
     assert yaml.safe_load((project_dir / ".tex-mcp-web.yaml").read_text())["references"] == "../related"
 
 
-def test_init_chooses_the_neutral_guideline_and_config_takes_only_one_that_exists(project_dir, capsys,
-                                                                                  monkeypatch):
+def test_init_chooses_no_guideline_and_config_takes_only_one_that_exists(project_dir, capsys, monkeypatch):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(project_dir / "home"))
     main(["init", "--main", "main.tex"])
     config = project_dir / ".tex-mcp-web.yaml"
-    assert yaml.safe_load(config.read_text())["guideline"] == "neutral-paper"
+    assert "guideline" not in yaml.safe_load(config.read_text())
     assert main(["config", "guideline", "nowhere"]) == 1
     assert "guideline not found" in capsys.readouterr().err
     assert main(["config", "guideline", "../elsewhere"]) == 1

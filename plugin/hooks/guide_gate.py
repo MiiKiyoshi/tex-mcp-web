@@ -2,8 +2,9 @@
 """Claude Code hooks that keep an agent from working on a paper through tex-mcp before it has
 read, in the context it is working in, the files guide() lists.
 
-guide() names the files to read in full: the terms the paper's reference papers use, when
-the paper sets references. A context that calls it records those files as unread, a Read that
+guide() names the files to read in full: the paper's guideline and the ones it extends, when
+the paper sets guideline, and the terms the paper's reference papers use, when the paper sets
+references. A context that calls it records those files as unread, a Read that
 returned a whole file, or found it unchanged since doing so, takes it off, and every tex-mcp
 tool but guide(), setup_info() and image() is refused while guide() has not answered in this
 context or a listed file has not been read in full. image() only draws a page, which looking at

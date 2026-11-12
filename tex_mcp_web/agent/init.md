@@ -30,10 +30,8 @@ connection has been verified.
 - Compiler: `command -v latexmk`. Missing: tell the user, and do not install a TeX distribution.
 - References: a folder the user names that holds the papers theirs builds on, converted to
   Markdown. Unnamed: leave it unset.
-- Guideline: `setup_info()` lists the installed guidelines and the user's own, with each
-  folder's absolute path and entries. A user guideline of the same name replaces the
-  installed one. Mark an entry without GUIDELINE.md rather than falling back to the
-  installed copy. neutral-paper, the installed one, is the default.
+- Guideline: `setup_info()` lists the user's guidelines folder, with its absolute path and
+  entries. Mark an entry without GUIDELINE.md, which cannot be chosen. None is the default.
 
 ## 2. Confirm
 
@@ -47,12 +45,12 @@ Show one summary, in the user's language, like:
     ignore   : *_backup.tex
     compiler : auto (latexmk)
     references : ../related  (the reference papers in Markdown, relative to the config)
-    guideline : neutral-paper  (writing rules the agent reads before editing, the default)
+    guideline : my-field  (writing rules the agent reads before editing)
 
-Leave out `dir` when the paper is in the startup directory, and `references` when the user
-named no folder. Under guideline, list the user's guidelines beside neutral-paper, each with
-one line on what it is for, read from its first lines. Ask once. A choice the user has
-already approved is not asked again.
+Leave out `dir` when the paper is in the startup directory, `references` when the user named
+no folder, and `guideline` when the user has none. Under guideline, list the user's
+guidelines and none, each with one line on what it is for, read from its first lines, with
+none as the default. Ask once. A choice the user has already approved is not asked again.
 
 ## 3. Write
 

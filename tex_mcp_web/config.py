@@ -50,7 +50,7 @@ class Config:
         references: Folder of reference papers converted to Markdown, relative to the
             config file's folder or absolute. Unset means no list of their terms.
         guideline: The writing guideline the agent reads before editing, by its folder's
-            name under the user's guidelines or the installed ones. Unset means none.
+            name under the user's guidelines folder. Unset means none.
         translation_language: Language the page's translation panel shows the source in,
             from ``translation: {language: ...}``. Unset means no translation panel.
         translation_instructions: Extra rules the translator follows, such as a field's
@@ -142,7 +142,7 @@ def _guideline(data: dict[str, Any]) -> str | None:
     if raw is None:
         return None
     if not isinstance(raw, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", raw):
-        raise ValueError("guideline must name a folder under guidelines/, such as neutral-paper")
+        raise ValueError("guideline must name a folder under guidelines/")
     return raw
 
 
@@ -253,7 +253,6 @@ def create_config(
         "ignore": ignore or ["*_backup.tex"],
         "compiler": compiler,
         "port": port,
-        "guideline": "neutral-paper",
     }
 
     with open(output_path, "w") as f:
@@ -300,35 +299,24 @@ def user_config_dir() -> Path:
     return Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "tex-mcp-web"
 
 
-def guideline_roots() -> dict[str, Path]:
-    """The folders guidelines come from. A name in the user's folder is used instead of the
-    installed one of the same name."""
-    return {"built_in": Path(__file__).resolve().parent / "guidelines", "user": user_config_dir() / "guidelines"}
+def guidelines_dir() -> Path:
+    """The folder of the user's guidelines, one folder each, holding its GUIDELINE.md."""
+    return user_config_dir() / "guidelines"
 
 
 def list_guidelines() -> dict[str, Any]:
-    """Each guideline folder with its entries (None when the folder is missing), the folder
-    each name is read from, and entries without a GUIDELINE.md."""
-    choices: dict[str, Any] = {}
-    used: dict[str, str] = {}
-    incomplete: list[str] = []
-    for source, root in guideline_roots().items():
-        entries = (sorted(path.name for path in root.iterdir()
-                          if path.is_dir() and not path.name.startswith((".", "_")))
-                   if root.is_dir() else None)
-        choices[source] = {"dir": str(root), "entries": entries}
-        for name in entries or []:
-            used[name] = source          # the user's folder comes second and wins, as in lookup
-            if not (root / name / "GUIDELINE.md").is_file():
-                incomplete.append(f"{source}/{name}")
-    return {**choices, "used": used, "incomplete": incomplete}
+    """The guidelines folder with its entries (None when the folder is missing) and the
+    entries without a GUIDELINE.md."""
+    root = guidelines_dir()
+    entries = (sorted(path.name for path in root.iterdir()
+                      if path.is_dir() and not path.name.startswith((".", "_")))
+               if root.is_dir() else None)
+    return {"dir": str(root), "entries": entries,
+            "incomplete": [name for name in entries or [] if not (root / name / "GUIDELINE.md").is_file()]}
 
 
 def _guideline_file(name: str) -> Path:
-    roots = guideline_roots()
-    if (roots["user"] / name).is_dir():
-        return (roots["user"] / name / "GUIDELINE.md").resolve()
-    return roots["built_in"] / name / "GUIDELINE.md"
+    return (guidelines_dir() / name / "GUIDELINE.md").resolve()
 
 
 def _extended_name(path: Path) -> str | None:

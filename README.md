@@ -102,13 +102,33 @@ ssh -L <port>:localhost:<port> <the machine the agent runs on>
 
 In Termius the same forward is a Local rule in its Port Forwarding screen.
 
-## Writes in your field's terms
+## Writes by your rules, in your field's terms
 
-Left alone, an agent describes a concept in words of its own where the papers of your field
-use one term. Convert the papers yours builds on to Markdown with
+Write the rules you hold a paper to in a `GUIDELINE.md`, in a folder of its own under
+`~/.config/tex-mcp-web/guidelines/`, and set `guideline` to the folder's name. A guideline can
+build on another, so the rules for every paper and those of one field stay apart:
+
+```
+~/.config/tex-mcp-web/guidelines/
+├── plain-writing/GUIDELINE.md    rules for every paper
+└── my-field/GUIDELINE.md         a field's own, opening with the lines below
+```
+
+```markdown
+---
+extends: plain-writing
+---
+```
+
+With `guideline: my-field`, the agent reads plain-writing first and my-field after it.
+
+Left alone, an agent also describes a concept in words of its own where the papers of your
+field use one term. Convert the papers yours builds on to Markdown with
 [marker](https://github.com/datalab-to/marker), keep them in one folder, and set `references`
-to it. In Claude Code the agent then cannot use tex-mcp's tools until it has read the terms
-those papers share, and reads them again after its context is compacted.
+to it.
+
+In Claude Code the agent then cannot use tex-mcp's tools until it has read the guideline and
+the terms those papers share, and reads them again after its context is compacted.
 
 ## Configuration
 
@@ -123,7 +143,7 @@ ignore:
 - '*_backup.tex'
 compiler: auto
 port: 8765
-guideline: neutral-paper
+guideline: my-field
 translation:
   language: Korean
   instructions: Keep cell names in English.
