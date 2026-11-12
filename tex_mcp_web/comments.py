@@ -993,8 +993,11 @@ def find_source_selector(
 
 def pdf_digest(pdf_path: Path) -> str:
     """Return the identity of the compiled PDF bytes."""
+    digest = hashlib.sha256()
     with pdf_path.open("rb") as handle:
-        return hashlib.file_digest(handle, "sha256").hexdigest()
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def area_digest(pdf_path: Path, page: int, bbox: BBox) -> str:
@@ -1069,6 +1072,12 @@ def _compact_pdf_text(text: str) -> tuple[str, list[int]]:
     return "".join(characters), compact_raw_indexes
 
 
+# A quote is searched for as get_text reads it, with a word broken at a line's end still
+# hyphenated there. PyMuPDF 2 takes such hyphens out of the text it searches unless told
+# not to, and would find none of these quotes.
+_SEARCH_AS_READ = pymupdf.TEXTFLAGS_SEARCH & ~pymupdf.TEXT_DEHYPHENATE
+
+
 class PdfTextIndex:
     def __init__(self, pdf_path: Path):
         self.document = pymupdf.open(pdf_path)
@@ -1105,7 +1114,7 @@ class PdfTextIndex:
 
         if len(candidates) == 1:
             matched_page, raw_quote = candidates[0]
-            matches = self.document[matched_page].search_for(raw_quote)
+            matches = self.document[matched_page].search_for(raw_quote, flags=_SEARCH_AS_READ)
         else:
             if hint is None:
                 return None
@@ -1117,7 +1126,7 @@ class PdfTextIndex:
             }
             page = self.document[hint.page - 1]
             search_results = [
-                rect for raw_quote in raw_quotes for rect in page.search_for(raw_quote)
+                rect for raw_quote in raw_quotes for rect in page.search_for(raw_quote, flags=_SEARCH_AS_READ)
             ]
             x1, y1, x2, y2 = hint.bbox
             matches = [

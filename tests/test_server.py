@@ -2920,7 +2920,7 @@ async def test_new_gives_what_the_reviewer_wrote_since_it_last_answered(
     be taken again."""
     pytest.importorskip("mcp")
     from tex_mcp_web.comments import CommentStore, PaperAnchor
-    from tex_mcp_web.mcp_server import create_server, revision_of
+    from tex_mcp_web.mcp_server import create_server, revision_of, short_time
 
     mcp = create_server(bound_project)
     store = CommentStore(project / ".tex-mcp-web" / "comments.json")
@@ -2931,6 +2931,8 @@ async def test_new_gives_what_the_reviewer_wrote_since_it_last_answered(
     def at(stamp):
         monkeypatch.setattr("tex_mcp_web.comments._now", lambda: stamp)
 
+    # Times read on this machine's clock, whatever its zone.
+    first_moment, second_moment = (short_time(f"2026-01-01T00:0{m}:00+00:00") for m in (0, 5))
     at("2026-01-01T00:00:00+00:00")
     asked = store.add(PaperAnchor(), "first request")
     store.add(PaperAnchor(), "a note of my own", author="agent")
@@ -2940,7 +2942,7 @@ async def test_new_gives_what_the_reviewer_wrote_since_it_last_answered(
     told = first["comments"][0]
     assert told["rev"] == revision_of(store.get(asked.id).updated)
     assert [e["text"] for e in told["entries"]] == ["first request"]
-    assert "from" not in first and first["cursor"] == "01-01 09:00"
+    assert "from" not in first and first["cursor"] == first_moment
 
     # Nothing new, and the agent's own reply is not news to it.
     store.reply(asked.id, "on it", author="agent")
@@ -2949,7 +2951,7 @@ async def test_new_gives_what_the_reviewer_wrote_since_it_last_answered(
     at("2026-01-01T00:05:00+00:00")
     store.reply(asked.id, "and one more thing", author="human")
     second = await call(new=True)
-    assert second["from"] == "01-01 09:00" and second["cursor"] == "01-01 09:05"
+    assert second["from"] == first_moment and second["cursor"] == second_moment
     # Only what was said since; the request and the agent's reply are already in mind.
     assert [e["text"] for e in second["comments"][0]["entries"]] == ["and one more thing"]
 
