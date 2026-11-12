@@ -458,6 +458,7 @@ def _comment_add(
     watch_dir: Path,
     text: str | None,
     anchor: "CommentAnchorInput | None",
+    changes: "list[FragmentInput] | None",
 ) -> str:
     """Implementation of ``write_comments(action="add", ...)``.
 
@@ -471,6 +472,7 @@ def _comment_add(
     )
     from .config import get_main_file
     from .server import (
+        derive_suggestion,
         resolve_section_to_source,
     )
     from .structure import AmbiguousSection, parse_structure
@@ -509,6 +511,10 @@ def _comment_add(
             base_text = (watch_dir / resolved.file).read_text(encoding="utf-8")
 
     a = anchor_from_dict(anchor_data)
+    suggestion = None
+    if changes:
+        # Measured before the thread exists, so a piece the file does not hold leaves no thread.
+        suggestion = derive_suggestion(watch_dir, resolved, [(change.old, change.new) for change in changes])
 
     comment = store.add(
         anchor=a,
@@ -516,6 +522,7 @@ def _comment_add(
         author="agent",
         resolved_source=resolved,
         source_selector=source_selector,
+        suggestion=suggestion,
         # The text the lines or the heading were just found in, which later edits carry the
         # comment from.
         base_text=base_text,
@@ -941,13 +948,15 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
     ) -> str:
         """Write to a comment thread.
 
-        add: text, anchor. reply: id, text, or a saved draft alone. suggest: id, text,
-        changes, rev; each change's old is quoted from the file that comment sits in and
-        must occur there once, the way an editing tool takes it, never a line or a
-        column. It replaces the thread's one live proposal and adds text as a reply, so
-        the conversation stays whole, and it is refused on a thread the reviewer has not
-        written in: propose on theirs rather than opening your own. withdraw: id, text,
-        rev. overleaf: id, text, rev, and edits naming the source ranges the reply
+        add: text, anchor, and changes, quoted as for suggest, when the reviewer has asked
+        for proposals left as comments: the thread opens carrying that proposal. reply: id,
+        text, or a saved draft alone. suggest: id, text, changes, rev; each change's old is
+        quoted from the file that comment sits in and must occur there once, the way an
+        editing tool takes it, never a line or a column. It replaces the thread's one live
+        proposal and adds text as a reply, so the conversation stays whole, and it is
+        refused on a thread the reviewer has not written in: propose on theirs rather than
+        opening your own beside it. withdraw: id, text, rev. overleaf: id, text, rev, and
+        edits naming the source ranges the reply
         describes, as their lines are now: later edits move them as they move a comment, so
         a draft is not written again when lines shift. On a thread that came from Overleaf (on_overleaf), it puts the reply the
         reviewer may send there: a thread holds one draft, which this replaces, and only
@@ -961,9 +970,23 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         refused once the reviewer has written in the thread.
 
         rev is the thread's token from read_comments; a thread that moved on refuses the
-        write. edits names the source ranges a reply changed. The reviewer resolves
-        threads, not you. Returns id, status and rev.
+        write. edits names the source ranges a reply changed. A field the action does not
+        take is refused. The reviewer resolves threads, not you. Returns id, status and rev.
         """
+        # What each action reads, so a field it would not use is refused rather than dropped.
+        takes = {
+            "add": {"text", "anchor", "changes"},
+            "reply": {"id", "text", "edits", "draft"},
+            "suggest": {"id", "text", "changes", "rev"},
+            "withdraw": {"id", "text", "rev"},
+            "overleaf": {"id", "text", "anchor", "edits", "rev"},
+            "edit": {"id", "entry", "text", "rev"},
+            "delete": {"id"},
+        }
+        given = {"id": id, "text": text, "anchor": anchor, "edits": edits, "changes": changes,
+                 "draft": draft, "entry": entry, "rev": rev}
+        if stray := [name for name, value in given.items() if value is not None and name not in takes[action]]:
+            return _err(f"{action} does not take {', '.join(stray)}")
         cfg, watch_dir, store = _load_project(binding)
 
         def receipt(comment) -> str:
@@ -987,7 +1010,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                                          "rev": revision_of(c.updated)}
                                         for c in store.reply_file(draft, edits=edits)]})
             if action == "add":
-                return _comment_add(store, cfg, watch_dir, text, anchor)
+                return _comment_add(store, cfg, watch_dir, text, anchor, changes)
             if action == "reply":
                 if not id or not text:
                     return _err("reply requires id and text")
@@ -1004,7 +1027,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                 pairs = [(change.old, change.new) for change in changes]
                 return receipt(store.suggest(
                     id, stamp_for(id), text,
-                    lambda comment: derive_suggestion(watch_dir, comment, pairs),
+                    lambda comment: derive_suggestion(watch_dir, comment.resolved_source, pairs),
                 ))
             if action == "withdraw":
                 if not id or not text or not rev:

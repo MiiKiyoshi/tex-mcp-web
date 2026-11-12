@@ -197,9 +197,9 @@ def _suggestion_from_dict(d: Any, file: str | None) -> SuggestedEdit | None:
 
 
 def derive_suggestion(
-    watch_dir: Path, comment: Comment, edits: list[tuple[str, str]]
+    watch_dir: Path, source: ResolvedSource | None, edits: list[tuple[str, str]]
 ) -> SuggestedEdit:
-    """Build a suggestion from fragments the agent quoted out of the anchored source.
+    """Build a suggestion from fragments the agent quoted out of the source a comment sits in.
 
     The agent sends only what changes. Each piece is checked against the file now, so
     what the reviewer is offered is measured against the source rather than against
@@ -208,7 +208,6 @@ def derive_suggestion(
     # Any comment whose place in the source is known can carry one: a source range, or
     # PDF text and sections through the source they resolve to. A whole-paper note
     # names no file.
-    source = comment.resolved_source
     if source is None:
         raise ValueError("a suggestion needs a comment whose place in the source is known")
     try:

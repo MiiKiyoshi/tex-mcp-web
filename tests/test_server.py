@@ -581,7 +581,7 @@ async def test_a_proposal_may_reach_past_what_the_reviewer_underlined(client, pr
     from tex_mcp_web.server import derive_suggestion
     proposed = server.comments.suggest(
         pointed["id"], pointed["updated"], "rewrote the section and the prose under it",
-        lambda current: derive_suggestion(project, current, [
+        lambda current: derive_suggestion(project, current.resolved_source, [
             ("\\section{Introduction}", "\\section{Overview}"),
             ("Some prose with", "Rewritten prose with"),   # outside the underline
         ]),
@@ -616,7 +616,7 @@ async def test_the_page_refuses_an_empty_replacement_but_an_agent_may_remove_tex
         "text": "이 인용은 빼주세요"})).json()
     proposed = server.comments.suggest(
         asked["id"], asked["updated"], "인용을 지웠습니다",
-        lambda current: derive_suggestion(project, current, [(" with \\cite{ref1}", "")]))
+        lambda current: derive_suggestion(project, current.resolved_source, [(" with \\cite{ref1}", "")]))
     response = await tc.post(f"/comments/{asked['id']}/apply-suggestion",
                              json={"updated": proposed.updated})
     assert response.status == 200
@@ -638,7 +638,7 @@ async def test_two_pieces_touching_one_anchor_carry_it_across_together(client, p
 
     proposed = server.comments.suggest(
         pointed["id"], pointed["updated"], "두 군데를 한 번에",
-        lambda current: derive_suggestion(project, current, [
+        lambda current: derive_suggestion(project, current.resolved_source, [
             ("Some prose with", "Clearer prose citing"),   # swallows the underline
             ("\\section{Methods}", "\\section{Approach}"),  # further down the file
         ]))
@@ -679,7 +679,7 @@ async def test_a_thread_whose_anchor_came_loose_can_still_be_proposed_on(client,
 
     proposed = server.comments.suggest(
         loose.id, loose.updated, "현재 문구 기준으로 다시 제안합니다",
-        lambda current: derive_suggestion(project, current, [("Rewritten", "Clearer")]))
+        lambda current: derive_suggestion(project, current.resolved_source, [("Rewritten", "Clearer")]))
     assert proposed.suggestion.changes == [("Rewritten", "Clearer")]
 
     response = await tc.post(f"/comments/{loose.id}/apply-suggestion",
@@ -704,14 +704,14 @@ async def test_a_suggestion_needs_a_thread_the_reviewer_wrote_in(client, project
     with pytest.raises(ValueError, match="the reviewer has written in"):
         server.comments.suggest(
             own.id, own.updated, "here is a fix",
-            lambda current: derive_suggestion(project, current,
+            lambda current: derive_suggestion(project, current.resolved_source,
                                               [("Some prose", "Clear prose")]))
 
     server.comments.reply(own.id, "그래 고쳐줘", author="human")
     reread = server.comments.get(own.id)
     proposed = server.comments.suggest(
         reread.id, reread.updated, "here is a fix",
-        lambda current: derive_suggestion(project, current, [("Some prose", "Clear prose")]))
+        lambda current: derive_suggestion(project, current.resolved_source, [("Some prose", "Clear prose")]))
     assert proposed.suggestion.changes == [("Some prose", "Clear prose")]
 
 
@@ -1767,6 +1767,52 @@ async def test_mcp_comment_and_section_runtime_contract(bound_project, project):
         },
     )
     assert json.loads(second_added[0].text)["status"] == "open"
+
+
+@pytest.mark.asyncio
+async def test_an_added_thread_opens_with_its_proposal(client, bound_project, project):
+    """When the reviewer asks for proposals left as comments, each thread the agent opens
+    carries its proposal, and the reviewer applies it from there."""
+    pytest.importorskip("mcp")
+    from tex_mcp_web.mcp_server import create_server
+
+    tc, server = client
+    mcp = create_server(bound_project)
+
+    async def call_comment(**payload):
+        return json.loads((await mcp.call_tool("write_comments", payload))[0].text)
+
+    def stored():
+        return json.loads((project / ".tex-mcp-web" / "comments.json").read_text())["comments"]
+
+    line = {"kind": "source_range", "file": "paper.tex", "start": 5, "end": 5}
+    added = await call_comment(action="add", text="Plainer here.", anchor=line,
+                               changes=[{"old": "Some prose", "new": "Plain prose"}])
+    assert set(added) == {"id", "status", "rev"}
+    read = json.loads((await mcp.call_tool("read_comments", {"ids": [added["id"]]}))[0].text)
+    assert read["comments"][0]["suggestion"] == [{"old": "Some prose", "new": "Plain prose"}]
+    assert read["comments"][0]["comment"] == "Plainer here."
+
+    server.do_compile = AsyncMock()
+    response = await tc.post(f"/comments/{added['id']}/apply-suggestion",
+                             json={"updated": server.comments.get(added["id"]).updated})
+    assert response.status == 200
+    assert "Plain prose with \\cite{ref1}." in (project / "paper.tex").read_text(encoding="utf-8")
+
+    # A proposal that cannot be written into the file opens no thread.
+    paper = await call_comment(action="add", text="Everywhere.", anchor={"kind": "paper"},
+                               changes=[{"old": "Plain prose", "new": "Prose"}])
+    assert "place in the source is known" in paper["error"]
+    missing = await call_comment(action="add", text="Here.", anchor=line,
+                                 changes=[{"old": "prose that is not there", "new": "Prose"}])
+    assert "not found in the source" in missing["error"]
+    assert len(stored()) == 1
+
+    # A field an action does not read is refused, not dropped.
+    stray = await call_comment(action="reply", id=added["id"], text="Also here.",
+                               changes=[{"old": "Plain prose", "new": "Prose"}])
+    assert stray["error"] == "reply does not take changes"
+    assert len(stored()[0]["thread"]) == 2
 
 
 
@@ -2830,7 +2876,7 @@ async def test_a_replaced_suggestion_can_be_applied_again(client, project):
 
     second = server.comments.suggest(
         comment["id"], applied["updated"], "tighter still",
-        lambda current: derive_suggestion(project, current, [("Clear prose", "Plain prose")]),
+        lambda current: derive_suggestion(project, current.resolved_source, [("Clear prose", "Plain prose")]),
     )
     assert second.suggestion.changes == [("Clear prose", "Plain prose")]
     response = await tc.post(
