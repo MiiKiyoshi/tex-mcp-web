@@ -3834,20 +3834,31 @@ function showGotoTarget(target) {
 }
 
 async function jumpToSource(file, line) {
-  if (state.view === "source") {
-    await initializeSourceEditor();
-    await openSource(file, line);
-    return;
-  }
-  if (state.view === "split") {
+  if (state.view !== "pdf") {
     await initializeSourceEditor();
     await openSource(file, line);
   }
+  if (state.view !== "source") await showPdfPageOf(file, line);
+}
+
+// The PDF page a source line compiles to.
+async function showPdfPageOf(file, line) {
   const params = new URLSearchParams({ file, line: String(line) });
   const response = await fetch(`/synctex/source-to-pdf?${params}`);
   if (!response.ok) throw new Error(await responseError(response));
   const data = await response.json();
   jumpToPage(data.page);
+}
+
+// A place shown from the comments: the cursor on it, and its line a third of the way down the
+// editor, as the ring is in the list, wherever the editor was scrolled, so the eye finds it there.
+function showSourcePlace(row, column) {
+  const editor = state.editor;
+  editor.selection.clearSelection();
+  editor.session.unfold({ row, column });
+  editor.moveCursorTo(row, column);
+  const top = editor.session.documentToScreenRow(row, column) * editor.renderer.lineHeight;
+  editor.session.setScrollTop(Math.max(0, top - editor.renderer.scroller.clientHeight * RING_AT));
 }
 
 // Where a comment is, shown from the comments: the source moves its cursor there, and the
@@ -3858,9 +3869,8 @@ async function jumpToComment(commentId) {
   if (comment.anchor.kind === "source_range") {
     if (state.view === "pdf") await setWorkspaceView("source");
     const source = comment.resolved_source ?? comment.anchor;
-    await openSource(source.file, source.line_start);
-    if (!comment.stale && source.column_start !== undefined) {
-      state.editor.gotoLine(source.line_start, source.column_start, true);
+    if (await openSource(source.file)) {
+      showSourcePlace(source.line_start - 1, comment.stale ? 0 : source.column_start ?? 0);
     }
   } else if (comment.anchor.kind === "text_selection" || comment.anchor.kind === "area") {
     const selection = comment.anchor.kind === "text_selection"
@@ -3874,7 +3884,9 @@ async function jumpToComment(commentId) {
       );
     }
   } else if (comment.resolved_source) {
-    await jumpToSource(comment.resolved_source.file, comment.resolved_source.line_start);
+    const { file, line_start: line } = comment.resolved_source;
+    if (state.view !== "pdf" && await openSource(file)) showSourcePlace(line - 1, 0);
+    if (state.view !== "source") await showPdfPageOf(file, line);
   }
   $("#comments-list").focus({ preventScroll: true });
 }

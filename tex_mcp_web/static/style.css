@@ -1262,10 +1262,10 @@ dialog { zoom: calc(1 / var(--text-scale)); }
 :root[data-theme="dark"] .ace-one-dark,
 :root[data-theme="dark"] .ace-one-dark .ace_gutter { background: #403f3b; }
 :root[data-theme="dark"] .ace-one-dark .ace_gutter { color: #c4beb1; }
-:root[data-theme="dark"] .ace-one-dark .ace_gutter-active-line { background: #4a4944; }
+:root[data-theme="dark"] .ace-one-dark .ace_gutter-active-line { background: #53524f; }
 /* The cursor's line band is that gray over the ground, laid on it rather than painted, so a
    comment's highlight on the line shows through it. */
-:root[data-theme="dark"] .ace-one-dark .ace_marker-layer .ace_active-line { background: rgba(255, 255, 255, 0.05); }
+:root[data-theme="dark"] .ace-one-dark .ace_marker-layer .ace_active-line { background: rgba(255, 255, 255, 0.1); }
 :root[data-theme="dark"] .ace-one-dark .ace_marker-layer .ace_selection { background: #5b636d; }
 /* One Dark's words, a step lighter for the gray ground; its comments, a dark gray meant for
    near-black, read as a light gray. */

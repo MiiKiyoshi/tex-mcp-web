@@ -313,7 +313,9 @@ choice.
   the first, and `G` or End to the last.
 - Space opens or closes the ringed card. An opened card shows its end, where the thread's
   latest words and the draft for Overleaf are, and the PDF or the source shows where the
-  comment is, the keys staying with the list. Shift+Space opens or closes every card. A
+  comment is, the keys staying with the list. In the source the cursor goes onto the
+  comment's words, whose line sits a third of the way down the editor, as the ring does in
+  the list. Shift+Space opens or closes every card. A
   click on a card puts the ring on it as well, and choosing a comment tab or a view in the
   list atop gives the keys back to the comments.
 - `r` replies here, where the agent reads it and Overleaf does not, `i` puts the cursor in

@@ -1681,6 +1681,79 @@ def test_a_comment_highlight_shows_on_the_cursors_line_in_every_look(tmp_path: P
 
 
 @pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
+def test_a_comment_opened_by_space_shows_its_line_a_third_of_the_way_down_the_editor(tmp_path: Path) -> None:
+    """Space opening a comment puts the editor's cursor on its words and their line a third of
+    the way down the editor, whether the line was out of sight or already in it."""
+    import fitz
+
+    body = "\n".join(f"Line {n} of an invented body." for n in range(1, 81))
+    (tmp_path / "paper.tex").write_text(
+        f"\\documentclass{{article}}\n\\begin{{document}}\n{body}\n\\end{{document}}\n", encoding="utf-8")
+    with fitz.open() as pdf:
+        pdf.new_page().insert_text((72, 72), "Hello world.")
+        pdf.save(tmp_path / "paper.pdf")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
+
+    shared = SharedProjectServer(load_config(config_path))
+    profile = tempfile.mkdtemp(prefix="tex_mcp_place_")
+    marionette_port = available_port()
+    (Path(profile) / "user.js").write_text(
+        f'user_pref("marionette.port", {marionette_port});\n', encoding="utf-8")
+    browser_process = None
+    browser = None
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        for line in (62, 22):
+            post_json(f"{base}/comments", {
+                "anchor": {"kind": "source_range", "file": "paper.tex", "line_start": line, "line_end": line,
+                           "column_start": 0, "column_end": 8},
+                "text": f"About line {line - 2}."})
+        browser_process = subprocess.Popen(
+            ["firefox", "-marionette", "-headless", "-no-remote", "-profile", profile, "about:blank"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        browser = marionette.Marionette(host="127.0.0.1", port=marionette_port, startup_timeout=30)
+        browser.start_session()
+        browser.set_window_rect(x=0, y=0, width=1500, height=900)
+        browser.navigate(base)
+        wait_until(lambda: browser.execute_script(
+            'return document.querySelectorAll("#comments-list .cmt").length === 2'))
+        browser.execute_script('document.querySelector("[data-view=source]").click()')
+        wait_until(lambda: browser.execute_script(
+            'return document.querySelector("#source-editor .source-comment-highlight") !== null'))
+        editor = '''const page = window.wrappedJSObject || window;
+          const editor = page.ace.edit("source-editor");'''
+        place = f'''{editor}
+          const row = editor.getCursorPosition().row;
+          const top = editor.renderer.textToScreenCoordinates(row, 0).pageY
+            - editor.renderer.scroller.getBoundingClientRect().top;
+          return [row, Math.abs(top - editor.renderer.scroller.clientHeight / 3) <= editor.renderer.lineHeight];'''
+        browser.execute_script("document.activeElement.blur();")
+        # Out of sight below.
+        type_keys(browser, ["j", " "])
+        wait_until(lambda: browser.execute_script(place) == [61, True])
+        # Already in sight, three lines from the editor's bottom.
+        browser.execute_script(f'{editor} editor.session.setScrollTop('
+                               '25 * editor.renderer.lineHeight - editor.renderer.scroller.clientHeight);')
+        type_keys(browser, ["j", " "])
+        wait_until(lambda: browser.execute_script(place) == [21, True])
+    finally:
+        if browser is not None:
+            browser.delete_session()
+        if browser_process is not None:
+            browser_process.terminate()
+            try:
+                browser_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                browser_process.kill()
+        shutil.rmtree(profile, ignore_errors=True)
+        shared.stop()
+
+
+@pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
 def test_the_ring_holds_a_third_of_the_way_down_and_an_opened_card_shows_its_end(tmp_path: Path) -> None:
     """Moving by keys keeps the ringed card's middle a third of the way down the list, so
     the eye stays put, and a card opened by Space shows its end, where the latest words are."""
