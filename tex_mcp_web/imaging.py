@@ -18,9 +18,9 @@ import re
 from pathlib import Path
 
 try:
-    import fitz  # pymupdf
+    import pymupdf
 except ImportError:
-    fitz = None  # type: ignore[assignment]
+    pymupdf = None  # type: ignore[assignment]
 
 from .synctex import SyncTeXData
 
@@ -37,11 +37,11 @@ def _open_pdf(pdf_path: Path, page: int):
     Caller owns ``doc.close()``.  Raises :class:`ImagingError` on missing
     pymupdf, missing file, or out-of-range page.
     """
-    if fitz is None:
+    if pymupdf is None:
         raise ImagingError("pymupdf is unavailable; reinstall tex-mcp-web")
     if not pdf_path.exists():
         raise ImagingError(f"PDF not found: {pdf_path}")
-    doc = fitz.open(pdf_path)
+    doc = pymupdf.open(pdf_path)
     n = len(doc)
     if page < 1 or page > n:
         doc.close()
@@ -69,7 +69,7 @@ def render_page(pdf_path: Path, page: int, dpi: int = 150, gray: bool = False) -
     """
     doc, page_obj = _open_pdf(pdf_path, page)
     try:
-        cs = fitz.csGRAY if gray else fitz.csRGB
+        cs = pymupdf.csGRAY if gray else pymupdf.csRGB
         return page_obj.get_pixmap(dpi=dpi, colorspace=cs).tobytes("png")
     finally:
         doc.close()
@@ -96,7 +96,7 @@ def render_region(
     try:
         x1, y1, x2, y2 = bbox
         # Clip to page bounds; pymupdf will raise on out-of-page rects.
-        rect = fitz.Rect(
+        rect = pymupdf.Rect(
             max(0.0, x1 - margin),
             max(0.0, y1 - margin),
             min(page_obj.rect.width, x2 + margin),
@@ -104,7 +104,7 @@ def render_region(
         )
         if rect.is_empty or rect.is_infinite:
             raise ImagingError(f"empty bbox after clip: {tuple(bbox)} on {page_obj.rect}")
-        cs = fitz.csGRAY if gray else fitz.csRGB
+        cs = pymupdf.csGRAY if gray else pymupdf.csRGB
         return page_obj.get_pixmap(dpi=dpi, clip=rect, colorspace=cs).tobytes("png")
     finally:
         doc.close()
@@ -123,11 +123,11 @@ def resolve_reference_region(
     """
     doc, source_page_obj = _open_pdf(pdf_path, source_page)
     try:
-        source_rect = fitz.Rect(source_bbox)
+        source_rect = pymupdf.Rect(source_bbox)
         if source_rect.is_empty or source_rect.is_infinite:
             raise ImagingError("citation link bbox is empty")
 
-        probe = fitz.Rect(
+        probe = pymupdf.Rect(
             source_rect.x0 - 2.0,
             source_rect.y0 - 2.0,
             source_rect.x1 + 2.0,
@@ -137,7 +137,7 @@ def resolve_reference_region(
         for link in source_page_obj.get_links():
             if "page" not in link or "to" not in link or link["page"] < 0:
                 continue
-            link_rect = fitz.Rect(link["from"])
+            link_rect = pymupdf.Rect(link["from"])
             if link_rect.intersects(probe):
                 center_dx = link_rect.x0 + link_rect.x1 - source_rect.x0 - source_rect.x1
                 center_dy = link_rect.y0 + link_rect.y1 - source_rect.y0 - source_rect.y1
@@ -156,7 +156,7 @@ def resolve_reference_region(
         if target_index < 0 or target_index >= len(doc):
             raise ImagingError("citation destination page is out of range")
         target_page_obj = doc[target_index]
-        raw_target = fitz.Point(link["to"])
+        raw_target = pymupdf.Point(link["to"])
         transformed_target = raw_target * target_page_obj.transformation_matrix
 
         label_rect = None
@@ -178,7 +178,7 @@ def resolve_reference_region(
         else:
             target = (
                 transformed_target
-                if link["kind"] == fitz.LINK_NAMED
+                if link["kind"] == pymupdf.LINK_NAMED
                 else raw_target
             )
             start_x = target.x
@@ -200,7 +200,7 @@ def resolve_reference_region(
         for block in target_page_obj.get_text("blocks"):
             if block[6] != 0:
                 continue
-            rect = fitz.Rect(block[:4])
+            rect = pymupdf.Rect(block[:4])
             if rect.y1 <= start_y:
                 continue
             if abs(rect.x0 - start_x) <= 36.0:
@@ -232,7 +232,7 @@ def extract_region_text(
     """Extract selectable text from a PDF region."""
     doc, page_obj = _open_pdf(pdf_path, page)
     try:
-        rect = fitz.Rect(bbox)
+        rect = pymupdf.Rect(bbox)
         if rect.is_empty or rect.is_infinite:
             raise ImagingError("text bbox is empty")
         text = page_obj.get_textbox(rect).strip()
@@ -336,11 +336,11 @@ def page_text_hashes(pdf_path: Path) -> list[str]:
     Returns a list of hex digests, one per page.  Empty list if
     pymupdf is missing or the file can't be opened.
     """
-    if fitz is None or not pdf_path.exists():
+    if pymupdf is None or not pdf_path.exists():
         return []
     import hashlib
     try:
-        doc = fitz.open(pdf_path)
+        doc = pymupdf.open(pdf_path)
     except Exception:
         return []
     try:

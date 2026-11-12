@@ -14,7 +14,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-import fitz
+import pymupdf
 import pytest
 import yaml
 from aiohttp.test_utils import TestClient, TestServer
@@ -65,6 +65,18 @@ async def client(project: Path):
         yield test_client, server
     finally:
         await test_client.close()
+
+
+def test_loading_the_package_writes_nothing_to_stdout():
+    """The MCP server speaks to the agent over stdout, so loading the package must print
+    nothing there. PyMuPDF from 1.28.2 prints a warning there when loaded by its old name."""
+    import subprocess
+    import sys
+
+    modules = ("tex_mcp_web.server", "tex_mcp_web.mcp_server", "tex_mcp_web.imaging", "tex_mcp_web.compiler")
+    loaded = subprocess.run([sys.executable, "-c", "import " + ", ".join(modules)], capture_output=True,
+                            text=True, cwd=Path(__file__).parents[1], check=True)
+    assert loaded.stdout == ""
 
 
 @pytest.mark.asyncio
@@ -1103,7 +1115,7 @@ async def test_goto_source_line_returns_highlight_bbox(client):
 # ---------------------------------------------------------------------------
 
 
-pytest.importorskip("fitz")
+pytest.importorskip("pymupdf")
 
 
 @pytest.fixture
@@ -1111,7 +1123,7 @@ async def client_with_pdf(project: Path):
     """Like *client*, but also produces a real PDF + CompileResult so /image works."""
     from datetime import datetime, timezone
 
-    import fitz
+    import pymupdf
     from tex_mcp_web.compiler import CompileResult
     from tex_mcp_web.config import Config
     from tex_mcp_web.server import TexMcpWebServer
@@ -1124,7 +1136,7 @@ async def client_with_pdf(project: Path):
 
     # Build a tiny real PDF the server can render.
     pdf_path = project / "paper.pdf"
-    doc = fitz.open()
+    doc = pymupdf.open()
     page_one = doc.new_page()
     page_one.insert_text((72, 72), "Page 1 cites [1]")
     page_two = doc.new_page()
@@ -1134,10 +1146,10 @@ async def client_with_pdf(project: Path):
     page_one = doc[0]
     page_one.insert_link(
         {
-            "kind": fitz.LINK_GOTO,
+            "kind": pymupdf.LINK_GOTO,
             "from": page_one.search_for("[1]")[0],
             "page": 1,
-            "to": fitz.Point(72, 110),
+            "to": pymupdf.Point(72, 110),
         }
     )
     doc.save(pdf_path)
@@ -1185,7 +1197,7 @@ async def test_goto_unmatched_section_falls_back_to_pdf_quote(client_with_pdf):
 async def test_reference_preview_returns_cited_entry_text(client_with_pdf):
     tc, server = client_with_pdf
     pdf_path = server.last_result.output_file
-    doc = fitz.open(pdf_path)
+    doc = pymupdf.open(pdf_path)
     source_rect = doc[0].get_links()[0]["from"]
     doc.close()
     bbox = ",".join(str(value) for value in source_rect)
@@ -1848,8 +1860,8 @@ async def test_image_margin_controls_bbox_context(client_with_pdf):
     )
     assert exact_resp.status == 200
     assert expanded_resp.status == 200
-    exact = fitz.Pixmap(await exact_resp.read())
-    expanded = fitz.Pixmap(await expanded_resp.read())
+    exact = pymupdf.Pixmap(await exact_resp.read())
+    expanded = pymupdf.Pixmap(await expanded_resp.read())
     assert expanded.width > exact.width
     assert expanded.height > exact.height
 
@@ -1976,11 +1988,11 @@ async def test_a_selection_saved_while_the_pdf_is_rebuilt_is_refused_as_changed(
     """A compile writes the PDF in place while the page still shows the one before it,
     whose digest the server keeps until the compile ends. A selection saved meanwhile is
     refused as made on a PDF that changed, not checked against a file half written."""
-    import fitz
+    import pymupdf
 
     tc, server = client_with_pdf
     selection = {"page": 1, "bbox": [70, 60, 110, 80], "rects": [[70, 60, 110, 80]]}
-    with fitz.open() as pdf:
+    with pymupdf.open() as pdf:
         pdf.new_page().insert_text((72, 300), "Rebuilt")
         pdf.save(server.last_result.output_file)
     server.compiling = True

@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 # Skip the whole module if pymupdf isn't installed.
-fitz = pytest.importorskip("fitz")
+pymupdf = pytest.importorskip("pymupdf")
 
 from tex_mcp_web.imaging import (
     extract_region_text,
@@ -26,7 +26,7 @@ PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 @pytest.fixture
 def tiny_pdf(tmp_path: Path) -> Path:
     """A two-page PDF with a couple lines of text on each."""
-    doc = fitz.open()
+    doc = pymupdf.open()
     p1 = doc.new_page()
     p1.insert_text((72, 72), "Page 1 line 1")
     p1.insert_text((72, 144), "Page 1 line 2")
@@ -40,7 +40,7 @@ def tiny_pdf(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def citation_pdf(tmp_path: Path) -> Path:
-    doc = fitz.open()
+    doc = pymupdf.open()
     source = doc.new_page()
     source.insert_text((72, 72), "Prior work [1]")
     references = doc.new_page()
@@ -50,10 +50,10 @@ def citation_pdf(tmp_path: Path) -> Path:
     citation_rect = source.search_for("[1]")[0]
     source.insert_link(
         {
-            "kind": fitz.LINK_GOTO,
+            "kind": pymupdf.LINK_GOTO,
             "from": citation_rect,
             "page": 1,
-            "to": fitz.Point(72, 72),
+            "to": pymupdf.Point(72, 72),
         }
     )
     out = tmp_path / "citation.pdf"
@@ -124,10 +124,10 @@ def test_render_region_zero_size_with_margin_succeeds(tiny_pdf: Path):
 
 
 def test_render_region_margin_expands_exact_bbox(tiny_pdf: Path):
-    exact = fitz.Pixmap(
+    exact = pymupdf.Pixmap(
         render_region(tiny_pdf, page=1, bbox=(60, 60, 200, 100), dpi=72, margin=0)
     )
-    expanded = fitz.Pixmap(
+    expanded = pymupdf.Pixmap(
         render_region(tiny_pdf, page=1, bbox=(60, 60, 200, 100), dpi=72)
     )
     assert (exact.width, exact.height) == (140, 40)
@@ -146,10 +146,10 @@ def test_render_region_out_of_range_page(tiny_pdf: Path):
 
 
 def test_resolve_reference_region_crops_one_entry(citation_pdf: Path):
-    doc = fitz.open(citation_pdf)
+    doc = pymupdf.open(citation_pdf)
     link_rect = tuple(doc[0].get_links()[0]["from"])
     page, bbox = resolve_reference_region(citation_pdf, 1, link_rect)
-    text = doc[page - 1].get_textbox(fitz.Rect(bbox))
+    text = doc[page - 1].get_textbox(pymupdf.Rect(bbox))
     doc.close()
 
     assert page == 2
@@ -158,7 +158,7 @@ def test_resolve_reference_region_crops_one_entry(citation_pdf: Path):
 
 
 def test_extract_region_text(citation_pdf: Path):
-    doc = fitz.open(citation_pdf)
+    doc = pymupdf.open(citation_pdf)
     source_bbox = tuple(doc[0].get_links()[0]["from"])
     doc.close()
     page, bbox = resolve_reference_region(
@@ -287,13 +287,13 @@ def test_diff_page_hashes_appended_pages():
 
 def test_page_text_hashes_changes_when_content_edits(tiny_pdf: Path, tmp_path: Path):
     """Editing one page's content changes only that page's hash."""
-    import fitz
+    import pymupdf
     from tex_mcp_web.imaging import page_text_hashes
 
     h1 = page_text_hashes(tiny_pdf)
 
     edited = tmp_path / "edited.pdf"
-    doc = fitz.open()
+    doc = pymupdf.open()
     p1 = doc.new_page()
     p1.insert_text((72, 72), "Page 1 line 1")
     p1.insert_text((72, 144), "Page 1 line 2")

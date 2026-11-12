@@ -86,10 +86,10 @@ def wait_until(check, timeout: float = 30.0):
 
 @pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
 def test_browser_comment_actions(tmp_path: Path) -> None:
-    import fitz
+    import pymupdf
 
     (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
-    with fitz.open() as pdf:
+    with pymupdf.open() as pdf:
         pdf.new_page().insert_text((72, 72), "Hello world.")
         pdf.save(tmp_path / "paper.pdf")
     port = available_port()
@@ -424,7 +424,7 @@ def test_browser_comment_actions(tmp_path: Path) -> None:
 
 @pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
 def test_highlight_badges_leave_pdf_text_selectable(tmp_path: Path) -> None:
-    import fitz
+    import pymupdf
 
     sentence = "The quick brown fox jumps over the lazy dog."
     (tmp_path / "paper.tex").write_text(
@@ -433,7 +433,7 @@ def test_highlight_badges_leave_pdf_text_selectable(tmp_path: Path) -> None:
         "\\end{document}\n",
         encoding="utf-8",
     )
-    with fitz.open() as pdf:
+    with pymupdf.open() as pdf:
         page = pdf.new_page()
         page.insert_text((72, 72), sentence)
         selections = [
@@ -726,14 +726,14 @@ def test_highlight_badges_leave_pdf_text_selectable(tmp_path: Path) -> None:
 def test_the_area_button_draws_a_box_to_comment_on(tmp_path: Path) -> None:
     """With the viewer's Area tool on, a drag draws a box even where it starts on text, the
     box becomes an area comment in PDF points, and the next drag selects text again."""
-    import fitz
+    import pymupdf
 
     sentence = "The quick brown fox jumps over the lazy dog."
     (tmp_path / "paper.tex").write_text(
         f"\\documentclass{{article}}\n\\begin{{document}}\n{sentence}\n\\end{{document}}\n",
         encoding="utf-8",
     )
-    with fitz.open() as pdf:
+    with pymupdf.open() as pdf:
         pdf.new_page().insert_text((72, 72), sentence)
         pdf.save(tmp_path / "paper.pdf")
     port = available_port()
@@ -751,7 +751,7 @@ def test_the_area_button_draws_a_box_to_comment_on(tmp_path: Path) -> None:
         shared.ensure()
         base = f"http://127.0.0.1:{port}"
         wait_until(lambda: shared.server.pdf_digest is not None)
-        with fitz.open(shared.server.last_result.output_file) as pdf:
+        with pymupdf.open(shared.server.last_result.output_file) as pdf:
             words = pdf[0].search_for("quick brown fox")[0]
             page_width = pdf[0].rect.width
         browser_process = subprocess.Popen(
@@ -831,7 +831,7 @@ def test_source_beside_comment_opens_the_selected_words_in_the_editor(tmp_path: 
     """Source on a PDF selection opens the editor beside the Preview at the lines SyncTeX
     names and selects the words there, though the PDF joined the lines into one paragraph.
     → Preview goes the other way. Either turns the view to Split."""
-    import fitz
+    import pymupdf
 
     (tmp_path / "paper.tex").write_text(
         "\\documentclass{article}\n\\begin{document}\n"
@@ -856,7 +856,7 @@ def test_source_beside_comment_opens_the_selected_words_in_the_editor(tmp_path: 
         shared.ensure()
         base = f"http://127.0.0.1:{port}"
         wait_until(lambda: shared.server.pdf_digest is not None)
-        with fitz.open(shared.server.last_result.output_file) as pdf:
+        with pymupdf.open(shared.server.last_result.output_file) as pdf:
             words = pdf[0].search_for("quick brown fox")[0]
             page_width = pdf[0].rect.width
         browser_process = subprocess.Popen(
@@ -921,7 +921,7 @@ def test_source_beside_comment_opens_the_selected_words_in_the_editor(tmp_path: 
         # Its keys, Ctrl+Alt+P, do what the button does.
         ActionSequence(browser, "key", "keyboard").key_down("\ue009").key_down("\ue00a").key_down("p") \
             .key_up("p").key_up("\ue00a").key_up("\ue009").perform()
-        with fitz.open(shared.server.last_result.output_file) as pdf:
+        with pymupdf.open(shared.server.last_result.output_file) as pdf:
             printed = pdf[0].search_for("brown fox ju")[0]
         marked = wait_until(lambda: browser.execute_script('''
           const root = document.querySelector("embedpdf-container").shadowRoot;
@@ -975,7 +975,7 @@ def test_a_finger_held_on_a_word_selects_it(tmp_path: Path) -> None:
     still. The hold selects the word under it, a highlight in between or not, the
     browser's long-press menu is kept off the touch, and a drag, a tap, a cancelled
     touch and a mouse do what they did."""
-    import fitz
+    import pymupdf
 
     sentence = "The quick brown fox jumps over the lazy dog."
     (tmp_path / "paper.tex").write_text(
@@ -984,7 +984,7 @@ def test_a_finger_held_on_a_word_selects_it(tmp_path: Path) -> None:
         "\\end{document}\n",
         encoding="utf-8",
     )
-    with fitz.open() as pdf:
+    with pymupdf.open() as pdf:
         page = pdf.new_page()
         page.insert_text((72, 72), sentence)
         bbox = list(page.search_for("quick brown fox")[0])
@@ -1166,10 +1166,10 @@ def test_a_finger_held_on_a_word_selects_it(tmp_path: Path) -> None:
 
 @pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
 def test_browser_source_selection_and_split_resize(tmp_path: Path) -> None:
-    import fitz
+    import pymupdf
 
     (tmp_path / "paper.tex").write_text(PAPER.replace("Hello world.", "prefix " * 15 + "SELECTED " * 10 + " suffix" * 30), encoding="utf-8")
-    with fitz.open() as pdf:
+    with pymupdf.open() as pdf:
         pdf.new_page().insert_text((72, 72), "Hello world.")
         pdf.save(tmp_path / "paper.pdf")
     port = available_port()
@@ -1536,10 +1536,10 @@ def test_shift_picks_the_run_between_two_boxes(tmp_path: Path) -> None:
     """Picking six threads one box at a time is six clicks. Shift takes the run from the
     box the pick started at to the one it ends at, the way a list of files does, and the
     run takes the value the second box just took, so shift also lets a run go."""
-    import fitz
+    import pymupdf
 
     (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
-    with fitz.open() as pdf:
+    with pymupdf.open() as pdf:
         pdf.new_page().insert_text((72, 72), "Hello world.")
         pdf.save(tmp_path / "paper.pdf")
     port = available_port()
@@ -1637,13 +1637,13 @@ def test_shift_picks_the_run_between_two_boxes(tmp_path: Path) -> None:
 def test_a_comment_highlight_shows_on_the_cursors_line_in_every_look(tmp_path: Path) -> None:
     """The editor bands the cursor's line. In every look the band lets a comment's highlight
     on that line show through, rather than painting over it."""
-    import fitz
+    import pymupdf
 
     (tmp_path / "paper.tex").write_text(
         "\\documentclass{article}\n\\begin{document}\n\\section{Introduction}\n"
         "A plain sentence that the reviewer marks for a closer look at its wording here.\n"
         "\\end{document}\n", encoding="utf-8")
-    with fitz.open() as pdf:
+    with pymupdf.open() as pdf:
         pdf.new_page().insert_text((72, 72), "Hello world.")
         pdf.save(tmp_path / "paper.pdf")
     port = available_port()
@@ -1685,7 +1685,7 @@ def test_a_comment_highlight_shows_on_the_cursors_line_in_every_look(tmp_path: P
             spot = browser.execute_script(
                 'const mark = document.querySelector("#source-editor .source-comment-highlight").getBoundingClientRect();'
                 ' return [Math.round(mark.left + 60), Math.round(mark.top + mark.height / 2)];')
-            return fitz.Pixmap(browser.screenshot(format="binary")).pixel(*spot)[:3]
+            return pymupdf.Pixmap(browser.screenshot(format="binary")).pixel(*spot)[:3]
 
         for look in ("light", "dark", "warm"):
             browser.execute_script(f'document.querySelector(\'[data-theme-choice="{look}"]\').click()')
@@ -1708,12 +1708,12 @@ def test_a_comment_highlight_shows_on_the_cursors_line_in_every_look(tmp_path: P
 def test_a_comment_opened_by_space_shows_its_line_a_third_of_the_way_down_the_editor(tmp_path: Path) -> None:
     """Space opening a comment puts the editor's cursor on its words and their line a third of
     the way down the editor, whether the line was out of sight or already in it."""
-    import fitz
+    import pymupdf
 
     body = "\n".join(f"Line {n} of an invented body." for n in range(1, 81))
     (tmp_path / "paper.tex").write_text(
         f"\\documentclass{{article}}\n\\begin{{document}}\n{body}\n\\end{{document}}\n", encoding="utf-8")
-    with fitz.open() as pdf:
+    with pymupdf.open() as pdf:
         pdf.new_page().insert_text((72, 72), "Hello world.")
         pdf.save(tmp_path / "paper.pdf")
     port = available_port()
@@ -1781,10 +1781,10 @@ def test_a_comment_opened_by_space_shows_its_line_a_third_of_the_way_down_the_ed
 def test_the_ring_holds_a_third_of_the_way_down_and_an_opened_card_shows_its_end(tmp_path: Path) -> None:
     """Moving by keys keeps the ringed card's middle a third of the way down the list, so
     the eye stays put, and a card opened by Space shows its end, where the latest words are."""
-    import fitz
+    import pymupdf
 
     (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
-    with fitz.open() as pdf:
+    with pymupdf.open() as pdf:
         pdf.new_page().insert_text((72, 72), "Hello world.")
         pdf.save(tmp_path / "paper.pdf")
     port = available_port()
@@ -1866,10 +1866,10 @@ def test_the_comment_list_goes_by_keys(tmp_path: Path) -> None:
     every card as it was, a key presses the ringed card's button, a key that changes the
     file or deletes is pressed twice, and the keys rest while another tab or a dialog is
     shown."""
-    import fitz
+    import pymupdf
 
     (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
-    with fitz.open() as pdf:
+    with pymupdf.open() as pdf:
         pdf.new_page().insert_text((72, 72), "Hello world.")
         pdf.save(tmp_path / "paper.pdf")
     port = available_port()
@@ -2207,10 +2207,10 @@ def test_the_comment_list_goes_by_keys(tmp_path: Path) -> None:
 def test_archived_threads_have_their_own_view_and_picked_archive_action(tmp_path: Path) -> None:
     """Archive is the third visible status: its view lists kept threads apart, and the
     archive-box action moves only picked threads there."""
-    import fitz
+    import pymupdf
 
     (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
-    with fitz.open() as pdf:
+    with pymupdf.open() as pdf:
         pdf.new_page().insert_text((72, 72), "Hello world.")
         pdf.save(tmp_path / "paper.pdf")
     port = available_port()
@@ -2311,12 +2311,12 @@ def test_split_puts_the_translation_where_the_layout_menu_says(tmp_path: Path, m
     """The translation sits under the Preview in Preview, under the editor in Source, and in
     Split where the layout menu puts it; each place keeps its grip's share and the choice
     survives a reload. A narrow window stacks every pane."""
-    import fitz
+    import pymupdf
 
     monkeypatch.setattr("tex_mcp_web.translate.run_claude",
                         lambda prompt, cwd, system: json.dumps({"t": {}}))
     (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
-    with fitz.open() as pdf:
+    with pymupdf.open() as pdf:
         pdf.new_page().insert_text((72, 72), "Hello world.")
         pdf.save(tmp_path / "paper.pdf")
     port = available_port()
@@ -2451,14 +2451,14 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
     """The top bar and the more menu open the Overleaf dialog, which asks for the
     project's link first. Comments from Overleaf are in the leaf Comments tab, apart from
     the comments written here."""
-    import fitz
+    import pymupdf
 
     from tex_mcp_web.comments import (CommentStore, OverleafDraft, PaperAnchor, ResolvedSource,
                                       SourceRangeAnchor, capture_source_selector)
     from tex_mcp_web.mcp_server import _draft_ranges
 
     (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
-    with fitz.open() as pdf:
+    with pymupdf.open() as pdf:
         pdf.new_page().insert_text((72, 72), "Hello world.")
         pdf.save(tmp_path / "paper.pdf")
     # Threads on Overleaf earlier: their comments here, and the ledger naming them. The first
@@ -2687,13 +2687,13 @@ def test_the_more_menu_downloads_the_pdf_and_a_section_comment_keeps_its_heading
     """Download PDF in the more menu saves the PDF, under its own name while no Overleaf
     project is named. + comment in the Sections tab lands on the heading it was pressed
     on, though another heading has the same title."""
-    import fitz
+    import pymupdf
 
     (tmp_path / "paper.tex").write_text(
         "\\documentclass{article}\n\\begin{document}\n"
         "\\section{Methods}\n\\subsection{Setup}\nFirst.\n"
         "\\section{Experiments}\n\\subsection{Setup}\nSecond.\n\\end{document}\n", encoding="utf-8")
-    with fitz.open() as pdf:
+    with pymupdf.open() as pdf:
         pdf.new_page().insert_text((72, 72), "Hello world.")
         pdf.save(tmp_path / "paper.pdf")
     port = available_port()
@@ -2766,7 +2766,7 @@ def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path
     brings the project's comments in from Overleaf with one button. The paper's folder is a
     git clone of the project: the dialog says where it stands against Overleaf's branch,
     pulls and pushes, and downloads comments only once the folder has Overleaf's commits."""
-    import fitz
+    import pymupdf
     import http.server
     import stat
     import threading
@@ -2828,7 +2828,7 @@ def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path
     git(coauthor, "add", "notes.tex")
     git(coauthor, "commit", "-q", "-m", "there")
     git(coauthor, "push", "-q", "origin", "HEAD:main")
-    with fitz.open() as pdf:
+    with pymupdf.open() as pdf:
         pdf.new_page().insert_text((72, 72), "Hello world.")
         pdf.save(paper / "paper.pdf")
     port = available_port()
@@ -3150,7 +3150,7 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
     a face per collaborator in the top bar, their file and line in its list, their cursor
     drawn in the editor on that file, and a note above a file they changed."""
     import asyncio
-    import fitz
+    import pymupdf
     import threading
     from aiohttp.test_utils import TestServer
     from tests.test_overleaf_live import FIGURE, PROJECT_ID, FakeRealtime, event
@@ -3174,7 +3174,7 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
     fake.texts = {"d-main": (tmp_path / "main.tex").read_text(encoding="utf-8"),
                   "d-body": (tmp_path / "tex" / "body.tex").read_text(encoding="utf-8")}
     (tmp_path / "a.png").write_bytes(FIGURE)
-    with fitz.open() as pdf:
+    with pymupdf.open() as pdf:
         pdf.new_page().insert_text((72, 72), "Hello world.")
         pdf.save(tmp_path / "main.pdf")
     port = available_port()
@@ -3418,7 +3418,7 @@ def test_go_to_definition_follows_input_ref_and_cite(tmp_path: Path) -> None:
     """gd with Vim keys, or F12, goes from \\input to the file, from \\ref to the \\label it
     names, and from \\cite to the .bib entry, the name under the cursor in a list; Ctrl+T or
     Ctrl+O, or Shift+F12, goes back to where the jump started."""
-    import fitz
+    import pymupdf
 
     (tmp_path / "sec").mkdir()
     (tmp_path / "paper.tex").write_text(
@@ -3427,7 +3427,7 @@ def test_go_to_definition_follows_input_ref_and_cite(tmp_path: Path) -> None:
         encoding="utf-8")
     (tmp_path / "sec" / "a.tex").write_text("\\section{A}\n\n\\label{sec:a}\nText.\n", encoding="utf-8")
     (tmp_path / "refs.bib").write_text("@book{k0,\n title={Zero}}\n\n@article{k1,\n title={One}}\n", encoding="utf-8")
-    with fitz.open() as pdf:
+    with pymupdf.open() as pdf:
         pdf.new_page().insert_text((72, 72), "Hello.")
         pdf.save(tmp_path / "paper.pdf")
     port = available_port()
@@ -3513,7 +3513,7 @@ def test_go_to_definition_follows_input_ref_and_cite(tmp_path: Path) -> None:
 def test_translation_numbers_its_source_lines_and_follows_the_editor(tmp_path: Path, monkeypatch) -> None:
     """Each translated paragraph shows its source lines, the paragraph under the editor's
     cursor is marked and brought into view, and the type size steps and is kept."""
-    import fitz
+    import pymupdf
 
     def translated(prompt, cwd, system):
         blocks = json.loads(prompt.split("Paragraphs (JSON):\n", 1)[1])
@@ -3523,7 +3523,7 @@ def test_translation_numbers_its_source_lines_and_follows_the_editor(tmp_path: P
     paragraphs = "\n\n".join(f"Paragraph number {n} has words\nacross two lines." for n in range(40))
     (tmp_path / "paper.tex").write_text(
         "\\documentclass{article}\n\\begin{document}\n\n" + paragraphs + "\n\n\\end{document}\n", encoding="utf-8")
-    with fitz.open() as pdf:
+    with pymupdf.open() as pdf:
         pdf.new_page().insert_text((72, 72), "Hello world.")
         pdf.save(tmp_path / "paper.pdf")
     port = available_port()
@@ -3630,7 +3630,7 @@ def test_the_editor_completes_labels_citations_environments_files_and_commands(t
     \\cite (a title's words find them), environments after \\begin and \\end, files after
     \\input and \\includegraphics, commands after a backslash, the paper's own among them.
     Enter takes the choice, but after a command typed whole it starts the next line."""
-    import fitz
+    import pymupdf
 
     (tmp_path / "paper.tex").write_text(
         "\\documentclass{article}\n\\newcommand{\\cpp}[1]{#1 CPP}\n\\begin{document}\n"
@@ -3642,7 +3642,7 @@ def test_the_editor_completes_labels_citations_environments_files_and_commands(t
         "@article{zed19, title = {Another Study}, author = {Zed, C.}, year = 2019}\n", encoding="utf-8")
     (tmp_path / "fig").mkdir()
     (tmp_path / "fig" / "flow.pdf").write_bytes(b"%PDF-1.4")
-    with fitz.open() as pdf:
+    with pymupdf.open() as pdf:
         pdf.new_page().insert_text((72, 72), "Hello world.")
         pdf.save(tmp_path / "paper.pdf")
     port = available_port()

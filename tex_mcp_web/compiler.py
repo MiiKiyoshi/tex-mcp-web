@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
-import fitz
+import pymupdf
 
 from .synctex import has_synctex_record
 
@@ -239,7 +239,7 @@ def _pdf_validation_error(pdf_path: Path) -> str | None:
     if not pdf_path.is_file():
         return "Output PDF was not produced"
     try:
-        with fitz.open(pdf_path) as document:
+        with pymupdf.open(pdf_path) as document:
             if document.page_count < 1:
                 return "Output PDF has no pages"
             document.load_page(0)

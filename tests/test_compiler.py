@@ -4,7 +4,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-import fitz
+import pymupdf
 import pytest
 
 from tex_mcp_web import compiler as compiler_module
@@ -34,7 +34,7 @@ class _FakeProcess:
 
 
 def _write_one_page_pdf(path: Path) -> None:
-    with fitz.open() as document:
+    with pymupdf.open() as document:
         document.new_page().insert_text((72, 72), "valid")
         document.save(path)
 
@@ -285,7 +285,7 @@ def test_pdf_validation_rejects_zero_pages(tmp_path, monkeypatch):
         def __exit__(self, *args):
             return None
 
-    monkeypatch.setattr(compiler_module.fitz, "open", lambda path: EmptyDocument())
+    monkeypatch.setattr(compiler_module.pymupdf, "open", lambda path: EmptyDocument())
 
     assert _pdf_validation_error(pdf_path) == "Output PDF has no pages"
 
