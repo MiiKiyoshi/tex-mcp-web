@@ -2,6 +2,9 @@
    Design priority: get out of the way of the PDF, make comments scannable. */
 
 :root {
+  /* The page's own text, the top bar and the panels, as Settings sizes it. The editor, the
+     translation and the PDF keep sizes of their own. */
+  --text-scale: 1;
   --bg: #faf8f2;
   --bg-elev: #fffdf8;
   --bg-pdf: #faf8f2;
@@ -42,7 +45,7 @@ html, body {
      history: the page holds the gesture, on the root and inside the PDF's own scroller. */
   overscroll-behavior-x: none;
   font-family: var(--sans);
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale));
   color: var(--fg);
   background: var(--bg);
 }
@@ -677,7 +680,7 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .icon-btn {
   flex: none; display: inline-flex; align-items: center; gap: 4px;
-  padding: 4px 6px; font-size: 12px; line-height: 1; white-space: nowrap;
+  padding: 4px 6px; font-size: 0.857rem; line-height: 1; white-space: nowrap;
   border: 1px solid var(--border); border-radius: 3px; background: var(--bg);
 }
 .icon-btn:hover:not(:disabled) { background: var(--accent-soft); }

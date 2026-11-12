@@ -96,6 +96,8 @@ call a tex tool serves it again and listens.
 - **Settings**, the gear in the top bar (in the ⋯ menu on a phone), picks the page's look:
   **Light**, **Dark**, or **Warm**, a softer paper tone for long writing, as a screen looks with its blue light turned down. The PDF's pages
   stay as compiled in each. The page remembers the choice.
+  **Text size** sets the top bar's and the panels' text from 90% to 130%, and leaves the
+  editor, the translation and the PDF as they are. The page remembers that choice too.
 - **Download PDF** in the ⋯ menu saves the PDF. As on Overleaf, the file is named after the
   Overleaf project, with each character other than a letter or a digit turned to `_`. A
   paper with no Overleaf project keeps the PDF's own name, such as `paper.pdf`.

@@ -4355,6 +4355,22 @@ function attachSidebarToggle() {
     if (chosen === null) applyTheme(event.matches ? "dark" : "light");
   });
   applyTheme(document.documentElement.dataset.theme);
+  // The top bar's and the panels' text at the size Settings chooses, kept for next time.
+  const applyTextSize = (percent) => {
+    document.documentElement.style.setProperty("--text-scale", String(percent / 100));
+    for (const button of document.querySelectorAll("[data-text-choice]")) {
+      button.setAttribute("aria-checked", String(Number(button.dataset.textChoice) === percent));
+    }
+  };
+  for (const button of document.querySelectorAll("[data-text-choice]")) {
+    button.addEventListener("click", () => {
+      try { localStorage.setItem("texMcpTextSize", button.dataset.textChoice); } catch { /* the choice lasts this visit */ }
+      applyTextSize(Number(button.dataset.textChoice));
+    });
+  }
+  let textSize = "100";
+  try { textSize = localStorage.getItem("texMcpTextSize") ?? "100"; } catch { /* the page's own size */ }
+  applyTextSize($(`[data-text-choice="${CSS.escape(textSize)}"]`) ? Number(textSize) : 100);
   for (const button of document.querySelectorAll("[data-send-choice]")) {
     button.addEventListener("click", () => {
       state.sendKey = button.dataset.sendChoice;

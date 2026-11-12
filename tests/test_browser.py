@@ -1804,6 +1804,11 @@ def test_the_comment_list_goes_by_keys(tmp_path: Path) -> None:
         press("j", "k")
         assert browser.execute_script(letters)[0] is True
         assert ringed() == source
+        # Text size in Settings sizes the page's own text.
+        browser.execute_script('document.querySelector(\'[data-text-choice="130"]\').click()')
+        assert browser.execute_script('return getComputedStyle(document.body).fontSize') == "18.2px"
+        browser.execute_script('document.querySelector(\'[data-text-choice="100"]\').click()')
+        assert browser.execute_script('return getComputedStyle(document.body).fontSize') == "14px"
 
         # Space opening a card shows the comment's words in the source, and the keys stay with
         # the list. Closing it shows nothing.
