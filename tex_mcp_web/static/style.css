@@ -709,6 +709,8 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 #call-agent-btn.agent-ready .agent-dot { background: var(--ok); }
 #call-agent-btn.agent-offline { color: var(--err); border-color: var(--err); background: #faeeee; }
 #call-agent-btn.agent-offline .agent-dot { background: var(--err); }
+/* The list takes the comment keys, and the ring on a comment shows where they act. */
+.comments-list:focus { outline: none; }
 .comments-list {
   display: flex;
   flex-direction: column;

@@ -1822,6 +1822,23 @@ def test_the_comment_list_goes_by_keys(tmp_path: Path) -> None:
         assert ringed() == before
         press(escape)
         assert browser.execute_script('return document.querySelector("#keys-dialog").open') is False
+        # A view chosen in the list atop gives the keys back to the comments, which the list
+        # kept before.
+        browser.execute_script('const f = document.querySelector("#comment-filter"); f.focus();'
+                               ' f.value = "all"; f.dispatchEvent(new Event("change"));')
+        wait_until(lambda: browser.execute_script(
+            'return document.querySelectorAll("#comments-list .cmt").length === 4'))
+        assert browser.execute_script('return document.activeElement.id') == "comments-list"
+        press("g", "g")
+        assert ringed() == browser.execute_script(
+            'return document.querySelector("#comments-list .cmt").dataset.commentId')
+        # A click on a card puts the ring on it and gives the list the keys, from the editor too.
+        browser.execute_script(f"{editor} editor.focus();")
+        browser.find_element("css selector", f"#comments-list [data-comment-id='{source}'] .cmt-status").click()
+        assert ringed() == source
+        assert browser.execute_script('return document.activeElement.id') == "comments-list"
+        press("j")
+        assert ringed() == first
         # c opens a paper note.
         press("c")
         assert browser.execute_script('return document.querySelector("#compose-dialog").open') is True

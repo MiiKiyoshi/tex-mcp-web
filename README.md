@@ -303,7 +303,8 @@ keys in their tooltips.
   closes again when the ring moves on, unless you opened or closed it yourself with `o`.
   `O` opens or closes every card.
 - Enter shows where the comment is, in the PDF or the source, and the keys stay with the
-  list.
+  list. A click on a comment does the same and puts the ring on it, and choosing a comment
+  tab or a view in the list atop gives the keys back to the comments.
 - `r` replies, `e` edits the last thing you wrote in the thread, `i` puts the cursor in its
   reply for Overleaf, and `c` adds a paper note. Escape leaves the box: a reply or an edit
   being written is dropped, and a reply for Overleaf keeps its words.

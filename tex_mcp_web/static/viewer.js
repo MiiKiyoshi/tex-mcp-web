@@ -3836,6 +3836,8 @@ async function jumpToSource(file, line) {
   jumpToPage(data.page);
 }
 
+// Where a comment is, shown from the comments: the source moves its cursor there, and the
+// keys stay with the comments, where the reader clicked or pressed Enter.
 async function jumpToComment(commentId) {
   const comment = state.comments.find((item) => item.id === commentId);
   if (!comment) return;
@@ -3860,6 +3862,7 @@ async function jumpToComment(commentId) {
   } else if (comment.resolved_source) {
     await jumpToSource(comment.resolved_source.file, comment.resolved_source.line_start);
   }
+  $("#comments-list").focus({ preventScroll: true });
 }
 
 // The card the focus lands on opens. The card it leaves closes again when landing on it is what
@@ -4009,12 +4012,9 @@ function moveFocus(to) {
   focusComment(state.comments[to(state.comments.findIndex((comment) => comment.id === state.focusedCommentId), last)]);
 }
 
-// The source moves its cursor to the comment's text and would take the keys with it, which
-// stay with the list.
 async function showFocused() {
   if (focusedCard() === null) return;
   await jumpToComment(state.focusedCommentId);
-  state.editor?.blur();
 }
 
 function foldFocused() {
@@ -4068,6 +4068,20 @@ function showCommentKeys() {
 }
 
 function attachCommentKeys() {
+  // A click on a comment puts the ring on it, as a notebook selects the cell clicked, and a
+  // click anywhere in the list gives it the keys, from the editor too.
+  const list = $("#comments-list");
+  list.addEventListener("mousedown", (event) => {
+    const card = event.target.closest(".cmt");
+    if (card !== null) {
+      state.focusedCommentId = card.dataset.commentId;
+      for (const node of list.querySelectorAll(".cmt.is-focused")) node.classList.remove("is-focused");
+      card.classList.add("is-focused");
+    }
+    if (!event.target.closest("textarea, input, select, button, a, [contenteditable]")) {
+      list.focus({ preventScroll: true });
+    }
+  });
   const entries = COMMENT_KEYS.flatMap(([, group]) => group).filter((entry) => entry.run);
   const byKeys = new Map(entries.flatMap((entry) => entry.keys.map((keys) => [keys, entry])));
   // A letter pressed twice: the first waits a second for the second.
@@ -4787,12 +4801,18 @@ async function init() {
     clearPendingSelection();
   });
   renderCommentFilter();
+  // A view chosen in the list, and a comment tab chosen, give the comment keys back to the
+  // comments: the list would keep them, and Safari focuses no button it clicks.
   $("#comment-filter").addEventListener("change", () => {
     setCommentFilter($("#comment-filter").value);
+    $("#comments-list").focus({ preventScroll: true });
     refreshComments().catch((error) => console.error(error));
   });
   for (const button of $$(".tab-btn")) {
-    button.addEventListener("click", () => switchTab(button.dataset.tab));
+    button.addEventListener("click", () => {
+      switchTab(button.dataset.tab);
+      if ($("#tab-comments").classList.contains("active")) $("#comments-list").focus({ preventScroll: true });
+    });
   }
 
   await refreshPaper();
