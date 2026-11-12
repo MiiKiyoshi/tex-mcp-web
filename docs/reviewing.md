@@ -114,8 +114,9 @@ extension off for the review page's address.
 
 ## Settings and the ⋯ menu
 
-- **Look** picks **Light**, **Dark**, or **Warm**, a softer paper tone for long writing. The
-  PDF's pages stay as compiled in each.
+- **Look** picks **System**, where the page starts, which follows the system's light or dark
+  as it changes, or **Light**, **Dark**, or **Warm**, a softer paper tone for long writing.
+  The PDF's pages stay as compiled in each.
 - **Text size** sets the top bar's and the panels' text from 90% to 130%, and leaves the
   editor, the translation, the PDF, the panel's tabs and the dialogs as they are.
 - **Send with** chooses whether Enter or Shift+Enter sends a comment being written.

@@ -1195,10 +1195,12 @@ def test_browser_source_selection_and_split_resize(tmp_path: Path) -> None:
         )
         cid = comment["id"]
 
+        # System access lets the test change the scheme the system prefers, for System to follow.
         browser_process = subprocess.Popen(
             ["firefox", "-marionette", "-headless", "-no-remote", "-profile", profile, "about:blank"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            env={**os.environ, "MOZ_REMOTE_ALLOW_SYSTEM_ACCESS": "1"},
         )
         browser = marionette.Marionette(host="127.0.0.1", port=marionette_port, startup_timeout=30)
         browser.start_session()
@@ -1239,6 +1241,28 @@ def test_browser_source_selection_and_split_resize(tmp_path: Path) -> None:
             'return getComputedStyle(document.body).backgroundColor') == "rgb(231, 225, 215)"
         browser.execute_script(pick % "light")
         assert browser.execute_script(theme) == ["light", "light", "ace/theme/textmate", "light", "light"]
+        # System, first in the row, gives the choice up: the page takes the system's scheme,
+        # and goes on taking it as the system changes.
+        checked = 'return document.querySelector("[data-theme-choice=%s]").getAttribute("aria-checked")'
+        browser.execute_script(pick % "system")
+        assert browser.execute_script(theme)[:2] == ["light", None]
+        assert browser.execute_script(checked % "system") == "true" and browser.execute_script(checked % "light") == "false"
+        override = "layout.css.prefers-color-scheme.content-override"
+        browser.set_pref(override, 0)
+        try:
+            wait_until(lambda: browser.execute_script(theme) == ["dark", None, "ace/theme/one_dark", "dark", "dark"],
+                       timeout=5)
+        finally:
+            browser.clear_pref(override)
+        wait_until(lambda: browser.execute_script(theme)[0] == "light", timeout=5)
+        # A theme chosen holds while the system changes.
+        browser.execute_script(pick % "light")
+        browser.set_pref(override, 0)
+        try:
+            time.sleep(0.5)
+            assert browser.execute_script(theme)[:2] == ["light", "light"]
+        finally:
+            browser.clear_pref(override)
         # Shift with enter sends a comment, Enter writing a new line, until Settings chooses
         # Enter, and shift with enter then writes the new line. The control key with enter
         # sends either way, and an Enter that ends a word an input method is still composing

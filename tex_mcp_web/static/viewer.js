@@ -1055,10 +1055,15 @@ function showSourceFile(path) {
   $("#source-file-name").textContent = path.split("/").pop();
 }
 
-// Light, dark or warm, as the reader last chose, else light or dark as the system is. The
-// page's own parts and the viewer's change; the PDF's pages are drawn as compiled, white
-// in every theme.
+// Light, dark or warm, as the reader last chose, else, under System, light or dark as the
+// system is, following it as it changes. The page's own parts and the viewer's change; the
+// PDF's pages are drawn as compiled, white in every theme.
 const THEMES = ["light", "dark", "warm"];
+let themeChosen = null;
+try {
+  const kept = localStorage.getItem("texMcpTheme");
+  if (THEMES.includes(kept)) themeChosen = kept;
+} catch { /* none kept */ }
 
 function darkTheme() {
   return document.documentElement.dataset.theme === "dark";
@@ -1068,11 +1073,11 @@ function editorTheme() {
   return darkTheme() ? "ace/theme/one_dark" : "ace/theme/textmate";
 }
 
-function applyTheme(theme) {
-  if (!THEMES.includes(theme)) theme = "light";
+function applyTheme() {
+  const theme = themeChosen ?? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
   document.documentElement.dataset.theme = theme;
   for (const button of document.querySelectorAll("[data-theme-choice]")) {
-    button.setAttribute("aria-checked", String(button.dataset.themeChoice === theme));
+    button.setAttribute("aria-checked", String(button.dataset.themeChoice === (themeChosen ?? "system")));
   }
   state.editor?.setTheme(editorTheme());
   state.viewer?.setTheme?.(viewerTheme(theme));
@@ -4409,17 +4414,19 @@ function attachSidebarToggle() {
   });
   for (const button of document.querySelectorAll("[data-theme-choice]")) {
     button.addEventListener("click", () => {
-      const theme = button.dataset.themeChoice;
-      try { localStorage.setItem("texMcpTheme", theme); } catch { /* the choice lasts this visit */ }
-      applyTheme(theme);
+      const choice = button.dataset.themeChoice;
+      themeChosen = THEMES.includes(choice) ? choice : null;
+      try {
+        if (themeChosen === null) localStorage.removeItem("texMcpTheme");
+        else localStorage.setItem("texMcpTheme", themeChosen);
+      } catch { /* the choice lasts this visit */ }
+      applyTheme();
     });
   }
-  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (event) => {
-    let chosen = null;
-    try { chosen = localStorage.getItem("texMcpTheme"); } catch { /* none kept */ }
-    if (chosen === null) applyTheme(event.matches ? "dark" : "light");
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+    if (themeChosen === null) applyTheme();
   });
-  applyTheme(document.documentElement.dataset.theme);
+  applyTheme();
   // The top bar's and the panels' text at the size Settings chooses, kept for next time.
   const applyTextSize = (percent) => {
     document.documentElement.style.setProperty("--text-scale", String(percent / 100));
