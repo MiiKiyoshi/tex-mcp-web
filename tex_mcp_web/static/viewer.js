@@ -2555,6 +2555,7 @@ function renderComments() {
     : null;
   const inputState = activeInput ? {
     commentId: activeInput.closest(".cmt")?.dataset.commentId,
+    box: boxOf(activeInput),
     selectionStart: activeInput.selectionStart,
     selectionEnd: activeInput.selectionEnd,
     selectionDirection: activeInput.selectionDirection,
@@ -2568,7 +2569,7 @@ function renderComments() {
     const commentNode = Array.from(list.children).find(
       (node) => node.dataset.commentId === inputState.commentId,
     );
-    const input = commentNode?.querySelector(".cmt-form-input");
+    const input = commentNode?.querySelector(inputState.box);
     if (input) {
       input.focus({ preventScroll: true });
       input.setSelectionRange(
@@ -3107,6 +3108,14 @@ function actionButtons(comment) {
   return buttons;
 }
 
+// A card can hold several boxes, the reply for Overleaf above the one being written here among
+// them, so a box is found again by which it is, never as the card's first.
+function boxOf(input) {
+  if (input.classList.contains("overleaf-reply-input")) return ".overleaf-reply-input";
+  const mode = [...(input.closest(".cmt-form")?.classList ?? [])].find((name) => name.startsWith("mode-"));
+  return `.cmt-form.${mode} .cmt-form-input`;
+}
+
 function setActiveForm(commentId, mode) {
   state.activeForm = { commentId, mode, draft: "" };
   state.expanded.add(commentId);
@@ -3114,7 +3123,7 @@ function setActiveForm(commentId, mode) {
   const commentNode = Array.from($("#comments-list").children).find(
     (node) => node.dataset.commentId === commentId,
   );
-  const input = commentNode?.querySelector(".cmt-form-input");
+  const input = commentNode?.querySelector(`.cmt-form.mode-${mode} .cmt-form-input`);
   if (!input) return;
   input.closest(".cmt-form").scrollIntoView({ block: "nearest", behavior: "smooth" });
   input.focus({ preventScroll: true });

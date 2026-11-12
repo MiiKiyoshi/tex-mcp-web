@@ -2495,6 +2495,22 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
         assert browser.execute_script('return document.activeElement.id') == "comments-list"
         assert browser.execute_script(f'return document.querySelector("{card} .overleaf-reply-input").value') \
             == "Feedback and answer."
+        # On a thread from Overleaf, whose box for Overleaf stands above, r puts the cursor in
+        # the reply that stays here, and what is typed goes there, the list drawn again or not.
+        browser.execute_script(
+            f'document.querySelector("{theirs} .cmt-head").dispatchEvent(new MouseEvent("mousedown", {{bubbles: true}}))')
+        leaf_box = f'return document.querySelector("{theirs} .overleaf-reply-input").value'
+        before = browser.execute_script(leaf_box)
+        type_keys(browser, ["r"])
+        here = f"{theirs} .cmt-form.mode-reply .cmt-form-input"
+        assert browser.execute_script(f'return document.activeElement.matches("{here}")') is True
+        type_keys(browser, [*"Only for"])
+        post_json(f"{base}/comments", {"anchor": {"kind": "paper"}, "text": "Another note."})
+        time.sleep(1.5)
+        type_keys(browser, [*" you."])
+        assert browser.execute_script(f'return document.querySelector("{here}").value') == "Only for you."
+        assert browser.execute_script(leaf_box) == before
+        type_keys(browser, [""])
         # The new-thread view, under answered, holds the threads opened from here: the
         # drafts still to send, then those already on Overleaf.
         assert browser.execute_script(
