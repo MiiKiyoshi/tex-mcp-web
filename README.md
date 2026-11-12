@@ -29,8 +29,8 @@ bottom right are the ones pressed.
 
 3. Open `http://localhost:<port>`. The agent acts when you press **Call agent**. With the
    plugin the install adds, a Claude Code session started in the paper's folder waits for
-   that press by itself. In Codex, or a Claude Code that runs no plugin monitors, say
-   `do tex listen` first, and again after the agent restarts.
+   that press by itself. In Codex, or in an older Claude Code that does not support plugin
+   monitors, say `do tex listen` first, and again after the agent restarts.
 
 ## Point at what words cannot
 
