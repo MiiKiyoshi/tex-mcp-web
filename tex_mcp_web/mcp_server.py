@@ -1269,23 +1269,30 @@ def _listen_from_start(shared: "SharedProjectServer") -> None:
     plugin_monitor.hand_over(f"{shlex.quote(str(_write_waiter(shared.watch_dir, shared.port)))} {LISTENER}")
 
 
-def _connect_in_background(binding: "ProjectBinding") -> None:
-    try:
-        shared = binding.connect()
-    except ProjectSetupError as error:
-        print(f"tex-mcp-web project is not ready: {error}", file=sys.stderr)
-        return
-    if shared is not None:
+def _listen_in_background(shared: "SharedProjectServer") -> None:
+    """Listen from the start beside whatever came to the server: the first connection, or a
+    tool call that started the server again once the session serving it had gone, taking
+    that session's waiter with it."""
+    def listen() -> None:
         try:
             _listen_from_start(shared)
         except (OSError, KeyError, ValueError) as error:
             print(f"tex-mcp-web did not start listening: {error}", file=sys.stderr)
 
+    threading.Thread(target=listen, daemon=True).start()
+
+
+def _connect_in_background(binding: "ProjectBinding") -> None:
+    try:
+        binding.connect()
+    except ProjectSetupError as error:
+        print(f"tex-mcp-web project is not ready: {error}", file=sys.stderr)
+
 
 def main(start_dir: Path | None = None) -> None:
     """Run the MCP server with stdio transport, serving the viewer alongside."""
     _check_deps()
-    binding = ProjectBinding(Path.cwd() if start_dir is None else start_dir)
+    binding = ProjectBinding(Path.cwd() if start_dir is None else start_dir, on_serve=_listen_in_background)
     # A discovered paper gets its review page without waiting for a tool call. Starting
     # the review server walks the paper's sources and stats hundreds of paths, quick against
     # a warm filesystem and slow against a cold one, so it runs beside the client's

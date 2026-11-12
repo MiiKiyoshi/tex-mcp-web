@@ -59,6 +59,8 @@ the page, so there is nothing else to start.
 
 Presses go to one session per paper. A Claude Code session that starts while another
 listens leaves the presses to it, and `do tex listen` in any session moves them there.
+When the session serving the page ends, the page goes with it, and the next session to
+call a tex tool serves it again and listens.
 
 ## Reviewing
 

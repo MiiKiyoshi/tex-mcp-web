@@ -47,14 +47,11 @@ def session_of(pid: int) -> int | None:
     return None
 
 
-def _alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
+def _is_monitor(pid: int) -> bool:
+    """Whether *pid* runs the monitor. A monitor killed outright leaves its record, and the pid
+    in it may since have gone to some other process."""
+    result = subprocess.run(["ps", "-o", "args=", "-p", str(pid)], capture_output=True, text=True, check=False)
+    return "monitors/review.sh" in result.stdout
 
 
 def monitored_session() -> int | None:
@@ -66,7 +63,7 @@ def monitored_session() -> int | None:
         monitor = int((DIRECTORY / f"{session}.monitor").read_text().strip())
     except (OSError, ValueError):
         return None
-    return session if _alive(monitor) else None
+    return session if _is_monitor(monitor) else None
 
 
 def hand_over(command: str) -> bool:

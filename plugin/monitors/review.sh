@@ -23,7 +23,11 @@ if [ -z "$session" ]; then
   while kill -0 "$PPID" 2>/dev/null; do sleep 60; done
   exit 0
 fi
-until mkdir -p "$dir" 2>/dev/null && echo $$ > "$dir/$session.monitor"; do sleep 30; done
+# A command left by a monitor killed outright, for a session whose pid this one now has, is
+# not this session's. It goes before the record, after which this session hands over its own.
+until mkdir -p "$dir" 2>/dev/null && rm -f "$dir/$session.command" && echo $$ > "$dir/$session.monitor"; do
+  sleep 30
+done
 child=
 current=
 stop_child() {

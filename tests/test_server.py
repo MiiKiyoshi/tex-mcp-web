@@ -2565,6 +2565,113 @@ async def test_a_session_with_the_plugin_listens_from_its_start(bound_project, p
 
 
 @pytest.mark.asyncio
+async def test_a_session_that_starts_the_server_again_listens_again(bound_project, project, monkeypatch, tmp_path):
+    """A session that came to a paper another session served and listened to leaves it
+    alone. When that session dies with the server and its waiter, the next tool call here
+    starts the server again and listens from the start again, so a press reaches a waiter."""
+    pytest.importorskip("mcp")
+    import signal
+    import sys
+
+    from tex_mcp_web import plugin_monitor
+    from tex_mcp_web.mcp_client import ProjectBinding
+    from tex_mcp_web.mcp_server import _listen_in_background
+
+    cache = tmp_path / "cache"
+    monkeypatch.setattr(plugin_monitor, "DIRECTORY", cache / "tex-mcp-web" / "monitor")
+    session = await asyncio.create_subprocess_exec("sleep", "60")
+    monkeypatch.setattr(plugin_monitor, "claude_pid", lambda: session.pid)
+    monitor = await asyncio.create_subprocess_exec(
+        "sh", str(Path(__file__).parents[1] / "plugin" / "monitors" / "review.sh"), str(session.pid),
+        stdout=asyncio.subprocess.PIPE, env={**os.environ, "XDG_CACHE_HOME": str(cache)})
+    # The other session serves the paper and keeps a waiter parked on it.
+    other = await asyncio.create_subprocess_exec(
+        sys.executable, "-c",
+        "import os, sys, urllib.request\n"
+        "from pathlib import Path\n"
+        "from tex_mcp_web.config import load_config\n"
+        "from tex_mcp_web.mcp_client import SharedProjectServer\n"
+        "shared = SharedProjectServer(load_config(Path(sys.argv[1])))\n"
+        "shared.ensure()\n"
+        "base = f'http://127.0.0.1:{shared.port}'\n"
+        "urllib.request.urlopen(urllib.request.Request(f'{base}/wait-review/listen?listener=other', method='POST'))\n"
+        "print('serving', flush=True)\n"
+        "while True:\n"
+        "    urllib.request.urlopen(f'{base}/wait-review?listener=other&pid={os.getpid()}', timeout=120).read()\n",
+        str(project / ".tex-mcp-web.yaml"),
+        stdout=asyncio.subprocess.PIPE, env={**os.environ, "PYTHONPATH": str(Path(__file__).parents[1])})
+    binding = ProjectBinding(project, on_serve=_listen_in_background)
+    try:
+        assert await asyncio.wait_for(other.stdout.readline(), 30) == b"serving\n"
+        record = plugin_monitor.DIRECTORY / f"{session.pid}.monitor"
+        for _ in range(50):
+            if record.exists():
+                break
+            await asyncio.sleep(0.1)
+        handed = plugin_monitor.DIRECTORY / f"{session.pid}.command"
+        shared = await asyncio.to_thread(binding.connect)
+        assert shared.server is None
+        await asyncio.sleep(2)
+        assert not handed.exists()
+        # The other session ends outright, and its server and waiter with it.
+        other.send_signal(signal.SIGKILL)
+        await other.wait()
+        await asyncio.to_thread(binding.connect)
+        assert shared.server is not None
+        for _ in range(150):
+            if shared.server.review_waiters == 1:
+                break
+            await asyncio.sleep(0.1)
+        assert shared.server.review_waiters == 1
+    finally:
+        await asyncio.to_thread(binding.stop)
+        # TERM lets the monitor stop the waiter it runs.
+        if monitor.returncode is None:
+            monitor.terminate()
+            await monitor.wait()
+        for process in (other, session):
+            if process.returncode is None:
+                process.kill()
+                await process.wait()
+
+
+@pytest.mark.asyncio
+async def test_a_monitor_killed_outright_leaves_nothing_a_later_session_takes(monkeypatch, tmp_path):
+    """A monitor killed outright leaves its record and the last command. A pid in that record
+    now held by another process is no monitor, and the next monitor for a session with the
+    same pid drops the command before it records itself."""
+    from tex_mcp_web import plugin_monitor
+
+    cache = tmp_path / "cache"
+    monkeypatch.setattr(plugin_monitor, "DIRECTORY", cache / "tex-mcp-web" / "monitor")
+    plugin_monitor.DIRECTORY.mkdir(parents=True)
+    session = await asyncio.create_subprocess_exec("sleep", "60")
+    other = await asyncio.create_subprocess_exec("sleep", "60")
+    monkeypatch.setattr(plugin_monitor, "claude_pid", lambda: session.pid)
+    record = plugin_monitor.DIRECTORY / f"{session.pid}.monitor"
+    handed = plugin_monitor.DIRECTORY / f"{session.pid}.command"
+    record.write_text(f"{other.pid}\n")
+    handed.write_text("1\necho left over\n")
+    monitor = None
+    try:
+        assert plugin_monitor.monitored_session() is None
+        monitor = await asyncio.create_subprocess_exec(
+            "sh", str(Path(__file__).parents[1] / "plugin" / "monitors" / "review.sh"), str(session.pid),
+            stdout=asyncio.subprocess.PIPE, env={**os.environ, "XDG_CACHE_HOME": str(cache)})
+        for _ in range(50):
+            if record.read_text().strip() == str(monitor.pid):
+                break
+            await asyncio.sleep(0.1)
+        assert plugin_monitor.monitored_session() == session.pid
+        assert not handed.exists()
+    finally:
+        for process in (monitor, other, session):
+            if process is not None and process.returncode is None:
+                process.kill()
+                await process.wait()
+
+
+@pytest.mark.asyncio
 async def test_exact_source_selection_revision_and_save(client, project):
     tc, server = client
     source = await (await tc.get("/source?path=paper.tex")).json()

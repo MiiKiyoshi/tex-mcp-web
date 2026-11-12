@@ -9,7 +9,7 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import yaml
 
@@ -98,10 +98,12 @@ class SharedProjectServer:
             # frees it when its cleanup is done.
             self._release_lock()
 
-    def ensure(self) -> None:
+    def ensure(self) -> bool:
+        """Serve the paper here unless a process serves it already. True when this call
+        started it here."""
         if self.thread is not None and self.thread.is_alive():
             if self.ready.is_set() and self.start_error is None:
-                return
+                return False
             # A start given up on earlier is still winding down; a second thread on top
             # of it would take another set of watches.
             if not self.ready.wait(timeout=self.START_TIMEOUT):
@@ -117,7 +119,7 @@ class SharedProjectServer:
             if Path(identity).resolve() != self.config_path:
                 raise RuntimeError(
                     f"port {self.port} serves {identity}, not {self.config_path}. Change one project's port")
-            return
+            return False
         lock_path = self.watch_dir / ".tex-mcp-web" / "server.lock"
         lock_path.parent.mkdir(parents=True, exist_ok=True)
         handle = lock_path.open("a")
@@ -131,7 +133,7 @@ class SharedProjectServer:
                 if identity is not None:
                     if Path(identity).resolve() != self.config_path:
                         raise RuntimeError(f"port {self.port} serves another config: {identity}")
-                    return
+                    return False
             raise RuntimeError(f"review server lock is held but port {self.port} is not reachable")
         self.lock_handle = handle
         self.ready.clear()
@@ -151,6 +153,7 @@ class SharedProjectServer:
             error = self.start_error
             self.stop()
             raise RuntimeError(f"review server failed to start: {error}")
+        return True
 
     def stop(self) -> None:
         if self.loop is not None and self.loop.is_running():
@@ -171,10 +174,15 @@ class SharedProjectServer:
 
 
 class ProjectBinding:
-    """Bind one MCP process to the project discovered from its startup directory."""
+    """Bind one MCP process to the project discovered from its startup directory.
 
-    def __init__(self, start_dir: Path):
+    *on_serve* runs with the server each time this process comes to it afresh: at the first
+    connection, whether it starts the server or finds it running, and whenever it starts the
+    server again because the process that served the paper went away."""
+
+    def __init__(self, start_dir: Path, on_serve: Callable[[SharedProjectServer], None] | None = None):
         self.start_dir = start_dir.resolve()
+        self.on_serve = on_serve
         self._lock = threading.Lock()
         self._shared: SharedProjectServer | None = None
 
@@ -201,18 +209,22 @@ class ProjectBinding:
     def connect(self) -> SharedProjectServer | None:
         with self._lock:
             if self._shared is not None:
-                self._shared.ensure()
-                return self._shared
-            config_path = find_config(self.start_dir)
-            if config_path is None:
-                return None
-            try:
-                shared = SharedProjectServer(load_config(config_path))
-                shared.ensure()
-            except (OSError, RuntimeError, TypeError, ValueError, yaml.YAMLError) as error:
-                raise ProjectSetupError(config_path, error) from error
-            self._shared = shared
-            return shared
+                shared = self._shared
+                afresh = shared.ensure()
+            else:
+                config_path = find_config(self.start_dir)
+                if config_path is None:
+                    return None
+                try:
+                    shared = SharedProjectServer(load_config(config_path))
+                    shared.ensure()
+                except (OSError, RuntimeError, TypeError, ValueError, yaml.YAMLError) as error:
+                    raise ProjectSetupError(config_path, error) from error
+                self._shared = shared
+                afresh = True
+        if afresh and self.on_serve is not None:
+            self.on_serve(shared)
+        return shared
 
     def require_shared(self) -> SharedProjectServer:
         shared = self.connect()
