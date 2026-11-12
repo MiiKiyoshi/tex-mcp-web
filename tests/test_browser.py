@@ -1611,8 +1611,8 @@ def test_shift_picks_the_run_between_two_boxes(tmp_path: Path) -> None:
 
 @pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
 def test_the_ring_holds_a_third_of_the_way_down_and_an_opened_card_shows_its_end(tmp_path: Path) -> None:
-    """Moving by keys keeps the ringed card's top a third of the way down the list, so the
-    eye stays put, and a card opened by Space shows its end, where the latest words are."""
+    """Moving by keys keeps the ringed card's middle a third of the way down the list, so
+    the eye stays put, and a card opened by Space shows its end, where the latest words are."""
     import fitz
 
     (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
@@ -1652,15 +1652,15 @@ def test_the_ring_holds_a_third_of_the_way_down_and_an_opened_card_shows_its_end
         place = """const list = document.querySelector("#comments-list");
           const card = list.querySelector(".cmt.is-focused");
           const box = list.getBoundingClientRect(), it = card.getBoundingClientRect();
-          return {id: card.dataset.commentId, top: it.top - box.top, below: it.bottom - box.bottom,
-                  third: list.clientHeight / 3, scroll: list.scrollTop};"""
+          return {id: card.dataset.commentId, middle: it.top + it.height / 2 - box.top,
+                  below: it.bottom - box.bottom, third: list.clientHeight / 3, scroll: list.scrollTop};"""
 
         type_keys(browser, ["j"] * 6)
         at = browser.execute_script(place)
-        assert at["id"] == ids[5] and at["scroll"] > 0 and abs(at["top"] - at["third"]) <= 2
+        assert at["id"] == ids[5] and at["scroll"] > 0 and abs(at["middle"] - at["third"]) <= 2
         type_keys(browser, ["j"])
         moved = browser.execute_script(place)
-        assert moved["id"] == ids[6] and abs(moved["top"] - at["top"]) <= 2
+        assert moved["id"] == ids[6] and abs(moved["middle"] - at["middle"]) <= 2
         # At the list's start the ring cannot sit lower than the first card does.
         type_keys(browser, ["g", "g"])
         assert browser.execute_script(place)["scroll"] == 0

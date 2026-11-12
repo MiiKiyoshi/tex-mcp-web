@@ -4036,8 +4036,9 @@ function pressPickedOr(rows, card) {
   }
 }
 
-// Where the keys keep the ringed card's top: a third of the way down the list, so the eye stays
-// put while the comments move under it. The list's two ends hold it back where it cannot scroll.
+// Where the keys keep the ringed card's middle: a third of the way down the list, its top never
+// above the list's, so the eye stays put while the comments move under it. The list's two ends
+// hold it back where it cannot scroll.
 const RING_AT = 1 / 3;
 
 // The keys move the ring alone: every card stays as it was, and the list scrolls at once, not
@@ -4050,7 +4051,10 @@ function moveFocus(to) {
   renderComments();
   const card = $(`#comments-list [data-comment-id="${CSS.escape(comment.id)}"]`);
   const list = $("#comments-list");
-  if (card) list.scrollTop += card.getBoundingClientRect().top - list.getBoundingClientRect().top - list.clientHeight * RING_AT;
+  if (!card) return;
+  const box = list.getBoundingClientRect();
+  const it = card.getBoundingClientRect();
+  list.scrollTop += it.top - box.top - Math.max(0, list.clientHeight * RING_AT - it.height / 2);
 }
 
 async function showFocused() {

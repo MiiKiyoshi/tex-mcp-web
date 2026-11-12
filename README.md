@@ -305,8 +305,8 @@ takes the typing. **Key letters** in Settings turns them off, and the page remem
 choice.
 
 - `j` and `k`, or ↓ and ↑, move the ring to the next and the previous comment, and leave
-  every card as it was. The list moves under the ring, which stays a third of the way down
-  but at the list's two ends, so the eye stays put. `gg` or Home goes to the first, and `G`
+  every card as it was. The list moves under the ring, whose card keeps its middle a third
+  of the way down but at the list's two ends, so the eye stays put. `gg` or Home goes to the first, and `G`
   or End to the last. Space opens or closes the ringed card, and an opened card shows its
   end, where the thread's latest words and the draft for Overleaf are. `O` opens or closes
   every card.
