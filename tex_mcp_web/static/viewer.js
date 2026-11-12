@@ -85,7 +85,8 @@ const state = {
   sourceCommentMarkers: [],
   // Each comment's marked text in the editor, as { range, comment }.
   sourceCommentSpans: [],
-  sourceCommentRows: new Set(),
+  // The gutter's marks, as "row class": a row takes each class once.
+  sourceDecorations: new Set(),
   sourceCommentsByRow: new Map(),
   panelDraggedAt: -Infinity,
 };
@@ -878,14 +879,23 @@ async function showSourceSelectionInPdf() {
 function clearSourceCommentMarkers() {
   if (!state.editor) return;
   for (const marker of state.sourceCommentMarkers) state.editor.session.removeMarker(marker);
-  for (const row of state.sourceCommentRows) {
-    state.editor.session.removeGutterDecoration(row, "source-comment-line");
-    state.editor.session.removeGutterDecoration(row, "source-suggestion-line");
+  for (const mark of state.sourceDecorations) {
+    const [row, name] = mark.split(" ");
+    state.editor.session.removeGutterDecoration(Number(row), name);
   }
   state.sourceCommentMarkers = [];
   state.sourceCommentSpans = [];
-  state.sourceCommentRows.clear();
+  state.sourceDecorations.clear();
   state.sourceCommentsByRow.clear();
+}
+
+// Ace adds a class to a row again on a second call and takes one away on a removal: a class
+// given twice would outlast its comments. Each goes on a row once.
+function decorateRow(row, name) {
+  const mark = `${row} ${name}`;
+  if (state.sourceDecorations.has(mark)) return;
+  state.sourceDecorations.add(mark);
+  state.editor.session.addGutterDecoration(row, name);
 }
 
 function syncSourceCommentMarkers() {
@@ -912,8 +922,7 @@ function syncSourceCommentMarkers() {
       false,
     ));
     state.sourceCommentSpans.push({ range: new Range(firstRow, startColumn, lastRow, deleted ? startColumn + 1 : endColumn), comment });
-    state.editor.session.addGutterDecoration(firstRow, "source-comment-line");
-    state.sourceCommentRows.add(firstRow);
+    decorateRow(firstRow, "source-comment-line");
     const rowComments = state.sourceCommentsByRow.get(firstRow) ?? [];
     rowComments.push(comment);
     state.sourceCommentsByRow.set(firstRow, rowComments);
@@ -939,9 +948,8 @@ function syncSourceCommentMarkers() {
         false,
       ));
       state.sourceCommentSpans.push({ range: new Range(start.row, start.column, end.row, end.column), comment });
-      state.editor.session.addGutterDecoration(start.row, "source-comment-line");
-      state.editor.session.addGutterDecoration(start.row, "source-suggestion-line");
-      state.sourceCommentRows.add(start.row);
+      decorateRow(start.row, "source-comment-line");
+      decorateRow(start.row, "source-suggestion-line");
       const rowComments = state.sourceCommentsByRow.get(start.row) ?? [];
       if (!rowComments.includes(comment)) rowComments.push(comment);
       state.sourceCommentsByRow.set(start.row, rowComments);
@@ -2169,21 +2177,18 @@ async function goToDefinition() {
 
 // K with Vim keys, or Ctrl+Alt+K (Cmd+Option+K), opens in the comments the comment the
 // cursor is on, as a click on its mark beside the line does: the narrowest when several
-// cover the cursor, else one on the cursor's line. The comment keys then act on it, and
-// Enter there brings the cursor back to its text.
+// cover the cursor, else one on the cursor's line. The comment keys then act on it, and K there
+// brings the cursor back to its words. Off any comment, the keys go to the list as it was.
 function showCommentAtCursor() {
   const { row, column } = state.editor.getCursorPosition();
   const size = ({ range }) => (range.end.row - range.start.row) * 1e6 + range.end.column - range.start.column;
   const covering = state.sourceCommentSpans.filter(({ range }) => range.contains(row, column)).sort((a, b) => size(a) - size(b));
   const chosen = covering[0]?.comment ?? state.sourceCommentsByRow.get(row)?.[0];
-  if (chosen === undefined) {
-    setSourceStatus("No comment here");
-    return;
-  }
   setSidebarCollapsed(false);
   switchTab(state.commentTab);
-  focusComment(chosen);
+  if (chosen !== undefined) focusComment(chosen);
   state.editor.blur();
+  $("#comments-list").focus({ preventScroll: true });
 }
 
 // Ctrl+Alt+M (Cmd+Option+M), or gc with Vim keys. Comments wait for the file to be saved,
@@ -3959,6 +3964,8 @@ const COMMENT_KEYS = [
     { keys: [" "], does: "Open or close it, opening it showing where it is in the paper or the source",
       inRange: true, run: () => foldFocused() },
     { keys: ["Shift+Space"], does: "Open or close every comment", run: () => foldAll() },
+    { keys: ["K", "Ctrl+Alt+K"], does: "Go into the source at its words, the keys with the cursor. "
+      + "K there, Ctrl+Alt+K without Vim keys, comes back", run: () => enterSource() },
   ]],
   ["Write", [
     { keys: ["r"], does: "Reply here, where the agent reads it and Overleaf does not", button: ["cmt-reply"],
@@ -4092,6 +4099,20 @@ function moveFocus(to) {
   list.scrollTop += it.top - box.top - Math.max(0, list.clientHeight * RING_AT - it.height / 2);
 }
 
+// The keys taken into the source at the ringed comment's words, as K in the editor takes them
+// from a comment's words to the comment. A comment with no place in the source, as a paper note,
+// leaves the editor's cursor where it is.
+async function enterSource() {
+  const comment = focused();
+  if (comment === undefined) return;
+  const place = comment.anchor.kind === "source_range" ? comment.resolved_source ?? comment.anchor : comment.resolved_source;
+  if (state.view === "pdf") await setWorkspaceView("source");
+  if (place && await openSource(place.file)) {
+    showSourcePlace(place.line_start - 1, comment.stale ? 0 : place.column_start ?? 0);
+  }
+  state.editor?.focus();
+}
+
 // A card opened shows its end, where the thread's latest words and the draft for Overleaf are,
 // before its top when it is taller than the list, and the paper or the source shows where the
 // comment is. The keys stay with the list.
@@ -4217,7 +4238,10 @@ function attachCommentKeys() {
   let timer = null;
   document.addEventListener("keydown", (event) => {
     const target = event.target;
-    if (event.metaKey || event.ctrlKey || event.altKey || document.querySelector("dialog[open]")) return;
+    // Ctrl+Alt+K, Cmd+Option+K on macOS, is K with the editor's own keys: read by where K sits,
+    // since Option makes it another letter.
+    const editorK = (event.ctrlKey || event.metaKey) && event.altKey && event.code === "KeyK";
+    if ((!editorK && (event.metaKey || event.ctrlKey || event.altKey)) || document.querySelector("dialog[open]")) return;
     if (target.isContentEditable || target.closest?.("textarea, select, [contenteditable]")
         || (target.tagName === "INPUT" && !["checkbox", "radio"].includes(target.type))) return;
     // Space on a button or a box presses it.
@@ -4226,7 +4250,7 @@ function attachCommentKeys() {
     const typed = event.isComposing || event.key === "Process" || COMPOSED.test(event.key)
       ? keyByPosition(event) : event.key;
     // Shift widens Space from the ringed card to every card.
-    const key = typed === " " && event.shiftKey ? "Shift+Space" : typed;
+    const key = editorK ? "Ctrl+Alt+K" : typed === " " && event.shiftKey ? "Shift+Space" : typed;
     if (key === undefined) return;
     clearTimeout(timer);
     if (key === "Escape") {

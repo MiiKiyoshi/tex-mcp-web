@@ -4,7 +4,7 @@
 
 Review a LaTeX paper from its rendered PDF, on a desktop, tablet, or phone, while Claude Code or Codex edits the source.
 
-![A sentence selected in the PDF takes a comment asking for a number. Called, the agent proposes a wording as a −/+ pair, the source marks the words it would replace, and once the wording is applied and the paper compiled, the PDF shows the new sentence.](docs/images/pdf-review.gif)
+![A sentence selected in the PDF takes a comment asking for a number. Called, the agent proposes a wording as a −/+ pair, the source marks the words it would replace, and once the wording is applied and the paper compiled, the PDF shows the new sentence.](docs/images/pdf-review.webp)
 
 Select words in the PDF, or draw a box over part of a figure, and write what should change.
 Press **Call agent**, the bell above the comments, when they are ready. The agent edits the
@@ -39,7 +39,7 @@ come into a tab of their own, **Comments** with a leaf, beside the comments you 
 a thread you talk with the agent, which drafts the reply for Overleaf under it, and you send
 that reply once it reads right.
 
-![A co-author's thread from Overleaf, where the agent misread the request and drafted a gushing reply. A reply to the agent sets it right, and once called, the agent fixes the sentence, the PDF shows it, and the draft for Overleaf becomes one short line, sent with ss.](docs/images/overleaf-thread.gif)
+![A co-author's thread from Overleaf, where the agent misread the request and drafted a gushing reply. A reply to the agent sets it right, and once called, the agent fixes the sentence, the PDF shows it, and the draft for Overleaf becomes one short line, sent with ss.](docs/images/overleaf-thread.webp)
 
 Your talk with the agent stays on the page, in the thread between your co-authors' messages,
 so the whole exchange reads in order. Overleaf gets only the replies you send.
@@ -51,7 +51,7 @@ Keeping the paper's files in step with Overleaf, by git, by hand or live, is in
 
 ## Raise a point with your co-authors on Overleaf
 
-![A paper note asks the agent to put a question to the co-author. Called, the agent drafts a new thread on the table's header row, which waits in the leaf Comments tab under new thread. A few words added with i, it is sent with ss and its first message shows as sent.](docs/images/new-thread.gif)
+![A paper note asks the agent to put a question to the co-author. Called, the agent drafts a new thread on the table's header row, which waits in the leaf Comments tab under new thread. A few words added with i, it is sent with ss and its first message shows as sent.](docs/images/new-thread.webp)
 
 Ask the agent, in a note or in any thread, to put a question to your co-authors. It drafts a
 new thread on the lines in question, which waits in the leaf **Comments** tab under **new
@@ -59,13 +59,17 @@ thread**. Edit it there and send it, and it opens on Overleaf on those lines.
 
 ## Go through the comments by keyboard
 
-The comment list goes by keys, as a notebook's cells do. A ring marks the comment the keys act
-on, and the list moves under it, so the eye stays put.
+![All without the mouse: gd into the introduction's file, v and gc to comment on a sentence, Ctrl+Alt+Enter to call the agent, K to its comment, Space and aa to apply its proposal, K back to the words, :make to compile, gss to find the sentence in the PDF, Ctrl+O back to main.tex, and R to resolve.](docs/images/keyboard.webp)
+
+The comment list goes by keys, as a notebook's cells do, and the editor has Vim keys. A ring
+marks the comment the keys act on, and the list moves under it, so the eye stays put. `K` goes
+between a comment and its words in the source, both ways.
 
 | Key | Does |
 |---|---|
 | `j` `k` | Next and previous comment |
 | Space | Open the comment and show its words |
+| `K` | Into the source at its words, and `K` there back |
 | `r` | Reply to the agent |
 | `R` | Resolve |
 | `aa` | Apply the suggestion |

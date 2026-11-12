@@ -58,6 +58,7 @@ typing.
 | `gg` `G`, Home End | First and last comment |
 | Space | Open or close the card, and show where the comment is in the PDF or the source, its line a third of the way down the editor |
 | Shift+Space | Open or close every card |
+| `K`, Ctrl+Alt+K | Go into the source at the comment's words, the keys going with the cursor. `K` in the editor, or Ctrl+Alt+K without Vim keys, comes back |
 | `r` | Reply here, where the agent reads it and Overleaf does not |
 | `i` | Write the thread's reply for Overleaf |
 | `e` | Edit the last thing you wrote in the thread |
@@ -88,14 +89,15 @@ The Vim button in the editor's bar turns on Vim keys, and the page remembers the
 - `gc` comments on the text a motion or a visual selection covers, and `gs` marks that text
   in the Preview.
 - `K` opens the comment under the cursor in the Comments tab, where the comment keys then
-  act on it.
+  act on it, and off any comment gives the keys to the list as it was. `K` in the list comes
+  back to the comment's words.
 - `gd` or Ctrl+] goes from `\input`, `\ref` or `\cite` to the file, label or `.bib` entry,
   and Ctrl+O or Ctrl+T comes back. Browsers on Windows keep Ctrl+T for a new tab.
 - A yank also goes to the system clipboard.
 
 With or without Vim keys, Ctrl+S saves, F12 and Shift+F12 go to a definition and back,
 Ctrl+Alt+M comments on the selection, Ctrl+Alt+P marks it in the Preview, and Ctrl+Alt+K
-opens the comment under the cursor. Ctrl+Enter compiles, or sends a comment being written,
+does what `K` does, in the editor and in the list alike. Ctrl+Enter compiles, or sends a comment being written,
 and Ctrl+Alt+Enter presses Call agent. On macOS, Cmd takes the place of Ctrl and Option of
 Alt in these. Ctrl+[ drops a comment being written, with Ctrl on macOS too.
 

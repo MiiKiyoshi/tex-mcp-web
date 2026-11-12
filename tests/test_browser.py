@@ -1967,14 +1967,36 @@ def test_the_comment_list_goes_by_keys(tmp_path: Path) -> None:
         wait_until(lambda: browser.execute_script(
             f'{editor} return editor.getCursorPosition().row === 3'
             ' && document.querySelector(".layout").classList.contains("view-source");'))
+        # The comment and its proposal mark the same line, which takes the mark once, so it
+        # goes with them.
         assert browser.execute_script(
-            f'{editor} return document.activeElement === editor.textInput.getElement();') is False
-        # From the editor, Ctrl+Alt+K on those words gives the keys back to the list.
+            f'{editor} return (editor.session.$decorations[3].match(/source-comment-line/g) || []).length;') == 1
+        assert browser.execute_script(
+            f'{editor} return editor.isFocused();') is False
+        # K goes between a comment and its words. From the list it takes the keys into the
+        # source at the ringed comment's words, and K there, Ctrl+Alt+K without Vim keys,
+        # brings them back: to the comment under the cursor, or off any comment to the list as
+        # it was. Ctrl+Alt+K goes from the list as K does, and a paper note, with no words in
+        # the source, takes the keys to the editor as they stand.
+        def editor_k():
+            ActionSequence(browser, "key", "keyboard").key_down("\ue009").key_down("\ue00a").key_down("k") \
+                .key_up("k").key_up("\ue00a").key_up("\ue009").perform()
+
+        in_editor = f'{editor} return editor.isFocused();'
+        press("K")
+        wait_until(lambda: browser.execute_script(in_editor)
+                   and browser.execute_script(f'{editor} return editor.getCursorPosition().row;') == 3)
+        browser.execute_script(f"{editor} editor.moveCursorTo(0, 0);")
+        editor_k()
+        wait_until(lambda: browser.execute_script('return document.activeElement.id') == "comments-list")
+        assert ringed() == source
         press("j")
         assert ringed() == third
-        browser.execute_script(f"{editor} editor.focus(); editor.moveCursorTo(3, 2);")
-        ActionSequence(browser, "key", "keyboard").key_down("").key_down("").key_down("k") \
-            .key_up("k").key_up("").key_up("").perform()
+        editor_k()
+        wait_until(lambda: browser.execute_script(in_editor))
+        assert browser.execute_script(f'{editor} return editor.getCursorPosition().row;') == 0
+        browser.execute_script(f"{editor} editor.moveCursorTo(3, 2);")
+        editor_k()
         wait_until(lambda: ringed() == source)
         press("j")
         assert ringed() == third
@@ -2005,7 +2027,7 @@ def test_the_comment_list_goes_by_keys(tmp_path: Path) -> None:
         # The editor takes the changed file in, and leaves the keys with the list.
         wait_until(lambda: browser.execute_script(f'{editor} return editor.getValue().includes("Hello there.");'))
         assert browser.execute_script(
-            f'{editor} return document.activeElement === editor.textInput.getElement();') is False
+            f'{editor} return editor.isFocused();') is False
 
         # x picks the ringed comment. v holds a range that the moving keys stretch, and x
         # picks the range, or lets it go when it is all picked. Escape lets a range go and
