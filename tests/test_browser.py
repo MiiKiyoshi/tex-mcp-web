@@ -1610,6 +1610,237 @@ def test_shift_picks_the_run_between_two_boxes(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
+def test_the_comment_list_goes_by_keys(tmp_path: Path) -> None:
+    """The comments go by keys as a notebook's cells do: j and k move the ring and open the
+    card it lands on, a key presses the ringed card's button, a key that changes the file or
+    deletes is pressed twice, and the keys rest while another tab or a dialog is shown."""
+    import fitz
+
+    (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
+    with fitz.open() as pdf:
+        pdf.new_page().insert_text((72, 72), "Hello world.")
+        pdf.save(tmp_path / "paper.pdf")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
+
+    shared = SharedProjectServer(load_config(config_path))
+    profile = tempfile.mkdtemp(prefix="tex_mcp_keys_")
+    marionette_port = available_port()
+    (Path(profile) / "user.js").write_text(
+        f'user_pref("marionette.port", {marionette_port});\n', encoding="utf-8")
+    browser_process = None
+    browser = None
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        note = lambda text: post_json(f"{base}/comments", {"anchor": {"kind": "paper"}, "text": text})["id"]
+        first = note("Name the second example.")
+        source = post_json(f"{base}/comments", {
+            "anchor": {"kind": "source_range", "file": "paper.tex", "line_start": 4, "line_end": 4,
+                       "column_start": 0, "column_end": 12},
+            "text": "Say who is greeted.",
+            "suggestion": {"old": "Hello world.", "new": "Hello there."},
+        })["id"]
+        third = note("Shorten the title.")
+        fourth = note("Cite the survey here.")
+
+        browser_process = subprocess.Popen(
+            ["firefox", "-marionette", "-headless", "-no-remote", "-profile", profile, "about:blank"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        browser = marionette.Marionette(host="127.0.0.1", port=marionette_port, startup_timeout=30)
+        browser.start_session()
+        browser.set_window_rect(x=0, y=0, width=1500, height=1000)
+        browser.navigate(base)
+        wait_until(lambda: browser.execute_script(
+            "return document.querySelectorAll('#comments-list .cmt').length === 4 || false;"))
+        browser.execute_script("document.activeElement.blur();")
+
+        def press(*keys):
+            type_keys(browser, keys)
+
+        def ringed():
+            return browser.execute_script(
+                'return document.querySelector("#comments-list .cmt.is-focused")?.dataset.commentId ?? null')
+
+        def opened():
+            return browser.execute_script(
+                'return [...document.querySelectorAll("#comments-list .cmt")]'
+                '  .filter((card) => card.querySelector(".cmt-actions")).map((card) => card.dataset.commentId)')
+
+        def status(comment_id):
+            return get_json(f"{base}/comments/{comment_id}")["status"]
+
+        escape, enter, home, end = "", "", "", ""
+        # The ring opens the card it lands on, and closes the one it opened before.
+        press("j")
+        assert [ringed(), opened()] == [first, [first]]
+        press("j")
+        assert [ringed(), opened()] == [source, [source]]
+        press("k")
+        assert [ringed(), opened()] == [first, [first]]
+        press("G")
+        assert ringed() == fourth
+        press("g", "g")
+        assert ringed() == first
+        press(end)
+        assert ringed() == fourth
+        press(home)
+        assert ringed() == first
+        # With a Korean input method on, a letter key arrives as the letter it composes, and
+        # is read by where it sits on the keyboard.
+        browser.execute_script('document.body.dispatchEvent(new KeyboardEvent("keydown",'
+                               ' {key: "ㅓ", code: "KeyJ", bubbles: true, cancelable: true}))')
+        assert ringed() == source
+        # A card the reader opened or closed stays so when the ring moves on.
+        press("o")
+        assert opened() == []
+        press("o")
+        assert opened() == [source]
+        press("j")
+        assert [ringed(), opened()] == [third, [source, third]]
+        press("k")
+        assert [ringed(), opened()] == [source, [source]]
+        assert browser.execute_script(
+            'return document.querySelector("#comments-list .is-focused .cmt-resolve").title') == "Resolve (R)"
+
+        # Enter shows the comment's words in the source, and the keys stay with the list.
+        editor = '''const page = window.wrappedJSObject || window;
+          const editor = page.ace.edit("source-editor");'''
+        press(enter)
+        wait_until(lambda: browser.execute_script(
+            f'{editor} return editor.getCursorPosition().row === 3'
+            ' && document.querySelector(".layout").classList.contains("view-source");'))
+        assert browser.execute_script(
+            f'{editor} return document.activeElement === editor.textInput.getElement();') is False
+        # From the editor, Ctrl+Alt+K on those words gives the keys back to the list.
+        press("j")
+        assert ringed() == third
+        browser.execute_script(f"{editor} editor.focus(); editor.moveCursorTo(3, 2);")
+        ActionSequence(browser, "key", "keyboard").key_down("").key_down("").key_down("k") \
+            .key_up("k").key_up("").key_up("").perform()
+        wait_until(lambda: ringed() == source)
+        press("j")
+        assert ringed() == third
+        press("k")
+
+        # r and e put the cursor in the reply and in the last thing written, and Escape drops
+        # either, the keys going on.
+        press("r")
+        assert browser.execute_script(
+            'return document.activeElement.matches("#comments-list .is-focused .cmt-form-input")') is True
+        press(escape)
+        assert browser.execute_script('return document.querySelector("#comments-list .cmt-form")') is None
+        press("e")
+        assert browser.execute_script(
+            'return document.activeElement.matches("#comments-list .is-focused .entry-edit-input")') is True
+        press(escape)
+        assert browser.execute_script('return document.querySelector("#comments-list .cmt-form")') is None
+
+        # A suggestion is applied by a doubled a: one a, or two a second apart, does nothing.
+        press("a")
+        time.sleep(1.3)
+        press("a")
+        time.sleep(0.5)
+        assert "suggestion" in get_json(f"{base}/comments/{source}")
+        press("a", "a")
+        wait_until(lambda: "suggestion" not in get_json(f"{base}/comments/{source}"))
+        assert (tmp_path / "paper.tex").read_text(encoding="utf-8").count("Hello there.") == 1
+        # The editor takes the changed file in, and leaves the keys with the list.
+        wait_until(lambda: browser.execute_script(f'{editor} return editor.getValue().includes("Hello there.");'))
+        assert browser.execute_script(
+            f'{editor} return document.activeElement === editor.textInput.getElement();') is False
+
+        # x picks, X picks the run from the last pick, and * picks all or lets all go.
+        def picked():
+            return browser.execute_script(
+                'return [...document.querySelectorAll("#comments-list .cmt")]'
+                '  .filter((card) => card.querySelector(".comment-pick").checked).map((card) => card.dataset.commentId)')
+
+        press("x")
+        assert picked() == [source]
+        press("j", "j", "X")
+        assert picked() == [source, third, fourth]
+        press("*")
+        assert picked() == [first, source, third, fourth]
+        press("*")
+        assert picked() == []
+
+        # R resolves the ringed comment, and the one now in its place takes the ring. Held
+        # down, R does no more.
+        press("k", "R")
+        wait_until(lambda: status(third) == "resolved" and ringed() == fourth)
+        browser.execute_script('document.body.dispatchEvent(new KeyboardEvent("keydown",'
+                               ' {key: "R", repeat: true, bubbles: true, cancelable: true}))')
+        time.sleep(0.5)
+        assert status(fourth) == "open"
+        # v moves to the next view, where R reopens a resolved comment, and V moves back.
+        press("v")
+        wait_until(lambda: browser.execute_script(
+            'return document.querySelector("#comment-filter").value === "resolved"'
+            ' && document.querySelectorAll("#comments-list .cmt").length === 1'))
+        press("j", "R")
+        wait_until(lambda: status(third) == "open")
+        press("V")
+        wait_until(lambda: browser.execute_script(
+            'return document.querySelector("#comment-filter").value === "open"'
+            ' && document.querySelectorAll("#comments-list .cmt").length === 4'))
+        # With comments picked, R resolves them rather than the ringed one.
+        press("g", "g", "x", "j", "R")
+        wait_until(lambda: status(first) == "resolved")
+        assert status(source) == "open"
+
+        # dd deletes once the reader says yes, and a d not doubled is dropped.
+        browser.execute_script("const page = window.wrappedJSObject || window; page.asked = [];"
+                               "page.confirm = (message) => page.asked.push(message) && false;", sandbox=None)
+        ringed_before = ringed()
+        press("d", "j")
+        assert ringed() != ringed_before
+        press("d", "d")
+        assert browser.execute_script("return (window.wrappedJSObject || window).asked;", sandbox=None) \
+            == [f"Permanently delete {ringed()}?"]
+
+        # The list's keys rest while another tab is shown, and t and T move between tabs.
+        before = ringed()
+        press("t")
+        assert browser.execute_script('return document.querySelector(".tab-btn.active").dataset.tab') == "compile"
+        press("j")
+        assert ringed() == before
+        press("T", "T")
+        assert browser.execute_script('return document.querySelector(".tab-btn.active").dataset.tab') == "sections"
+        press("t")
+        assert browser.execute_script('return document.querySelector(".tab-btn.active").dataset.tab') == "comments"
+
+        # ? lists the keys from the keys themselves, which rest under it until it closes.
+        press("?")
+        assert browser.execute_script('return document.querySelector("#keys-dialog").open') is True
+        listed = browser.execute_script('return document.querySelector("#keys-dialog").textContent')
+        assert "aaApply its suggestion to the file" in listed
+        assert "With comments picked, R, A and ss act on them." in listed
+        press("j")
+        assert ringed() == before
+        press(escape)
+        assert browser.execute_script('return document.querySelector("#keys-dialog").open') is False
+        # c opens a paper note.
+        press("c")
+        assert browser.execute_script('return document.querySelector("#compose-dialog").open') is True
+        assert browser.execute_script('return document.querySelector("#compose-anchor").textContent') \
+            == "Paper-level comment"
+    finally:
+        if browser is not None:
+            browser.delete_session()
+        if browser_process is not None:
+            browser_process.terminate()
+            try:
+                browser_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                browser_process.kill()
+        shutil.rmtree(profile, ignore_errors=True)
+        shared.stop()
+
+
+@pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
 def test_archived_threads_have_their_own_view_and_picked_archive_action(tmp_path: Path) -> None:
     """Archive is the third visible status: its view lists kept threads apart, and the
     archive-box action moves only picked threads there."""
@@ -1662,7 +1893,7 @@ def test_archived_threads_have_their_own_view_and_picked_archive_action(tmp_path
 
         # The tab of comments written here offers these views, and no unanswered one.
         assert browser.execute_script(
-            'return Array.from(document.querySelectorAll("#comment-filter option")).filter((o) => !o.hidden)'
+            'return Array.from(document.querySelectorAll("#comment-filter option"))'
             '.map((o) => [o.value, o.textContent]);'
         ) == [["open", "open"], ["resolved", "resolved"], ["archived", "archived"], ["all", "all"]]
         assert shown("open", [working, untouched]) == [working, untouched]
@@ -1978,6 +2209,11 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
             {"type": "overleaf_live", "status": "off", "me": "Me Myself"}), shared.loop).result(5)
         wait_until(lambda: "Is this clear?" not in browser.execute_script(listed))
         assert "Say hello properly." in browser.execute_script(listed)
+        # The answered view, under it, holds the threads whose last message there is the reviewer's.
+        browser.execute_script('const f = document.querySelector("#comment-filter"); f.value = "answered";'
+                               ' f.dispatchEvent(new Event("change"));')
+        wait_until(lambda: "Is this clear?" in browser.execute_script(listed))
+        assert "Say hello properly." not in browser.execute_script(listed)
         browser.execute_script('const f = document.querySelector("#comment-filter"); f.value = "open";'
                                ' f.dispatchEvent(new Event("change"));')
         wait_until(lambda: "Which words?" in browser.execute_script(listed) and "Is this clear?" in browser.execute_script(listed))
@@ -1995,10 +2231,11 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
                   meta.querySelector(".cmt-edit") === null];
         ''') == ["A. Reviewer", True, "Written on Overleaf", True]
         assert browser.execute_script('return document.querySelector("#tab-comments").classList.contains("active")')
-        # Overleaf has no archive, so the tab offers none, and its filter has no archived view.
+        # Overleaf has no archive, so the tab offers none, and its filter has no archived view,
+        # not even a hidden one, which Safari would still list.
         assert browser.execute_script('return document.querySelector("#archive-picked-btn").hidden') is True
         assert browser.execute_script(
-            'return document.querySelector(\'#comment-filter option[value="archived"]\').hidden') is True
+            'return document.querySelector(\'#comment-filter option[value="archived"]\')') is None
         # A thread the agent drafted for Overleaf waits in this tab, with nothing said in it
         # yet: its first message is the draft, and it is sent or deleted.
         drafted = draft("Feedback and answer.")
@@ -2017,11 +2254,11 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
         wait_until(lambda: browser.execute_script(f'return document.querySelector("{card} .cmt-actions") !== null'))
         assert browser.execute_script(
             f'return [...document.querySelectorAll("{card} .cmt-actions button")].map((b) => b.textContent)') == ["Delete"]
-        # The new-thread view, under unanswered, holds the threads opened from here: the
+        # The new-thread view, under answered, holds the threads opened from here: the
         # drafts still to send, then those already on Overleaf.
         assert browser.execute_script(
-            'return [...document.querySelectorAll("#comment-filter option")].filter((o) => !o.hidden)'
-            '.map((o) => o.textContent);') == ["unanswered", "new thread", "open", "resolved", "all"]
+            'return [...document.querySelectorAll("#comment-filter option")].map((o) => o.textContent);') \
+            == ["unanswered", "answered", "new thread", "open", "resolved", "all"]
         browser.execute_script('const f = document.querySelector("#comment-filter"); f.value = "new";'
                                ' f.dispatchEvent(new Event("change"));')
         assert wait_until(lambda: browser.execute_script(
@@ -2034,9 +2271,9 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
         assert browser.execute_script(
             'document.querySelector(\'.tab-btn[data-tab="comments"]\').click();'
             ' const f = document.querySelector("#comment-filter");'
-            ' return [f.value, f.querySelector(\'option[value="unanswered"]\').hidden,'
-            ' f.querySelector(\'option[value="new"]\').hidden,'
-            ' document.querySelector("#comment-filter-name").textContent];') == ["open", True, True, "open"]
+            ' return [f.value, [...f.options].map((o) => o.value),'
+            ' document.querySelector("#comment-filter-name").textContent];') \
+            == ["open", ["open", "resolved", "archived", "all"], "open"]
         wait_until(lambda: "Written here." in browser.execute_script(listed))
         assert "Feedback and answer." not in browser.execute_script(
             'return [...document.querySelectorAll(".overleaf-reply-input")].map((b) => b.value).join("|")')

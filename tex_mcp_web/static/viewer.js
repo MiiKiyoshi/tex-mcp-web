@@ -59,6 +59,10 @@ const state = {
   commentTab: "comments",
   editingEntry: null,
   focusedCommentId: null,
+  // The card landing the focus on opened, which closes again when the focus moves on.
+  openedByFocus: null,
+  // The comment tab and status the list shows, so a list drawn again knows it is the same view.
+  commentsView: null,
   annotationCommentById: new Map(),
   annotationObserver: null,
   badgeFrame: null,
@@ -961,7 +965,8 @@ function openSourceCommentCompose() {
   );
 }
 
-async function openSource(path, line = null, force = false) {
+// A line given puts the cursor there and the keys in the editor, unless *focus* is false.
+async function openSource(path, line = null, force = false, focus = true) {
   if (!state.editor || !path) return false;
   if (!force && path === state.sourcePath) {
     if (line !== null) {
@@ -995,7 +1000,7 @@ async function openSource(path, line = null, force = false) {
   updateSourceCommentButton();
   if (line !== null) {
     state.editor.gotoLine(Math.max(1, Number(line)), 0, true);
-    state.editor.focus();
+    if (focus) state.editor.focus();
   }
   return true;
 }
@@ -1546,7 +1551,7 @@ function renderOverleafLive(snapshot) {
   overleafLive.snapshot = snapshot;
   if ((snapshot.me ?? "") !== state.overleafMe) {
     state.overleafMe = snapshot.me ?? "";
-    if ($("#comment-filter").value === "unanswered") refreshComments().catch((error) => console.error(error));
+    if (["unanswered", "answered"].includes($("#comment-filter").value)) refreshComments().catch((error) => console.error(error));
   }
   if (snapshot.by_hand) renderOverleafFiles(snapshot.by_hand);
   else if (state.overleafFiles) {
@@ -1817,6 +1822,12 @@ function defineVimCommands(Vim) {
 // where it sits on the keyboard instead, and the letter that follows is dropped.
 const COMPOSED = /[\u1100-\u11ff\u3130-\u318f\uac00-\ud7af]/;
 
+// A letter key as the letter where it sits on the keyboard, whatever an input method made of it.
+function keyByPosition(event) {
+  const letter = /^Key([A-Z])$/.exec(event.code)?.[1];
+  return letter === undefined ? undefined : event.shiftKey ? letter : letter.toLowerCase();
+}
+
 function vimCommandMode() {
   const vim = state.editor?.state?.cm?.state.vim;
   return Boolean(state.editor?.$vimModeHandler && vim && !vim.insertMode);
@@ -1828,8 +1839,7 @@ function attachVimInputMethod(editor) {
     if (!vimCommandMode() || event.target !== field || event.ctrlKey || event.metaKey || event.altKey) return;
     let key = null;
     if (event.isComposing || event.key === "Process" || COMPOSED.test(event.key)) {
-      const letter = /^Key([A-Z])$/.exec(event.code)?.[1];
-      if (letter !== undefined) key = event.shiftKey ? letter : letter.toLowerCase();
+      key = keyByPosition(event) ?? null;
     } else if (field.readOnly && event.key.length === 1 && event.key !== " ") {
       // A read-only field (below) takes no typing, so a character key reaches Vim here,
       // where Vim otherwise reads it from the typing. Space is a named key Vim reads itself.
@@ -2149,7 +2159,8 @@ async function goToDefinition() {
 
 // K with Vim keys, or Ctrl+Alt+K (Cmd+Option+K), opens in the comments the comment the
 // cursor is on, as a click on its mark beside the line does: the narrowest when several
-// cover the cursor, else one on the cursor's line.
+// cover the cursor, else one on the cursor's line. The comment keys then act on it, and
+// Enter there brings the cursor back to its text.
 function showCommentAtCursor() {
   const { row, column } = state.editor.getCursorPosition();
   const size = ({ range }) => (range.end.row - range.start.row) * 1e6 + range.end.column - range.start.column;
@@ -2162,6 +2173,7 @@ function showCommentAtCursor() {
   setSidebarCollapsed(false);
   switchTab(state.commentTab);
   focusComment(chosen);
+  state.editor.blur();
 }
 
 // Ctrl+Alt+M (Cmd+Option+M), or gc with Vim keys. Comments wait for the file to be saved,
@@ -2327,8 +2339,11 @@ async function handleSourceChanged(message) {
     return;
   }
   const line = state.editor.getCursorPosition().row + 1;
+  // A file changed under the reader leaves the keys where they are, in a reply being written
+  // or with the comment list.
+  const focused = state.editor.isFocused();
   await refreshComments();
-  await openSource(state.sourcePath, line, true);
+  await openSource(state.sourcePath, line, true, focused);
 }
 
 // What sends a comment, as Settings chooses: shift with enter, Enter writing a new line as
@@ -2405,7 +2420,7 @@ async function submitCompose(event) {
 async function refreshComments() {
   const status = $("#comment-filter").value;
   const url = status === "all" ? "/comments"
-    : `/comments?status=${status === "unanswered" || status === "new" ? "open" : status}`;
+    : `/comments?status=${["unanswered", "answered", "new"].includes(status) ? "open" : status}`;
   const [response, overleaf] = await Promise.all([fetch(url), fetch("/overleaf")]);
   if (!response.ok) throw new Error(await responseError(response));
   const data = await response.json();
@@ -2425,12 +2440,13 @@ async function refreshComments() {
   renderCommentTabs(opened(here), opened(onOverleaf));
   data.comments = state.commentTab !== "overleaf-comments" ? here
     : status === "unanswered" ? onOverleaf.filter(answeredByOthers)
+    : status === "answered" ? onOverleaf.filter(answeredByMe)
     : status === "new" ? [...onOverleaf.filter(draftedThread), ...onOverleaf.filter(openedHere)]
     : onOverleaf;
   renderOverleafThreadSync();
-  // The open view keeps the server's order: the comments written here in the order they
-  // were written, and Overleaf's threads in the order the paper reads them, as Overleaf's
-  // review panel has them. The new-thread view puts the drafts still to send above the
+  // The open view, and the unanswered and answered ones, keep the server's order: the
+  // comments written here in the order they were written, and Overleaf's threads in the
+  // order the paper reads them, as Overleaf's review panel has them. The new-thread view puts the drafts still to send above the
   // threads already opened from them, each in the paper's order. The resolved view leads
   // with the comment closed last, the one the reader has just closed and looks for. The
   // mixed view leads with the one written last, by when it was written and not by when it
@@ -2442,9 +2458,19 @@ async function refreshComments() {
     ? (comment) => comment.resolved ?? comment.created
     : status === "archived" ? (comment) => comment.updated
     : (comment) => comment.created;
-  state.comments = status === "open" || status === "unanswered" || status === "new" ? data.comments
+  const before = state.comments;
+  state.comments = ["open", "unanswered", "answered", "new"].includes(status) ? data.comments
     : [...data.comments].sort((first, second) => (moment(first) < moment(second) ? 1
       : moment(first) > moment(second) ? -1 : 0));
+  // A focused comment that leaves the view, as one resolved in the open view does, hands the
+  // focus to the comment now in its place, so the keys go on from there.
+  const view = `${state.commentTab} ${status}`;
+  const at = before.findIndex((comment) => comment.id === state.focusedCommentId);
+  if (view === state.commentsView && at !== -1 && state.comments.length > 0
+      && !state.comments.some((comment) => comment.id === state.focusedCommentId)) {
+    moveFocusTo(state.comments[Math.min(at, state.comments.length - 1)]);
+  }
+  state.commentsView = view;
   renderComments();
   syncCommentAnnotations();
   syncSourceCommentMarkers();
@@ -2469,8 +2495,17 @@ function forOverleaf(comment) {
 // or written there under the reviewer's own name, is the reviewer's answer. Entries that
 // stay here are not on Overleaf, and a thread drafted for it has nothing said in it yet.
 function answeredByOthers(comment) {
-  const last = comment.thread.filter((entry) => entry.name !== undefined || entry.overleaf !== undefined).at(-1);
+  const last = lastOnOverleaf(comment);
   return last !== undefined && last.overleaf === undefined && last.name !== state.overleafMe;
+}
+
+// A thread from Overleaf whose last message there is the reviewer's own.
+function answeredByMe(comment) {
+  return lastOnOverleaf(comment) !== undefined && !answeredByOthers(comment);
+}
+
+function lastOnOverleaf(comment) {
+  return comment.thread.filter((entry) => entry.name !== undefined || entry.overleaf !== undefined).at(-1);
 }
 
 // The leaf tab shows once the paper names an Overleaf project or has threads from one.
@@ -2488,15 +2523,25 @@ function renderCommentTabs(here, onOverleaf) {
   renderCommentFilter();
 }
 
-// The row above the list holds what the shown tab can do, from the moment the tab is chosen:
-// Overleaf has no archive, and only its threads wait for an answer or are opened from here.
+// The views each comment tab's list offers, as [value, name]. Overleaf has no archive, and only
+// its threads wait for an answer, have one, or are opened from here.
+const COMMENT_VIEWS = {
+  comments: [["open", "open"], ["resolved", "resolved"], ["archived", "archived"], ["all", "all"]],
+  "overleaf-comments": [["unanswered", "unanswered"], ["answered", "answered"], ["new", "new thread"],
+    ["open", "open"], ["resolved", "resolved"], ["all", "all"]],
+};
+
+// The row above the list holds what the shown tab can do, from the moment the tab is chosen.
+// The list holds the tab's views and no others, since Safari still lists a hidden option.
 function renderCommentFilter() {
-  const leaf = state.commentTab === "overleaf-comments";
   const filter = $("#comment-filter");
-  filter.querySelector('option[value="archived"]').hidden = leaf;
-  for (const value of ["unanswered", "new"]) filter.querySelector(`option[value="${value}"]`).hidden = !leaf;
-  if (filter.selectedOptions[0].hidden) setCommentFilter("open");
-  $("#archive-picked-btn").hidden = leaf;
+  const views = COMMENT_VIEWS[state.commentTab];
+  if ([...filter.options].map((option) => option.value).join(" ") !== views.map(([value]) => value).join(" ")) {
+    const chosen = filter.value;
+    filter.replaceChildren(...views.map(([value, name]) => h("option", { value, text: name })));
+    setCommentFilter(views.some(([value]) => value === chosen) ? chosen : "open");
+  }
+  $("#archive-picked-btn").hidden = state.commentTab === "overleaf-comments";
 }
 
 function renderComments() {
@@ -2617,12 +2662,15 @@ function renderFoldAction() {
 }
 
 function foldAll() {
-  const shown = state.comments.map((comment) => comment.id);
-  const allOpen = shown.every((id) => state.expanded.has(id));
-  for (const id of shown) {
-    if (allOpen) state.expanded.delete(id);
-    else state.expanded.add(id);
+  foldEvery(!state.comments.every((comment) => state.expanded.has(comment.id)));
+}
+
+function foldEvery(open) {
+  for (const comment of state.comments) {
+    if (open) state.expanded.add(comment.id);
+    else state.expanded.delete(comment.id);
   }
+  state.openedByFocus = null;
   renderComments();
 }
 
@@ -2740,6 +2788,7 @@ function renderCommentItem(comment) {
     event.stopPropagation();
     if (expanded) state.expanded.delete(comment.id);
     else state.expanded.add(comment.id);
+    keepFold(comment.id);
     renderComments();
     jumpToComment(comment.id);
   };
@@ -2871,10 +2920,17 @@ function renderOverleafReply(comment) {
     state.overleafReplies.set(comment.id, { text: textarea.value, from: draft?.text });
     renderPickedActions();
   });
+  // Escape leaves the box with its words in it, for the comment keys to go on.
+  textarea.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    textarea.blur();
+  });
   const note = h("div", { class: "overleaf-reply-note", role: "status", text: kept?.error ?? "" });
   const send = h("button", {
     class: "overleaf-send", type: "button",
-    title: state.overleafSignedIn ? "Send to Overleaf, for everyone in the project" : "Save your Overleaf cookie first",
+    title: state.overleafSignedIn ? `Send to Overleaf, for everyone in the project${keyHint("overleaf-send")}`
+      : "Save your Overleaf cookie first",
   }, "Send to ", leafIcon());
   send.disabled = !state.overleafSignedIn;
   send.addEventListener("click", async () => {
@@ -2988,18 +3044,25 @@ function renderEntryEditor(commentId, index) {
       alert(`Saved, but comments could not be refreshed: ${error.message}`);
     }
   };
+  const cancel = () => {
+    state.editingEntry = null;
+    renderComments();
+  };
   sendOn(textarea, save);
+  textarea.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    cancel();
+  });
   return h("div", { class: "cmt-form mode-edit" }, textarea,
     h("div", { class: "cmt-form-actions" },
-      actionButton("cmt-form-cancel", "Cancel", () => {
-        state.editingEntry = null;
-        renderComments();
-      }),
+      actionButton("cmt-form-cancel", "Cancel", cancel),
       actionButton("cmt-form-submit", "Save", save)));
 }
 
 function actionButton(className, label, onclick) {
-  return h("button", { class: className, type: "button", text: label, onclick });
+  const hint = keyHint(className);
+  return h("button", { class: className, type: "button", text: label, onclick, title: hint ? `${label}${hint}` : null });
 }
 
 function actionButtons(comment) {
@@ -3396,9 +3459,9 @@ function switchTab(name) {
   if (pane !== "comments" || state.commentTab === name) return;
   state.commentTab = name;
   state.picked.clear();
+  renderCommentFilter();
   // The leaf tab opens on the threads that wait for the reviewer's answer.
   if (name === "overleaf-comments") setCommentFilter("unanswered");
-  renderCommentFilter();
   refreshComments().catch((error) => console.error(error));
 }
 
@@ -3799,8 +3862,27 @@ async function jumpToComment(commentId) {
   }
 }
 
-function focusComment(comment) {
+// The card the focus lands on opens. The card it leaves closes again when landing on it is what
+// opened it and nothing is being written in it, so going down the list keeps one card open.
+function moveFocusTo(comment) {
+  if (state.focusedCommentId === comment.id) return;
+  const left = state.openedByFocus;
+  if (left !== null && state.activeForm?.commentId !== left && state.editingEntry?.commentId !== left
+      && !state.overleafReplies.has(left)) {
+    state.expanded.delete(left);
+  }
+  state.openedByFocus = state.expanded.has(comment.id) ? null : comment.id;
   state.focusedCommentId = comment.id;
+  state.expanded.add(comment.id);
+}
+
+// A card the reader opened or closed stays so when the focus moves on.
+function keepFold(commentId) {
+  if (state.openedByFocus === commentId) state.openedByFocus = null;
+}
+
+function focusComment(comment) {
+  moveFocusTo(comment);
   state.expanded.add(comment.id);
   renderComments();
   const node = document.querySelector(`[data-comment-id="${comment.id}"]`);
@@ -3824,29 +3906,213 @@ function attachKeyboardNavigation() {
       event.stopImmediatePropagation();
     }
   }, { capture: true });
+  attachCommentKeys();
+}
+
+// ----- Comment keys -----
+// The comments go by keys as a notebook's cells do: the list takes the keys while the
+// Comments pane is shown and nothing is being typed in, and a box being written in keeps them
+// until Escape. A key presses the focused comment's button, so it does what that button does,
+// and nothing on a comment without one. A key that changes the paper's file, posts to Overleaf
+// or deletes is a letter pressed twice, as a notebook deletes a cell with dd.
+
+const KEY_NAMES = { ArrowDown: "↓", ArrowUp: "↑" };
+
+// Each key as the ? dialog lists it. A key with a button names it, for the button's title. One
+// that acts on the picked comments, when there are some, says so. The list's keys act while the
+// Comments pane is shown, the tab keys while the sidebar is, and ? anywhere.
+const COMMENT_KEYS = [
+  ["Move", [
+    { keys: ["j", "ArrowDown"], does: "Next comment", repeats: true,
+      run: () => moveFocus((at, last) => Math.min(at + 1, last)) },
+    { keys: ["k", "ArrowUp"], does: "Previous comment", repeats: true,
+      run: () => moveFocus((at) => Math.max(at - 1, 0)) },
+    { keys: ["gg", "Home"], does: "First comment", run: () => moveFocus(() => 0) },
+    { keys: ["G", "End"], does: "Last comment", run: () => moveFocus((at, last) => last) },
+    { keys: ["Enter"], does: "Show where it is in the paper or the source, keeping the keys here",
+      run: () => showFocused() },
+    { keys: ["o"], does: "Open or close it", run: () => foldFocused() },
+    { keys: ["O"], does: "Open or close every comment", run: () => foldAll() },
+  ]],
+  ["Write", [
+    { keys: ["r"], does: "Reply", button: ["cmt-reply"], run: () => pressCard(".cmt-reply") },
+    { keys: ["i"], does: "Write its reply for Overleaf", run: () => writeForOverleaf() },
+    { keys: ["e"], does: "Edit the last thing you wrote in it", run: () => pressCard(".cmt-edit") },
+    { keys: ["c"], does: "Add a paper note", run: () => $("#paper-comment-btn").click() },
+    { keys: ["Escape"], does: "Leave a box: a reply or an edit being written is dropped, a reply for Overleaf keeps its words" },
+  ]],
+  ["Change", [
+    { keys: ["R"], does: "Resolve it, or reopen it when it is not open", button: ["cmt-resolve", "cmt-reopen"], picked: true,
+      run: () => pressPickedOr(["#resolve-picked-btn", "#reopen-picked-btn"],
+        focused()?.status === "open" ? ".cmt-resolve" : ".cmt-reopen") },
+    { keys: ["A"], does: "Archive it", button: ["cmt-archive"], picked: true,
+      run: () => pressPickedOr(["#archive-picked-btn"], ".cmt-archive") },
+    { keys: ["aa"], does: "Apply its suggestion to the file", button: ["sugg-apply"], run: () => pressCard(".sugg-apply") },
+    { keys: ["ss"], does: "Send its reply to Overleaf, for everyone in the project", button: ["overleaf-send"], picked: true,
+      run: () => pressPickedOr(["#send-picked-btn"], ".overleaf-send") },
+    { keys: ["dd"], does: "Delete it, once you say yes", button: ["cmt-delete"], run: () => pressCard(".cmt-delete") },
+  ]],
+  ["Pick", [
+    { keys: ["x"], does: "Pick it, or let it go", run: () => pickFocused(false) },
+    { keys: ["X"], does: "Pick every comment from the last one picked to it", run: () => pickFocused(true) },
+    { keys: ["*"], does: "Pick every comment, or let them all go", run: () => $("#pick-all-btn").click() },
+  ]],
+  ["View", [
+    { keys: ["v"], does: "Next view in the list atop the tab: open, resolved, …", run: () => cycleStatus(1) },
+    { keys: ["V"], does: "Previous view", run: () => cycleStatus(-1) },
+    { keys: ["t"], does: "Next tab", scope: "sidebar", run: () => cycleTab(1) },
+    { keys: ["T"], does: "Previous tab", scope: "sidebar", run: () => cycleTab(-1) },
+    { keys: ["?"], does: "These keys", scope: "page", run: () => showCommentKeys() },
+  ]],
+];
+
+// The key that presses a comment's button, for the button's title.
+function keyHint(button) {
+  const entry = COMMENT_KEYS.flatMap(([, group]) => group).find((item) => item.button?.includes(button));
+  return entry ? ` (${entry.keys.join(", ")})` : "";
+}
+
+function focused() {
+  return state.comments.find((comment) => comment.id === state.focusedCommentId);
+}
+
+// The focused comment's card, opened unless asked not to, since a closed card shows none of
+// its buttons.
+function focusedCard(open = true) {
+  const comment = focused();
+  if (comment === undefined) return null;
+  if (open && !state.expanded.has(comment.id)) {
+    state.expanded.add(comment.id);
+    renderComments();
+  }
+  return $(`#comments-list [data-comment-id="${CSS.escape(comment.id)}"]`);
+}
+
+// The last of the focused card's buttons that match, which for Edit is the last thing written.
+function pressCard(selector) {
+  const buttons = focusedCard()?.querySelectorAll(selector) ?? [];
+  buttons[buttons.length - 1]?.click();
+}
+
+// With comments picked, the row's first button that can act on them; else the focused card's.
+function pressPickedOr(rows, card) {
+  if (state.comments.some((comment) => state.picked.has(comment.id))) {
+    rows.map((selector) => $(selector)).find((button) => !button.hidden && !button.disabled)?.click();
+  } else {
+    pressCard(card);
+  }
+}
+
+function moveFocus(to) {
+  const last = state.comments.length - 1;
+  if (last < 0) return;
+  focusComment(state.comments[to(state.comments.findIndex((comment) => comment.id === state.focusedCommentId), last)]);
+}
+
+// The source moves its cursor to the comment's text and would take the keys with it, which
+// stay with the list.
+async function showFocused() {
+  if (focusedCard() === null) return;
+  await jumpToComment(state.focusedCommentId);
+  state.editor?.blur();
+}
+
+function foldFocused() {
+  const comment = focused();
+  if (comment === undefined) return;
+  if (state.expanded.has(comment.id)) state.expanded.delete(comment.id);
+  else state.expanded.add(comment.id);
+  keepFold(comment.id);
+  renderComments();
+}
+
+function writeForOverleaf() {
+  const box = focusedCard()?.querySelector(".overleaf-reply-input");
+  if (!box) return;
+  box.focus();
+  box.setSelectionRange(box.value.length, box.value.length);
+}
+
+// A click on the card's box, so picking by key is picking by mouse, Shift for a run included.
+function pickFocused(run) {
+  focusedCard(false)?.querySelector(".comment-pick")
+    ?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, shiftKey: run }));
+}
+
+function cycleStatus(step) {
+  const filter = $("#comment-filter");
+  const views = [...filter.options];
+  filter.value = views[(filter.selectedIndex + step + views.length) % views.length].value;
+  filter.dispatchEvent(new Event("change"));
+}
+
+function cycleTab(step) {
+  const tabs = $$(".tab-btn").filter((button) => !button.hidden);
+  const at = tabs.findIndex((button) => button.classList.contains("active"));
+  tabs[(at + step + tabs.length) % tabs.length].click();
+}
+
+function showCommentKeys() {
+  const list = $("#keys-list");
+  clear(list);
+  // One grid for every group, so the words line up down the whole list.
+  for (const [group, entries] of COMMENT_KEYS) {
+    list.append(h("h4", { text: group }), ...entries.flatMap((entry) => [
+      h("span", { class: "keys-of" }, ...entry.keys.map((keys) => h("kbd", { text: KEY_NAMES[keys] ?? keys }))),
+      h("span", { text: entry.does }),
+    ]));
+  }
+  const picked = COMMENT_KEYS.flatMap(([, group]) => group).filter((entry) => entry.picked).map((entry) => entry.keys[0]);
+  $("#keys-picked").textContent = `With comments picked, ${picked.slice(0, -1).join(", ")} and ${picked.at(-1)} act on them.`;
+  $("#keys-dialog").showModal();
+}
+
+function attachCommentKeys() {
+  const entries = COMMENT_KEYS.flatMap(([, group]) => group).filter((entry) => entry.run);
+  const byKeys = new Map(entries.flatMap((entry) => entry.keys.map((keys) => [keys, entry])));
+  // A letter pressed twice: the first waits a second for the second.
+  const firsts = new Set([...byKeys.keys()].filter((keys) => keys.length === 2).map((keys) => keys[0]));
+  let first = "";
+  let timer = null;
   document.addEventListener("keydown", (event) => {
-    const tag = event.target.tagName.toUpperCase();
-    if (["TEXTAREA", "INPUT", "SELECT"].includes(tag)) return;
-    if (event.target.isContentEditable || document.querySelector("dialog[open]")) return;
-    if (event.metaKey || event.ctrlKey || event.altKey || state.comments.length === 0) return;
-    const index = state.comments.findIndex((comment) => comment.id === state.focusedCommentId);
-    if (event.key === "j" || event.key === "ArrowDown") {
-      event.preventDefault();
-      focusComment(state.comments[Math.min(Math.max(index + 1, 0), state.comments.length - 1)]);
-    } else if (event.key === "k" || event.key === "ArrowUp") {
-      event.preventDefault();
-      focusComment(state.comments[Math.max(index - 1, 0)]);
-    } else if (event.key === "r" && !event.shiftKey && index >= 0) {
-      event.preventDefault();
-      setActiveForm(state.comments[index].id, "reply");
-    } else if ((event.key === "R" || (event.key === "r" && event.shiftKey)) && index >= 0) {
-      event.preventDefault();
-      closeComment(state.comments[index].id, "resolve", "summary");
-    } else if (event.key === "Escape" && state.activeForm) {
-      event.preventDefault();
-      state.activeForm = null;
-      renderComments();
+    const target = event.target;
+    if (event.metaKey || event.ctrlKey || event.altKey || document.querySelector("dialog[open]")) return;
+    if (target.isContentEditable || target.closest?.("textarea, select, [contenteditable]")
+        || (target.tagName === "INPUT" && !["checkbox", "radio"].includes(target.type))) return;
+    // Enter on a button presses the button.
+    if (event.key === "Enter" && target.closest?.("button, a, summary, input")) return;
+    // A Korean input method gives a letter key as the letter it composes.
+    const key = event.isComposing || event.key === "Process" || COMPOSED.test(event.key)
+      ? keyByPosition(event) : event.key;
+    if (key === undefined) return;
+    clearTimeout(timer);
+    if (key === "Escape") {
+      first = "";
+      if (state.activeForm) {
+        event.preventDefault();
+        state.activeForm = null;
+        renderComments();
+      }
+      return;
     }
+    const keys = byKeys.has(first + key) ? first + key : key;
+    first = "";
+    const entry = byKeys.get(keys);
+    if (entry === undefined) {
+      if (firsts.has(keys)) {
+        first = keys;
+        timer = setTimeout(() => { first = ""; }, 1000);
+      }
+      return;
+    }
+    const sidebar = !$(".layout").classList.contains("sidebar-collapsed");
+    const scope = entry.scope ?? "list";
+    if (scope === "sidebar" ? !sidebar
+      : scope === "list" ? !sidebar || !$("#tab-comments").classList.contains("active") : false) return;
+    // Held down, only moving repeats: a held R would resolve one comment after another.
+    if (event.repeat && !entry.repeats) return;
+    event.preventDefault();
+    entry.run();
   });
 }
 
@@ -4508,6 +4774,7 @@ async function init() {
   }
   $("#paper-comment-btn").addEventListener("click", () =>
     openCompose({ kind: "paper" }, "Paper-level comment"));
+  $("#keys-btn").addEventListener("click", () => showCommentKeys());
   $("#compose-form").addEventListener("submit", (event) => {
     submitCompose(event).catch((error) => alert(error.message));
   });
@@ -4519,6 +4786,7 @@ async function init() {
     $("#compose-dialog").close();
     clearPendingSelection();
   });
+  renderCommentFilter();
   $("#comment-filter").addEventListener("change", () => {
     setCommentFilter($("#comment-filter").value);
     refreshComments().catch((error) => console.error(error));

@@ -1113,9 +1113,28 @@ dialog {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
 }
 dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
-#compose-form, #commit-form { display: flex; flex-direction: column; gap: 0.5rem; }
-#compose-form h3, #commit-form h3 { margin: 0; font-size: 1rem; }
-#commit-form p { margin: 0; }
+#compose-form, #commit-form, #keys-form { display: flex; flex-direction: column; gap: 0.5rem; }
+#compose-form h3, #commit-form h3, #keys-form h3 { margin: 0; font-size: 1rem; }
+#commit-form p, #keys-form p { margin: 0; }
+#keys-dialog { max-width: 34rem; }
+#keys-form p { font-size: 0.85rem; }
+#keys-list {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.25rem 0.75rem;
+  align-items: start;
+  font-size: 0.85rem;
+}
+#keys-list h4 { grid-column: 1 / -1; margin: 0.4rem 0 0; font-size: 0.8rem; color: var(--fg-dim); }
+.keys-of { display: flex; gap: 0.25rem; white-space: nowrap; }
+.keys-of kbd {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  padding: 0 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg);
+}
 .commit-files {
   margin: 0;
   padding-left: 1.2rem;

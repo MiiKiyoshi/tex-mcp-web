@@ -134,8 +134,8 @@ listens leaves the presses to it, and `do tex listen` in any session moves them 
   holds threads from one. The editor and the PDF mark the comments of the tab shown. The
   tab lists the threads in the order the paper reads them and opens on **unanswered**, the
   open threads whose last message on Overleaf is someone else's: a reply sent from here,
-  or one written on Overleaf under your name, takes a thread out of it. The list atop the
-  tab also shows the open, resolved and all threads. The sync button with the leaf atop
+  or one written on Overleaf under your name, takes a thread out of it and into
+  **answered**. The list atop the tab also shows the open, resolved and all threads. The sync button with the leaf atop
   that tab brings Overleaf's open threads in as comments on the words they were written
   about, with their replies. In a git clone it waits until
   the folder is at Overleaf's commit, since a thread is on words.
@@ -266,7 +266,8 @@ The Vim button in the editor's bar turns on Vim keys, and the page remembers the
 - `:w` saves and `:make` compiles. `jj` typed quickly, Escape or Ctrl+[ leaves Insert mode.
 - `gc` comments on the text a motion or a visual selection covers, and `gs` marks that text
   in the Preview.
-- `K` opens the comment under the cursor in the Comments tab.
+- `K` opens the comment under the cursor in the Comments tab, where the
+  [comment keys](#comment-keys) then act on it.
 - `gd` or Ctrl+] goes from `\input`, `\ref` or `\cite` to the file, label or `.bib` entry,
   and Ctrl+O or Ctrl+T comes back. Browsers on Windows keep Ctrl+T for a new tab.
 - A yank also goes to the system clipboard.
@@ -287,6 +288,35 @@ command typed out in full starts the next line. Ctrl+Space opens the list by han
 A browser extension that drives pages with Vim keys takes Escape and Ctrl+[ before the
 editor does and moves the focus out of it, which leaves the editor in Insert mode. Turn the
 extension off for the review page's address.
+
+## Comment keys
+
+The comments go by keys, as a notebook's cells do. The keys act on the comment with the
+ring around it while the Comments tab is shown and nothing is being typed in. `?`, or
+**Comment keys** in the ⋯ menu, lists them on the page, and a comment's buttons name their
+keys in their tooltips.
+
+- `j` and `k`, or ↓ and ↑, move the ring to the next and the previous comment. `gg` or
+  Home goes to the first, and `G` or End to the last. The card the ring lands on opens, and
+  closes again when the ring moves on, unless you opened or closed it yourself with `o`.
+  `O` opens or closes every card.
+- Enter shows where the comment is, in the PDF or the source, and the keys stay with the
+  list.
+- `r` replies, `e` edits the last thing you wrote in the thread, `i` puts the cursor in its
+  reply for Overleaf, and `c` adds a paper note. Escape leaves the box: a reply or an edit
+  being written is dropped, and a reply for Overleaf keeps its words.
+- `R` resolves the comment, or reopens one that is not open, and `A` archives it.
+- A key that changes the file, posts to Overleaf or deletes is a letter pressed twice: `aa`
+  applies the suggestion, `ss` sends the reply to Overleaf, and `dd` deletes once you say
+  yes.
+- `x` picks the comment, `X` picks every comment from the last one picked to it, and `*`
+  picks every comment or lets them all go. With comments picked, `R`, `A` and `ss` act on
+  them.
+- `v` and `V` go to the next and the previous view in the list atop the tab, and `t` and
+  `T` to the next and the previous tab.
+
+With a Korean input method on, a letter key is read by where it sits on the keyboard, so
+the keys work as they are.
 
 ## On a tablet or phone
 
