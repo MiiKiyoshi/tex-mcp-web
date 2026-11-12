@@ -3,7 +3,9 @@
 
 :root {
   /* The page's own text, the top bar and the panels, as Settings sizes it. The editor, the
-     translation and the PDF keep sizes of their own. */
+     translation and the PDF keep sizes of their own, and so do the panel's tabs and the
+     dialogs. */
+  --text-base: 14px;
   --text-scale: 1;
   --bg: #faf8f2;
   --bg-elev: #fffdf8;
@@ -45,7 +47,7 @@ html, body {
      history: the page holds the gesture, on the root and inside the PDF's own scroller. */
   overscroll-behavior-x: none;
   font-family: var(--sans);
-  font-size: calc(14px * var(--text-scale));
+  font-size: calc(var(--text-base) * var(--text-scale));
   color: var(--fg);
   background: var(--bg);
 }
@@ -583,9 +585,12 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
   background: var(--bg-elev);
 }
 /* ----- sidebar tabs ----- */
+/* The tabs keep the page's own size whatever Settings makes the text: four of them share the
+   panel's width, which a larger size would cut into ellipses. Their measures are in em. */
 .sidebar-tabs {
   container-type: inline-size;
   display: flex;
+  font-size: var(--text-base);
   min-height: var(--panel-bar);
   border-bottom: 1px solid var(--border);
   background: var(--bg);
@@ -601,7 +606,7 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
   align-items: center;
   justify-content: center;
   white-space: nowrap;
-  padding: 0 0.5rem;
+  padding: 0 0.5em;
   border: none;
   background: none;
   border-bottom: 2px solid transparent;
@@ -613,10 +618,10 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
   background: var(--bg-elev);
 }
 .tab-count {
-  margin-left: 0.35rem;
-  padding: 0 0.32rem;
+  margin-left: 0.49em;
+  padding: 0 0.44em;
   border-radius: 8px;
-  font-size: 0.72rem;
+  font-size: 0.72em;
   font-weight: 700;
   color: white;
 }
@@ -624,14 +629,14 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 .tab-label { overflow: hidden; text-overflow: ellipsis; }
 .tab-count, .tab-btn .leaf-icon { flex: none; }
 @container (max-width: 400px) {
-  .tab-btn { padding: 0 0.2rem; }
+  .tab-btn { padding: 0 0.2em; }
 }
 @container (max-width: 360px) {
   .tab-btn[data-tab="overleaf-comments"] { flex-shrink: 0; }
   .tab-btn[data-tab="overleaf-comments"] .tab-label { display: none; }
 }
 #comments-tab-count, #overleaf-tab-count { background: var(--accent); }
-.tab-btn .leaf-icon { margin-right: 0.25rem; vertical-align: -0.15em; }
+.tab-btn .leaf-icon { margin-right: 0.25em; vertical-align: -0.15em; }
 #compile-tab-count { background: var(--warn); }
 #compile-tab-count.has-errors { background: var(--err); }
 .tab-pane {
@@ -1141,6 +1146,8 @@ dialog {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
 }
 dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
+/* A dialog keeps the page's own size whatever Settings makes the text, Settings among them. */
+dialog { zoom: calc(1 / var(--text-scale)); }
 #compose-form, #commit-form, #keys-form { display: flex; flex-direction: column; gap: 0.5rem; }
 #compose-form h3, #commit-form h3, #keys-form h3 { margin: 0; font-size: 1rem; }
 #commit-form p, #keys-form p { margin: 0; }
