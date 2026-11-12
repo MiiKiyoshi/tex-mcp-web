@@ -69,6 +69,8 @@ const state = {
   rangeFrom: null,
   // The comment tab and status the list shows, so a list drawn again knows it is the same view.
   commentsView: null,
+  // How many times the list was asked for, so only the latest answer is drawn.
+  commentsAsked: 0,
   annotationCommentById: new Map(),
   annotationObserver: null,
   badgeFrame: null,
@@ -2433,6 +2435,9 @@ async function submitCompose(event) {
 }
 
 async function refreshComments() {
+  // A list asked for again while one is on its way, as when the view changes, is the one that
+  // stands: an answer that comes back after a later one is dropped.
+  const asked = ++state.commentsAsked;
   const status = $("#comment-filter").value;
   const url = status === "all" ? "/comments"
     : `/comments?status=${["unanswered", "answered", "new"].includes(status) ? "open" : status}`;
@@ -2441,6 +2446,7 @@ async function refreshComments() {
   const data = await response.json();
   // Which threads came from Overleaf, and so can be answered there.
   const linked = overleaf.ok ? await overleaf.json() : {};
+  if (asked !== state.commentsAsked) return;
   state.overleafImported = new Set(linked.imported ?? []);
   state.overleafUnplaced = linked.unplaced ?? {};
   state.overleafSignedIn = Boolean(linked.cookie);

@@ -2101,6 +2101,18 @@ def test_the_comment_list_goes_by_keys(tmp_path: Path) -> None:
             'return document.querySelector("#comment-filter").value === "open"'
             ' && document.querySelectorAll("#comments-list .cmt").length === 4'))
 
+        # A list asked for while an earlier one is on its way stands: the earlier answer, come
+        # back late, is dropped rather than drawn over it.
+        browser.execute_script("""window.realFetch = window.fetch;
+          window.fetch = (url, init) => new Promise((resolve) => setTimeout(() => resolve(window.realFetch(url, init)),
+            String(url).includes("status=resolved") ? 1200 : 0));""", sandbox=None)
+        press("f", "F")
+        time.sleep(2)
+        browser.execute_script("window.fetch = window.realFetch;", sandbox=None)
+        assert browser.execute_script(
+            'return [document.querySelector("#comment-filter").value,'
+            ' document.querySelectorAll("#comments-list .cmt").length]') == ["open", 4]
+
         # dd deletes once the reader says yes, and a d not doubled is dropped.
         browser.execute_script("const page = window.wrappedJSObject || window; page.asked = [];"
                                "page.confirm = (message) => page.asked.push(message) && false;", sandbox=None)
