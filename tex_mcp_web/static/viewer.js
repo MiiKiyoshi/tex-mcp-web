@@ -11,6 +11,10 @@ const state = {
   sendKey: null,
   // "off" when Settings hides the key letters on the ringed comment's controls.
   keyLetters: null,
+  // The threads whose replies are on their way to Overleaf, and whether its threads are being
+  // synced: their buttons show the work under way until the list shows what it did.
+  sending: new Set(),
+  syncingComments: false,
   selection: null,
   areaMode: false,
   annotations: null,
@@ -1146,9 +1150,10 @@ function renderOverleafThreadSync() {
   side.title = words;
   side.setAttribute("aria-label", words);
   const files = state.overleafFiles;
-  side.disabled = !state.overleafSignedIn
+  side.disabled = !state.overleafSignedIn || state.syncingComments
     || (state.overleafGit !== null && state.overleafGit.state !== "same")
     || (files !== null && (!files.read || files.get.length + files.send.length + files.choose.length > 0));
+  side.classList.toggle("busy", state.syncingComments);
 }
 
 async function loadOverleafStatus() {
@@ -1406,7 +1411,8 @@ function overleafBroughtIn(done) {
 
 // From the comment list it works quietly, and only what did not go through opens the dialog.
 async function syncOverleafComments() {
-  $("#overleaf-sync-comments-btn").disabled = true;
+  state.syncingComments = true;
+  renderOverleafThreadSync();
   try {
     const response = await fetch("/overleaf/comments", { method: "POST" });
     if (!response.ok) {
@@ -1419,6 +1425,7 @@ async function syncOverleafComments() {
     if ($("#settings-dialog").open) showSettings(done);
     await refreshComments();
   } finally {
+    state.syncingComments = false;
     await loadOverleafStatus();
   }
 }
@@ -2627,7 +2634,8 @@ function renderPickedActions() {
     && overleafReplyText(comment).trim()).map((comment) => comment.id);
   const send = $("#send-picked-btn");
   send.hidden = !state.overleafProject || state.commentTab !== "overleaf-comments";
-  send.disabled = !state.overleafSignedIn || sendable.length === 0;
+  send.disabled = !state.overleafSignedIn || sendable.length === 0 || state.sending.size > 0;
+  send.classList.toggle("busy", state.sending.size > 0);
   send.querySelector(".count").textContent = sendable.length > 0 ? String(sendable.length) : "";
   send.setAttribute("aria-label", sendable.length > 0 ? `Send ${replies(sendable.length)} to Overleaf` : "Send to Overleaf");
   send.title = state.overleafSignedIn ? "Send the picked replies to Overleaf, for everyone in the project"
@@ -2930,30 +2938,36 @@ function renderOverleafReply(comment) {
     event.preventDefault();
     $("#comments-list").focus({ preventScroll: true });
   });
-  const note = h("div", { class: "overleaf-reply-note", role: "status", text: kept?.error ?? "" });
+  const sending = state.sending.has(comment.id);
+  textarea.disabled = sending;
+  const note = h("div", { class: "overleaf-reply-note", role: "status", text: sending ? "Sending…" : kept?.error ?? "" });
   const send = h("button", {
-    class: "overleaf-send", type: "button",
+    class: `overleaf-send${sending ? " busy" : ""}`, type: "button",
     title: state.overleafSignedIn ? `Send to Overleaf, for everyone in the project${keyHint("overleaf-send")}`
       : "Save your Overleaf cookie first",
   }, "Send to ", leafIcon());
-  send.disabled = !state.overleafSignedIn;
+  send.disabled = !state.overleafSignedIn || sending;
+  // The card shows the reply on its way until the list shows it sent, or why not.
   send.addEventListener("click", async () => {
     const text = textarea.value.trim();
     if (!text) return;
-    send.disabled = textarea.disabled = true;
-    note.textContent = "Sending…";
-    let answer = await sendOverleafReply(comment.id, text);
-    if (answer?.apart.length && confirm(`${answer.error} Send it anyway?`)) {
-      answer = await sendOverleafReply(comment.id, text, true);
+    state.sending.add(comment.id);
+    renderComments();
+    try {
+      let answer = await sendOverleafReply(comment.id, text);
+      if (answer?.apart.length && confirm(`${answer.error} Send it anyway?`)) {
+        answer = await sendOverleafReply(comment.id, text, true);
+      }
+      if (answer === null) {
+        state.overleafReplies.delete(comment.id);
+        await refreshComments();
+      } else {
+        state.overleafReplies.set(comment.id, { text: textarea.value, from: draft?.text, error: answer.error });
+      }
+    } finally {
+      state.sending.delete(comment.id);
+      renderComments();
     }
-    if (answer === null) {
-      state.overleafReplies.delete(comment.id);
-      await refreshComments();
-      return;
-    }
-    state.overleafReplies.set(comment.id, { text: textarea.value, from: draft?.text, error: answer.error });
-    note.textContent = answer.error;
-    send.disabled = textarea.disabled = false;
   });
   return h("div", { class: "cmt-overleaf" },
     h("div", { class: "cmt-overleaf-head" }, leafIcon(),
@@ -4905,13 +4919,15 @@ async function init() {
     const button = $("#send-picked-btn");
     const ids = button.dataset.ids ? button.dataset.ids.split(" ") : [];
     if (ids.length === 0 || !confirm(`Send ${replies(ids.length)} to Overleaf, for everyone in the project?`)) return;
-    button.disabled = true;
+    for (const id of ids) state.sending.add(id);
+    renderComments();
     try {
       await sendPickedToOverleaf(ids);
     } catch (error) {
       alert(`Could not send: ${error.message}`);
     } finally {
-      renderPickedActions();
+      for (const id of ids) state.sending.delete(id);
+      renderComments();
     }
   });
   // The row is fitted again whenever it, or a button that is always in it, changes width.

@@ -176,7 +176,9 @@ call a tex tool serves it again and listens.
   `action="overleaf"`), one per thread, and you edit it and send it with **Send to** and
   the leaf. The send button with the leaf atop the leaf **Comments** tab sends the reply
   of every picked thread, one thread after another, and a refused one keeps its words and
-  says why on its card while the rest go. The agent cannot send. **Reply** on such a
+  says why on its card while the rest go. While a reply is on its way, and while the sync
+  button brings threads in, the button pressed stays pressed in and dimmed with an
+  ellipsis, until the list shows what it did. The agent cannot send. **Reply** on such a
   thread stays here: it is where you talk the draft over with the agent, which answers in
   the same thread and redrafts the reply for Overleaf as you go. That talk never reaches
   Overleaf, and it sits in the thread in time order with the messages from Overleaf and

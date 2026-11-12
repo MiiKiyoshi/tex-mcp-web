@@ -3225,9 +3225,17 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
         wait_until(lambda: browser.execute_script('return document.body.textContent.includes("Stays here.")'), timeout=15)
         assert fake.written == []
         assert "here only" in text("[data-comment-id] .cmt-thread")
-        # The reviewer edits the draft and sends it, to everyone in the project.
+        # The reviewer edits the draft and sends it, to everyone in the project. Sending and
+        # syncing take a moment, here made longer, and their buttons show the work under way
+        # until the list shows what it did.
+        browser.execute_script("""const real = window.fetch;
+          window.fetch = (url, init) => new Promise((resolve) => setTimeout(() => resolve(real(url, init)),
+            /\\/reply$|\\/overleaf\\/comments$/.test(String(url)) ? 800 : 0));""", sandbox=None)
+        busy = lambda selector: browser.execute_script(
+            f'return document.querySelector("{selector}")?.classList.contains("busy") ?? false')
         write(".overleaf-reply-input", "Drafted for Ann, and checked.")
         click(".overleaf-send")
+        assert busy(".overleaf-send") and text(".overleaf-reply-note") == "Sending…"
         wait_until(lambda: fake.written == [("reply", "t1", "Drafted for Ann, and checked.")], timeout=15)
         # Answered, it leaves the threads that wait for the reviewer, the view the tab opened
         # on, and stays among the open ones.
@@ -3248,8 +3256,10 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
         wait_until(lambda: text("#overleaf-sync-comments-btn .count") == "1", timeout=15)
         wait_until(lambda: not browser.execute_script('return document.querySelector("#overleaf-sync-comments-btn").disabled'))
         click("#overleaf-sync-comments-btn")
+        assert busy("#overleaf-sync-comments-btn")
         wait_until(lambda: browser.execute_script(
             'return document.body.textContent.includes("A second one.")'), timeout=15)
+        wait_until(lambda: not busy("#overleaf-sync-comments-btn"))
         second = next(c for c in store.list() if "A second one." in c.thread[0].text)
         main = tmp_path / "main.tex"
         main.write_text(main.read_text().replace("Hello world.", "Hello world, reworded."))
@@ -3267,9 +3277,11 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
         browser.execute_script("const page = window.wrappedJSObject || window; page.asked = [];"
                                "page.confirm = (message) => page.asked.push(message) === 1;", sandbox=None)
         click("#send-picked-btn")
+        assert busy("#send-picked-btn") and busy(f"[data-comment-id='{brought.id}'] .overleaf-send")
         wait_until(lambda: browser.execute_script(
             f'return document.querySelector("[data-comment-id=\'{second.id}\'] .overleaf-reply-note")?.textContent || ""')
             .startswith("main.tex is not the same here as on Overleaf"), timeout=15)
+        assert not busy("#send-picked-btn")
         assert fake.written[1:] == [("reply", "t1", "Both go, the first.")]
         assert browser.execute_script("return (window.wrappedJSObject || window).asked", sandbox=None)[1:] == [
             "main.tex is not the same here as on Overleaf, so a reply may describe an edit Overleaf does not have yet. "

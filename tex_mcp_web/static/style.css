@@ -53,6 +53,15 @@ html, body {
 }
 
 /* Safari on a phone draws a button's words in its own blue unless told the colour. */
+/* A button whose work is under way: pressed in, dimmed, and trailing an ellipsis until the
+   page shows what it did. */
+button.busy {
+  opacity: 0.6;
+  cursor: progress;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+button.busy::after { content: "…"; animation: busy-pulse 1s ease-in-out infinite; }
+@keyframes busy-pulse { 50% { opacity: 0.3; } }
 button {
   font: inherit;
   color: inherit;
