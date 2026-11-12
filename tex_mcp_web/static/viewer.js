@@ -3923,7 +3923,7 @@ const COMMENT_KEYS = [
     { keys: ["Enter"], does: "Show where it is in the paper or the source, keeping the keys here",
       run: () => showFocused() },
     { keys: [" "], does: "Open or close it", inRange: true, run: () => foldFocused() },
-    { keys: ["O"], does: "Open or close every comment", run: () => foldAll() },
+    { keys: ["Shift+Space"], does: "Open or close every comment", run: () => foldAll() },
   ]],
   ["Write", [
     { keys: ["r"], does: "Reply here, where the agent reads it and Overleaf does not", button: ["cmt-reply"],
@@ -4190,8 +4190,10 @@ function attachCommentKeys() {
     // Enter and Space on a button or a box press it.
     if ((event.key === "Enter" || event.key === " ") && target.closest?.("button, a, summary, input")) return;
     // A Korean input method gives a letter key as the letter it composes.
-    const key = event.isComposing || event.key === "Process" || COMPOSED.test(event.key)
+    const typed = event.isComposing || event.key === "Process" || COMPOSED.test(event.key)
       ? keyByPosition(event) : event.key;
+    // Shift widens Space from the ringed card to every card.
+    const key = typed === " " && event.shiftKey ? "Shift+Space" : typed;
     if (key === undefined) return;
     clearTimeout(timer);
     if (key === "Escape") {

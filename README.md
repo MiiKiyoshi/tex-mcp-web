@@ -308,8 +308,8 @@ choice.
   every card as it was. The list moves under the ring, whose card keeps its middle a third
   of the way down but at the list's two ends, so the eye stays put. `gg` or Home goes to the first, and `G`
   or End to the last. Space opens or closes the ringed card, and an opened card shows its
-  end, where the thread's latest words and the draft for Overleaf are. `O` opens or closes
-  every card.
+  end, where the thread's latest words and the draft for Overleaf are. Shift+Space opens or
+  closes every card.
 - Enter shows where the comment is, in the PDF or the source, and the keys stay with the
   list. A click on a comment does the same and puts the ring on it, and choosing a comment
   tab or a view in the list atop gives the keys back to the comments.

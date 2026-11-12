@@ -1671,6 +1671,14 @@ def test_the_ring_holds_a_third_of_the_way_down_and_an_opened_card_shows_its_end
         assert browser.execute_script(
             'return document.querySelector("#comments-list .cmt.is-focused .cmt-thread").textContent'
             '.includes("Thought number 5 on the last request.")')
+        # Shift+Space opens every card, and again closes them all.
+        shift_space = lambda: ActionSequence(browser, "key", "keyboard").key_down("\ue008").key_down(" ") \
+            .key_up(" ").key_up("\ue008").perform()
+        opened = 'return document.querySelectorAll("#comments-list .cmt .cmt-actions").length'
+        shift_space()
+        assert browser.execute_script(opened) == 12
+        shift_space()
+        assert browser.execute_script(opened) == 0
     finally:
         if browser is not None:
             browser.delete_session()
