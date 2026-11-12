@@ -129,7 +129,8 @@ Rules told to an agent in conversation do not last. After its context is compact
 times it writes as if never told, and what Claude Code remembers for one paper's folder does
 not reach the next paper in the same field. Kept in files, your writing rules and your
 field's terms serve every paper that names them, and in Claude Code the agent cannot use
-tex-mcp's tools until it has read them, again after every compaction.
+tex-mcp's tools until it has read them, again after every compaction. Codex does not hold
+the tools back like this yet.
 
 Write the rules you hold a paper to in a `GUIDELINE.md`, in a folder of its own under
 `~/.config/tex-mcp-web/guidelines/`, and set `guideline` to the folder's name. A guideline can
