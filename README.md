@@ -32,6 +32,14 @@ bottom right are the ones pressed.
    that press by itself. In Codex, or a Claude Code that runs no plugin monitors, say
    `do tex listen` first, and again after the agent restarts.
 
+## Point at what words cannot
+
+![On the PDF's second page, the box tool draws a box over a bare table, and the comment asks for rules. Called, the agent rules the table with booktabs and names the lines it changed, the paper compiles, and the PDF shows the ruled table.](docs/images/pdf-area.webp)
+
+For a figure, a table or a page's layout, take the box tool beside pan and pointer in the PDF's
+toolbar, draw a box over it, and say what is wrong. The agent works from the box as from any
+comment.
+
 ## Answer your co-authors' Overleaf comments, with the agent
 
 Press **Connect Overleaf** in the top bar and paste the project's link. Its comment threads
