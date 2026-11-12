@@ -1611,9 +1611,10 @@ def test_shift_picks_the_run_between_two_boxes(tmp_path: Path) -> None:
 
 @pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
 def test_the_comment_list_goes_by_keys(tmp_path: Path) -> None:
-    """The comments go by keys as a notebook's cells do: j and k move the ring and open the
-    card it lands on, a key presses the ringed card's button, a key that changes the file or
-    deletes is pressed twice, and the keys rest while another tab or a dialog is shown."""
+    """The comments go by keys as a notebook's cells do: j and k move the ring and leave
+    every card as it was, a key presses the ringed card's button, a key that changes the
+    file or deletes is pressed twice, and the keys rest while another tab or a dialog is
+    shown."""
     import fitz
 
     (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
@@ -1673,13 +1674,13 @@ def test_the_comment_list_goes_by_keys(tmp_path: Path) -> None:
             return get_json(f"{base}/comments/{comment_id}")["status"]
 
         escape, enter, home, end = "", "", "", ""
-        # The ring opens the card it lands on, and closes the one it opened before.
+        # The ring moves and opens no card.
         press("j")
-        assert [ringed(), opened()] == [first, [first]]
+        assert [ringed(), opened()] == [first, []]
         press("j")
-        assert [ringed(), opened()] == [source, [source]]
+        assert [ringed(), opened()] == [source, []]
         press("k")
-        assert [ringed(), opened()] == [first, [first]]
+        assert [ringed(), opened()] == [first, []]
         press("G")
         assert ringed() == fourth
         press("g", "g")
@@ -1693,17 +1694,33 @@ def test_the_comment_list_goes_by_keys(tmp_path: Path) -> None:
         browser.execute_script('document.body.dispatchEvent(new KeyboardEvent("keydown",'
                                ' {key: "ㅓ", code: "KeyJ", bubbles: true, cancelable: true}))')
         assert ringed() == source
-        # A card the reader opened or closed stays so when the ring moves on.
-        press("o")
-        assert opened() == []
-        press("o")
+        # Space opens or closes the ringed card, which stays so when the ring moves on.
+        press(" ")
         assert opened() == [source]
         press("j")
-        assert [ringed(), opened()] == [third, [source, third]]
-        press("k")
+        assert [ringed(), opened()] == [third, [source]]
+        press("k", " ")
+        assert opened() == []
+        press(" ")
         assert [ringed(), opened()] == [source, [source]]
         assert browser.execute_script(
             'return document.querySelector("#comments-list .is-focused .cmt-resolve").title') == "Resolve (R)"
+        # Moving by keys puts each key's letter on the ringed comment's controls, a touch of
+        # the mouse takes the letters away, and Settings can turn them off.
+        letters = ('return [document.querySelector("#comments-list").classList.contains("show-keys"),'
+                   ' [...document.querySelectorAll("#comments-list [data-key]")].map((node) => node.dataset.key)]')
+        shown, marked = browser.execute_script(letters)
+        assert shown is True and sorted(marked) == sorted(["x", "e", "aa", "r", "R", "A", "dd"])
+        ActionSequence(browser, "pointer", "mouse", {"pointerType": "mouse"}) \
+            .pointer_move(300, 300).pointer_move(340, 340).perform()
+        assert browser.execute_script(letters)[0] is False
+        browser.execute_script('document.querySelector(\'[data-letters-choice="off"]\').click()')
+        press("j", "k")
+        assert browser.execute_script(letters)[0] is False
+        browser.execute_script('document.querySelector(\'[data-letters-choice="on"]\').click()')
+        press("j", "k")
+        assert browser.execute_script(letters)[0] is True
+        assert ringed() == source
 
         # Enter shows the comment's words in the source, and the keys stay with the list.
         editor = '''const page = window.wrappedJSObject || window;
@@ -1752,9 +1769,9 @@ def test_the_comment_list_goes_by_keys(tmp_path: Path) -> None:
         assert browser.execute_script(
             f'{editor} return document.activeElement === editor.textInput.getElement();') is False
 
-        # Space picks the ringed comment. v holds a range that the moving keys stretch, and
-        # Space picks the range, or lets it go when it is all picked. Escape lets a range go
-        # and changes nothing, and * picks all or lets all go.
+        # x picks the ringed comment. v holds a range that the moving keys stretch, and x
+        # picks the range, or lets it go when it is all picked. Escape lets a range go and
+        # changes nothing, and * picks all or lets all go.
         def picked():
             return browser.execute_script(
                 'return [...document.querySelectorAll("#comments-list .cmt")]'
@@ -1764,13 +1781,13 @@ def test_the_comment_list_goes_by_keys(tmp_path: Path) -> None:
             return browser.execute_script(
                 'return [...document.querySelectorAll("#comments-list .cmt.in-range")].map((card) => card.dataset.commentId)')
 
-        press(" ")
+        press("x")
         assert picked() == [source]
         press("v", "j", "j")
         assert ranged() == [source, third, fourth]
-        press(" ")
+        press("x")
         assert [picked(), ranged()] == [[source, third, fourth], []]
-        press("v", "k", " ")
+        press("v", "k", "x")
         assert picked() == [source]
         press("v", "k", escape)
         assert [picked(), ranged(), ringed()] == [[source], [], source]
@@ -1799,23 +1816,25 @@ def test_the_comment_list_goes_by_keys(tmp_path: Path) -> None:
             'return document.querySelector("#comment-filter").value === "open"'
             ' && document.querySelectorAll("#comments-list .cmt").length === 4'))
         # With comments picked, R resolves them rather than the ringed one.
-        press("g", "g", " ", "j", "R")
+        press("g", "g", "x", "j", "R")
         wait_until(lambda: status(first) == "resolved")
         assert status(source) == "open"
         # Over a range, R acts on the range at once, and a comment picked outside it stays
         # picked. In the resolved view R over a range reopens it.
         wait_until(lambda: picked() == [])
-        press("G", " ")
+        press("G", "x")
         press("g", "g", "v", "j", "R")
         wait_until(lambda: status(source) == "resolved" and status(third) == "resolved")
         assert status(fourth) == "open"
         wait_until(lambda: picked() == [fourth])
-        press(" ")
+        press("x")
         assert picked() == []
+        # With no comment ringed in a view, v holds the range from the first.
         press("f")
         wait_until(lambda: browser.execute_script(
             'return document.querySelectorAll("#comments-list .cmt").length === 3'))
-        press("g", "g", "v", "G", "R")
+        assert ringed() is None
+        press("v", "G", "R")
         wait_until(lambda: status(first) == "open" and status(source) == "open" and status(third) == "open")
         press("F")
         wait_until(lambda: browser.execute_script(

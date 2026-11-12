@@ -729,8 +729,29 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .cmt.status-resolved .cmt-status { color: var(--ok); }
 .cmt.status-archived .cmt-status { color: #4a5f8a; }
+/* The key that works a control of the ringed comment, shown while the keys move through the list. */
+.comments-list.show-keys [data-key] { position: relative; }
+.comments-list.show-keys [data-key]::before {
+  content: attr(data-key);
+  position: absolute;
+  top: 0;
+  left: 0;
+  /* On the corner and mostly outside it, so the letter covers none of the button's words. */
+  transform: translate(-70%, -65%);
+  z-index: 1;
+  padding: 0.05rem 0.25rem;
+  border-radius: 3px;
+  background: var(--accent);
+  color: white;
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  line-height: 1.2;
+  pointer-events: none;
+}
+/* The head's letter, for the pick box, sits inside the card, which the list's edge would cut. */
+.comments-list.show-keys .cmt-head[data-key]::before { transform: translate(-40%, -40%); }
 /* The comments v holds as a range. */
-.cmt.in-range { background: var(--accent-soft); }
+.cmt.in-range { background: var(--accent-soft); border-color: var(--accent); }
 .cmt.is-focused {
   /* j/k keyboard focus indicator */
   box-shadow: 0 0 0 2px var(--accent), 0 0 0 4px var(--accent-soft);

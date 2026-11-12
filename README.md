@@ -299,12 +299,14 @@ extension off for the review page's address.
 The comments go by keys, as a notebook's cells do. The keys act on the comment with the
 ring around it while the Comments tab is shown and nothing is being typed in. `?`, or
 **Comment keys** in the ⋯ menu, lists them on the page, and a comment's buttons name their
-keys in their tooltips.
+keys in their tooltips. Once you move through the comments by keys, the ringed comment's
+buttons show their keys' letters at their top-left corners, until the mouse moves or a box
+takes the typing. **Key letters** in Settings turns them off, and the page remembers the
+choice.
 
-- `j` and `k`, or ↓ and ↑, move the ring to the next and the previous comment. `gg` or
-  Home goes to the first, and `G` or End to the last. The card the ring lands on opens, and
-  closes again when the ring moves on, unless you opened or closed it yourself with `o`.
-  `O` opens or closes every card.
+- `j` and `k`, or ↓ and ↑, move the ring to the next and the previous comment, and leave
+  every card as it was. `gg` or Home goes to the first, and `G` or End to the last. Space
+  opens or closes the ringed card, and `O` every card.
 - Enter shows where the comment is, in the PDF or the source, and the keys stay with the
   list. A click on a comment does the same and puts the ring on it, and choosing a comment
   tab or a view in the list atop gives the keys back to the comments.
@@ -316,11 +318,11 @@ keys in their tooltips.
 - A key that changes the file, posts to Overleaf or deletes is a letter pressed twice: `aa`
   applies the suggestion, `ss` sends the reply to Overleaf, and `dd` deletes once you say
   yes.
-- Space picks the comment or lets it go, and `*` picks every comment or lets them all go.
+- `x` picks the comment or lets it go, and `*` picks every comment or lets them all go.
   With comments picked, `R`, `A` and `ss` act on them.
-- `v` holds a range from the comment, which the keys that move stretch. `R`, `A` and `ss`
-  then act on the whole range at once, Space picks it, or lets it go when it is all picked,
-  and Escape or `v` lets the range go.
+- `v` holds a range from the ringed comment, or from the first with none ringed, which the
+  keys that move stretch. `R`, `A` and `ss` then act on the whole range at once, `x` picks
+  it, or lets it go when it is all picked, and Escape or `v` lets the range go.
 - `f` and `F` go to the next and the previous view in the list atop the tab, and `t` and
   `T` to the next and the previous tab.
 

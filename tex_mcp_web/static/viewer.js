@@ -9,6 +9,8 @@ const $$ = (selector) => Array.from(document.querySelectorAll(selector));
 const state = {
   viewer: null,
   sendKey: null,
+  // "off" when Settings hides the key letters on the ringed comment's controls.
+  keyLetters: null,
   selection: null,
   areaMode: false,
   annotations: null,
@@ -59,8 +61,6 @@ const state = {
   commentTab: "comments",
   editingEntry: null,
   focusedCommentId: null,
-  // The card landing the focus on opened, which closes again when the focus moves on.
-  openedByFocus: null,
   // The comment a range started from, while v holds one.
   rangeFrom: null,
   // The comment tab and status the list shows, so a list drawn again knows it is the same view.
@@ -2470,7 +2470,7 @@ async function refreshComments() {
   const at = before.findIndex((comment) => comment.id === state.focusedCommentId);
   if (view === state.commentsView && at !== -1 && state.comments.length > 0
       && !state.comments.some((comment) => comment.id === state.focusedCommentId)) {
-    moveFocusTo(state.comments[Math.min(at, state.comments.length - 1)]);
+    state.focusedCommentId = state.comments[Math.min(at, state.comments.length - 1)].id;
   }
   state.commentsView = view;
   renderComments();
@@ -2580,6 +2580,7 @@ function renderComments() {
   }
   renderPickedActions();
   renderFoldAction();
+  markKeys();
 }
 
 // What the picked comments can be sent to, which is decided by the state they are in:
@@ -2672,7 +2673,6 @@ function foldEvery(open) {
     if (open) state.expanded.add(comment.id);
     else state.expanded.delete(comment.id);
   }
-  state.openedByFocus = null;
   renderComments();
 }
 
@@ -2790,7 +2790,6 @@ function renderCommentItem(comment) {
     event.stopPropagation();
     if (expanded) state.expanded.delete(comment.id);
     else state.expanded.add(comment.id);
-    keepFold(comment.id);
     renderComments();
     jumpToComment(comment.id);
   };
@@ -3870,27 +3869,9 @@ async function jumpToComment(commentId) {
   $("#comments-list").focus({ preventScroll: true });
 }
 
-// The card the focus lands on opens. The card it leaves closes again when landing on it is what
-// opened it and nothing is being written in it, so going down the list keeps one card open.
-function moveFocusTo(comment) {
-  if (state.focusedCommentId === comment.id) return;
-  const left = state.openedByFocus;
-  if (left !== null && state.activeForm?.commentId !== left && state.editingEntry?.commentId !== left
-      && !state.overleafReplies.has(left)) {
-    state.expanded.delete(left);
-  }
-  state.openedByFocus = state.expanded.has(comment.id) ? null : comment.id;
-  state.focusedCommentId = comment.id;
-  state.expanded.add(comment.id);
-}
-
-// A card the reader opened or closed stays so when the focus moves on.
-function keepFold(commentId) {
-  if (state.openedByFocus === commentId) state.openedByFocus = null;
-}
-
+// A comment shown from elsewhere, a mark on the paper or the editor: its card opens and flashes.
 function focusComment(comment) {
-  moveFocusTo(comment);
+  state.focusedCommentId = comment.id;
   state.expanded.add(comment.id);
   renderComments();
   const node = document.querySelector(`[data-comment-id="${comment.id}"]`);
@@ -3928,34 +3909,34 @@ const KEY_NAMES = { ArrowDown: "↓", ArrowUp: "↑", " ": "Space" };
 
 // Each key as the ? dialog lists it. A key with a button names it, for the button's title. One
 // that acts on the picked comments, when there are some, says so. While v holds a range, a key
-// with a range action does that, the keys that move stretch the range, and the rest wait. The
-// list's keys act while the Comments pane is shown, the tab keys while the sidebar is, and ?
-// anywhere.
+// with a range action does that, and of the rest only those marked inRange act: the keys that
+// move, which stretch it, and Space. The list's keys act while the Comments pane is shown, the
+// tab keys while the sidebar is, and ? anywhere.
 const COMMENT_KEYS = [
   ["Move", [
-    { keys: ["j", "ArrowDown"], does: "Next comment", repeats: true, moves: true,
+    { keys: ["j", "ArrowDown"], does: "Next comment", repeats: true, inRange: true,
       run: () => moveFocus((at, last) => Math.min(at + 1, last)) },
-    { keys: ["k", "ArrowUp"], does: "Previous comment", repeats: true, moves: true,
+    { keys: ["k", "ArrowUp"], does: "Previous comment", repeats: true, inRange: true,
       run: () => moveFocus((at) => Math.max(at - 1, 0)) },
-    { keys: ["gg", "Home"], does: "First comment", moves: true, run: () => moveFocus(() => 0) },
-    { keys: ["G", "End"], does: "Last comment", moves: true, run: () => moveFocus((at, last) => last) },
+    { keys: ["gg", "Home"], does: "First comment", inRange: true, run: () => moveFocus(() => 0) },
+    { keys: ["G", "End"], does: "Last comment", inRange: true, run: () => moveFocus((at, last) => last) },
     { keys: ["Enter"], does: "Show where it is in the paper or the source, keeping the keys here",
       run: () => showFocused() },
-    { keys: ["o"], does: "Open or close it", run: () => foldFocused() },
+    { keys: [" "], does: "Open or close it", inRange: true, run: () => foldFocused() },
     { keys: ["O"], does: "Open or close every comment", run: () => foldAll() },
   ]],
   ["Write", [
     { keys: ["r"], does: "Reply here, where the agent reads it and Overleaf does not", button: ["cmt-reply"],
       run: () => pressCard(".cmt-reply") },
-    { keys: ["i"], does: "Write its reply for Overleaf", run: () => writeForOverleaf() },
-    { keys: ["e"], does: "Edit the last thing you wrote in it", run: () => pressCard(".cmt-edit") },
+    { keys: ["i"], does: "Write its reply for Overleaf", marks: ".cmt-overleaf", run: () => writeForOverleaf() },
+    { keys: ["e"], does: "Edit the last thing you wrote in it", marks: ".cmt-edit", run: () => pressCard(".cmt-edit") },
     { keys: ["c"], does: "Add a paper note", run: () => $("#paper-comment-btn").click() },
     { keys: ["Escape"], does: "Leave a box: a reply or an edit being written is dropped, a reply for Overleaf keeps its words" },
   ]],
   ["Change", [
     { keys: ["R"], does: "Resolve it, or reopen it when it is not open", button: ["cmt-resolve", "cmt-reopen"], picked: true,
-      run: () => pressPickedOr(["#resolve-picked-btn", "#reopen-picked-btn"],
-        focused()?.status === "open" ? ".cmt-resolve" : ".cmt-reopen"),
+      marks: (comment) => resolveOrReopen(comment),
+      run: () => pressPickedOr(["#resolve-picked-btn", "#reopen-picked-btn"], resolveOrReopen(focused())),
       range: () => pressForRange(["#resolve-picked-btn", "#reopen-picked-btn"]) },
     { keys: ["A"], does: "Archive it", button: ["cmt-archive"], picked: true,
       run: () => pressPickedOr(["#archive-picked-btn"], ".cmt-archive"),
@@ -3967,10 +3948,10 @@ const COMMENT_KEYS = [
     { keys: ["dd"], does: "Delete it, once you say yes", button: ["cmt-delete"], run: () => pressCard(".cmt-delete") },
   ]],
   ["Pick and range", [
-    { keys: [" "], does: "Pick it, or let it go, and with a range held the whole range", run: () => pickFocused(),
-      range: () => pickRange() },
-    { keys: ["v"], does: "Hold a range from it, which the moving keys stretch: R, A, ss and Space then act on the "
-      + "whole range, and Escape or v lets it go", run: () => holdRange(), range: () => letRangeGo() },
+    { keys: ["x"], does: "Pick it, or let it go, and with a range held the whole range", marks: ".cmt-head",
+      run: () => pickFocused(), range: () => pickRange() },
+    { keys: ["v"], does: "Hold a range from it, or from the first comment, which the moving keys stretch: R, A, ss "
+      + "and x then act on the whole range, and Escape or v lets it go", run: () => holdRange(), range: () => letRangeGo() },
     { keys: ["*"], does: "Pick every comment, or let them all go", run: () => $("#pick-all-btn").click() },
   ]],
   ["View", [
@@ -3981,6 +3962,42 @@ const COMMENT_KEYS = [
     { keys: ["?"], does: "These keys", scope: "page", run: () => showCommentKeys() },
   ]],
 ];
+
+// The button R presses on a comment.
+function resolveOrReopen(comment) {
+  return comment?.status === "open" ? ".cmt-resolve" : ".cmt-reopen";
+}
+
+// Each control of the ringed comment a key works, marked with that key's letter for the list to
+// show. A key that acts on the picked comments, while there are some, or on a held range, works
+// none of the card's controls, and none is marked for it.
+function markKeys() {
+  const comment = focused();
+  const card = comment && $(`#comments-list [data-comment-id="${CSS.escape(comment.id)}"]`);
+  if (!card || rangeIds().length > 0) return;
+  const picking = state.comments.some((item) => state.picked.has(item.id));
+  for (const entry of COMMENT_KEYS.flatMap(([, group]) => group)) {
+    if (picking && entry.picked) continue;
+    const where = typeof entry.marks === "function" ? entry.marks(comment)
+      : entry.marks ?? entry.button?.map((name) => `.${name}`).join(", ");
+    if (!where) continue;
+    const found = card.querySelectorAll(where);
+    found[found.length - 1]?.setAttribute("data-key", KEY_NAMES[entry.keys[0]] ?? entry.keys[0]);
+  }
+}
+
+// The letters show once the keys move through the list, as the reader takes to them, and go at
+// a touch of the mouse or a box taken to type in.
+function showKeyLetters(shown) {
+  $("#comments-list").classList.toggle("show-keys", shown && state.keyLetters !== "off");
+}
+
+function applyKeyLetters() {
+  for (const button of document.querySelectorAll("[data-letters-choice]")) {
+    button.setAttribute("aria-checked", String(button.dataset.lettersChoice === (state.keyLetters ?? "on")));
+  }
+  if (state.keyLetters === "off") showKeyLetters(false);
+}
 
 // The key that presses a comment's button, for the button's title.
 function keyHint(button) {
@@ -4019,10 +4036,15 @@ function pressPickedOr(rows, card) {
   }
 }
 
+// The keys move the ring alone: every card stays as it was, and the list scrolls only to keep
+// the ring in sight.
 function moveFocus(to) {
   const last = state.comments.length - 1;
   if (last < 0) return;
-  focusComment(state.comments[to(state.comments.findIndex((comment) => comment.id === state.focusedCommentId), last)]);
+  const comment = state.comments[to(state.comments.findIndex((item) => item.id === state.focusedCommentId), last)];
+  state.focusedCommentId = comment.id;
+  renderComments();
+  $(`#comments-list [data-comment-id="${CSS.escape(comment.id)}"]`)?.scrollIntoView({ block: "nearest" });
 }
 
 async function showFocused() {
@@ -4035,7 +4057,6 @@ function foldFocused() {
   if (comment === undefined) return;
   if (state.expanded.has(comment.id)) state.expanded.delete(comment.id);
   else state.expanded.add(comment.id);
-  keepFold(comment.id);
   renderComments();
 }
 
@@ -4061,8 +4082,9 @@ function rangeIds() {
 }
 
 function holdRange() {
-  if (focused() === undefined) return;
-  state.rangeFrom = state.focusedCommentId;
+  const comment = focused() ?? state.comments[0];
+  if (comment === undefined) return;
+  state.focusedCommentId = state.rangeFrom = comment.id;
   renderComments();
 }
 
@@ -4184,14 +4206,33 @@ function attachCommentKeys() {
     // Held down, only moving repeats: a held R would resolve one comment after another.
     if (event.repeat && !entry.repeats) return;
     if (rangeIds().length > 0) {
-      if (entry.range === undefined && !entry.moves) return;
+      if (entry.range === undefined && !entry.inRange) return;
       event.preventDefault();
       (entry.range ?? entry.run)();
       return;
     }
     event.preventDefault();
     entry.run();
+    if (scope === "list") showKeyLetters(true);
   });
+  document.addEventListener("pointerdown", () => showKeyLetters(false), true);
+  document.addEventListener("pointermove", (event) => {
+    if (event.pointerType === "mouse" && Math.abs(event.movementX) + Math.abs(event.movementY) > 2) showKeyLetters(false);
+  }, true);
+  document.addEventListener("focusin", (event) => {
+    if (event.target.matches?.("textarea, select, [contenteditable], input:not([type=checkbox]):not([type=radio])")) {
+      showKeyLetters(false);
+    }
+  });
+  for (const button of document.querySelectorAll("[data-letters-choice]")) {
+    button.addEventListener("click", () => {
+      state.keyLetters = button.dataset.lettersChoice === "off" ? "off" : null;
+      try { localStorage.setItem("texMcpKeyLetters", button.dataset.lettersChoice); } catch { /* the choice lasts this visit */ }
+      applyKeyLetters();
+    });
+  }
+  try { state.keyLetters = localStorage.getItem("texMcpKeyLetters") === "off" ? "off" : null; } catch { /* letters show */ }
+  applyKeyLetters();
 }
 
 function setSidebarCollapsed(collapsed) {
