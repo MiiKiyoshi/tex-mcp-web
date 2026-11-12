@@ -93,12 +93,14 @@ the ringed comment's buttons show their letters. Every key, and the editor's Vim
 ![The review page at a tablet's width and at a phone's, each on the same comment: the PDF above, zoomed to the commented sentence, and the thread with the agent's proposal below.](docs/images/mobile.png)
 
 The page is served where the agent runs. From a phone, forward its port over SSH from that
-machine, with Termux on Android or iSH on iOS, then open `http://localhost:<port>` in the
+machine, with Termux on Android or Termius on iOS, then open `http://localhost:<port>` in the
 phone's browser:
 
 ```
 ssh -L <port>:localhost:<port> <the machine the agent runs on>
 ```
+
+In Termius the same forward is a Local rule in its Port Forwarding screen.
 
 ## Writes in your field's terms
 
