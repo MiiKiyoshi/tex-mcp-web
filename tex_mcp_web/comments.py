@@ -586,15 +586,18 @@ class Comment:
         """The original comment text (first thread entry)."""
         return self.thread[0].text if self.thread else ""
 
-    def waiting(self, after: datetime | None = None) -> list[ThreadEntry]:
+    def waiting(self, after: datetime | None = None, on_overleaf: bool = False) -> list[ThreadEntry]:
         """The entries that wait for the agent: those asking it that came after the last
         answer the thread has, an entry the agent wrote or a reply sent to Overleaf, and
         after the draft the agent put up for Overleaf, which answers what came before it.
-        *after* leaves only those written after that moment."""
+        On a thread from Overleaf with no draft, the record of a suggestion applied waits
+        too, for the agent to draft the reply the change calls for. *after* leaves only
+        those written after that moment."""
         answered = max((position for position, entry in enumerate(self.thread)
                         if entry.author == "agent" or entry.overleaf is not None), default=-1)
         drafted = _moment(self.overleaf_draft.at) if self.overleaf_draft is not None else None
-        return [entry for entry in self.thread[answered + 1:] if entry.asks_agent
+        undrafted = on_overleaf and drafted is None
+        return [entry for entry in self.thread[answered + 1:] if (entry.asks_agent or undrafted and entry.applied)
                 and (drafted is None or _moment(entry.at) >= drafted)
                 and (after is None or _moment(entry.at) > after)]
 

@@ -925,10 +925,11 @@ class TexMcpWebServer:
         # The line counts what a wake-up is for: the open threads read_comments(new=True)
         # gives, with words for the agent it has neither answered nor carried before. A
         # count of open threads sent an agent to read one it had answered.
-        from .mcp_server import cursor_moment
+        from .mcp_server import _on_overleaf, cursor_moment
 
         edge = cursor_moment(self.watch_dir)
-        waiting = sum(bool(comment.waiting(edge)) for comment in self.comments.list(status="open"))
+        brought = _on_overleaf(self.watch_dir)
+        waiting = sum(bool(comment.waiting(edge, comment.id in brought)) for comment in self.comments.list(status="open"))
         return (f"[review] reviewer called (press #{self.review_calls}): "
                 + (f"{waiting} new comments" if waiting else "no new comments")
                 + " -- read them with read_comments(new=True)")

@@ -726,7 +726,8 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         written that this has neither carried before nor already taken up, thread by
         thread, each with the rev a write quotes back. A thread's last answer takes up
         what came before it: your reply, your Overleaf draft, or a reply the reviewer sent
-        to Overleaf, which is for the people there. A suggestion applied asks nothing. It reports the moment
+        to Overleaf, which is for the people there. A suggestion applied asks nothing, but on
+        a thread from Overleaf with no draft it asks for the reply the change calls for. It reports the moment
         it read ``from`` and the one it moved to, so a turn that went wrong is taken again
         with since=<from>; to see again what was already answered, ask for the thread by id.
 
@@ -760,7 +761,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                 # before; the thread's last answer says what has been taken up already.
                 # Asked for the first time there is no cursor, and the second half alone
                 # is what keeps that call off the whole history.
-                said = comment.waiting(edge)
+                said = comment.waiting(edge, comment.id in brought)
                 if not said:
                     continue
                 told = {"id": comment.id, "rev": revision_of(comment.updated),
@@ -817,8 +818,9 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         if save:
             return _err("save needs the ids of the threads to write out")
         summaries = []
+        brought = _on_overleaf(watch_dir)
         for comment in store.list(status=None if status == "all" else status):
-            if unanswered and not comment.waiting():
+            if unanswered and not comment.waiting(on_overleaf=comment.id in brought):
                 continue
             human = next((entry for entry in reversed(comment.thread) if entry.asks_agent), None)
             if moment is not None and (human is None or not _after(human, moment)):

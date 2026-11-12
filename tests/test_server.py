@@ -2217,6 +2217,44 @@ async def test_a_press_counts_the_threads_new_gives_by_the_rule_unanswered_lists
 
 
 @pytest.mark.asyncio
+async def test_a_suggestion_applied_on_a_thread_from_overleaf_waits_while_it_has_no_draft(bound_project,
+                                                                                         project) -> None:
+    """Applying a suggestion asks nothing of the agent on a thread of the page's own. On a
+    thread from Overleaf with no draft it waits, for the agent to draft the reply the change
+    calls for, and a draft, there before or written after, answers it."""
+    pytest.importorskip("mcp")
+    from tex_mcp_web import overleaf
+    from tex_mcp_web.comments import CommentStore, OverleafDraft, PaperAnchor
+    from tex_mcp_web.mcp_server import create_server
+
+    mcp = create_server(bound_project)
+
+    async def read(**arguments) -> dict[str, list[str]]:
+        told = json.loads((await mcp.call_tool("read_comments", arguments))[0].text)["comments"]
+        return {c["id"]: [e["text"] for e in c.get("entries", [])] for c in told}
+
+    store = CommentStore(project / ".tex-mcp-web" / "comments.json")
+    server = TexMcpWebServer(Config(main="paper.tex", config_path=project / ".tex-mcp-web.yaml"))
+    here = store.add(PaperAnchor(), "Tighten it.")
+    brought = store.add(PaperAnchor(), "Could this be shorter?", name="Ann")
+    drafted = store.add(PaperAnchor(), "And this one?", name="Ann")
+    overleaf.ledger_path(project).write_text(json.dumps({"t1": {"comment": brought.id, "messages": 1},
+                                                         "t2": {"comment": drafted.id, "messages": 1}}))
+    for asked in (here, brought, drafted):
+        proposed = store.suggest(asked.id, asked.updated, "Shorter.",
+                                 lambda current: SuggestedEdit("paper.tex", [("Some prose", "Prose")]))
+        if asked is drafted:
+            proposed = store.draft_overleaf(drafted.id, proposed.updated, OverleafDraft("Shortened it."), {})
+        store.apply_suggestion(asked.id, proposed.updated, lambda current: ["paper.tex:5-5"])
+
+    assert "1 new comments" in server._review_line()
+    assert list(await read(unanswered=True)) == [brought.id]
+    assert await read(new=True) == {brought.id: ["Applied suggestion."]}
+    store.draft_overleaf(brought.id, store.get(brought.id).updated, OverleafDraft("Shortened it."), {})
+    assert await read(unanswered=True) == {}
+
+
+@pytest.mark.asyncio
 async def test_call_button_wakes_a_parked_waiter_and_keeps_an_early_press(client) -> None:
     """The reviewer's press is an interrupt, not a message the agent must be listening for.
     The server keeps the press count and the consumption watermark, so a press made while
