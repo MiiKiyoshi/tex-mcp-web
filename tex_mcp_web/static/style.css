@@ -1262,8 +1262,10 @@ dialog { zoom: calc(1 / var(--text-scale)); }
 :root[data-theme="dark"] .ace-one-dark,
 :root[data-theme="dark"] .ace-one-dark .ace_gutter { background: #403f3b; }
 :root[data-theme="dark"] .ace-one-dark .ace_gutter { color: #c4beb1; }
-:root[data-theme="dark"] .ace-one-dark .ace_marker-layer .ace_active-line,
 :root[data-theme="dark"] .ace-one-dark .ace_gutter-active-line { background: #4a4944; }
+/* The cursor's line band is that gray over the ground, laid on it rather than painted, so a
+   comment's highlight on the line shows through it. */
+:root[data-theme="dark"] .ace-one-dark .ace_marker-layer .ace_active-line { background: rgba(255, 255, 255, 0.05); }
 :root[data-theme="dark"] .ace-one-dark .ace_marker-layer .ace_selection { background: #5b636d; }
 /* One Dark's words, a step lighter for the gray ground; its comments, a dark gray meant for
    near-black, read as a light gray. */
@@ -1312,8 +1314,9 @@ dialog { zoom: calc(1 / var(--text-scale)); }
 }
 :root[data-theme="warm"] .ace-tm { background: #f2eee6; color: #3a2f22; }
 :root[data-theme="warm"] .ace-tm .ace_gutter { background: #e8e2d8; color: #8d7b60; }
-:root[data-theme="warm"] .ace-tm .ace_marker-layer .ace_active-line,
 :root[data-theme="warm"] .ace-tm .ace_gutter-active-line { background: #e9e4d9; }
+/* As in the dark look: the band lets a comment's highlight on the cursor's line show. */
+:root[data-theme="warm"] .ace-tm .ace_marker-layer .ace_active-line { background: rgba(130, 113, 68, 0.08); }
 :root[data-theme="warm"] .ace-tm .ace_marker-layer .ace_selection { background: #d7cdba; }
 :root[data-theme="warm"] .ace-tm .ace_comment { color: #9a8768; font-style: italic; }
 :root[data-theme="warm"] .ace-tm :is(.ace_keyword, .ace_storage) { color: #8b4a62; }
