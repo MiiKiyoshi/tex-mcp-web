@@ -173,9 +173,12 @@ call a tex tool serves it again and listens.
   `action="overleaf"`), one per thread, and you edit it and send it with **Send to** and
   the leaf. The send button with the leaf atop the leaf **Comments** tab sends the reply
   of every picked thread, one thread after another, and a refused one keeps its words and
-  says why on its card while the rest go. The agent cannot send. A plain reply stays
-  here, since it may be an instruction to the agent, and each entry on such a thread says
-  whether it went to Overleaf or stayed here. An entry Overleaf holds goes by the name
+  says why on its card while the rest go. The agent cannot send. **Reply** on such a
+  thread stays here: it is where you talk the draft over with the agent, which answers in
+  the same thread and redrafts the reply for Overleaf as you go. That talk never reaches
+  Overleaf, and it sits in the thread in time order with the messages from Overleaf and
+  the replies you sent, each entry marked as written on Overleaf, sent there, or here
+  only, so the thread reads whole. An entry Overleaf holds goes by the name
   Overleaf gives its writer, as there, and is answered rather than edited. A reply whose
   draft names source ranges in a file that is not the same here as on Overleaf may
   describe an edit Overleaf does not have yet, so the page asks first whether to send it
@@ -305,17 +308,20 @@ keys in their tooltips.
 - Enter shows where the comment is, in the PDF or the source, and the keys stay with the
   list. A click on a comment does the same and puts the ring on it, and choosing a comment
   tab or a view in the list atop gives the keys back to the comments.
-- `r` replies, `e` edits the last thing you wrote in the thread, `i` puts the cursor in its
-  reply for Overleaf, and `c` adds a paper note. Escape leaves the box: a reply or an edit
-  being written is dropped, and a reply for Overleaf keeps its words.
+- `r` replies here, where the agent reads it and Overleaf does not, `i` puts the cursor in
+  the thread's reply for Overleaf, `e` edits the last thing you wrote in the thread, and `c`
+  adds a paper note. Escape leaves the box and gives the keys back to the comments: a reply
+  or an edit being written is dropped, and a reply for Overleaf keeps its words.
 - `R` resolves the comment, or reopens one that is not open, and `A` archives it.
 - A key that changes the file, posts to Overleaf or deletes is a letter pressed twice: `aa`
   applies the suggestion, `ss` sends the reply to Overleaf, and `dd` deletes once you say
   yes.
-- `x` picks the comment, `X` picks every comment from the last one picked to it, and `*`
-  picks every comment or lets them all go. With comments picked, `R`, `A` and `ss` act on
-  them.
-- `v` and `V` go to the next and the previous view in the list atop the tab, and `t` and
+- Space picks the comment or lets it go, and `*` picks every comment or lets them all go.
+  With comments picked, `R`, `A` and `ss` act on them.
+- `v` holds a range from the comment, which the keys that move stretch. `R`, `A` and `ss`
+  then act on the whole range at once, Space picks it, or lets it go when it is all picked,
+  and Escape or `v` lets the range go.
+- `f` and `F` go to the next and the previous view in the list atop the tab, and `t` and
   `T` to the next and the previous tab.
 
 With a Korean input method on, a letter key is read by where it sits on the keyboard, so

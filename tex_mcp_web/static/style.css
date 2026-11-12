@@ -729,6 +729,8 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .cmt.status-resolved .cmt-status { color: var(--ok); }
 .cmt.status-archived .cmt-status { color: #4a5f8a; }
+/* The comments v holds as a range. */
+.cmt.in-range { background: var(--accent-soft); }
 .cmt.is-focused {
   /* j/k keyboard focus indicator */
   box-shadow: 0 0 0 2px var(--accent), 0 0 0 4px var(--accent-soft);

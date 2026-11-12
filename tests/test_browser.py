@@ -1752,16 +1752,28 @@ def test_the_comment_list_goes_by_keys(tmp_path: Path) -> None:
         assert browser.execute_script(
             f'{editor} return document.activeElement === editor.textInput.getElement();') is False
 
-        # x picks, X picks the run from the last pick, and * picks all or lets all go.
+        # Space picks the ringed comment. v holds a range that the moving keys stretch, and
+        # Space picks the range, or lets it go when it is all picked. Escape lets a range go
+        # and changes nothing, and * picks all or lets all go.
         def picked():
             return browser.execute_script(
                 'return [...document.querySelectorAll("#comments-list .cmt")]'
                 '  .filter((card) => card.querySelector(".comment-pick").checked).map((card) => card.dataset.commentId)')
 
-        press("x")
+        def ranged():
+            return browser.execute_script(
+                'return [...document.querySelectorAll("#comments-list .cmt.in-range")].map((card) => card.dataset.commentId)')
+
+        press(" ")
         assert picked() == [source]
-        press("j", "j", "X")
-        assert picked() == [source, third, fourth]
+        press("v", "j", "j")
+        assert ranged() == [source, third, fourth]
+        press(" ")
+        assert [picked(), ranged()] == [[source, third, fourth], []]
+        press("v", "k", " ")
+        assert picked() == [source]
+        press("v", "k", escape)
+        assert [picked(), ranged(), ringed()] == [[source], [], source]
         press("*")
         assert picked() == [first, source, third, fourth]
         press("*")
@@ -1769,27 +1781,46 @@ def test_the_comment_list_goes_by_keys(tmp_path: Path) -> None:
 
         # R resolves the ringed comment, and the one now in its place takes the ring. Held
         # down, R does no more.
-        press("k", "R")
+        press("j", "R")
         wait_until(lambda: status(third) == "resolved" and ringed() == fourth)
         browser.execute_script('document.body.dispatchEvent(new KeyboardEvent("keydown",'
                                ' {key: "R", repeat: true, bubbles: true, cancelable: true}))')
         time.sleep(0.5)
         assert status(fourth) == "open"
-        # v moves to the next view, where R reopens a resolved comment, and V moves back.
-        press("v")
+        # f moves to the next view, where R reopens a resolved comment, and F moves back.
+        press("f")
         wait_until(lambda: browser.execute_script(
             'return document.querySelector("#comment-filter").value === "resolved"'
             ' && document.querySelectorAll("#comments-list .cmt").length === 1'))
         press("j", "R")
         wait_until(lambda: status(third) == "open")
-        press("V")
+        press("F")
         wait_until(lambda: browser.execute_script(
             'return document.querySelector("#comment-filter").value === "open"'
             ' && document.querySelectorAll("#comments-list .cmt").length === 4'))
         # With comments picked, R resolves them rather than the ringed one.
-        press("g", "g", "x", "j", "R")
+        press("g", "g", " ", "j", "R")
         wait_until(lambda: status(first) == "resolved")
         assert status(source) == "open"
+        # Over a range, R acts on the range at once, and a comment picked outside it stays
+        # picked. In the resolved view R over a range reopens it.
+        wait_until(lambda: picked() == [])
+        press("G", " ")
+        press("g", "g", "v", "j", "R")
+        wait_until(lambda: status(source) == "resolved" and status(third) == "resolved")
+        assert status(fourth) == "open"
+        wait_until(lambda: picked() == [fourth])
+        press(" ")
+        assert picked() == []
+        press("f")
+        wait_until(lambda: browser.execute_script(
+            'return document.querySelectorAll("#comments-list .cmt").length === 3'))
+        press("g", "g", "v", "G", "R")
+        wait_until(lambda: status(first) == "open" and status(source) == "open" and status(third) == "open")
+        press("F")
+        wait_until(lambda: browser.execute_script(
+            'return document.querySelector("#comment-filter").value === "open"'
+            ' && document.querySelectorAll("#comments-list .cmt").length === 4'))
 
         # dd deletes once the reader says yes, and a d not doubled is dropped.
         browser.execute_script("const page = window.wrappedJSObject || window; page.asked = [];"
@@ -2271,6 +2302,15 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
         wait_until(lambda: browser.execute_script(f'return document.querySelector("{card} .cmt-actions") !== null'))
         assert browser.execute_script(
             f'return [...document.querySelectorAll("{card} .cmt-actions button")].map((b) => b.textContent)') == ["Delete"]
+        # i puts the cursor in the thread's box for Overleaf, and Escape leaves it with its words.
+        browser.execute_script(
+            f'document.querySelector("{card} .cmt-overleaf-head").dispatchEvent(new MouseEvent("mousedown", {{bubbles: true}}))')
+        type_keys(browser, ["i"])
+        assert browser.execute_script(f'return document.activeElement.matches("{card} .overleaf-reply-input")') is True
+        type_keys(browser, [""])
+        assert browser.execute_script('return document.activeElement.id') == "comments-list"
+        assert browser.execute_script(f'return document.querySelector("{card} .overleaf-reply-input").value') \
+            == "Feedback and answer."
         # The new-thread view, under answered, holds the threads opened from here: the
         # drafts still to send, then those already on Overleaf.
         assert browser.execute_script(
