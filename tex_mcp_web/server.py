@@ -541,7 +541,7 @@ class TexMcpWebServer:
         app.router.add_post("/overleaf/cookie", self._handle_overleaf_cookie)
         app.router.add_delete("/overleaf/cookie", self._handle_overleaf_cookie)
         app.router.add_post("/overleaf/comments", self._handle_overleaf_comments)
-        app.router.add_post(r"/overleaf/git/{action:fetch|pull|push}", self._handle_overleaf_git)
+        app.router.add_post(r"/overleaf/git/{action:fetch|state|pull|push}", self._handle_overleaf_git)
         app.router.add_post(r"/overleaf/files/{action:read|get|send}", self._handle_overleaf_files)
         app.router.add_get("/overleaf/upstream", self._handle_overleaf_upstream)
         app.router.add_post("/overleaf/upstream", self._handle_overleaf_upstream)
@@ -977,25 +977,37 @@ class TexMcpWebServer:
 
     async def _handle_overleaf_git(self, request: web.Request) -> web.Response:
         """Where the paper's folder stands against Overleaf's branch, read afresh, or the
-        same after a pull or a push the reviewer asked for. While the files are also kept
-        the same with Overleaf, git takes them as Overleaf has them (see overleaf_git), a
-        read takes Overleaf's commits in when it only has to move forward, and a pull or a
-        push waits until every file is in step."""
+        same after a pull or a push the reviewer asked for. state reads it without asking
+        Overleaf, after a file changed here. A push given a message and files commits the
+        changes to those files first. While the files are also kept the same with Overleaf,
+        git takes them as Overleaf has them (see overleaf_git), a read takes Overleaf's
+        commits in when it only has to move forward, and a pull or a push waits until every
+        file is in step."""
         link = await self._overleaf_git_link()
         if link is None:
             return web.json_response({"error": "this folder is not a git clone of the Overleaf project"},
                                      status=409)
         action = request.match_info["action"]
+        commit = None
+        if action == "push" and request.can_read_body:
+            data, err = await self._read_json(request)
+            if err is not None:
+                return err
+            if (not isinstance(data, dict) or not isinstance(data.get("message"), str) or not data["message"].strip()
+                    or not isinstance(data.get("files"), list) or not all(isinstance(f, str) for f in data["files"])):
+                return web.json_response({"error": "a commit takes a message and the files to commit"}, status=400)
+            commit = data["message"].strip(), data["files"]
         followed = None
         if self.overleaf_sync is not None:
             if self._overleaf_in_step():
                 followed = [doc.path for doc in self.overleaf_sync.docs.values() if doc.status == "synced"]
-            elif action != "fetch":
+            elif action not in ("fetch", "state"):
                 apart = self._overleaf_apart()
                 return web.json_response({"error": f"Not yet the same as on Overleaf: {', '.join(apart)}. Settle it first."
                                           if apart else "The files are still being read from Overleaf. Try again in a moment."},
                                          status=409)
         since = time.time()
+        committed = False
         async with self._overleaf_git:
             try:
                 if action == "fetch" and followed is not None:
@@ -1003,10 +1015,17 @@ class TexMcpWebServer:
                 elif action == "fetch":
                     await overleaf_git.fetch(link)
                     now = await overleaf_git.state(link)
+                elif action == "state":
+                    # Overleaf's branch as last read, so nothing seen on Overleaf is let go.
+                    return web.json_response(await overleaf_git.state(link, followed or ()))
                 else:
+                    if commit is not None:
+                        await overleaf_git.commit(link, *commit, followed or ())
+                        committed = True
                     now = await (overleaf_git.pull if action == "pull" else overleaf_git.push)(link, followed)
             except overleaf_git.GitError as error:
-                return web.json_response({"error": str(error)}, status=409)
+                # A commit made before a push that did not go through stays, and goes with the next.
+                return web.json_response({"error": ("Committed here. " if committed else "") + str(error)}, status=409)
         return web.json_response(self._seen_overleaf_git(now, since))
 
     async def _read_overleaf_git(self, link: overleaf_git.Link) -> dict[str, Any]:
@@ -1190,7 +1209,7 @@ class TexMcpWebServer:
                 commits = f"{count} commit{'' if count == 1 else 's'}"
                 return web.json_response({"error": f"Overleaf has {commits} this folder lacks. Press git pull first."
                                           if now["behind"] else f"This folder has {commits} Overleaf lacks. "
-                                          "Press git push first, so the comments sit on the text Overleaf has."}, status=409)
+                                          "Press commit & push first, so the comments sit on the text Overleaf has."}, status=409)
         elif self.overleaf_sync is not None:
             # Files kept the same both ways stand in for the commit: every one in step first.
             apart = self._overleaf_apart()
@@ -1246,8 +1265,8 @@ class TexMcpWebServer:
                             committed = await overleaf_git.holds(link, "HEAD", check["file"], check["text"])
                             gone = None if committed else self._changed_since_drafted(check)
                             return gone or (f"The edit to {check['file']} this reply describes is "
-                                            + ("committed but not on Overleaf. Press git push first." if committed
-                                               else "not committed. Commit it, then press git push.")), ""
+                                            + ("committed but not on Overleaf." if committed else "not committed.")
+                                            + " Press commit & push first."), ""
                 except overleaf_git.GitError as error:
                     return f"Overleaf's branch could not be read: {error}", ""
             return None, now["there"]

@@ -1113,8 +1113,24 @@ dialog {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
 }
 dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
-#compose-form { display: flex; flex-direction: column; gap: 0.5rem; }
-#compose-form h3 { margin: 0; font-size: 1rem; }
+#compose-form, #commit-form { display: flex; flex-direction: column; gap: 0.5rem; }
+#compose-form h3, #commit-form h3 { margin: 0; font-size: 1rem; }
+#commit-form p { margin: 0; }
+.commit-files {
+  margin: 0;
+  padding-left: 1.2rem;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  max-height: 12rem;
+  overflow-y: auto;
+}
+#commit-message {
+  font-family: var(--mono);
+  font-size: 0.9rem;
+  padding: 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
 .compose-anchor {
   font-family: var(--mono);
   font-size: 0.8rem;

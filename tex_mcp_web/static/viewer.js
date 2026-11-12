@@ -49,6 +49,9 @@ const state = {
   // Where a folder brought together with Overleaf by Get and Send stands, or null.
   overleafFiles: null,
   overleafGitTimer: null,
+  overleafGitStateTimer: null,
+  // The files commit & push showed the reviewer, whose edits its commit takes.
+  committing: [],
   overleafEdits: "",
   // Comments brought in from Overleaf, and which comment tab is shown: the comments written
   // here, or the threads on Overleaf. The list, the editor and the PDF show that tab's.
@@ -1090,12 +1093,12 @@ function renderOverleafStatus({ project, cookie, sync = false, live = false, set
     return copy;
   }), word];
   $("#overleaf-mode-hand-note").replaceChildren(...(git
-    ? ["Files change only when you press git pull or git push, which show in the top bar when there are commits to move. Overleaf gets nothing until you git push. A new comment thread on Overleaf comes in when you press "]
+    ? ["Files change only when you press git pull or commit & push, which show in the top bar when there are commits or edits to move. Overleaf gets nothing until you commit & push. A new comment thread on Overleaf comes in when you press "]
     : ["Files change only when you press ", ...drawn("#git-pull-btn", " Get"), " or ", ...drawn("#git-push-btn", " Send"),
       ", which show in the top bar when there are edits to move. Overleaf gets nothing until you Send. A new comment thread on Overleaf comes in when you press "]),
   ...syncDrawing, " in the ", leafIcon(), " Comments tab.");
   $("#overleaf-mode-live-note").textContent = git
-    ? "While this review page is open, text files such as .tex change both ways within a second, and a new comment thread on Overleaf comes in by itself. Figures and other uploaded files go by git: one you commit here goes with git push, and one added on Overleaf comes in by itself, or with git pull when the top bar shows it."
+    ? "While this review page is open, text files such as .tex change both ways within a second, and a new comment thread on Overleaf comes in by itself. Figures and other uploaded files go by git: one changed here goes with commit & push, and one added on Overleaf comes in by itself, or with git pull when the top bar shows it."
     : "While this review page is open, text files such as .tex change both ways within a second, and a new comment thread on Overleaf comes in by itself. Figures and other uploaded files are copied whole when one side replaces them, and a new figure or source file here goes up by itself.";
   $("#overleaf-direct").hidden = !project;
   $("#overleaf-git").hidden = !git && !state.overleafFiles;
@@ -1164,13 +1167,13 @@ function renderOverleafGit(now) {
   const then = state.overleafFullSync ? "" : ", and comments sync after that";
   $("#overleaf-git-state").textContent = {
     same: `This folder is at Overleaf's commit (${now.there}).`,
-    ahead: `This folder has ${commits(now.ahead)} Overleaf lacks. git push in the top bar sends them${then}.`,
+    ahead: `This folder has ${commits(now.ahead)} Overleaf lacks. commit & push in the top bar sends them${then}.`,
     behind: `Overleaf has ${commits(now.behind)} this folder lacks. git pull in the top bar brings them in${then}.`,
     diverged: `Overleaf and this folder each have commits the other lacks (${now.ahead} here, ${now.behind} on Overleaf). `
-      + `git pull in the top bar merges them, git push sends the result${then}.`,
+      + `git pull in the top bar merges them, commit & push sends the result${then}.`,
   }[now.state];
   $("#overleaf-git-uncommitted").hidden = !now.uncommitted.length;
-  $("#overleaf-git-uncommitted").textContent = `Not committed, so git push does not send them: ${now.uncommitted.join(", ")}`;
+  $("#overleaf-git-uncommitted").textContent = `Not committed yet, so commit & push in the top bar commits them first: ${now.uncommitted.join(", ")}`;
   renderGitButtons();
   renderOverleafThreadSync();
 }
@@ -1201,7 +1204,7 @@ function renderGitButtons() {
   for (const button of [pull, push]) {
     button.querySelector(".by-hand-mark").hidden = !byHand;
     button.querySelector(".wide-label").textContent = byHand ? (button === pull ? "Get" : "Send")
-      : (button === pull ? "git pull" : "git push");
+      : (button === pull ? "git pull" : "commit & push");
   }
   if (byHand) {
     pull.hidden = !byHand.get.length;
@@ -1214,31 +1217,74 @@ function renderGitButtons() {
     return;
   }
   const now = state.overleafGit;
+  // The commits git push sends: those Overleaf lacks, and one more of the edits not committed.
+  const sending = (now?.ahead ?? 0) + (now?.uncommitted.length ? 1 : 0);
   pull.hidden = !now?.behind;
   // With the files kept the same, Push takes Overleaf's commits in first by itself.
-  push.hidden = !now?.ahead || (Boolean(now?.behind) && !state.overleafFullSync);
+  push.hidden = !sending || (Boolean(now?.behind) && !state.overleafFullSync);
   pull.disabled = push.disabled = false;
   if (!now) return;
   pull.querySelector(".git-count").textContent = now.behind ? String(now.behind) : "";
-  push.querySelector(".git-count").textContent = now.ahead ? String(now.ahead) : "";
+  push.querySelector(".git-count").textContent = sending ? String(sending) : "";
   pull.title = `git pull ${commits(now.behind)} from Overleaf`;
-  push.title = `git push ${commits(now.ahead)} to Overleaf`;
+  push.title = now.uncommitted.length
+    ? `Commit the edits to ${fileCount(now.uncommitted.length)} and git push ${commits(sending)} to Overleaf`
+    : `git push ${commits(now.ahead)} to Overleaf`;
+}
+
+// Where the folder stands, read here without asking Overleaf: what is not committed yet.
+async function readOverleafGitState() {
+  const response = await fetch("/overleaf/git/state", { method: "POST" });
+  if (response.ok) renderOverleafGit(await response.json());
+}
+
+// A file changed here, so commit & push shows once there is an edit to commit.
+function readOverleafGitStateSoon() {
+  if (!state.overleafGit) return;
+  clearTimeout(state.overleafGitStateTimer);
+  state.overleafGitStateTimer = setTimeout(
+    () => readOverleafGitState().catch((error) => console.error(error)), 1000);
+}
+
+// commit & push asks first: it lists the files whose edits go into one commit, under a
+// message the reviewer may change, and says what git push then sends, for everyone in the
+// project.
+async function openCommitDialog() {
+  await readOverleafGitState();
+  const now = state.overleafGit;
+  if (!now.ahead && !now.uncommitted.length) return;
+  state.committing = now.uncommitted;
+  const at = new Date();
+  const two = (value) => String(value).padStart(2, "0");
+  $("#commit-head").textContent = now.uncommitted.length
+    ? `Commit the edits to ${fileCount(now.uncommitted.length)}:` : "No edits to commit.";
+  $("#commit-files").replaceChildren(...now.uncommitted.map((file) => h("li", { text: file })));
+  $("#commit-message").hidden = !now.uncommitted.length;
+  $("#commit-message").required = now.uncommitted.length > 0;
+  $("#commit-message").value = `${at.getFullYear()}-${two(at.getMonth() + 1)}-${two(at.getDate())} `
+    + `${two(at.getHours())}:${two(at.getMinutes())}`;
+  $("#commit-sends").textContent = `Then git push sends ${commits(now.ahead + (now.uncommitted.length ? 1 : 0))} `
+    + "to Overleaf, for everyone in the project.";
+  $("#commit-dialog").showModal();
 }
 
 // Reading Overleaf's branch, or pulling from it or pushing to it, as the reviewer asked.
 // A pull or push that does not go through says why in Settings.
-async function overleafGitAction(action) {
+async function overleafGitAction(action, commit) {
   if (state.overleafFiles) return overleafFilesAction({ fetch: "read", pull: "get", push: "send" }[action]);
-  if (action === "push" && !confirm(`git push ${commits(state.overleafGit?.ahead ?? 0)} to Overleaf, `
-    + "for everyone in the project?")) return;
   for (const id of ["#git-pull-btn", "#git-push-btn", "#overleaf-sync-comments-btn"]) $(id).disabled = true;
-  if (action !== "fetch") $("#overleaf-git-state").textContent = action === "pull" ? "Running git pull from Overleaf…" : "Running git push to Overleaf…";
+  if (action !== "fetch") {
+    $("#overleaf-git-state").textContent = action === "pull" ? "Running git pull from Overleaf…"
+      : commit ? "Committing, then running git push to Overleaf…" : "Running git push to Overleaf…";
+  }
   state.overleafGitRead = Date.now();
-  const response = await fetch(`/overleaf/git/${action}`, { method: "POST" });
+  const response = await fetch(`/overleaf/git/${action}`, commit
+    ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(commit) }
+    : { method: "POST" });
   if (response.ok) {
     renderOverleafGit(await response.json());
     if (action !== "fetch" && $("#settings-dialog").open) {
-      $("#overleaf-status").textContent = action === "pull" ? "git pull done." : "git push done.";
+      $("#overleaf-status").textContent = action === "pull" ? "git pull done." : commit ? "commit & push done." : "git push done.";
     }
     return;
   }
@@ -3583,6 +3629,7 @@ async function handleWebSocketMessage(message) {
       await refreshComments();
       break;
     case "source_changed":
+      readOverleafGitStateSoon();
       await handleSourceChanged(message);
       break;
     case "config_reloaded":
@@ -3882,7 +3929,14 @@ function attachSidebarToggle() {
   $("#overleaf-cookie-forget").addEventListener("click", () => forgetOverleafCookie().catch(overleafFailed));
   $("#overleaf-sync-comments-btn").addEventListener("click", () => syncOverleafComments().catch(overleafFailed));
   $("#git-pull-btn").addEventListener("click", () => overleafGitAction("pull").catch(overleafFailed));
-  $("#git-push-btn").addEventListener("click", () => overleafGitAction("push").catch(overleafFailed));
+  $("#git-push-btn").addEventListener("click", () =>
+    (state.overleafFiles ? overleafGitAction("push") : openCommitDialog()).catch(overleafFailed));
+  $("#commit-form").addEventListener("submit", () => {
+    const files = state.committing;
+    overleafGitAction("push", files.length ? { message: $("#commit-message").value.trim(), files } : undefined)
+      .catch(overleafFailed);
+  });
+  $("#commit-cancel").addEventListener("click", () => $("#commit-dialog").close());
   window.addEventListener("focus", () => {
     if (Date.now() - state.overleafGitRead > 60000) readOverleafGitSoon(0);
   });

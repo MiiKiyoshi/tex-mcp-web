@@ -45,7 +45,7 @@
         <button id="overleaf-live-btn" class="overleaf-live-btn off" type="button" title="Connect this paper to its Overleaf project"><svg class="leaf-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 13C3 7 7 3 13 3c0 6-4 10-10 10z"/><path d="M3 13l6-6"/></svg><span id="overleaf-live-label">Connect Overleaf</span></button>
       </span>
       <!-- A folder cloned from the Overleaf project by git: each shows only when it has commits to move. -->
-      <!-- In a git clone of the project these are git pull and git push. In a folder that is
+      <!-- In a git clone of the project these are git pull and commit & push. In a folder that is
            none, and does not follow Overleaf live, they are Get and Send, with the leaf. -->
       <button id="git-pull-btn" class="git-btn" type="button" hidden><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v14M6 12l6 6 6-6"/></svg><svg class="leaf-icon by-hand-mark" hidden width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 13C3 7 7 3 13 3c0 6-4 10-10 10z"/><path d="M3 13l6-6"/></svg><span class="wide-label">git pull</span><span class="git-count"></span></button>
       <button id="git-push-btn" class="git-btn" type="button" hidden><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V6M6 12l6-6 6 6"/></svg><svg class="leaf-icon by-hand-mark" hidden width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 13C3 7 7 3 13 3c0 6-4 10-10 10z"/><path d="M3 13l6-6"/></svg><span class="wide-label">git push</span><span class="git-count"></span></button>
@@ -258,6 +258,21 @@
     <p id="overleaf-status" class="overleaf-status" role="status"></p>
     <div class="dialog-actions">
       <button value="close" autofocus>Close</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- commit & push: the files whose edits go into one commit, and the message it takes. -->
+<dialog id="commit-dialog">
+  <form method="dialog" id="commit-form">
+    <h3>commit &amp; push</h3>
+    <p id="commit-head"></p>
+    <ul id="commit-files" class="commit-files"></ul>
+    <input id="commit-message" type="text" aria-label="Commit message">
+    <p id="commit-sends"></p>
+    <div class="dialog-actions">
+      <button type="button" id="commit-cancel">Cancel</button>
+      <button type="submit">commit &amp; push</button>
     </div>
   </form>
 </dialog>

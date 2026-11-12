@@ -9,7 +9,8 @@ knows of Overleaf's branch.
 Pull takes Overleaf's commits in, as a fast-forward or, when both sides have commits, as a
 merge git can make without conflicts. Push sends the folder's commits when Overleaf has
 none the folder lacks, and never forces. Neither touches a change that is not committed:
-git refuses a pull that would write over one, and its message says which file.
+git refuses a pull that would write over one, and its message says which file. Commit
+puts the changes the reviewer was shown, to files git tracks, in one commit.
 
 While the files are also kept the same with Overleaf as they change (``followed``), those
 files already hold Overleaf's text when its commit arrives. Pull then stages each one
@@ -132,14 +133,15 @@ async def state(link: Link, followed: Collection[str] = ()) -> dict:
     how many each has that the other lacks, the files Overleaf's commits changed that this
     folder lacks, named from the top of the repository as Overleaf names them, and the files
     with changes not committed, leaving out the *followed* ones, which are on Overleaf as
-    they are here."""
+    they are here, and the page's records, which never go there."""
     branch = await _tracking(link)
     _, here = await _git(link.folder, "rev-parse", "--short", "HEAD")
     _, there = await _git(link.folder, "rev-parse", "--short", branch)
     _, counts = await _git(link.folder, "rev-list", "--left-right", "--count", f"HEAD...{branch}")
     _, incoming = await _git(link.folder, "diff", "--name-only", "-z", f"HEAD...{branch}")
     ahead, behind = (int(count) for count in counts.split())
-    _, porcelain = await _git(link.folder, "status", "--porcelain", "-z", "--untracked-files=no", "--", ".")
+    _, porcelain = await _git(link.folder, "status", "--porcelain", "-z", "--untracked-files=no", "--", ".",
+                              f":(exclude){RECORDS}")
     uncommitted, records = [], iter(_paths(porcelain))
     for record in records:
         if {"R", "C"} & set(record[:2]):     # a rename or copy names where it came from next
@@ -328,6 +330,17 @@ async def pull(link: Link, followed: Collection[str] | None = None) -> dict:
     return await state(link, followed or ())
 
 
+async def commit(link: Link, message: str, files: Collection[str], followed: Collection[str] = ()) -> None:
+    """Commit the changes to *files*, named as state names those not committed, under
+    *message*: the ones state lists now, so a file changed after the reviewer was shown the
+    list stays out of it, and so does every file git does not track."""
+    paths = [path for path in (await state(link, followed))["uncommitted"] if path in files]
+    if not paths:
+        raise GitError("none of those files has a change to commit now")
+    # Status names a file from the top of the repository, and the folder may be inside it.
+    await _git(link.folder, "commit", "--quiet", "-m", message, "--", *(f":(top,literal){path}" for path in paths))
+
+
 async def push(link: Link, followed: Collection[str] | None = None) -> dict:
     """Send the folder's commits to Overleaf; the state after, or GitError saying why not.
     With *followed* files kept the same with Overleaf, Overleaf's commits are taken in
@@ -348,10 +361,10 @@ async def push(link: Link, followed: Collection[str] | None = None) -> dict:
         _, records = await _git(link.folder, "ls-files", "--", RECORDS)
         if records.strip():
             raise GitError("The commits hold .tex-mcp-web/, the review page's own records with its comments. "
-                           "Untrack it with git rm -r --cached .tex-mcp-web and commit, then press git push.")
+                           "Untrack it with git rm -r --cached .tex-mcp-web and commit, then press commit & push.")
         if followed is not None and (older := await _not_overleafs(link, now["branch"], followed)):
             raise GitError(f"The commits hold text for {', '.join(older)} that is not Overleaf's now. "
-                           "Commit those files as they are, then press git push.")
+                           "Commit those files as they are with git, then press commit & push.")
         code, _ = await _git(link.folder, "push", "--quiet", link.remote,
                              f"HEAD:{now['branch'].removeprefix(link.remote + '/')}", check=attempt > 0 or followed is None)
         if code == 0:

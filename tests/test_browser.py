@@ -6,6 +6,7 @@ one-click close and the in-place edit are exercised through actual clicks here.
 
 import json
 import math
+import re
 import os
 import shutil
 import socket
@@ -2244,7 +2245,7 @@ def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path
         assert shown("#overleaf-mode")
         assert browser.execute_script('return document.querySelector(\'#overleaf-mode input[value="hand"]\').checked') is True
         hand_note = browser.execute_script('return document.querySelector("#overleaf-mode-hand-note").textContent')
-        assert "git pull or git push" in hand_note and "Comments tab" in hand_note
+        assert "git pull or commit & push" in hand_note and "Comments tab" in hand_note
         # The note shows the sync button's drawing, the only thing that button shows, and the
         # leaf the tab it is in shows.
         assert browser.execute_script('return document.querySelectorAll("#overleaf-mode-hand-note svg").length') == 3
@@ -2283,29 +2284,41 @@ def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path
         wait_until(lambda: browser.execute_script(
             'return document.querySelector("#comments-list").textContent.includes("Say hello properly.")'))
 
-        # A commit made here: opening the dialog again finds it, Push shows in the top bar,
-        # and it asks once before sending to everyone in the project.
-        (paper / "paper.tex").write_text(PAPER + "% more\n", encoding="utf-8")
-        git(paper, "commit", "-q", "-am", "here")
+        # An edit made here and not committed: commit & push shows in the top bar once the
+        # file changes, and asks first, with the file, a message the reviewer may change and
+        # what goes to everyone in the project.
+        git(paper, "config", "user.name", "Someone")
+        git(paper, "config", "user.email", "someone@example.com")
         browser.execute_script('document.querySelector("#settings-dialog").close()')
-        browser.execute_script('document.querySelector("#settings-btn").click()')
-        wait_until(lambda: said().startswith("This folder has 1 commit Overleaf lacks"))
-        assert not hidden("#git-push-btn") and text("#git-push-btn") == "git push1"
-        browser.execute_script("(window.wrappedJSObject || window).confirm = () => true;", sandbox=None)
+        (paper / "paper.tex").write_text(PAPER + "% more\n", encoding="utf-8")
+        wait_until(lambda: not hidden("#git-push-btn") and not disabled("#git-push-btn"), timeout=15)
+        assert text("#git-push-btn") == "commit & push1"
+        assert text("#overleaf-git-uncommitted").endswith(": paper.tex")
         browser.execute_script('document.querySelector("#git-push-btn").click()')
-        wait_until(lambda: said().startswith("This folder is at Overleaf's commit"))
-        assert hidden("#git-push-btn")
-        assert status() == "git push done."
+        wait_until(lambda: browser.execute_script('return document.querySelector("#commit-dialog").open'))
+        assert text("#commit-files") == "paper.tex"
+        assert re.fullmatch(r"\d{4}-\d\d-\d\d \d\d:\d\d",
+                            browser.execute_script('return document.querySelector("#commit-message").value'))
+        assert text("#commit-sends") == "Then git push sends 1 commit to Overleaf, for everyone in the project."
+        browser.execute_script('document.querySelector("#commit-message").value = "Tidy the ending"')
+        browser.execute_script('document.querySelector("#commit-form").requestSubmit()')
+        on_overleaf = lambda: subprocess.run(["git", "-C", str(remote), "log", "-1", "--format=%s"], check=True,
+                                             capture_output=True, text=True).stdout.strip()
+        wait_until(lambda: hidden("#git-push-btn") and on_overleaf() == "Tidy the ending", timeout=15)
+        assert said().startswith("This folder is at Overleaf's commit") and hidden("#overleaf-git-uncommitted")
+        browser.execute_script('document.querySelector("#settings-btn").click()')
+        wait_until(lambda: shown("#overleaf-mode"))
 
         # Live may be chosen here too, asked once, and By hand chosen back: each is kept in
         # the config.
         choose = lambda mode: browser.execute_script(
             f'document.querySelector(\'#overleaf-mode input[value="{mode}"]\').click()')
+        browser.execute_script("(window.wrappedJSObject || window).confirm = () => true;", sandbox=None)
         choose("live")
         wait_until(lambda: status() == "The files now follow Overleaf live.")
         assert "overleaf_sync: true" in config_path.read_text(encoding="utf-8")
         live_note = browser.execute_script('return document.querySelector("#overleaf-mode-live-note").textContent')
-        assert "comes in by itself" in live_note and "goes with git push" in live_note
+        assert "comes in by itself" in live_note and "goes with commit & push" in live_note
         choose("hand")
         wait_until(lambda: status() == "The files now follow Overleaf by hand.")
         assert "overleaf_sync" not in config_path.read_text(encoding="utf-8")

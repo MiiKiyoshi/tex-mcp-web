@@ -391,6 +391,50 @@ async def test_the_page_pulls_pushes_and_downloads_comments_only_with_every_over
         await client.close()
 
 
+async def test_commit_and_push_commits_the_files_shown_then_sends_them(sides) -> None:
+    """commit & push commits the edits to the files the reviewer was shown, under their
+    message, then pushes. A file edited after the list was shown, and one git does not
+    track, stay as they are, and a commit whose push is turned away stays to go next time."""
+    from aiohttp.test_utils import TestClient, TestServer
+
+    from tex_mcp_web.config import load_config
+    from tex_mcp_web.server import TexMcpWebServer
+
+    paper, coauthor = sides
+    commit(paper, "notes.tex", "a note\n", "notes")
+    git(paper, "push", "-q", "overleaf", "HEAD:main")
+    (paper / ".tex-mcp-web.yaml").write_text(
+        f"main: paper.tex\noverleaf: http://127.0.0.1:9/project/{PROJECT}\n", encoding="utf-8")
+    server = TexMcpWebServer(load_config(paper / ".tex-mcp-web.yaml"))
+    client = TestClient(TestServer(server.app))
+    await client.start_server()
+    try:
+        (paper / "paper.tex").write_text("one\nTWO\nthree\n", encoding="utf-8")
+        (paper / "notes.tex").write_text("a longer note\n", encoding="utf-8")
+        (paper / "new.tex").write_text("not tracked\n", encoding="utf-8")
+        now = await (await client.post("/overleaf/git/state")).json()
+        assert (now["state"], now["uncommitted"]) == ("same", ["notes.tex", "paper.tex"])
+
+        refused = await client.post("/overleaf/git/push", json={"files": ["paper.tex"]})
+        assert refused.status == 400
+        now = await (await client.post("/overleaf/git/push",
+                                        json={"message": "Plainer words", "files": ["paper.tex"]})).json()
+        assert (now["state"], now["uncommitted"]) == ("same", ["notes.tex"])
+        assert git(paper, "log", "-1", "--format=%s", "overleaf/main").strip() == "Plainer words"
+        assert git(paper, "show", "--name-only", "--format=", "HEAD").split() == ["paper.tex"]
+        assert "?? new.tex" in git(paper, "status", "--porcelain")
+
+        git(coauthor, "pull", "-q")
+        commit(coauthor, "paper.tex", "ONE\nTWO\nthree\n", "there")
+        git(coauthor, "push", "-q", "origin", "HEAD:main")
+        refused = await client.post("/overleaf/git/push", json={"message": "Longer note", "files": ["notes.tex"]})
+        assert refused.status == 409
+        assert (await refused.json())["error"].startswith("Committed here. Overleaf has commits this folder lacks.")
+        assert git(paper, "log", "-1", "--format=%s").strip() == "Longer note"
+    finally:
+        await client.close()
+
+
 async def test_a_push_holding_the_review_pages_records_is_refused(sides) -> None:
     """The records beside the paper hold its comments and copies of its text: a clone keeps
     them out of a commit of every file, and a commit that holds them anyway is not pushed."""
