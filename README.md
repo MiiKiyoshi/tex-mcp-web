@@ -301,8 +301,8 @@ extension off for the review page's address.
 
 The comments go by keys, as a notebook's cells do. The keys act on the comment with the
 ring around it while the Comments tab is shown and nothing is being typed in. `?`, or
-**Comment keys** in the ⋯ menu, lists them on the page, and a comment's buttons name their
-keys in their tooltips. Once you move through the comments by keys, the ringed comment's
+**Keyboard shortcuts** in the ⋯ menu, lists them on the page, and a comment's buttons name
+their keys in their tooltips. Once you move through the comments by keys, the ringed comment's
 buttons show their keys' letters at their top-left corners, until the mouse moves or a box
 takes the typing. **Key letters** in Settings turns them off, and the page remembers the
 choice.
