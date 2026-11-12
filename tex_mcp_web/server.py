@@ -421,6 +421,27 @@ def _set_config_keys(path: Path, changes: dict[str, Any]) -> None:
     temp.write_text(new, encoding="utf-8")
     os.replace(temp, path)
 
+
+_LOCAL_NAMES = ("localhost", "127.0.0.1", "::1")
+
+
+@web.middleware
+async def _only_its_own_pages(request: web.Request, handler: Callable[[web.Request], Awaitable[web.StreamResponse]]):
+    """The page answers this machine alone, and only its own pages. A request addressed by
+    another name, as from a site that points its name at this machine, and one sent by
+    another site's page, which the browser marks with that page's origin, are turned away:
+    either could act as the reviewer on the paper and on Overleaf. A tool on this machine
+    sends no origin and is answered."""
+    from urllib.parse import urlsplit
+
+    if urlsplit(f"//{request.host}").hostname not in _LOCAL_NAMES:
+        raise web.HTTPForbidden(text="tex-mcp-web answers only at localhost")
+    origin = request.headers.get("Origin")
+    if origin is not None and urlsplit(origin).netloc != request.host:
+        raise web.HTTPForbidden(text="tex-mcp-web answers only its own pages")
+    return await handler(request)
+
+
 class TexMcpWebServer:
     """Single-paper watch + serve + comment store."""
 
@@ -503,7 +524,7 @@ class TexMcpWebServer:
     # ----- routes -----
 
     def _build_app(self) -> web.Application:
-        app = web.Application(client_max_size=8 * 1024 * 1024)
+        app = web.Application(client_max_size=8 * 1024 * 1024, middlewares=[_only_its_own_pages])
         app.router.add_get("/", self._handle_root)
         app.router.add_get("/static/{name:.*}", self._handle_static)
         app.router.add_get("/ws", self._handle_ws)

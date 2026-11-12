@@ -17,6 +17,15 @@ the browser's developer tools). The cookie is kept in
 `~/.config/tex-mcp-web/overleaf-cookie`, readable by you alone, or given by
 `TEX_MCP_WEB_OVERLEAF_COOKIE`, and serves every paper you open.
 
+The cookie signs in as you, so it goes only to the server the project's link names, over
+https (plain http only to this machine), and never on to a place that server redirects to.
+Git pulls and pushes use your own git sign-in, not the cookie, and the page never hands the
+cookie back: Settings shows only where it comes from. The page answers on this machine
+alone, at `localhost` or `127.0.0.1`, and only its own pages, so another site open in your
+browser cannot act through it. Anyone with an account on the same machine can still reach
+its port, as with any local server, and on a shared machine could act as you on the paper
+and on Overleaf through it.
+
 ## Comment threads
 
 - The threads come into the leaf **Comments** tab beside **Comments**, kept as Overleaf has

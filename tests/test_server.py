@@ -2255,6 +2255,25 @@ async def test_a_suggestion_applied_on_a_thread_from_overleaf_waits_while_it_has
 
 
 @pytest.mark.asyncio
+async def test_the_page_answers_only_its_own_pages_at_localhost(client) -> None:
+    """Another site open in the browser cannot act through the page: what its page sends
+    carries its origin and is turned away, and so is a request addressed by another name,
+    as from a site that points its name at this machine. The page's own requests, at any
+    of this machine's names, and a tool's, with no origin, are answered."""
+    test_client, server = client
+    here = f"{test_client.server.host}:{test_client.server.port}"
+    assert (await test_client.post("/review-request", headers={"Origin": "https://example.com"})).status == 403
+    assert (await test_client.post("/review-request", headers={"Origin": "null"})).status == 403
+    assert (await test_client.get("/paper", headers={"Host": f"example.com:{test_client.server.port}"})).status == 403
+    assert server.review_calls == 0
+    assert (await test_client.post("/review-request", headers={"Origin": f"http://{here}"})).status == 200
+    assert (await test_client.get("/paper", headers={"Host": f"localhost:{test_client.server.port}",
+                                                      "Origin": f"http://localhost:{test_client.server.port}"})).status == 200
+    assert (await test_client.get("/paper")).status == 200
+    assert server.review_calls == 1
+
+
+@pytest.mark.asyncio
 async def test_call_button_wakes_a_parked_waiter_and_keeps_an_early_press(client) -> None:
     """The reviewer's press is an interrupt, not a message the agent must be listening for.
     The server keeps the press count and the consumption watermark, so a press made while
