@@ -28,7 +28,8 @@
 
 A wheel or pinch over one column of a two-column page keeps that column in view: whole while
 it fits the pane, and filling the pane's width once it is wider. Over the middle of the page the
-zoom centres on the pointer. A mouse-wheel notch zooms by a quarter.
+zoom centres on the pointer. A mouse-wheel notch zooms by a quarter. Two fingers on a touch
+screen zoom and move the page as they go, the point between them staying between them.
 
 ## Threads
 

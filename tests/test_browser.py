@@ -1012,7 +1012,8 @@ def test_a_finger_held_on_a_word_selects_it(tmp_path: Path) -> None:
     (Path(profile) / "user.js").write_text(
         f'user_pref("marionette.port", {marionette_port});\n'
         'user_pref("ui.primaryPointerCapabilities", 1);\n'
-        'user_pref("dom.maxtouchpoints.testing.value", 5);\n', encoding="utf-8"
+        'user_pref("dom.maxtouchpoints.testing.value", 5);\n'
+        'user_pref("dom.w3c_touch_events.enabled", 1);\n', encoding="utf-8"
     )
     browser_process = None
     browser = None
@@ -1159,6 +1160,61 @@ def test_a_finger_held_on_a_word_selects_it(tmp_path: Path) -> None:
         finger().pause(700).pointer_up().perform()
         time.sleep(0.8)
         assert not browser.execute_script(menu_shown)
+
+        # A second finger is a pinch: the viewer never sees its press, which began a
+        # selection under it as it moved.
+        def touch(name, x, *then):
+            return {"type": "pointer", "id": name, "parameters": {"pointerType": "touch"},
+                    "actions": [{"type": "pointerMove", "x": x, "y": y, "duration": 0},
+                                {"type": "pointerDown", "button": 0}, *then, {"type": "pointerUp", "button": 0}]}
+        left = int(highlight["left"] + 5)
+        browser._send_message("WebDriver:PerformActions", {"actions": [
+            touch("first", left, {"type": "pause", "duration": 0}, {"type": "pause", "duration": 0}),
+            touch("second", left + 30,
+                  {"type": "pointerMove", "x": left + 60, "y": y, "duration": 0},
+                  {"type": "pointerMove", "x": int(highlight["right"] + 60), "y": y, "duration": 0}),
+        ]})
+        time.sleep(0.8)
+        assert not browser.execute_script(menu_shown)
+
+        # Two fingers zoom and move the pages as they go: the point between them stays
+        # between them, while the pinch runs and once it has ended.
+        pinch = '''
+          const root = document.querySelector("embedpdf-container").shadowRoot;
+          const viewport = Array.from(root.querySelectorAll("div")).find((node) =>
+            /(auto|scroll)/.test(getComputedStyle(node).overflowY) && node.scrollHeight > node.clientHeight);
+          const pages = viewport.firstElementChild;
+          const segment = () => {
+            const box = root.querySelector(".tex-comment-segment").getBoundingClientRect();
+            return [box.left + box.width / 2, box.top + box.height / 2, box.width];
+          };
+          const [phase, spread, dx, dy] = arguments;
+          if (phase === "read") return /scale/.test(pages.style.transform) ? null : segment();
+          const [x, y] = window.pinchFrom ?? segment();
+          window.pinchFrom ??= [x, y];
+          const touches = [-1, 1].map((side, identifier) => new Touch({
+            identifier, target: pages, clientX: x + dx + side * spread, clientY: y + dy}));
+          pages.dispatchEvent(new TouchEvent(phase, {
+            bubbles: true, cancelable: true, composed: true,
+            touches: phase === "touchend" ? [] : touches, changedTouches: touches}));
+          return segment();
+        '''
+        start = browser.execute_script(pinch, script_args=["touchstart", 40, 0, 0])
+        moved = browser.execute_script(pinch, script_args=["touchmove", 60, 30, -50])
+        assert abs(moved[0] - (start[0] + 30)) <= 1 and abs(moved[1] - (start[1] - 50)) <= 1
+        assert abs(moved[2] - start[2] * 1.5) <= 1
+        browser.execute_script(pinch, script_args=["touchend", 60, 30, -50])
+        assert wait_until(lambda: (ended := browser.execute_script(pinch, script_args=["read", 0, 0, 0]))
+                          and abs(ended[0] - moved[0]) <= 3 and abs(ended[1] - moved[1]) <= 3
+                          and abs(ended[2] - moved[2]) < moved[2] * 0.02)
+        # Two fingers kept as far apart move the pages and leave their size.
+        browser.execute_script("delete window.pinchFrom")
+        start = browser.execute_script(pinch, script_args=["touchstart", 40, 0, 0])
+        browser.execute_script(pinch, script_args=["touchmove", 40, -20, -60])
+        browser.execute_script(pinch, script_args=["touchend", 40, -20, -60])
+        assert wait_until(lambda: (ended := browser.execute_script(pinch, script_args=["read", 0, 0, 0]))
+                          and abs(ended[0] - (start[0] - 20)) <= 3 and abs(ended[1] - (start[1] - 60)) <= 3
+                          and abs(ended[2] - start[2]) <= 1)
     finally:
         if browser is not None:
             try:

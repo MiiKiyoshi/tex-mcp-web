@@ -450,8 +450,11 @@ async function initializePdfViewer(pdfView) {
   root.addEventListener("pointerdown", (event) => {
     if (!event.isTrusted) return;
     endTouchHold();
-    if (state.areaMode || event.pointerType !== "touch" || !event.isPrimary || !onPages(event)) return;
+    if (state.areaMode || event.pointerType !== "touch" || !onPages(event)) return;
     event.stopImmediatePropagation();
+    // A second finger is a pinch. Its press stays from the viewer, which began a selection
+    // under it, and the first finger's hold has ended with it.
+    if (!event.isPrimary) return;
     const { clientX, clientY } = event;
     touchHold = { x: clientX, y: clientY, held: false, timer: setTimeout(() => {
       highlightPress = null;
