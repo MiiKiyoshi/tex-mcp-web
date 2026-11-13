@@ -98,6 +98,13 @@ const state = {
   panelDraggedAt: -Infinity,
 };
 
+// The element a key or focus event reached. The PDF viewer draws its search and zoom boxes in
+// its own shadow root, and outside it an event seems to come from the viewer itself, so a key
+// typed in its search box would not read as typed in a box.
+function eventOrigin(event) {
+  return event.composedPath?.()[0] ?? event.target;
+}
+
 function h(tag, props = {}, ...children) {
   const element = document.createElement(tag);
   for (const [key, value] of Object.entries(props)) {
@@ -4126,7 +4133,7 @@ function attachKeyboardNavigation() {
   // its own, which EmbedPDF leaves alone too.
   document.addEventListener("keydown", (event) => {
     if (!(event.metaKey || event.ctrlKey) || event.altKey || event.key.toLowerCase() !== "c") return;
-    if (event.target.closest?.("input, textarea, [contenteditable]")) return;
+    if (eventOrigin(event).closest?.("input, textarea, [contenteditable]")) return;
     const selection = window.getSelection();
     const viewer = $("#pdf-viewer");
     if (selection && !selection.isCollapsed
@@ -4437,7 +4444,7 @@ function attachCommentKeys() {
   let first = "";
   let timer = null;
   document.addEventListener("keydown", (event) => {
-    const target = event.target;
+    const target = eventOrigin(event);
     // Ctrl+Alt+K, Cmd+Option+K on macOS, is K with the editor's own keys: read by where K sits,
     // since Option makes it another letter.
     const editorK = (event.ctrlKey || event.metaKey) && event.altKey && event.code === "KeyK";
@@ -4496,7 +4503,7 @@ function attachCommentKeys() {
     if (event.pointerType === "mouse" && Math.abs(event.movementX) + Math.abs(event.movementY) > 2) showKeyLetters(false);
   }, true);
   document.addEventListener("focusin", (event) => {
-    if (event.target.matches?.("textarea, select, [contenteditable], input:not([type=checkbox]):not([type=radio])")) {
+    if (eventOrigin(event).matches?.("textarea, select, [contenteditable], input:not([type=checkbox]):not([type=radio])")) {
       showKeyLetters(false);
     }
   });
@@ -4561,7 +4568,7 @@ function attachSidebarToggle() {
     if (event.key !== "Enter" || !(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
     const inEditor = event.target.closest?.("#source-editor");
     if (document.querySelector("dialog[open]")
-      || (!inEditor && event.target.matches?.("textarea, input, select, [contenteditable]"))) return;
+      || (!inEditor && eventOrigin(event).matches?.("textarea, input, select, [contenteditable]"))) return;
     event.preventDefault();
     event.stopPropagation();
     compileFromKeys().catch((error) => alert(`Could not compile: ${error.message}`));
@@ -4645,9 +4652,9 @@ function attachSidebarToggle() {
   $("#sidebar-toggle-btn").addEventListener("click", () =>
     setSidebarCollapsed(!$(".layout").classList.contains("sidebar-collapsed")));
   document.addEventListener("keydown", (event) => {
-    const tag = event.target.tagName.toUpperCase();
-    if (["TEXTAREA", "INPUT", "SELECT"].includes(tag)) return;
-    if (event.target.isContentEditable || document.querySelector("dialog[open]")) return;
+    const origin = eventOrigin(event);
+    if (["TEXTAREA", "INPUT", "SELECT"].includes(origin.tagName?.toUpperCase())) return;
+    if (origin.isContentEditable || document.querySelector("dialog[open]")) return;
     if (event.metaKey || event.ctrlKey || event.altKey || event.key !== "\\") return;
     event.preventDefault();
     setSidebarCollapsed(!$(".layout").classList.contains("sidebar-collapsed"));
