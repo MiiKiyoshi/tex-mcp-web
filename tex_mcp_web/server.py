@@ -17,6 +17,7 @@ import asyncio
 import contextlib
 import dataclasses
 import hashlib
+import hmac
 import json
 import logging
 import os
@@ -78,6 +79,7 @@ from .synctex import (
 )
 from . import overleaf
 from . import overleaf_git
+from . import page_token
 from . import plugin_monitor
 from . import overleaf_ot
 from .overleaf_live import TRACKED, LivePresence
@@ -521,6 +523,9 @@ class TexMcpWebServer:
         self.config = config
         self.watch_dir = get_watch_dir(config)
         self.main_file = get_main_file(config)
+        # The token exists before the first request, so the tools on this machine send it then.
+        if config.page_token:
+            page_token.ensure_token()
 
         self.last_result: CompileResult | None = None
         self.synctex_data: SyncTeXData | None = None
@@ -592,8 +597,32 @@ class TexMcpWebServer:
 
     # ----- routes -----
 
+    @web.middleware
+    async def _only_with_its_token(self, request: web.Request,
+                                   handler: Callable[[web.Request], Awaitable[web.StreamResponse]]):
+        """With page_token on, the page answers a request that carries the reviewer's token:
+        the cookie a browser keeps once it opened the page's link, or the header a tool on this
+        machine sends. The link sets the cookie and goes on to the same page without the token,
+        so the address bar, and a bookmark made from it, hold the plain address."""
+        if not self.config.page_token:
+            return await handler(request)
+        token = page_token.ensure_token().encode()
+        given = request.headers.get(page_token.HEADER) or request.cookies.get(page_token.COOKIE) or ""
+        if hmac.compare_digest(given.encode(), token):
+            return await handler(request)
+        if request.method == "GET" and hmac.compare_digest(request.query.get("token", "").encode(), token):
+            rest = request.rel_url.with_query({key: value for key, value in request.rel_url.query.items()
+                                               if key != "token"})
+            opened = web.HTTPSeeOther(str(rest))
+            opened.set_cookie(page_token.COOKIE, token.decode(), httponly=True, samesite="Strict", path="/",
+                              max_age=400 * 24 * 3600)
+            raise opened
+        raise web.HTTPForbidden(text="This review page opens from its link, which `tex-mcp-web link` prints "
+                                     "in the paper's folder.")
+
     def _build_app(self) -> web.Application:
-        app = web.Application(client_max_size=8 * 1024 * 1024, middlewares=[_only_its_own_pages])
+        app = web.Application(client_max_size=8 * 1024 * 1024,
+                              middlewares=[_only_its_own_pages, self._only_with_its_token])
         app.router.add_get("/", self._handle_root)
         app.router.add_get("/static/{name:.*}", self._handle_static)
         app.router.add_get("/ws", self._handle_ws)
@@ -738,6 +767,8 @@ class TexMcpWebServer:
         if get_watch_dir(config).resolve() != self.watch_dir.resolve():
             raise ValueError("dir changed. The new folder applies when the agent restarts")
         rebuild = (config.main, config.compiler) != (self.config.main, self.config.compiler)
+        if config.page_token:
+            page_token.ensure_token()
         self.config = config
         self.main_file = get_main_file(config)
         if self.watcher is not None:

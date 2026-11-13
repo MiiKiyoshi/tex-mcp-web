@@ -2,6 +2,7 @@
 
 Subcommands:
     serve      run the viewer server on its own (default if no subcommand)
+    link       print the page's address, with its token when page_token is on
     init       scaffold .tex-mcp-web.yaml
     config     get/set values in .tex-mcp-web.yaml
     compile    one-shot compile, print structured errors
@@ -50,10 +51,26 @@ def cmd_serve(args: argparse.Namespace) -> int:
     cfg = load_config(main_file=getattr(args, "main", None))
     port = args.port or cfg.port
     print(
-        f"tex-mcp-web v{__version__}  serving {cfg.main} at http://127.0.0.1:{port}",
+        f"tex-mcp-web v{__version__}  serving {cfg.main} at http://127.0.0.1:{port}"
+        + ("  (open it from the link `tex-mcp-web link` prints)" if cfg.page_token else ""),
         file=sys.stderr,
     )
     run_server(cfg, port=port)
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# link
+# ---------------------------------------------------------------------------
+
+
+def cmd_link(args: argparse.Namespace) -> int:
+    """The page's address, to open or bookmark: with page_token on, the link with the token,
+    which a browser opens once and then keeps."""
+    from .page_token import link
+
+    cfg = load_config()
+    print(link(args.port or cfg.port, cfg.page_token))
     return 0
 
 
@@ -84,7 +101,7 @@ def cmd_init(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 
-_CONFIG_KEYS = ("main", "dir", "port", "compiler", "watch", "ignore", "references", "guideline")
+_CONFIG_KEYS = ("main", "dir", "port", "compiler", "watch", "ignore", "references", "guideline", "page_token")
 
 
 def cmd_config(args: argparse.Namespace) -> int:
@@ -120,6 +137,11 @@ def cmd_config(args: argparse.Namespace) -> int:
     value: object = args.value
     if args.key == "port":
         value = int(args.value)
+    elif args.key == "page_token":
+        if args.value not in ("true", "false"):
+            print("page_token is true or false", file=sys.stderr)
+            return 1
+        value = args.value == "true"
     elif args.key in ("watch", "ignore"):
         value = [p.strip() for p in args.value.split(",") if p.strip()]
     elif args.key == "guideline":
@@ -206,10 +228,12 @@ def cmd_goto(args: argparse.Namespace) -> int:
     port = args.port or cfg.port
     body = parse_goto_target(args.target, default_file=cfg.main)
 
+    from .page_token import headers
+
     req = urllib.request.Request(
         f"http://127.0.0.1:{port}/goto",
         data=json.dumps(body).encode(),
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", **headers()},
         method="POST",
     )
     try:
@@ -261,6 +285,9 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("serve", help="run the viewer server on its own (default)")
     p.add_argument("--main", help="main .tex file (overrides config)")
     p.set_defaults(func=cmd_serve)
+
+    p = sub.add_parser("link", help="print the page's address, with its token when page_token is on")
+    p.set_defaults(func=cmd_link)
 
     p = sub.add_parser("init", help="scaffold .tex-mcp-web.yaml")
     p.add_argument("--main", default="paper.tex")

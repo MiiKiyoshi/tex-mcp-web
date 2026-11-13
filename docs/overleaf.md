@@ -24,7 +24,9 @@ cookie back: Settings shows only where it comes from. The page answers on this m
 alone, at `localhost` or `127.0.0.1`, and only its own pages, so another site open in your
 browser cannot act through it. Anyone with an account on the same machine can still reach
 its port, as with any local server, and on a shared machine could act as you on the paper
-and on Overleaf through it.
+and on Overleaf through it, unless `page_token` is on: then the page answers only a browser
+that opened its link with your token. A browser sends that token to every port of the
+address, so on the shared machine's own browser, open no page another account serves there.
 
 ## Comment threads
 

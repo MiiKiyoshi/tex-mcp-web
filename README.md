@@ -35,10 +35,12 @@ bottom right are the ones pressed.
 2. Start the agent in the paper's folder and say `do tex init`. It finds the main `.tex` file
    and a free port, shows you the settings, and writes `.tex-mcp-web.yaml` once you agree.
 
-3. Open `http://localhost:<port>`. The agent acts when you press **Call agent**. With the
-   plugin the install adds, a Claude Code session started in the paper's folder waits for
-   that press by itself. In Codex, or in an older Claude Code that does not support plugin
-   monitors, say `do tex listen` first, and again after the agent restarts.
+3. Open `http://localhost:<port>`. On a machine other people log in to, say yes to the page
+   token at `do tex init`, and open the link `tex-mcp-web link` prints once in each browser.
+   The agent acts when you press **Call agent**. With the plugin the install adds, a Claude
+   Code session started in the paper's folder waits for that press by itself. In Codex, or in
+   an older Claude Code that does not support plugin monitors, say `do tex listen` first, and
+   again after the agent restarts.
 
 ## Point at what words cannot
 
@@ -126,7 +128,8 @@ phone's browser:
 ssh -L <port>:localhost:<port> <the machine the agent runs on>
 ```
 
-In Termius the same forward is a Local rule in its Port Forwarding screen.
+In Termius the same forward is a Local rule in its Port Forwarding screen. With the page token
+on, open the link `tex-mcp-web link` prints on that machine instead, once.
 
 ## Writes by your rules, in your field's terms
 

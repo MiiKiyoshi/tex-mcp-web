@@ -13,6 +13,7 @@ from typing import Any, Callable
 
 import yaml
 
+from . import page_token
 from .config import DEFAULT_CONFIG_NAME, Config, find_config, get_watch_dir, load_config
 
 # How a folder is set up for review, read only when it is: an agent follows it with its shell.
@@ -54,7 +55,8 @@ class SharedProjectServer:
         A server is shared only by the same config file: two configs can serve one folder
         with different settings, and a tool must see the project the page serves."""
         try:
-            with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/paper", timeout=0.5) as response:
+            request = urllib.request.Request(f"http://127.0.0.1:{self.port}/paper", headers=page_token.headers())
+            with urllib.request.urlopen(request, timeout=0.5) as response:
                 data = json.loads(response.read().decode("utf-8"))
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
             return None

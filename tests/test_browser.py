@@ -3518,6 +3518,75 @@ def test_suggested_edits_from_overleaf_have_their_own_view_and_marks_in_the_edit
 
 
 @pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
+def test_a_page_with_its_token_on_opens_from_its_link_and_then_from_its_plain_address(
+        tmp_path: Path, monkeypatch) -> None:
+    """With page_token on, a browser opens the page once from its link. The token leaves the
+    address bar, and the cookie the browser keeps carries the page's requests and its live
+    connection, so the plain address, as a bookmark holds it, opens the page from then on."""
+    from tex_mcp_web import page_token
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config-home"))
+    (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nport: {port}\npage_token: true\n", encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    profile = tempfile.mkdtemp(prefix="tex_mcp_token_")
+    marionette_port = available_port()
+    (Path(profile) / "user.js").write_text(
+        f'user_pref("marionette.port", {marionette_port});\n', encoding="utf-8")
+    browser_process = None
+    browser = None
+
+    def request(path: str, payload: dict | None = None) -> int:
+        call = urllib.request.Request(f"http://127.0.0.1:{port}{path}", headers={
+            "Content-Type": "application/json", **page_token.headers()},
+            data=None if payload is None else json.dumps(payload).encode())
+        try:
+            with urllib.request.urlopen(call, timeout=5) as response:
+                return response.status
+        except urllib.error.HTTPError as error:
+            return error.code
+
+    try:
+        shared.ensure()
+        wait_until(lambda: request("/paper") == 200)
+        browser_process = subprocess.Popen(
+            ["firefox", "-marionette", "-headless", "-no-remote", "-profile", profile, "about:blank"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        browser = marionette.Marionette(host="127.0.0.1", port=marionette_port, startup_timeout=30)
+        browser.start_session()
+        browser.navigate(f"http://127.0.0.1:{port}/")
+        assert "opens from its link" in browser.execute_script("return document.body.textContent")
+        browser.navigate(page_token.link(port, True))
+        wait_until(lambda: browser.execute_script("return document.querySelector('#comments-list') !== null"))
+        assert browser.execute_script("return location.href") == f"http://127.0.0.1:{port}/"
+        # The live connection is taken on the cookie, and a comment written elsewhere reaches
+        # the page over it.
+        wait_until(lambda: len(shared.server.websockets) == 1)
+        assert request("/comments", {"anchor": {"kind": "paper"}, "text": "Seen through the cookie."}) == 201
+        wait_until(lambda: browser.execute_script(
+            "return document.body.textContent.includes('Seen through the cookie.')"), timeout=15)
+        browser.navigate(f"http://127.0.0.1:{port}/")
+        wait_until(lambda: browser.execute_script(
+            "return document.body.textContent.includes('Seen through the cookie.')"), timeout=15)
+    finally:
+        if browser is not None:
+            try:
+                browser.delete_session()
+            except Exception:
+                pass
+        if browser_process is not None:
+            browser_process.terminate()
+            try:
+                browser_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                browser_process.kill()
+        shutil.rmtree(profile, ignore_errors=True)
+        shared.stop()
+
+
+@pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
 def test_go_to_definition_follows_input_ref_and_cite(tmp_path: Path) -> None:
     """gd with Vim keys, or F12, goes from \\input to the file, from \\ref to the \\label it
     names, and from \\cite to the .bib entry, the name under the cursor in a list; Ctrl+T or

@@ -34,7 +34,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from . import plugin_monitor
+from . import page_token, plugin_monitor
 
 try:
     from mcp.server.fastmcp import Context, FastMCP
@@ -361,7 +361,7 @@ async def _upstream(binding: "ProjectBinding", method: str = "GET") -> dict[str,
     import httpx
 
     try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        async with httpx.AsyncClient(timeout=120.0, headers=page_token.headers()) as client:
             response = await client.request(method, f"{binding.base_url()}/overleaf/upstream")
     except Exception:
         return None
@@ -635,12 +635,19 @@ def _write_waiter(watch_dir: Path, port: int) -> Path:
         "# at once if an unacknowledged press is waiting, and keeps waiting for the next. A server\n"
         "# that goes away is waited for too: one [gone] line, then [back] when it answers again.\n"
         "# Presses go to one waiter: when a newer one takes over listening, one [moved] line ends this one.\n"
+        "# With page_token on, the page answers only with the reviewer's token. It is read from its\n"
+        "# file at each call and handed to curl on its input, never on its command line or in this\n"
+        "# file, which others on the machine can read.\n"
+        f"token_file={shlex.quote(str(page_token.token_path()))}\n"
+        "page() {\n"
+        f"  printf 'header = \"%s: %s\"\\n' {page_token.HEADER} \"$(cat \"$token_file\" 2>/dev/null)\" | curl -K - \"$@\"\n"
+        "}\n"
         "headers=$(mktemp) || exit 1\n"
         "trap 'rm -f \"$headers\"' EXIT\n"
         "gone=0\n"
         "delay=2\n"
         "while :; do\n"
-        f"  out=$(curl -sf -D \"$headers\" --max-time 60 \"http://127.0.0.1:{port}/wait-review?listener=$listener&pid=$$\"); rc=$?\n"
+        f"  out=$(page -sf -D \"$headers\" --max-time 60 \"http://127.0.0.1:{port}/wait-review?listener=$listener&pid=$$\"); rc=$?\n"
         "  if [ $gone -eq 1 ] && { [ $rc -eq 0 ] || [ $rc -eq 28 ]; }; then\n"
         "    deliver '[back] review server reachable again'; gone=0; delay=2\n"
         "  fi\n"
@@ -648,7 +655,7 @@ def _write_waiter(watch_dir: Path, port: int) -> Path:
         "    deliver \"$out\"\n"
         "    grep -qi '^x-moved:' \"$headers\" && exit 0\n"
         "    press=$(tr -d '\\r' < \"$headers\" | sed -n 's/^[Xx]-[Pp]ress: *//p' | head -1)\n"
-        f"    [ -n \"$press\" ] && curl -sf -X POST \"http://127.0.0.1:{port}/wait-review/ack?upto=$press\" >/dev/null\n"
+        f"    [ -n \"$press\" ] && page -sf -X POST \"http://127.0.0.1:{port}/wait-review/ack?upto=$press\" >/dev/null\n"
         "  fi\n"
         "  if [ $rc -ne 0 ] && [ $rc -ne 28 ]; then\n"
         "    if [ $gone -eq 0 ]; then deliver \"[gone] review server unreachable (curl exit $rc); waiting for it\"; gone=1; fi\n"
@@ -879,7 +886,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         else:
             route = "files/get"
         try:
-            async with httpx.AsyncClient(timeout=300.0) as client:
+            async with httpx.AsyncClient(timeout=300.0, headers=page_token.headers()) as client:
                 response = await client.post(f"{binding.base_url()}/overleaf/{route}")
         except Exception as exc:
             return _err(f"review server request failed: {exc}")
@@ -909,7 +916,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
 
         try:
             base = binding.base_url()
-            async with httpx.AsyncClient(timeout=300.0) as client:
+            async with httpx.AsyncClient(timeout=300.0, headers=page_token.headers()) as client:
                 response = await client.post(f"{base}/compile")
         except Exception as exc:
             return _err(f"review server request failed: {exc}")
@@ -1171,7 +1178,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         import httpx
 
         session = plugin_monitor.claude_pid()
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, headers=page_token.headers()) as client:
             response = await client.post(f"{binding.base_url()}/wait-review/listen", params={
                 "listener": LISTENER, **({"session": session} if session is not None else {})})
         response.raise_for_status()
@@ -1267,7 +1274,7 @@ def _listen_from_start(shared: "SharedProjectServer") -> None:
         time.sleep(1)
     request = urllib.request.Request(
         f"http://127.0.0.1:{shared.port}/wait-review/listen?listener={LISTENER}&if_free=1&session={session}",
-        method="POST")
+        headers=page_token.headers(), method="POST")
     with urllib.request.urlopen(request, timeout=10) as response:
         if not json.loads(response.read())["listening"]:
             return

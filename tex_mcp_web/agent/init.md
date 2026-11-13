@@ -32,6 +32,8 @@ connection has been verified.
   Markdown. Unnamed: leave it unset.
 - Guideline: `setup_info()` lists the user's guidelines folder, with its absolute path and
   entries. Mark an entry without GUIDELINE.md, which cannot be chosen. None is the default.
+- Page token: off is the default. Every account on a machine can reach the page's port, so on
+  a machine other people log in to, such as a lab server, the page token keeps them out.
 
 ## 2. Confirm
 
@@ -46,11 +48,16 @@ Show one summary, in the user's language, like:
     compiler : auto (latexmk)
     references : ../related  (the reference papers in Markdown, relative to the config)
     guideline : my-field  (writing rules the agent reads before editing)
+    page token : off  (on: the page opens only from its link, for a machine others log in to)
 
 Leave out `dir` when the paper is in the startup directory, `references` when the user named
 no folder, and `guideline` when the user has none. Under guideline, list the user's
 guidelines and none, each with one line on what it is for, read from its first lines, with
-none as the default. Ask once. A choice the user has already approved is not asked again.
+none as the default. Under page token, ask whether other people can log in to this machine:
+on, the page opens only from a link with a token only this account can read, once per
+browser, after which its plain address works as a bookmark there. Off, the plain address
+opens it for anyone on the machine, as it does on a computer of one's own. Ask once. A choice
+the user has already approved is not asked again.
 
 ## 3. Write
 
@@ -59,7 +66,7 @@ directory, with the command that `listen()`'s missing-config error names. Changi
 working directory does not retarget this MCP process.
 
     tex-mcp-web --port <port> init --main <file>
-    tex-mcp-web config <dir|compiler|watch|ignore|references|guideline> <value>   # only for changed fields
+    tex-mcp-web config <dir|compiler|watch|ignore|references|guideline|page_token> <value>   # only for changed fields
 
 Continue only if init succeeds and the expected local config exists. Before changing any
 setting, run `tex-mcp-web config` without arguments and confirm that it selects the intended
@@ -88,7 +95,9 @@ verified. Otherwise report what was prepared and what remains unverified.
 
 Report setup as ready only after the current MCP connection passes the check. If restarting
 the MCP process remains necessary, say that the files are prepared but this session is not
-ready yet, and state the remaining action. Saying "do tex listen" starts the review page.
+ready yet, and state the remaining action. Saying "do tex listen" starts the review page. With
+the page token on, give the user the link `tex-mcp-web link` prints in the paper's folder, to
+open once in each browser.
 To follow an Overleaf project, the user presses Connect Overleaf in the page's top bar (in
 the ⋯ menu on a phone) and follows what it asks. Tell them so in one line.
 With the plugin, Claude Code started in the folder later listens on its own. Start listening
