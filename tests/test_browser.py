@@ -175,15 +175,15 @@ def test_browser_comment_actions(tmp_path: Path) -> None:
         ''')
         wait_until(lambda: browser.execute_script(
             'return document.querySelector("#compose-dialog").open'))
+        # The comment box holds the words to the agent and nothing else to fill in.
         assert browser.execute_script('''
           return [document.querySelector("#compose-anchor").textContent,
-            document.querySelector("#compose-suggestion-old").value];
-        ''') == ["Source: paper.tex:4-4", "Hello world."]
+            document.querySelectorAll("#compose-form textarea").length];
+        ''') == ["Source: paper.tex:4-4", 1]
         browser.execute_script('''
           const input = document.querySelector("#compose-text");
           input.value = "Clarify this source sentence.";
           input.dispatchEvent(new Event("input", {bubbles: true}));
-          document.querySelector("#compose-suggestion-new").value = "Hello applied.";
           document.querySelector("#compose-form").requestSubmit();
         ''')
         source_comment = wait_until(lambda: next(
@@ -197,6 +197,14 @@ def test_browser_comment_actions(tmp_path: Path) -> None:
             "column_start": 0, "column_end": 12,
         }
         assert source_comment["source_selector"]["exact"] == "Hello world."
+        assert "suggestion" not in source_comment
+        # A suggestion on the same words, as the agent leaves one.
+        urllib.request.urlopen(urllib.request.Request(
+            f"{base}/comments/{source_cid}", method="DELETE"), timeout=5).close()
+        source_comment = post_json(f"{base}/comments", {
+            "anchor": source_comment["anchor"], "text": "Clarify this source sentence.",
+            "suggestion": {"old": "Hello world.", "new": "Hello applied."}})
+        source_cid = source_comment["id"]
         assert source_comment["suggestion"] == {
             "file": "paper.tex",
             "changes": [{"old": "Hello world.", "new": "Hello applied."}],
@@ -3916,7 +3924,7 @@ def test_the_leaf_beside_comment_starts_a_thread_for_overleaf(tmp_path: Path, mo
         script('document.querySelector("#source-comment-btn").click()')
         wait_until(lambda: script('return document.querySelector("#compose-dialog").open'))
         assert script('return [document.querySelector("#compose-title").textContent,'
-                      ' document.querySelector("#compose-suggestion-details").hidden]') == ["New thread on Overleaf", True]
+                      ' document.querySelectorAll("#compose-form textarea").length]') == ["New thread on Overleaf", 1]
         script('const box = document.querySelector("#compose-text"); box.value = "ask if hello is too short, politely";'
                ' box.dispatchEvent(new Event("input", {bubbles: true}));'
                ' document.querySelector("#compose-form").requestSubmit();')

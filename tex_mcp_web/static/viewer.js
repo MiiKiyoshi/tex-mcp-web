@@ -679,7 +679,6 @@ async function openTextSelectionCompose() {
       pdf_digest: state.pdfDigest,
     },
     `PDF text: "${quote.slice(0, 80)}${quote.length > 80 ? "…" : ""}"`,
-    quote,
   );
 }
 
@@ -803,8 +802,8 @@ function selectQuoteInLines(quote, first, last) {
 
 // A section comment names the heading it was pressed on too, since headings can share a title.
 // A comment *forOverleaf* starts a thread for Overleaf: what is written goes to the agent, which
-// drafts the message there, so it takes no suggested rewrite.
-function openCompose(anchor, label, selectionText = "", heading = null, forOverleaf = false) {
+// drafts the message there.
+function openCompose(anchor, label, heading = null, forOverleaf = false) {
   state.pendingAnchor = anchor;
   state.pendingSourceRevision = anchor.kind === "source_range" ? state.sourceRevision : null;
   state.pendingHeading = heading;
@@ -815,10 +814,6 @@ function openCompose(anchor, label, selectionText = "", heading = null, forOverl
     : "leave a comment for the coding agent…";
   $("#compose-anchor").textContent = label;
   $("#compose-text").value = "";
-  $("#compose-suggestion-details").hidden = forOverleaf;
-  $("#compose-suggestion-old").value = forOverleaf ? "" : selectionText;
-  $("#compose-suggestion-new").value = "";
-  $("#compose-suggestion-details").open = Boolean(selectionText) && !forOverleaf;
   $("#compose-dialog").showModal();
   setTimeout(() => $("#compose-text").focus(), 50);
 }
@@ -1036,7 +1031,6 @@ function openSourceCommentCompose() {
       column_end: range.end.column,
     },
     `Source: ${state.sourcePath}:${lineStart}-${lineEnd}`,
-    text,
     null,
     sourceForOverleaf() && Boolean(state.overleafProject),
   );
@@ -2567,10 +2561,7 @@ async function submitCompose(event) {
   const body = { anchor: state.pendingAnchor, text };
   if (state.pendingSourceRevision !== null) body.source_revision = state.pendingSourceRevision;
   if (state.pendingHeading !== null) body.heading = state.pendingHeading;
-  const suggestionOld = $("#compose-suggestion-old").value.trim();
-  const suggestionNew = $("#compose-suggestion-new").value.trim();
   if (state.pendingForOverleaf) body.overleaf = true;
-  else if (suggestionOld && suggestionNew) body.suggestion = { old: suggestionOld, new: suggestionNew };
 
   applyComposeSubmitting(true);
   try {
@@ -3784,7 +3775,7 @@ function renderSections() {
       h("span", { text: section.title })),
       actionButton("comment-section-btn", "+ comment", () =>
         openCompose({ kind: "section", title: section.title, label: section.label }, `Section: ${section.title}`,
-          "", { file: section.file, line: section.line }))));
+          { file: section.file, line: section.line }))));
   }
   host.appendChild(list);
 }

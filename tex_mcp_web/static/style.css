@@ -1019,36 +1019,6 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 .cmt-actions .change-accept { background: var(--ok); color: var(--bg); border: none; }
 .cmt-actions .change-reject { color: var(--err); }
 
-/* ----- compose-dialog suggestion section (collapsible) ----- */
-.compose-suggestion {
-  border-top: 1px dashed var(--border);
-  padding-top: 0.5rem;
-}
-.compose-suggestion summary {
-  cursor: pointer;
-  font-size: 0.85rem;
-  color: var(--fg-dim);
-  user-select: none;
-}
-.compose-suggestion[open] summary { color: var(--fg); }
-.compose-suggestion .compose-field-label {
-  display: block;
-  font-size: 0.75rem;
-  color: var(--fg-dim);
-  margin: 0.4rem 0 0.15rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-.compose-suggestion textarea {
-  width: 100%;
-  font-family: var(--mono);
-  font-size: 0.85rem;
-  padding: 0.4rem;
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  resize: vertical;
-}
-
 /* ----- inline comment form (reply / resolve) ----- */
 .cmt-form {
   margin-top: 0.5rem;

@@ -2,8 +2,7 @@
 
 ## Commenting
 
-- Drag over PDF text and write what should change. Add a suggested wording in the
-  replacement box when you have one.
+- Drag over PDF text and write what should change.
 - With a paper that follows an Overleaf project, the leaf beside **+ Comment** in the
   editor's bar makes a comment on source text start a thread for Overleaf, which the agent
   drafts from what you write and you send. [Working with Overleaf](overleaf.md) says more.
