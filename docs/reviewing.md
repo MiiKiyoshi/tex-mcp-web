@@ -122,6 +122,10 @@ extension off for the review page's address.
   editor, the translation, the PDF, the panel's tabs and the dialogs as they are.
 - **Send with** chooses whether Enter or Shift+Enter sends a comment being written.
 - **Key letters** shows or hides the keys' letters on the ringed comment's buttons.
+- **Editor cursor** at **A third down** keeps the cursor's line a third of the way down the
+  editor as the keys move it, Vim keys or not, so the text moves and the eyes stay. The first
+  lines stay at the top and the last ones at the bottom, and a click leaves the text where it
+  is. **Anywhere** lets the cursor move over the text as usual.
 - **Download PDF** in the ⋯ menu saves the PDF. As on Overleaf, the file is named after the
   Overleaf project, with each character other than a letter or a digit turned to `_`. A
   paper with no Overleaf project keeps the PDF's own name, such as `paper.pdf`.

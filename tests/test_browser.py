@@ -1778,6 +1778,100 @@ def test_a_comment_opened_by_space_shows_its_line_a_third_of_the_way_down_the_ed
 
 
 @pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
+def test_the_editor_holds_the_cursor_line_a_third_down_when_chosen(tmp_path: Path) -> None:
+    """Chosen in Settings, the cursor's line stays a third of the way down the editor as Vim's
+    keys move it, the last line too, and the first lines stay at the top."""
+    import pymupdf
+
+    body = "\n".join(f"Line {n} of an invented body." for n in range(1, 121))
+    (tmp_path / "paper.tex").write_text(
+        f"\\documentclass{{article}}\n\\begin{{document}}\n{body}\n\\end{{document}}\n", encoding="utf-8")
+    with pymupdf.open() as pdf:
+        pdf.new_page().insert_text((72, 72), "Hello world.")
+        pdf.save(tmp_path / "paper.pdf")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    profile = tempfile.mkdtemp(prefix="tex_mcp_cursor_held_")
+    marionette_port = available_port()
+    (Path(profile) / "user.js").write_text(
+        f'user_pref("marionette.port", {marionette_port});\n', encoding="utf-8")
+    browser_process = None
+    browser = None
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        browser_process = subprocess.Popen(
+            ["firefox", "-marionette", "-headless", "-no-remote", "-profile", profile, "about:blank"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        browser = marionette.Marionette(host="127.0.0.1", port=marionette_port, startup_timeout=30)
+        browser.start_session()
+        browser.set_window_rect(x=0, y=0, width=1500, height=900)
+        browser.navigate(base)
+        browser.execute_script('localStorage.setItem("texMcpVimKeys", "1")')
+        browser.navigate(base)
+        browser.execute_script('document.querySelector("[data-view=source]").click()')
+        editor = ('const page = window.wrappedJSObject || window;'
+                  ' const editor = page.ace.edit("source-editor");')
+        wait_until(lambda: browser.execute_script(f'{editor} return editor.getValue().includes("Line 120")'))
+        choice = lambda name: f'document.querySelector(\'[data-cursor-choice="{name}"]\')'
+        browser.execute_script(f"{choice('third')}.click()")
+        assert browser.execute_script(f'return {choice("third")}.getAttribute("aria-checked")') == "true"
+        # Which row the cursor is on, the screen line it shows on, and the line a third down.
+        place = (f'{editor} const row = editor.getCursorPosition().row;'
+                 ' const top = editor.renderer.textToScreenCoordinates(row, 0).pageY'
+                 ' - editor.renderer.scroller.getBoundingClientRect().top;'
+                 ' return [row, Math.round(top / editor.renderer.lineHeight),'
+                 ' Math.round(editor.renderer.scroller.clientHeight / 3 / editor.renderer.lineHeight)];')
+        held = lambda row: (lambda r: r[0] == row and abs(r[1] - r[2]) <= 1)(browser.execute_script(place))
+        browser.execute_script(f"{editor} editor.focus();")
+        type_keys(browser, ["j"] * 40)
+        wait_until(lambda: held(40))
+        # At the end the last line goes only as low as the editor scrolls, with no room made below.
+        type_keys(browser, ["G"])
+        bottom = (f'{editor} return editor.session.getScrollTop() <= editor.session.getScreenLength()'
+                  ' * editor.renderer.lineHeight - 0.75 * editor.renderer.scroller.clientHeight'
+                  ' + editor.renderer.lineHeight;')
+        wait_until(lambda: browser.execute_script(place)[0] == 123 and browser.execute_script(bottom))
+        assert browser.execute_script(place)[1] > browser.execute_script(place)[2] + 1
+        type_keys(browser, ["g", "g"])
+        wait_until(lambda: browser.execute_script(place)[:2] == [0, 0])
+        type_keys(browser, ["j"] * 30)
+        wait_until(lambda: held(30))
+        # A click moves the cursor and leaves the text where it is.
+        scroll = f"{editor} return editor.session.getScrollTop();"
+        before = browser.execute_script(scroll)
+        point = browser.execute_script(f"{editor} const at = editor.renderer.textToScreenCoordinates(44, 2);"
+                                       " return [Math.round(at.pageX + 4), Math.round(at.pageY + 4)];")
+        click = ActionSequence(browser, "pointer", "mouse")
+        click.pointer_move(point[0], point[1]).pointer_down().pointer_up().perform()
+        wait_until(lambda: browser.execute_script(place)[0] == 44)
+        assert browser.execute_script(scroll) == before
+        # Anywhere again: the keys move the cursor and the text stays.
+        browser.execute_script(f"{choice('free')}.click()")
+        browser.execute_script(f"{editor} editor.focus();")
+        type_keys(browser, ["j"] * 5)
+        wait_until(lambda: browser.execute_script(place)[0] == 49)
+        assert browser.execute_script(scroll) == before
+    finally:
+        if browser is not None:
+            try:
+                browser.delete_session()
+            except Exception:
+                pass
+        if browser_process is not None:
+            browser_process.terminate()
+            try:
+                browser_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                browser_process.kill()
+        shutil.rmtree(profile, ignore_errors=True)
+        shared.stop()
+
+
+@pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
 def test_the_ring_holds_a_third_of_the_way_down_and_an_opened_card_shows_its_end(tmp_path: Path) -> None:
     """Moving by keys keeps the ringed card's middle a third of the way down the list, so
     the eye stays put, and a card opened by Space shows its end, where the latest words are."""

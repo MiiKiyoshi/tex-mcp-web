@@ -69,6 +69,8 @@ const state = {
   focusedCommentId: null,
   // The comment a range started from, while v holds one.
   rangeFrom: null,
+  // Whether a press in the editor is held down, which moves the cursor with the text in place.
+  editorPointing: false,
   // The suggested edits being accepted or rejected now, and when they were last read.
   reviewingEdits: new Set(),
   suggestedRead: 0,
@@ -1779,6 +1781,31 @@ function vimKeys() {
   return localStorage.getItem("texMcpVimKeys") === "1";
 }
 
+// The cursor's line held a third of the way down the editor, as the comment keys hold the
+// ringed card in the list, when the viewer chose it in Settings: the keys move the text under
+// the cursor and the eyes stay where they are. A click or a drag leaves the text where it is.
+// The first lines stay at the top and the last ones at the bottom, with no room made above
+// or below the text to hold them a third down.
+function cursorHeld() {
+  try { return localStorage.getItem("texMcpCursorHeld") === "1"; } catch { return false; }
+}
+
+function applyCursorHeld() {
+  const held = cursorHeld();
+  for (const button of document.querySelectorAll("[data-cursor-choice]")) {
+    button.setAttribute("aria-checked", String((button.dataset.cursorChoice === "third") === held));
+  }
+  holdCursorLine();
+}
+
+function holdCursorLine() {
+  const editor = state.editor;
+  if (!editor || !cursorHeld() || state.editorPointing) return;
+  const { row, column } = editor.getCursorPosition();
+  const top = editor.session.documentToScreenRow(row, column) * editor.renderer.lineHeight;
+  editor.session.setScrollTop(Math.max(0, top - editor.renderer.scroller.clientHeight * RING_AT));
+}
+
 function applyVimKeys() {
   const on = vimKeys();
   $("#source-vim-btn").classList.toggle("active", on);
@@ -2296,6 +2323,11 @@ async function initializeSourceEditor() {
     showPrintMargin: false,
     scrollPastEnd: 0.25,
   });
+  // A press in the text or beside it moves the cursor itself, before the editor does.
+  for (const name of ["mousedown", "guttermousedown"]) state.editor.on(name, () => { state.editorPointing = true; });
+  document.addEventListener("pointerup", () => { state.editorPointing = false; }, true);
+  state.editor.selection.on("changeCursor", holdCursorLine);
+  applyCursorHeld();
   state.editor.on("change", () => {
     if (!state.sourceLoading) setSourceDirty(true);
   });
@@ -4507,6 +4539,13 @@ function attachCommentKeys() {
       showKeyLetters(false);
     }
   });
+  for (const button of document.querySelectorAll("[data-cursor-choice]")) {
+    button.addEventListener("click", () => {
+      try { localStorage.setItem("texMcpCursorHeld", button.dataset.cursorChoice === "third" ? "1" : "0"); } catch { /* the choice lasts this visit */ }
+      applyCursorHeld();
+    });
+  }
+  applyCursorHeld();
   for (const button of document.querySelectorAll("[data-letters-choice]")) {
     button.addEventListener("click", () => {
       state.keyLetters = button.dataset.lettersChoice === "off" ? "off" : null;
