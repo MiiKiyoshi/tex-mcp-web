@@ -1,4 +1,4 @@
-"""aiohttp web server for tex-mcp-web v0.7.0.
+"""aiohttp web server for tex-mcp-web.
 
 Single paper, no workspace abstraction.  Three responsibilities:
 

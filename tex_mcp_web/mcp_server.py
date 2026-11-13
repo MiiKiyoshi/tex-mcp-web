@@ -1,4 +1,4 @@
-"""MCP server for tex-mcp-web v0.7.0.
+"""MCP server for tex-mcp-web.
 
 Exposes tools to agents via stdio:
 

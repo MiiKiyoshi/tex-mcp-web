@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tex-mcp-web"
-version = "0.7.0"
+version = "0.8.0"
 description = "Agentic-first review tool for LaTeX papers: live PDF preview and comment queue"
 readme = "README.md"
 license = "MIT"

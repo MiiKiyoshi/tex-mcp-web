@@ -58,7 +58,9 @@ comment.
 Press **Connect Overleaf** in the top bar and paste the project's link. Its comment threads
 come into a tab of their own, **Comments** with a leaf, beside the comments you write here. In
 a thread you talk with the agent, which drafts the reply for Overleaf under it, and you send
-that reply once it reads right.
+that reply once it reads right. Each tab opens on **to do**, what waits for you alone: a
+suggestion to apply, a reply to send, a suggested edit to accept. Once it is empty, nothing is
+left.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/overleaf-thread-dark.webp">
@@ -80,12 +82,25 @@ Keeping the paper's files in step with Overleaf, by git, by hand or live, is in
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/new-thread-dark.webp">
-  <img alt="A paper note asks the agent to put a question to the co-author. Called, the agent drafts a new thread on the table's header row, which waits in the leaf Comments tab under new thread. A few words added with i, it is sent with ss and its first message shows as sent." src="docs/images/new-thread.webp">
+  <img alt="With the leaf beside the comment button pressed, the room temperature is selected in the source with v and gc, and a rough note tells the agent what to ask the co-author. The note waits in the leaf Comments tab under new thread. Called, the agent drafts a polite question, sent with ss: it opens on Overleaf alone, and the note stays on the page, marked here only." src="docs/images/new-thread.webp">
 </picture>
 
-Ask the agent, in a note or in any thread, to put a question to your co-authors. It drafts a
-new thread on the lines in question, which waits in the leaf **Comments** tab under **new
-thread**. Edit it there and send it, and it opens on Overleaf on those lines.
+Press the leaf beside **+ Comment** in the editor's bar, select the words in the source, as
+Overleaf puts a thread on source words, and tell the agent what to say, as roughly as you
+like. It drafts the thread's first message, worded for your co-authors, and you send it. It
+opens on Overleaf on those words, and your note stays here. Asked in any thread, the agent
+drafts a new thread of its own the same way.
+
+## Accept or reject your co-authors' suggested edits
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/suggested-edits-dark.webp">
+  <img alt="The co-author's edits made on Overleaf with track changes on wait in the leaf tab's to do: a word written over another, words put in, words taken out. Each opened with Space shows in the source, underlined or marked where words went. Two are accepted with aa and one rejected with dd, Get takes the rejection into the file, and to do is empty." src="docs/images/suggested-edits.webp">
+</picture>
+
+Edits your co-authors make on Overleaf with track changes on come in as suggested edits, each
+a card of what went and what came, and the editor marks them in the source. **Accept** and
+**Reject**, or `aa` and `dd`, act on Overleaf for everyone in the project.
 
 ## Go through the comments by keyboard
 
@@ -105,7 +120,7 @@ between a comment and its words in the source, both ways.
 | `K` | Into the source at its words, and `K` there back |
 | `r` | Reply to the agent |
 | `R` | Resolve |
-| `aa` | Apply the suggestion |
+| `aa` | Apply the suggestion, or accept a suggested edit |
 | `ss` | Send the reply to Overleaf |
 | `?` | Every key |
 
