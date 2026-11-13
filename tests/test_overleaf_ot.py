@@ -6,7 +6,7 @@ import random
 import pytest
 
 from tex_mcp_web.overleaf_ot import (
-    Mismatch, apply, comments_removed, diff, js_len, move_comments, nearest, py_index, text_only, transform_x,
+    Mismatch, apply, comments_removed, diff, js_len, move_comments, nearest, py_index, text_only, transform_x, undo,
 )
 
 ALPHABET = "ab \n가나😀\\{}"
@@ -169,3 +169,15 @@ def test_a_comment_sent_while_another_edit_lands_moves_with_the_text(theirs, wor
     after = apply(base, theirs)
     [step] = mine
     assert step["c"] == words and after[step["p"]:step["p"] + len(words)] == words
+
+
+def test_rejecting_suggested_edits_takes_each_back_without_moving_the_next() -> None:
+    # "bar" replaced by "quux", the deletion after the insertion, as Overleaf's editor records a
+    # word typed over another, and the deletion before it.
+    for text, changes in (("foo quux baz", [{"op": {"p": 4, "i": "quux"}}, {"op": {"p": 8, "d": "bar"}}]),
+                          ("foo quux baz", [{"op": {"p": 4, "d": "bar"}}, {"op": {"p": 4, "i": "quux"}}])):
+        op = undo(text, changes)
+        assert apply(text, op) == "foo bar baz"
+        assert all(step["u"] for step in op)
+    with pytest.raises(Mismatch):
+        undo("foo baz", [{"op": {"p": 4, "i": "quux"}}])

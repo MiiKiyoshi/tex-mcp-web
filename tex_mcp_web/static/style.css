@@ -409,6 +409,25 @@ textarea {
   border-color: #9c3a33;
   background: #e0857c;
 }
+/* An edit suggested on Overleaf: its inserted words underlined in their author's colour, a
+   class each author's colour gets from the page, and where words were deleted, a red bar. */
+#source-editor .ace_marker-layer .source-suggested-insert { position: absolute; }
+#source-editor .ace_marker-layer .source-suggested-delete {
+  position: absolute;
+  border-left: 2px solid var(--err);
+  margin-left: -1px;
+}
+#source-editor .ace_gutter-cell.source-suggested-line { cursor: pointer; }
+#source-editor .ace_gutter-cell.source-suggested-line:not(.source-comment-line)::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 20%;
+  width: 3px;
+  height: 60%;
+  border-radius: 2px;
+  background: var(--ok);
+}
 #sidebar {
   position: relative;
   border-left: 1px solid var(--border);
@@ -916,7 +935,8 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
   background: var(--bg);
   border-radius: 3px;
 }
-.cmt-actions .cmt-resolve { background: var(--ok); color: white; border: none; }
+/* The page's own background as the words, which stay readable on the green in every look. */
+.cmt-actions .cmt-resolve { background: var(--ok); color: var(--bg); border: none; }
 .cmt-actions .cmt-delete { color: var(--err); }
 
 /* ----- suggested rewrite (structured edit shown alongside text) ----- */
@@ -984,6 +1004,19 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 .thread-meta .entry-overleaf { margin-right: auto; display: inline-flex; align-items: center; gap: 0.2rem; white-space: nowrap; }
 .entry-overleaf.here { color: var(--fg-dim); font-style: italic; }
 .cmt-unplaced { display: flex; align-items: baseline; gap: 0.3rem; margin: 0.25rem 0; font-size: 0.8rem; color: var(--fg-dim); }
+/* A suggested edit from Overleaf: its author by the colour Overleaf's faces carry, when, and
+   its words as − and + lines, long ones cut to four lines until the card is opened. */
+.suggested-by { padding-left: 0.35rem; border-left: 3px solid; font-weight: 600; }
+.cmt-when { font-size: 0.78rem; color: var(--fg-dim); }
+.suggested-words { font-family: inherit; font-size: 0.85rem; cursor: pointer; }
+.suggested-words.clamped .sugg-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.cmt-actions .change-accept { background: var(--ok); color: var(--bg); border: none; }
+.cmt-actions .change-reject { color: var(--err); }
 
 /* ----- compose-dialog suggestion section (collapsible) ----- */
 .compose-suggestion {

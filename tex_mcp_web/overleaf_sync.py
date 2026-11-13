@@ -60,6 +60,20 @@ def _decode(text: str) -> str:
         return text
 
 
+def _suggestions(ranges: dict, changes: list[str]) -> list[dict]:
+    """The suggested edits a joinDoc's ranges hold under the ids *changes*, their words decoded."""
+    chosen = []
+    for change in ranges.get("changes") or []:
+        op = change.get("op") if isinstance(change, dict) else None
+        if not isinstance(op, dict) or str(change.get("id")) not in changes or not isinstance(op.get("p"), int):
+            continue
+        if isinstance(op.get("i"), str):
+            chosen.append({"id": str(change["id"]), "op": {"p": op["p"], "i": _decode(op["i"])}})
+        elif isinstance(op.get("d"), str):
+            chosen.append({"id": str(change["id"]), "op": {"p": op["p"], "d": _decode(op["d"])}})
+    return chosen
+
+
 def text_hash(text: str) -> str:
     """The hash Overleaf checks an edit's result against, git's blob hash."""
     return hashlib.sha1(f"blob {ot.js_len(text)}\0".encode() + text.encode("utf-8")).hexdigest()
@@ -266,6 +280,8 @@ class ProjectSync(_Records):
         self._uploads_quiet_until = 0.0
         self._gone_there: list[str] = []
         self.resolved_threads: set[str] = set()
+        # Whether an edit goes as a suggestion, as LivePresence.tracking says.
+        self.tracking: Callable[[], bool | None] = lambda: False
         self._session: Session | None = None
         self._queue: asyncio.Queue = asyncio.Queue()
         self._task: asyncio.Task | None = None
@@ -303,6 +319,13 @@ class ProjectSync(_Records):
         this file's edits; see LivePresence.comment. An error, or None."""
         done: asyncio.Future = asyncio.get_running_loop().create_future()
         self._queue.put_nowait(("comment", path, words, line, thread, opened, done))
+        return await done
+
+    async def reject(self, doc_id: str, changes: list[str]) -> str | None:
+        """Reject suggested edits in a document, in turn with this file's edits, the file here
+        taking the same edit; see LivePresence.reject. An error, or None."""
+        done: asyncio.Future = asyncio.get_running_loop().create_future()
+        self._queue.put_nowait(("reject", doc_id, changes, done))
         return await done
 
     def snapshot(self) -> list[dict]:
@@ -388,6 +411,12 @@ class ProjectSync(_Records):
             _, path, words, line, thread, opened, done = event
             try:
                 done.set_result(await self._comment(path, words, line, thread, opened))
+            except Exception as error:  # the page is told
+                done.set_exception(error)
+        elif kind == "reject":
+            _, doc_id, changes, done = event
+            try:
+                done.set_result(await self._reject(doc_id, changes))
             except Exception as error:  # the page is told
                 done.set_exception(error)
         elif kind == "failed":
@@ -649,6 +678,11 @@ class ProjectSync(_Records):
         session = self._session
         if session is None or doc.status not in ("synced", "sending", "held"):
             return
+        # An edit to the text goes as a suggestion while Overleaf would track the reviewer's,
+        # and waits, to go at the next look, until the session knows whether it would.
+        tracked = self.tracking() if any("c" not in step for step in doc.inflight or doc.pending) else False
+        if tracked is None:
+            return
         if doc.inflight is not None:
             if not again:
                 return
@@ -676,6 +710,8 @@ class ProjectSync(_Records):
                                   "hash": text_hash(ot.apply(doc.server, op))}
         if len(ids) > 1:
             update["dupIfSource"] = ids[:-1]
+        if tracked:
+            update["meta"] = {"tc": overleaf.change_seed()}
         self._set(doc, "sending")
         reply = await session.call("applyOtUpdate", [doc.doc_id, update])
         if reply and reply[0] is not None:
@@ -697,6 +733,42 @@ class ProjectSync(_Records):
         await opened()
         doc.pending = [{"c": words, "p": at, "t": thread}]
         await self._send(doc)
+        if doc.status == "stopped":
+            return doc.message
+        return None
+
+    async def _reject(self, doc_id: str, changes: list[str]) -> str | None:
+        doc = self.docs.get(doc_id)
+        if doc is None or not doc.known:
+            return "This file is not followed on Overleaf."
+        if doc.status == "unsupported":
+            return doc.message
+        self._absorb(doc)
+        if self._session is None or doc.status != "synced" or doc.inflight is not None or doc.pending:
+            return f"{doc.path} is still being brought in step with Overleaf. Try again in a moment."
+        # The suggestions where Overleaf has them now, read with the text they are in.
+        reply = await self._session.call("joinDoc", [doc.doc_id, -1, _JOIN])
+        if not reply or reply[0] is not None:
+            return f"Overleaf would not open {doc.path}: {reply[0] if reply else 'no answer'}"
+        theirs = "\n".join(_decode(str(line)) for line in reply[1])
+        if reply[2] != doc.version or theirs != doc.server:
+            return f"{doc.path} is still being brought in step with Overleaf. Try again in a moment."
+        chosen = _suggestions((reply[4] if len(reply) > 4 else None) or {}, changes)
+        if not chosen:
+            return "Overleaf no longer has these suggestions."
+        try:
+            op = ot.undo(theirs, chosen)
+        except ot.Mismatch:
+            return f"Overleaf's {doc.path} changed while it was read. Try again."
+        # The record names the edit still to send before the file holds it.
+        doc.pending = op
+        try:
+            self._write(doc, ot.apply(doc.local, op))
+        except _ChangedMeanwhile:
+            doc.pending = []
+            return f"{doc.path} changed here meanwhile. Try again in a moment."
+        # Rejecting may take away every word of a comment, as it does on Overleaf.
+        await self._send(doc, anyway=True)
         if doc.status == "stopped":
             return doc.message
         return None
@@ -1083,6 +1155,8 @@ class HandSync(_Records):
         self.resolved_threads: set[str] = set()
         self._theirs: dict[str, tuple[str, int, list[dict]]] = {}   # Overleaf's text, version, comments
         self.read_once = False
+        # Whether an edit goes as a suggestion, as LivePresence.tracking says.
+        self.tracking: Callable[[], bool | None] = lambda: False
         # The project's uploaded files, moved whole by Get and Send too.
         self.uploads: Uploads | None = None
 
@@ -1147,11 +1221,12 @@ class HandSync(_Records):
         that one file, sent though it deletes every word of an open comment."""
         async with self._turn:
             session = await self._session()
+            tracked = await self._tracked()
             await self._read_all()
             chosen = [doc for doc in self.docs.values()
                       if (doc.status == "send" and path is None) or (doc.path == path and doc.status == "held")]
             for doc in chosen:
-                await self._send(session, doc)
+                await self._send(session, doc, tracked)
             if self.uploads is not None and path is None:
                 await self.uploads.send()
                 await self._add(list(self._new))
@@ -1252,6 +1327,15 @@ class HandSync(_Records):
                 return session
             await asyncio.sleep(0.1)
         raise NotConnected("The page is not in the Overleaf project right now. Try again in a moment.")
+
+    async def _tracked(self) -> bool:
+        """Whether the edits go as suggestions, waited for a little while the session learns it."""
+        for _ in range(int(JOIN_WAIT / 0.1)):
+            tracked = self.tracking()
+            if tracked is not None:
+                return tracked
+            await asyncio.sleep(0.1)
+        raise NotConnected("The page does not know yet whether Overleaf tracks your edits. Try again in a moment.")
 
     async def _open(self, session: Session, doc_id: str, main: str) -> tuple[str, int, list[dict]] | str | None:
         """A document's text, version and comments, or why it cannot be followed, opened and
@@ -1366,15 +1450,17 @@ class HandSync(_Records):
 
     # ----- Sending -----
 
-    async def _send(self, session: Session, doc: Doc) -> None:
+    async def _send(self, session: Session, doc: Doc, tracked: bool) -> None:
         theirs, version, comments = self._theirs[doc.doc_id]
         disk = self._read(doc)
         if disk is None or theirs != doc.server:
             return
         open_comments = [c for c in comments if c["t"] not in self.resolved_threads]
         op = ot.diff(doc.server, disk, open_comments)
-        reply = await session.call("applyOtUpdate", [doc.doc_id, {"doc": doc.doc_id, "op": op, "v": version,
-                                                                  "hash": text_hash(disk)}])
+        update: dict[str, Any] = {"doc": doc.doc_id, "op": op, "v": version, "hash": text_hash(disk)}
+        if tracked:
+            update["meta"] = {"tc": overleaf.change_seed()}
+        reply = await session.call("applyOtUpdate", [doc.doc_id, update])
         if reply and reply[0] is not None:
             error = reply[0].get("message") if isinstance(reply[0], dict) else reply[0]
             self._set(doc, "stopped", f"Overleaf did not take the edit to this file ({error}). Nothing was "

@@ -115,11 +115,14 @@ class FakeOverleaf:
             ]),
             "d3": ("unused.tex", "Nothing.\n", []),
         }
+        # Suggested edits by document, made with track changes on.
+        self.changes: dict[str, list] = {}
         app = web.Application(middlewares=[self._signed_in])
         app.router.add_get(f"/project/{PROJECT_ID}/threads", self._threads)
         app.router.add_get(f"/project/{PROJECT_ID}/ranges", self._ranges)
         app.router.add_get(f"/project/{PROJECT_ID}/entities", self._entities)
         app.router.add_get(f"/Project/{PROJECT_ID}/doc/{{doc}}/download", self._download)
+        app.router.add_get(f"/project/{PROJECT_ID}/changes/users", self._change_users)
         self.app = app
 
     @web.middleware
@@ -133,8 +136,13 @@ class FakeOverleaf:
         return web.json_response(self.threads)
 
     async def _ranges(self, request: web.Request) -> web.Response:
-        return web.json_response([{"id": doc, "ranges": {"comments": comments} if comments else {}}
+        return web.json_response([{"id": doc, "ranges": {**({"comments": comments} if comments else {}),
+                                                         **({"changes": self.changes[doc]} if doc in self.changes else {})}}
                                   for doc, (_, _, comments) in self.docs.items()])
+
+    async def _change_users(self, request: web.Request) -> web.Response:
+        return web.json_response([{"id": "u-co", "first_name": "Co", "last_name": "Author", "email": "co@example.org"},
+                                  {"id": "u-b", "email": "b@example.org"}])
 
     async def _entities(self, request: web.Request) -> web.Response:
         return web.json_response({"project_id": PROJECT_ID, "entities": [
@@ -178,6 +186,37 @@ async def test_the_export_is_built_from_overleafs_own_routes(fake_overleaf) -> N
     assert not any(path.endswith("/d3/download") for path in fake.requests)
 
 
+async def test_suggested_edits_come_with_who_made_them_and_the_text_they_are_in(fake_overleaf) -> None:
+    fake, link = fake_overleaf
+    unused = "Nothing much.\n"
+    fake.docs["d3"] = ("unused.tex", unused, [])
+    fake.changes["d3"] = [
+        {"id": "x1", "op": {"p": unused.index("much"), "i": "much"}, "metadata": {"user_id": "u-co", "ts": "t1"}},
+        {"id": "x2", "op": {"p": unused.index("."), "d": " at all"}, "metadata": {"user_id": "u-b", "ts": "t2"}},
+        # Read between the ranges and the text: its words are not there, so it waits for the next reading.
+        {"id": "x3", "op": {"p": 0, "i": "Gone"}, "metadata": {"user_id": "u-co", "ts": "t3"}},
+    ]
+    export = await overleaf.fetch_export(link, ("overleaf_session2", fake.cookie))
+    # A file with suggested edits and no comment is downloaded for its text.
+    assert export["tracked"] == {"d3": {"pathname": "/unused.tex", "text": unused, "changes": [
+        {"id": "x1", "at": unused.index("much"), "kind": "insert", "text": "much", "user_id": "u-co",
+         "name": "Co Author", "ts": "t1"},
+        {"id": "x2", "at": unused.index("."), "kind": "delete", "text": " at all", "user_id": "u-b",
+         "name": "b@example.org", "ts": "t2"}]}}
+
+
+def test_a_word_typed_over_another_is_one_suggested_change_and_other_edits_stand_alone() -> None:
+    from tex_mcp_web.server import _suggestion_groups
+
+    def edit(id, at, kind, text, user):
+        return {"id": id, "at": at, "kind": kind, "text": text, "user_id": user, "name": user, "ts": id}
+
+    groups = _suggestion_groups([edit("d1", 8, "delete", "bar", "u1"), edit("i1", 4, "insert", "quux", "u1"),
+                                 edit("d2", 20, "delete", "old", "u2"), edit("i2", 16, "insert", "new!", "u1")])
+    assert [(group["ids"], group["inserted"], group["deleted"]) for group in groups] == [
+        (["i1", "d1"], "quux", "bar"), (["i2"], "new!", ""), (["d2"], "", "old")]
+
+
 async def test_a_cookie_overleaf_turns_away_says_to_paste_a_new_one(fake_overleaf) -> None:
     _, link = fake_overleaf
     with pytest.raises(overleaf.SignedOut):
@@ -206,7 +245,7 @@ async def review(tmp_path: Path, config_home: Path, fake_overleaf):
 async def test_the_page_brings_in_overleaf_comments_with_the_reviewers_cookie(review, config_home: Path) -> None:
     client, server, fake, _ = review
     status = await (await client.get("/overleaf")).json()
-    assert status == {"project": fake_link(server), "cookie": None, "sync": False, "live": False, "settable": True, "git": None, "waiting": 0, "imported": [], "unplaced": {}}
+    assert status == {"project": fake_link(server), "cookie": None, "sync": False, "live": False, "settable": True, "git": None, "waiting": 0, "imported": [], "unplaced": {}, "suggested": []}
 
     response = await client.post("/overleaf/comments")
     assert response.status == 401
@@ -214,7 +253,7 @@ async def test_the_page_brings_in_overleaf_comments_with_the_reviewers_cookie(re
 
     assert (await client.post("/overleaf/cookie", json={"cookie": "no cookie here=1"})).status == 400
     response = await client.post("/overleaf/cookie", json={"cookie": f"overleaf_session2={fake.cookie}"})
-    assert await response.json() == {"project": fake_link(server), "cookie": "file", "sync": False, "live": False, "settable": True, "git": None, "waiting": 0, "imported": [], "unplaced": {}}
+    assert await response.json() == {"project": fake_link(server), "cookie": "file", "sync": False, "live": False, "settable": True, "git": None, "waiting": 0, "imported": [], "unplaced": {}, "suggested": []}
     # Saved, never sent back.
     assert fake.cookie not in await (await client.get("/overleaf")).text()
 
@@ -245,7 +284,7 @@ async def test_without_a_project_in_the_config_the_page_says_where_to_name_it(tm
     client = TestClient(TestServer(server.app))
     await client.start_server()
     try:
-        assert await (await client.get("/overleaf")).json() == {"project": None, "cookie": None, "sync": False, "live": False, "settable": True, "git": None, "waiting": 0, "imported": [], "unplaced": {}}
+        assert await (await client.get("/overleaf")).json() == {"project": None, "cookie": None, "sync": False, "live": False, "settable": True, "git": None, "waiting": 0, "imported": [], "unplaced": {}, "suggested": []}
         response = await client.post("/overleaf/comments")
         assert response.status == 409 and "overleaf:" in (await response.json())["error"]
     finally:

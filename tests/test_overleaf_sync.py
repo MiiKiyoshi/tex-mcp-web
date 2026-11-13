@@ -44,6 +44,9 @@ class FakeOverleaf:
         self.sockets: dict[str, web.WebSocketResponse] = {}
         self.sent: list[dict] = []       # every event a client sent
         self.applied: list[tuple] = []   # (doc, source, op) of every edit taken
+        self.updates: list[dict] = []    # every edit a client sent, as sent
+        # Whom Overleaf tracks the edits of, which the editor is told when it joins.
+        self.track_state: dict | None = None
         self.refuse_next = False
         self.drop_after_next = False
         self.connections = 0
@@ -165,8 +168,11 @@ class FakeOverleaf:
                                   "hash": overleaf_sync.blob_sha(item["data"])}
                                  for name, item in self.uploads.items() if name.rpartition("/")[0] == path],
                     "folders": [folder(name) for name in inner]}
-        return {"_id": PROJECT_ID, "name": "Paper", "rootDoc_id": "d-main",
-                "owner": {"_id": "u-me", "first_name": "Me"}, "members": [], "rootFolder": [folder("")]}
+        project = {"_id": PROJECT_ID, "name": "Paper", "rootDoc_id": "d-main",
+                   "owner": {"_id": "u-me", "first_name": "Me"}, "members": [], "rootFolder": [folder("")]}
+        if self.track_state is not None:
+            project["trackChangesState"] = self.track_state
+        return project
 
     async def _websocket(self, request: web.Request) -> web.WebSocketResponse:
         ws = web.WebSocketResponse()
@@ -202,7 +208,7 @@ class FakeOverleaf:
 
     async def _answer(self, me: str, name: str, args: list):
         if name == "clientTracking.getConnectedUsers":
-            return [None, []]
+            return [None, [{"client_id": me, "user_id": "u-me", "first_name": "Me"}] if self.track_state is not None else []]
         if name == "joinDoc":
             doc = self.docs[args[0]]
             since = args[1]
@@ -212,11 +218,16 @@ class FakeOverleaf:
             ranges = {"comments": [{"id": f"c-{c['t']}", "op": {
                 "t": c["t"], "p": c["p"], "c": wire(_units(doc["text"], c["p"], c["p"] + c["n"]))}}
                 for c in doc["comments"]]}
+            if doc.get("changes"):
+                ranges["changes"] = [{"id": change["id"], "op": {key: wire(value) if key in ("i", "d") else value
+                                                                for key, value in change["op"].items()}}
+                                     for change in doc["changes"]]
             return [None, [wire(line) for line in doc["text"].split("\n")], doc["version"], ops, ranges,
                     doc["kind"], {}]
         if name == "leaveDoc":
             return [None]
         if name == "applyOtUpdate":
+            self.updates.append(args[1])
             try:
                 await self.apply(args[0], args[1], me)
             except ConnectionResetError:
@@ -782,6 +793,48 @@ async def test_a_save_from_the_page_over_an_edit_from_overleaf_takes_both(review
     assert saved["text"] == "% theirs\n" + mine
     await review.settled()
     assert fake.docs["d-main"]["text"] == "% theirs\n" + mine
+
+
+async def test_live_edits_go_as_suggestions_while_overleaf_tracks_the_reviewers(paper, overleaf_site) -> None:
+    """Overleaf's editor sends the reviewer's edits as suggestions while track changes is on
+    for the reviewer's account, and so do the files kept the same live, as it is switched."""
+    fake, link = overleaf_site
+    fake.track_state = {"u-me": True, "u-co": False}
+    review = await Review(paper, fake, link).open()
+    try:
+        await review.settled()
+        review.write("main.tex", MAIN.replace("is fast", "is very fast"))
+        await review.settled()
+        assert re.fullmatch(r"[0-9a-f]{18}", fake.updates[-1]["meta"]["tc"])
+        for ws in list(fake.sockets.values()):
+            await fake.emit(ws, "toggle-track-changes", {"u-co": True})
+        await wait_for(lambda: review.server.overleaf_live.tracking() is False)
+        review.write("main.tex", MAIN.replace("is fast", "is fast now"))
+        await review.settled()
+        assert "meta" not in fake.updates[-1]
+    finally:
+        await review.close()
+
+
+async def test_live_rejecting_suggested_edits_takes_their_words_back_on_both_sides(review) -> None:
+    """A co-author changed "slow" to "fast" with track changes on: Overleaf's text holds "fast",
+    and "slow" only as a suggested deletion. Rejecting both puts "slow" back, on Overleaf and in
+    the file, by an edit marked as an undo, so Overleaf drops the suggestions."""
+    fake = review.fake
+    await review.settled()
+    at = ot.js_len(MAIN[:MAIN.index("fast")])
+    fake.docs["d-main"]["changes"] = [{"id": "s1", "op": {"p": at, "i": "fast"}},
+                                      {"id": "s2", "op": {"p": at + 4, "d": "slow"}}]
+    response = await review.client.post("/overleaf/changes/reject", json={"doc": "d-main", "ids": ["s1", "s2"]})
+    assert response.status == 200, await response.text()
+    await review.settled()
+    assert review.read("main.tex") == MAIN.replace("fast", "slow")
+    assert fake.updates[-1]["op"] == [{"p": at + 4, "i": "slow", "u": True}, {"p": at, "d": "fast", "u": True}]
+    assert "meta" not in fake.updates[-1]
+    # Suggestions Overleaf no longer has are not taken back twice.
+    fake.docs["d-main"]["changes"] = []
+    response = await review.client.post("/overleaf/changes/reject", json={"doc": "d-main", "ids": ["s1", "s2"]})
+    assert response.status == 409 and "no longer has" in (await response.json())["error"]
 
 
 async def test_a_file_overleaf_keeps_in_its_newer_kind_is_left_alone(paper, overleaf_site) -> None:

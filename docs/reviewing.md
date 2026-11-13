@@ -66,9 +66,9 @@ typing.
 | Escape | Leave a box: a reply or an edit being written is dropped, a reply for Overleaf keeps its words |
 | `R` | Resolve, or reopen a comment that is not open |
 | `A` | Archive |
-| `aa` | Apply the suggestion to the file |
+| `aa` | Apply the suggestion to the file, or accept a suggested edit on Overleaf |
 | `ss` | Send the reply to Overleaf, for everyone in the project |
-| `dd` | Delete, once you say yes |
+| `dd` | Delete, once you say yes, or reject a suggested edit on Overleaf |
 | `x` | Pick the comment, or let it go |
 | `*` | Pick every comment, or let them all go |
 | `v` | Hold a range, which the moving keys stretch. `R`, `A`, `ss` and `x` then act on the whole range, and Escape or `v` lets it go |
@@ -88,8 +88,9 @@ The Vim button in the editor's bar turns on Vim keys, and the page remembers the
 - `:w` saves and `:make` compiles. `jj` typed quickly, Escape or Ctrl+[ leaves Insert mode.
 - `gc` comments on the text a motion or a visual selection covers, and `gs` marks that text
   in the Preview.
-- `K` opens the comment under the cursor in the Comments tab, where the comment keys then
-  act on it, and off any comment gives the keys to the list as it was. `K` in the list comes
+- `K` opens the comment under the cursor in the Comments tab, or the edit suggested on
+  Overleaf in the leaf tab's suggested edits view, where the comment keys then act on it, and
+  off any comment gives the keys to the list as it was. `K` in the list comes
   back to the comment's words.
 - `gd` or Ctrl+] goes from `\input`, `\ref` or `\cite` to the file, label or `.bib` entry,
   and Ctrl+O or Ctrl+T comes back. Browsers on Windows keep Ctrl+T for a new tab.

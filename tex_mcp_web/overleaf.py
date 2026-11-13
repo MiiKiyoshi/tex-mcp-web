@@ -1,10 +1,11 @@
-"""Overleaf comments the server fetches itself, signed in as the reviewer.
+"""Overleaf comments and suggested edits the server fetches itself, signed in as the reviewer.
 
 Overleaf has no public route for comments. Its editor reads them from routes of its own:
-``/project/<id>/threads`` for what was said, ``/project/<id>/ranges`` for the words each thread is on, and a document's
-download for its name and text. They answer to the editor's session cookie, so the
-server sends the reviewer's own. A reply goes by the editor's route too, with the token its
-page carries.
+``/project/<id>/threads`` for what was said, ``/project/<id>/ranges`` for the words each thread is on
+and for the edits made with track changes on, ``/project/<id>/changes/users`` for who made those, and
+a document's download for its name and text. They answer to the editor's session cookie, so the
+server sends the reviewer's own. A reply, and accepting a suggested edit, go by the editor's
+routes too, with the token its page carries.
 
 That cookie signs in as the reviewer, so it is kept like a password: in the reviewer's
 own config folder, readable by them alone, never in the paper's folder and never sent
@@ -345,6 +346,24 @@ def new_thread_id() -> str:
     return f"{int(time.time()):08x}{secrets.token_hex(8)}"
 
 
+def change_seed() -> str:
+    """What an edit sent as a suggestion carries, from which Overleaf numbers the changes it
+    makes, shaped as Overleaf's editor makes it: the time in seconds and random digits, 18
+    hexadecimal digits in all."""
+    return f"{int(time.time()):08x}{secrets.token_hex(5)}"
+
+
+async def accept_changes(link: str, cookie: tuple[str, str], doc: str, changes: list[str], *,
+                         timeout: float = 30) -> None:
+    """Accept suggested edits in a document on Overleaf, as the reviewer: their words stay as
+    they are and stop being suggestions, for everyone in the project."""
+    server, project = project_of(link)
+    async with _session(server, cookie, timeout) as session:
+        read = _Reader(session, server)
+        await read.post(f"/project/{project}/doc/{doc}/changes/accept", await _write_token(read, project),
+                        {"change_ids": changes})
+
+
 async def set_resolved(link: str, cookie: tuple[str, str], threads: list[str], resolved: bool, *,
                        timeout: float = 30) -> AsyncIterator[str]:
     """Resolve threads on Overleaf, or reopen them, as the reviewer, one after another on one
@@ -372,7 +391,8 @@ async def set_resolved(link: str, cookie: tuple[str, str], threads: list[str], r
 async def fetch_export(link: str, cookie: tuple[str, str], *, timeout: float = 30) -> dict[str, Any]:
     """The project's threads and the words each is on: ``threads`` by id, with their
     messages and whether each is resolved, and ``comments``, one per place a thread is on,
-    with its file, line and words."""
+    with its file, line and words. ``tracked`` holds, by document, the edits made with track
+    changes on that wait to be accepted or rejected, with the document's text they are in."""
     server, project = project_of(link)
     async with _session(server, cookie, timeout) as session:
         read = _Reader(session, server)
@@ -383,18 +403,24 @@ async def fetch_export(link: str, cookie: tuple[str, str], *, timeout: float = 3
             raise OverleafError("Overleaf's thread list has changed shape")
         resolved_ids = set(resolved.get("resolvedThreadIds", []) if isinstance(resolved, dict) else resolved or [])
         docs = ranges.get("docs", []) if isinstance(ranges, dict) else ranges or []
-        commented = {}
+        commented, changed = {}, {}
         for doc in docs:
-            comments = ((doc or {}).get("ranges") or {}).get("comments") or []
-            if comments and (doc.get("id") or doc.get("_id")):
-                commented[str(doc.get("id") or doc.get("_id"))] = comments
+            doc_ranges = ((doc or {}).get("ranges") or {}) if isinstance(doc, dict) else {}
+            doc_id = str(doc.get("id") or doc.get("_id") or "") if isinstance(doc, dict) else ""
+            if doc_id and doc_ranges.get("comments"):
+                commented[doc_id] = doc_ranges["comments"]
+            if doc_id and doc_ranges.get("changes"):
+                changed[doc_id] = doc_ranges["changes"]
         texts, names = {}, {}
-        for doc in commented:
+        for doc in {**commented, **changed}:
             texts[doc], names[doc] = await read.get(f"/Project/{project}/doc/{doc}/download", json=False)
-        entities = await read.get(f"/project/{project}/entities", missing_ok=True) if commented else None
+        entities = await read.get(f"/project/{project}/entities", missing_ok=True) if texts else None
+        authors = await read.get(f"/project/{project}/changes/users", missing_ok=True) if changed else None
     paths = [str(entity.get("path", "")).lstrip("/") for entity in (entities or {}).get("entities", [])
              if isinstance(entity, dict) and entity.get("type") == "doc"]
     placed = _place(names, paths)
+    who = {str(user.get("id") or user.get("_id")): _user_name(user) or str(user.get("email") or "")
+           for user in authors or [] if isinstance(user, dict)}
 
     threads = {}
     for thread_id, thread in raw_threads.items():
@@ -428,4 +454,24 @@ async def fetch_export(link: str, cookie: tuple[str, str], *, timeout: float = 3
                 "offset": offset,
                 "text_sha": text_sha,
             })
-    return {"threads": threads, "comments": entries}
+    tracked = {}
+    for doc, changes in changed.items():
+        text, found = texts[doc], []
+        for change in changes:
+            op = (change.get("op") or {}) if isinstance(change, dict) else {}
+            words = op.get("i") if isinstance(op.get("i"), str) else op.get("d")
+            if not op or not change.get("id") or not isinstance(words, str) or not isinstance(op.get("p"), int):
+                continue
+            at = ot.py_index(text, min(max(op["p"], 0), ot.js_len(text)))
+            # A suggested insertion's words are in the text; one read between the ranges
+            # and the text that does not hold them is left for the next reading.
+            if "i" in op and text[at:at + len(words)] != words:
+                continue
+            metadata = change.get("metadata") or {}
+            user = str(metadata.get("user_id") or "")
+            found.append({"id": str(change["id"]), "at": at, "kind": "insert" if "i" in op else "delete",
+                          "text": words, "user_id": user, "name": who.get(user, ""),
+                          "ts": str(metadata.get("ts") or "")})
+        if found:
+            tracked[doc] = {"pathname": "/" + placed.get(doc, f"unknown-{doc}.tex"), "text": text, "changes": found}
+    return {"threads": threads, "comments": entries, "tracked": tracked}

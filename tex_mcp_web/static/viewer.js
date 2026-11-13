@@ -62,11 +62,15 @@ const state = {
   // Comments brought in from Overleaf, and which comment tab is shown: the comments written
   // here, or the threads on Overleaf. The list, the editor and the PDF show that tab's.
   overleafImported: new Set(),
+  // The edits made on Overleaf with track changes on, waiting to be accepted or rejected.
+  overleafSuggested: [],
   commentTab: "comments",
   editingEntry: null,
   focusedCommentId: null,
   // The comment a range started from, while v holds one.
   rangeFrom: null,
+  // The suggested edits being accepted or rejected now.
+  reviewingEdits: new Set(),
   // The comment tab and status the list shows, so a list drawn again knows it is the same view.
   commentsView: null,
   // How many times the list was asked for, so only the latest answer is drawn.
@@ -929,6 +933,25 @@ function syncSourceCommentMarkers() {
     rowComments.push(comment);
     state.sourceCommentsByRow.set(firstRow, rowComments);
   }
+  // The edits suggested on Overleaf in this file, whatever the list shows, as Overleaf's editor
+  // marks them: the inserted words underlined in their author's colour, and a red mark where
+  // words were deleted. The server placed each in the file as saved.
+  for (const edit of state.sourceDirty ? [] : state.overleafSuggested) {
+    if (edit.file !== state.sourcePath || !edit.here) continue;
+    const { line_start: lineStart, column_start: columnStart, line_end: lineEnd, column_end: columnEnd } = edit.here;
+    const item = suggestedItem(edit);
+    if (edit.inserted) {
+      const range = new Range(lineStart - 1, columnStart, lineEnd - 1, columnEnd);
+      state.sourceCommentMarkers.push(state.editor.session.addMarker(range, suggestedInsertClass(edit.user_id), "text", false));
+      state.sourceCommentSpans.push({ range, comment: item });
+    }
+    if (edit.deleted) {
+      const range = new Range(lineEnd - 1, columnEnd, lineEnd - 1, columnEnd + 1);
+      state.sourceCommentMarkers.push(state.editor.session.addMarker(range, "source-suggested-delete", "text", false));
+      if (!edit.inserted) state.sourceCommentSpans.push({ range, comment: item });
+    }
+    decorateRow(lineStart - 1, "source-suggested-line");
+  }
   // The text an open proposal would replace, whatever its comment points at: a comment on
   // the PDF proposes in the source too, and the editor marks the same text the card's −
   // line shows. The server found each piece once in the file, so an edit made since then
@@ -1453,10 +1476,30 @@ async function syncOverleafComments() {
 // Settings lists all of it.
 const overleafLive = { snapshot: null, layer: null, notice: "", settled: false };
 
-function overleafColor(id) {
+function overleafHue(id) {
   let hash = 0;
   for (const char of String(id)) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
-  return `hsl(${hash % 360} 62% 42%)`;
+  return hash % 360;
+}
+
+function overleafColor(id) {
+  return `hsl(${overleafHue(id)} 62% 42%)`;
+}
+
+// The editor marks text by class, not by colour: each author's colour of a suggested insertion
+// is a class, written once.
+function suggestedInsertClass(id) {
+  const hue = overleafHue(id);
+  let sheet = document.getElementById("suggested-hues");
+  if (!sheet) {
+    sheet = h("style", { id: "suggested-hues" });
+    document.head.append(sheet);
+  }
+  if (!sheet.textContent.includes(`.suggested-hue-${hue} `)) {
+    sheet.append(`#source-editor .ace_marker-layer .source-suggested-insert.suggested-hue-${hue} `
+      + `{ background: hsl(${hue} 62% 42% / 0.14); box-shadow: inset 0 -2px 0 hsl(${hue} 62% 42%); }\n`);
+  }
+  return `source-suggested-insert suggested-hue-${hue}`;
 }
 
 function overleafInitials(name) {
@@ -1604,6 +1647,7 @@ function renderOverleafLive(snapshot) {
     : commentsTrouble ? "Comments not coming in"
     : { signed_out: "Signed out", reconnecting: "Reconnecting" }[status] ?? "";
   $("#overleaf-live").hidden = off;
+  $("#overleaf-tracking").hidden = snapshot.tracking !== true;
   // Someone edited on Overleaf: its branch is read again once the typing settles.
   const edited = changes.map((change) => `${change.file}@${change.at}`).join("|");
   if (edited !== state.overleafEdits) {
@@ -2192,10 +2236,24 @@ function showCommentAtCursor() {
   const covering = state.sourceCommentSpans.filter(({ range }) => range.contains(row, column)).sort((a, b) => size(a) - size(b));
   const chosen = covering[0]?.comment ?? state.sourceCommentsByRow.get(row)?.[0];
   setSidebarCollapsed(false);
+  state.editor.blur();
+  if (chosen?.suggested) {
+    openSuggestedEdit(chosen.id).catch((error) => console.error(error));
+    return;
+  }
   switchTab(state.commentTab);
   if (chosen !== undefined) focusComment(chosen);
-  state.editor.blur();
   $("#comments-list").focus({ preventScroll: true });
+}
+
+// A suggested edit opened from the source: the leaf tab's suggested edits view, ringed there.
+async function openSuggestedEdit(id) {
+  switchTab("overleaf-comments");
+  setCommentFilter("changes");
+  $("#comments-list").focus({ preventScroll: true });
+  await refreshComments();
+  const item = state.comments.find((comment) => comment.id === id);
+  if (item) focusComment(item);
 }
 
 // Ctrl+Alt+M (Cmd+Option+M), or gc with Vim keys. Comments wait for the file to be saved,
@@ -2236,6 +2294,15 @@ async function initializeSourceEditor() {
   state.editor.selection.on("changeCursor", followSourceCursor);
   state.editor.on("guttermousedown", (event) => {
     const row = event.getDocumentPosition().row;
+    // A suggested edit's mark beside its line opens it in the leaf tab.
+    const edit = state.overleafSuggested.find((item) => item.file === state.sourcePath && item.here?.line_start === row + 1);
+    if (edit && event.domEvent.target.classList.contains("source-suggested-line")
+        && !event.domEvent.target.classList.contains("source-comment-line")) {
+      event.stop();
+      setSidebarCollapsed(false);
+      openSuggestedEdit(edit.id).catch((error) => console.error(error));
+      return;
+    }
     const comments = state.sourceCommentsByRow.get(row);
     if (!comments?.length || !event.domEvent.target.classList.contains("source-comment-line")) return;
     event.stop();
@@ -2445,7 +2512,7 @@ async function refreshComments() {
   const asked = ++state.commentsAsked;
   const status = $("#comment-filter").value;
   const url = status === "all" ? "/comments"
-    : `/comments?status=${["unanswered", "answered", "new"].includes(status) ? "open" : status}`;
+    : `/comments?status=${["unanswered", "answered", "new", "changes"].includes(status) ? "open" : status}`;
   const [response, overleaf] = await Promise.all([fetch(url), fetch("/overleaf")]);
   if (!response.ok) throw new Error(await responseError(response));
   const data = await response.json();
@@ -2458,16 +2525,19 @@ async function refreshComments() {
   state.overleafProject = linked.project ?? null;
   state.overleafFullSync = Boolean(linked.live);
   state.overleafWaiting = linked.waiting ?? 0;
+  state.overleafSuggested = linked.suggested ?? [];
   // The other tab's comments are left out here, once, so the list, the editor's marks and
-  // the PDF's highlights agree without each asking. Each tab counts its own open ones.
+  // the PDF's highlights agree without each asking. Each tab counts its own open ones, and the
+  // leaf tab the suggested edits waiting too.
   const opened = (comments) => comments.filter((comment) => comment.status === "open").length;
   const onOverleaf = data.comments.filter(forOverleaf);
   const here = data.comments.filter((comment) => !forOverleaf(comment));
-  renderCommentTabs(opened(here), opened(onOverleaf));
+  renderCommentTabs(opened(here), opened(onOverleaf) + state.overleafSuggested.length);
   data.comments = state.commentTab !== "overleaf-comments" ? here
     : status === "unanswered" ? onOverleaf.filter(answeredByOthers)
     : status === "answered" ? onOverleaf.filter(answeredByMe)
     : status === "new" ? [...onOverleaf.filter(draftedThread), ...onOverleaf.filter(openedHere)]
+    : status === "changes" ? state.overleafSuggested.map(suggestedItem)
     : onOverleaf;
   renderOverleafThreadSync();
   // The open view, and the unanswered and answered ones, keep the server's order: the
@@ -2485,7 +2555,7 @@ async function refreshComments() {
     : status === "archived" ? (comment) => comment.updated
     : (comment) => comment.created;
   const before = state.comments;
-  state.comments = ["open", "unanswered", "answered", "new"].includes(status) ? data.comments
+  state.comments = ["open", "unanswered", "answered", "new", "changes"].includes(status) ? data.comments
     : [...data.comments].sort((first, second) => (moment(first) < moment(second) ? 1
       : moment(first) > moment(second) ? -1 : 0));
   // A focused comment that leaves the view, as one resolved in the open view does, hands the
@@ -2500,6 +2570,15 @@ async function refreshComments() {
   renderComments();
   syncCommentAnnotations();
   syncSourceCommentMarkers();
+}
+
+// A suggested edit as the list holds it, beside the comments: open until accepted or rejected,
+// with nothing said in it, and its place in the source, or its line on Overleaf when the text
+// around it is not in the file here.
+function suggestedItem(edit) {
+  const place = edit.here ?? { line_start: edit.line, line_end: edit.line, column_start: 0, column_end: 0 };
+  return { ...edit, suggested: true, status: "open", thread: [], anchor: { kind: "suggested" },
+           resolved_source: { file: edit.file, ...place } };
 }
 
 // A thread from Overleaf, or one drafted for it: a comment with no entries, since nothing
@@ -2554,7 +2633,7 @@ function renderCommentTabs(here, onOverleaf) {
 const COMMENT_VIEWS = {
   comments: [["open", "open"], ["resolved", "resolved"], ["archived", "archived"], ["all", "all"]],
   "overleaf-comments": [["unanswered", "unanswered"], ["answered", "answered"], ["new", "new thread"],
-    ["open", "open"], ["resolved", "resolved"], ["all", "all"]],
+    ["changes", "suggested edits"], ["open", "open"], ["resolved", "resolved"], ["all", "all"]],
 };
 
 // The row above the list holds what the shown tab can do, from the moment the tab is chosen.
@@ -2566,6 +2645,13 @@ function renderCommentFilter() {
     const chosen = filter.value;
     filter.replaceChildren(...views.map(([value, name]) => h("option", { value, text: name })));
     setCommentFilter(views.some(([value]) => value === chosen) ? chosen : "open");
+  }
+  // The suggested edits' view says how many wait.
+  const changes = [...filter.options].find((option) => option.value === "changes");
+  if (changes) {
+    const count = state.overleafSuggested.length;
+    changes.textContent = count ? `suggested edits (${count})` : "suggested edits";
+    if (filter.value === "changes") $("#comment-filter-name").textContent = changes.textContent;
   }
   $("#archive-picked-btn").hidden = state.commentTab === "overleaf-comments";
 }
@@ -2585,8 +2671,14 @@ function renderComments() {
     scrollTop: activeInput.scrollTop,
   } : null;
   clear(list);
-  if (state.comments.length === 0) list.appendChild(placeholder("No comments at this filter."));
-  else for (const comment of state.comments) list.appendChild(renderCommentItem(comment));
+  if (state.comments.length === 0) {
+    list.appendChild(placeholder($("#comment-filter").value === "changes" && state.commentTab === "overleaf-comments"
+      ? "No suggested edits on Overleaf." : "No comments at this filter."));
+  } else {
+    for (const comment of state.comments) {
+      list.appendChild(comment.suggested ? renderSuggestedEdit(comment) : renderCommentItem(comment));
+    }
+  }
   list.scrollTop = scrollTop;
   if (inputState?.commentId) {
     const commentNode = Array.from(list.children).find(
@@ -2614,7 +2706,8 @@ function renderComments() {
 function renderPickedActions() {
   // A thread from Overleaf resolves and reopens there too. Overleaf has no archive. A thread
   // drafted for Overleaf is only sent or deleted.
-  const picked = state.comments.filter((comment) => state.picked.has(comment.id) && !draftedThread(comment));
+  const picked = state.comments.filter((comment) => state.picked.has(comment.id) && !draftedThread(comment)
+    && !comment.suggested);
   const open = picked.filter((comment) => comment.status === "open").map((comment) => comment.id);
   const archivable = picked.filter((comment) => comment.status !== "archived"
     && !state.overleafImported.has(comment.id)).map((comment) => comment.id);
@@ -2657,6 +2750,19 @@ function renderPickedActions() {
   send.title = state.overleafSignedIn ? "Send the picked replies to Overleaf, for everyone in the project"
     : "Save your Overleaf cookie first";
   send.dataset.ids = sendable.join(" ");
+  // The suggested edits' view accepts or rejects the picked ones in place of resolving and sending.
+  const suggesting = state.commentTab === "overleaf-comments" && $("#comment-filter").value === "changes";
+  const edits = state.comments.filter((item) => item.suggested && state.picked.has(item.id));
+  resolve.hidden = suggesting;
+  send.hidden = send.hidden || suggesting;
+  for (const [id, word] of [["#accept-picked-btn", "Accept"], ["#reject-picked-btn", "Reject"]]) {
+    const button = $(id);
+    button.hidden = !suggesting;
+    button.disabled = edits.length === 0 || state.reviewingEdits.size > 0;
+    button.classList.toggle("busy", edits.some((item) => state.reviewingEdits.has(item.id)));
+    button.querySelector(".count").textContent = edits.length > 0 ? String(edits.length) : "";
+    button.setAttribute("aria-label", edits.length > 0 ? `${word} ${edits.length}` : word);
+  }
   fitCommentRow();
 }
 
@@ -2786,12 +2892,10 @@ async function sendPickedToOverleaf(ids) {
   await refreshComments();
 }
 
-function renderCommentItem(comment) {
-  const expanded = state.expanded.has(comment.id);
-  const replies = comment.thread.length - 1;
+// The box that picks a card, in its head, which opens the card: picking is not opening.
+function pickBox(comment) {
   const box = h("input", { class: "comment-pick", type: "checkbox", title: "Pick this comment" });
   box.checked = state.picked.has(comment.id);
-  // The box sits in the head, which opens the card: picking is not opening.
   // A checkbox has already taken its new value by the time the click arrives, so the
   // whole decision is made here and nothing listens for the change.
   box.addEventListener("click", (event) => {
@@ -2812,6 +2916,13 @@ function renderCommentItem(comment) {
     renderComments();
     renderPickedActions();
   });
+  return box;
+}
+
+function renderCommentItem(comment) {
+  const expanded = state.expanded.has(comment.id);
+  const replies = comment.thread.length - 1;
+  const box = pickBox(comment);
   const toggle = (event) => {
     event.stopPropagation();
     if (expanded) state.expanded.delete(comment.id);
@@ -2887,6 +2998,71 @@ function renderCommentItem(comment) {
     class: `cmt status-${comment.status}${focused ? " is-focused" : ""}${ranged ? " in-range" : ""}`,
     data: { commentId: comment.id },
   }, ...children);
+}
+
+// A suggested edit's card: who suggested it and when, its words as a proposal's − and + lines
+// show them, and Accept and Reject, which act on Overleaf for everyone in the project. A click
+// shows it in the source, and opens long words in full.
+function renderSuggestedEdit(item) {
+  const expanded = state.expanded.has(item.id);
+  const show = (event) => {
+    event.stopPropagation();
+    if (expanded) state.expanded.delete(item.id);
+    else state.expanded.add(item.id);
+    state.focusedCommentId = item.id;
+    renderComments();
+    jumpToComment(item.id).catch((error) => console.error(error));
+  };
+  const where = `${item.file}:${item.here ? item.here.line_start : item.line}`;
+  const head = h("div", { class: "cmt-head", title: "Show it in the source", onclick: show },
+    pickBox(item),
+    h("span", { class: "suggested-by", style: { borderColor: overleafColor(item.user_id) }, text: item.name || "Someone" }),
+    item.when ? h("span", { class: "cmt-when", text: item.when }) : null,
+    h("span", { class: "cmt-anchor", text: where }));
+  const line = (kind, marker, text) => h("div", { class: kind },
+    h("span", { class: "sugg-marker", text: marker }), h("span", { class: "sugg-text", text }));
+  const words = h("div", { class: `cmt-suggestion suggested-words${expanded ? "" : " clamped"}`, onclick: show },
+    item.deleted ? line("sugg-old", "−", item.deleted) : null,
+    item.inserted ? line("sugg-new", "+", item.inserted) : null);
+  const busy = state.reviewingEdits.has(item.id);
+  const press = (action) => () => reviewSuggestedEdits(action, [item]).catch((error) => alert(error.message));
+  const accept = actionButton("change-accept", "Accept", press("accept"));
+  const reject = actionButton("change-reject", "Reject", press("reject"));
+  for (const button of [accept, reject]) {
+    button.disabled = busy;
+    button.classList.toggle("busy", busy);
+  }
+  return h("div", {
+    class: `cmt suggested-edit${state.focusedCommentId === item.id ? " is-focused" : ""}`
+      + `${rangeIds().includes(item.id) ? " in-range" : ""}`,
+    data: { commentId: item.id },
+  }, head, words,
+  item.here ? null : h("div", { class: "cmt-unplaced" }, leafIcon(), h("span", {
+    text: `On Overleaf at ${item.file}:${item.line}. The text around it is not in the file here yet.`,
+  })),
+  h("div", { class: "cmt-actions" }, accept, reject));
+}
+
+// Accept or reject suggested edits on Overleaf, the edits of one file in one request.
+async function reviewSuggestedEdits(action, items) {
+  const docs = new Map();
+  for (const item of items) docs.set(item.doc, [...(docs.get(item.doc) ?? []), item]);
+  for (const item of items) state.reviewingEdits.add(item.id);
+  renderComments();
+  try {
+    for (const [doc, edits] of docs) {
+      const response = await fetch(`/overleaf/changes/${action}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ doc, ids: edits.flatMap((item) => item.ids) }),
+      });
+      if (!response.ok) throw new Error(await responseError(response));
+      for (const item of edits) state.picked.delete(item.id);
+    }
+  } finally {
+    for (const item of items) state.reviewingEdits.delete(item.id);
+    await refreshComments();
+  }
 }
 
 function renderSuggestion(comment) {
@@ -3896,7 +4072,7 @@ function showSourcePlace(row, column) {
 async function jumpToComment(commentId) {
   const comment = state.comments.find((item) => item.id === commentId);
   if (!comment) return;
-  if (comment.anchor.kind === "source_range") {
+  if (comment.anchor.kind === "source_range" || comment.suggested) {
     if (state.view === "pdf") await setWorkspaceView("source");
     const source = comment.resolved_source ?? comment.anchor;
     if (await openSource(source.file)) {
@@ -3994,11 +4170,13 @@ const COMMENT_KEYS = [
     { keys: ["A"], does: "Archive it", button: ["cmt-archive"], picked: true,
       run: () => pressPickedOr(["#archive-picked-btn"], ".cmt-archive"),
       range: () => pressForRange(["#archive-picked-btn"]) },
-    { keys: ["aa"], does: "Apply its suggestion to the file", button: ["sugg-apply"], run: () => pressCard(".sugg-apply") },
+    { keys: ["aa"], does: "Apply its suggestion to the file, or accept a suggested edit on Overleaf",
+      button: ["sugg-apply", "change-accept"], run: () => pressCard(".sugg-apply, .change-accept") },
     { keys: ["ss"], does: "Send its reply to Overleaf, for everyone in the project", button: ["overleaf-send"], picked: true,
       run: () => pressPickedOr(["#send-picked-btn"], ".overleaf-send"),
       range: () => pressForRange(["#send-picked-btn"]) },
-    { keys: ["dd"], does: "Delete it, once you say yes", button: ["cmt-delete"], run: () => pressCard(".cmt-delete") },
+    { keys: ["dd"], does: "Delete it, once you say yes, or reject a suggested edit on Overleaf",
+      button: ["cmt-delete", "change-reject"], run: () => pressCard(".cmt-delete, .change-reject") },
   ]],
   ["Pick and range", [
     { keys: ["x"], does: "Pick it, or let it go, and with a range held the whole range", marks: ".cmt-head",
@@ -4952,6 +5130,14 @@ async function init() {
   $("#call-agent-btn").addEventListener("click", () => callAgent());
   $("#fold-all-btn").addEventListener("click", foldAll);
   $("#pick-all-btn").addEventListener("click", pickAll);
+  for (const [id, action, word] of [["#accept-picked-btn", "accept", "Accept"], ["#reject-picked-btn", "reject", "Reject"]]) {
+    $(id).addEventListener("click", () => {
+      const edits = state.comments.filter((item) => item.suggested && state.picked.has(item.id));
+      if (edits.length === 0 || !confirm(`${word} ${edits.length} suggested edit${edits.length === 1 ? "" : "s"} `
+        + "on Overleaf, for everyone in the project?")) return;
+      reviewSuggestedEdits(action, edits).catch((error) => alert(error.message));
+    });
+  }
   $("#send-picked-btn").addEventListener("click", async () => {
     const button = $("#send-picked-btn");
     const ids = button.dataset.ids ? button.dataset.ids.split(" ") : [];

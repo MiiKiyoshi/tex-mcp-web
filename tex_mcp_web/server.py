@@ -80,7 +80,7 @@ from . import overleaf
 from . import overleaf_git
 from . import plugin_monitor
 from . import overleaf_ot
-from .overleaf_live import LivePresence
+from .overleaf_live import TRACKED, LivePresence
 from .overleaf_sync import HandSync, NotConnected, ProjectSync, Uploads
 from .completion import bib_entries, defined_commands, defined_environments, labels
 from .translate import Translator, TranslationStore, load_glossary, split_paragraphs, store_name
@@ -142,6 +142,71 @@ def _overleaf_place(entry: dict[str, Any]) -> dict[str, Any]:
 def _place_name(place: dict[str, Any]) -> str:
     path = str(place.get("pathname") or "").lstrip("/") or "an unknown file"
     return f"{path}:{place['line']}" if isinstance(place.get("line"), int) else path
+
+
+def _suggestion_groups(changes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Suggested edits as Overleaf's review panel shows them, in the order the text reads: a
+    deletion just after one person's insertion is one change of words, the deleted words
+    replaced by the inserted ones, and every other edit stands alone. Positions are in the
+    document's text, which holds the inserted words and not the deleted ones."""
+    ordered = sorted(changes, key=lambda change: (change["at"], change["kind"] == "insert"))
+    groups: list[dict[str, Any]] = []
+    for change in ordered:
+        last = groups[-1] if groups else None
+        if (change["kind"] == "delete" and last is not None and not last["deleted"] and change["user_id"]
+                and last["user_id"] == change["user_id"] and last["end"] == change["at"]):
+            last["ids"].append(change["id"])
+            last["deleted"] = change["text"]
+            last["ts"] = max(last["ts"], change["ts"])
+            continue
+        inserted = change["text"] if change["kind"] == "insert" else ""
+        groups.append({"ids": [change["id"]], "at": change["at"], "end": change["at"] + len(inserted),
+                       "inserted": inserted, "deleted": "" if inserted else change["text"],
+                       "user_id": change["user_id"], "name": change["name"], "ts": change["ts"]})
+    return groups
+
+
+def _place_suggestions(theirs: str, here: str, groups: list[dict[str, Any]]) -> list[tuple[int, int] | None]:
+    """Where each group of suggested edits in Overleaf's text *theirs* is in the file's text
+    *here*: its span, carried through the smallest edit between the two texts as a comment is,
+    or None when the text around it differs, as it does when the file lacks Overleaf's edit or
+    changed the words."""
+    if theirs == here:
+        return [(group["at"], group["end"]) for group in groups]
+    margin = 24
+    ranges = []
+    for index, group in enumerate(groups):
+        start, end = max(0, group["at"] - margin), min(len(theirs), group["end"] + margin)
+        ranges.append({"t": f"c{index}", "p": overleaf_ot.js_len(theirs[:group["at"]]),
+                       "n": overleaf_ot.js_len(theirs[group["at"]:group["end"]])})
+        ranges.append({"t": f"w{index}", "p": overleaf_ot.js_len(theirs[:start]),
+                       "n": overleaf_ot.js_len(theirs[start:end])})
+    moved = {r["t"]: r for r in overleaf_ot.move_comments(ranges, overleaf_ot.diff(theirs, here, ranges))}
+    placed: list[tuple[int, int] | None] = []
+    for index, group in enumerate(groups):
+        start, end = max(0, group["at"] - margin), min(len(theirs), group["end"] + margin)
+        window = moved[f"w{index}"]
+        around = here[overleaf_ot.py_index(here, window["p"]):overleaf_ot.py_index(here, window["p"] + window["n"])]
+        if around != theirs[start:end]:
+            placed.append(None)
+            continue
+        span = moved[f"c{index}"]
+        placed.append((overleaf_ot.py_index(here, span["p"]), overleaf_ot.py_index(here, span["p"] + span["n"])))
+    return placed
+
+
+def _suggested_when(stamp: str) -> str:
+    """When Overleaf says an edit was suggested, as the page shows a thread's times. Overleaf
+    writes the time zone as Z, which Python reads from 3.11 on."""
+    try:
+        return short_time(re.sub(r"Z$", "+00:00", stamp))
+    except ValueError:
+        return ""
+
+
+def _line_column(text: str, offset: int) -> tuple[int, int]:
+    before = text[:offset]
+    return before.count("\n") + 1, len(before) - (before.rfind("\n") + 1)
 
 
 def _parse_source_range(spec: str) -> tuple[str, int, int]:
@@ -514,6 +579,10 @@ class TexMcpWebServer:
         self._overleaf_reads = 0
         self._overleaf_reader: asyncio.Future | None = None
         self._overleaf_deleted: set[str] = set()
+        # The suggested edits on Overleaf by document, with the text they are in, as last read,
+        # and the reading that waits for edits made as suggestions to settle.
+        self._overleaf_tracked: dict[str, dict[str, Any]] = {}
+        self._overleaf_tracked_read: asyncio.TimerHandle | None = None
         self.watcher: Watcher | None = None
         self._runner: web.AppRunner | None = None
         self._store_watch: asyncio.Task[None] | None = None
@@ -562,6 +631,7 @@ class TexMcpWebServer:
         app.router.add_post("/overleaf/cookie", self._handle_overleaf_cookie)
         app.router.add_delete("/overleaf/cookie", self._handle_overleaf_cookie)
         app.router.add_post("/overleaf/comments", self._handle_overleaf_comments)
+        app.router.add_post(r"/overleaf/changes/{action:accept|reject}", self._handle_overleaf_changes)
         app.router.add_post(r"/overleaf/git/{action:fetch|state|pull|push}", self._handle_overleaf_git)
         app.router.add_post(r"/overleaf/files/{action:read|get|send}", self._handle_overleaf_files)
         app.router.add_get("/overleaf/upstream", self._handle_overleaf_upstream)
@@ -700,6 +770,9 @@ class TexMcpWebServer:
                 {"type": "source_changed", "path": relative, "revision": revision}
             )
             await self._place_overleaf_comments_in(relative)
+            # A suggested edit's place in the file moves with the file.
+            if any(str(held["pathname"]).lstrip("/") == relative for held in self._overleaf_tracked.values()):
+                await self.broadcast({"type": "comments_changed"})
         except (OSError, ValueError):
             pass
         finally:
@@ -759,6 +832,9 @@ class TexMcpWebServer:
     # Seconds before reading comments after news of them, twice: the thread is announced
     # before the words it is on are stored.
     OVERLEAF_COMMENT_SETTLE = 2
+    # Seconds of quiet after an edit made as a suggestion, someone's typing, before the
+    # suggested edits are read.
+    OVERLEAF_TRACKED_SETTLE = 3
 
     async def _sync_overleaf_live(self, restart: bool = False) -> None:
         """Keep the Overleaf session open while a page is: the reviewer looking at
@@ -788,6 +864,8 @@ class TexMcpWebServer:
                 self.overleaf_live = LivePresence(self.config.overleaf, overleaf.read_cookie,
                                                   self._overleaf_live_changed, comments=self._overleaf_comment_news,
                                                   sync=self.overleaf_sync)
+                if self.overleaf_sync is not None:
+                    self.overleaf_sync.tracking = self.overleaf_live.tracking
                 # Without a git clone the uploaded files, figures and the like, follow Overleaf
                 # whole by Overleaf's own routes too, live or by Get and Send.
                 if await self._overleaf_git_link() is None:
@@ -800,6 +878,7 @@ class TexMcpWebServer:
                                                       self.overleaf_live.editor, written=self._overleaf_written,
                                                       adding=self._overleaf_adding)
                         self.overleaf_hand.uploads = uploads
+                        self.overleaf_hand.tracking = self.overleaf_live.tracking
                         self.overleaf_live.files = self.overleaf_hand
                 await self.overleaf_live.start()
         elif live is not None and self._overleaf_live_stop is None:
@@ -817,6 +896,10 @@ class TexMcpWebServer:
         self._overleaf_reads = 0
         self._overleaf_was_in_step = False
         self._overleaf_deleted.clear()
+        self._overleaf_tracked = {}
+        if self._overleaf_tracked_read is not None:
+            self._overleaf_tracked_read.cancel()
+            self._overleaf_tracked_read = None
         reader, self._overleaf_reader = self._overleaf_reader, None
         if reader is not None:
             reader.cancel()
@@ -850,7 +933,14 @@ class TexMcpWebServer:
 
     def _overleaf_comment_news(self, name: str, args: list) -> None:
         """Comments changed on Overleaf, or the session opened after a time away: read them.
-        A session opened also reads where the files brought together by hand stand."""
+        A session opened also reads where the files brought together by hand stand. Suggested
+        edits come as someone types, and are read with the comments once the typing settles."""
+        if name == TRACKED:
+            if self._overleaf_tracked_read is not None:
+                self._overleaf_tracked_read.cancel()
+            self._overleaf_tracked_read = asyncio.get_running_loop().call_later(
+                self.OVERLEAF_TRACKED_SETTLE, lambda: self._overleaf_comment_news("", []))
+            return
         if name == "joined" and self.overleaf_hand is not None:
             asyncio.ensure_future(self._read_overleaf_files())
         if name == "delete-thread" and args:
@@ -881,6 +971,7 @@ class TexMcpWebServer:
                 # it waits for Sync comments.
                 new = self._overleaf_in_step()
                 await self._bring_in_overleaf(data, deleted, new=new)
+                await self._take_tracked(data)
             # Every file came into step while this reading counted threads as waiting.
             if not new and self._overleaf_waiting and self._overleaf_in_step():
                 self._overleaf_comment_news("", [])
@@ -889,6 +980,102 @@ class TexMcpWebServer:
         if live.comments_trouble != trouble:
             live.comments_trouble = trouble
             self._overleaf_live_changed()
+
+    async def _take_tracked(self, data: dict[str, Any]) -> None:
+        """The suggested edits a reading found, which the page shows once they differ."""
+        tracked = data.get("tracked") or {}
+        if tracked != self._overleaf_tracked:
+            self._overleaf_tracked = tracked
+            await self.broadcast({"type": "comments_changed"})
+
+    def _tracked_view(self) -> list[dict[str, Any]]:
+        """The suggested edits on Overleaf for the page, by file in the order the paper reads
+        them: who suggested what and when, the line on Overleaf, and the characters in the file
+        here, or no place when the text around them is not here as on Overleaf."""
+        shown = []
+        for doc, held in sorted(self._overleaf_tracked.items(), key=lambda item: item[1]["pathname"]):
+            path = str(held["pathname"]).lstrip("/")
+            groups = _suggestion_groups(held["changes"])
+            try:
+                here = (self.watch_dir / path).read_text(encoding="utf-8")
+                places = _place_suggestions(held["text"], here, groups)
+            except (OSError, UnicodeDecodeError, ValueError):
+                here, places = "", [None] * len(groups)
+            for group, place in zip(groups, places):
+                start = end = None
+                if place is not None:
+                    line_start, column_start = _line_column(here, place[0])
+                    line_end, column_end = _line_column(here, place[1])
+                    start = {"line_start": line_start, "column_start": column_start,
+                             "line_end": line_end, "column_end": column_end}
+                shown.append({"id": f"tc-{group['ids'][0]}", "doc": doc, "ids": group["ids"], "file": path,
+                              "line": _line_column(held["text"], group["at"])[0],
+                              "inserted": group["inserted"], "deleted": group["deleted"],
+                              "user_id": group["user_id"], "name": group["name"],
+                              "when": _suggested_when(group["ts"]), "here": start})
+        return shown
+
+    def _suggested_lines(self) -> list[str]:
+        """The suggested edits on Overleaf in a line each, for the agent: where each is in the
+        file here, who suggested it and what it changes."""
+        def cut(words: str) -> str:
+            return repr(words if len(words) <= 80 else words[:77] + "...")
+
+        lines = []
+        for shown in self._tracked_view():
+            what = (f"changed {cut(shown['deleted'])} to {cut(shown['inserted'])}"
+                    if shown["inserted"] and shown["deleted"]
+                    else f"added {cut(shown['inserted'])}" if shown["inserted"] else f"deleted {cut(shown['deleted'])}")
+            where = (f"{shown['file']}:{shown['here']['line_start']}" if shown["here"] is not None
+                     else f"{shown['file']}:{shown['line']} on Overleaf, not in the file here yet")
+            lines.append(f"{where} {shown['name'] or 'someone'} {what}")
+        return lines
+
+    async def _handle_overleaf_changes(self, request: web.Request) -> web.Response:
+        """Accept or reject suggested edits on Overleaf, for everyone in the project."""
+        action = request.match_info["action"]
+        data, err = await self._read_json(request)
+        if err is not None:
+            return err
+        doc, changes = str(data.get("doc", "")), [str(change) for change in data.get("ids") or []]
+        live, cookie = self.overleaf_live, overleaf.read_cookie()
+        if not changes:
+            return web.json_response({"error": "no suggested edit was named"}, status=400)
+        if live is None or cookie is None:
+            return web.json_response({"error": "The page is not connected to Overleaf right now."}, status=409)
+        try:
+            # A reading under way ends first, so what it read before this cannot bring the
+            # edits back, and one after reads what this left.
+            async with self._overleaf_import:
+                if action == "accept":
+                    why = await live.reviewable(doc)
+                    if why is None:
+                        await overleaf.accept_changes(live.link, cookie, doc, changes)
+                else:
+                    why = await live.reject(doc, changes)
+                if why is None:
+                    # Gone from the list at once. The next reading says what Overleaf holds.
+                    held = self._overleaf_tracked.get(doc)
+                    if held is not None:
+                        held["changes"] = [change for change in held["changes"] if change["id"] not in changes]
+                        if not held["changes"]:
+                            del self._overleaf_tracked[doc]
+        except overleaf.SignedOut as error:
+            return web.json_response({"error": f"{error} (the cookie has expired or is wrong)"}, status=401)
+        except overleaf.OverleafError as error:
+            return web.json_response({"error": str(error)}, status=502)
+        except (ConnectionError, asyncio.TimeoutError):
+            return web.json_response({"error": "The connection to Overleaf closed before it answered. "
+                                               "Try again."}, status=502)
+        if why is not None:
+            return web.json_response({"error": why}, status=409)
+        # Overleaf is read again soon, and a file brought together by hand counts the edit a
+        # rejection made there to Get.
+        self._overleaf_comment_news(TRACKED, [])
+        if action == "reject" and self.overleaf_hand is not None:
+            asyncio.ensure_future(self._read_overleaf_files())
+        await self.broadcast({"type": "comments_changed"})
+        return web.json_response({"ok": True})
 
     async def _overleaf_written(self, path: str) -> None:
         """A file written with an edit from Overleaf: the page is told at once."""
@@ -977,7 +1164,9 @@ class TexMcpWebServer:
                 # words are.
                 "imported": brought,
                 "unplaced": {known["comment"]: _place_name(known["place"]) for known in ledger.values()
-                             if "place" in known}}
+                             if "place" in known},
+                # The edits made on Overleaf with track changes on, waiting to be accepted or rejected.
+                "suggested": self._tracked_view()}
 
     async def _handle_overleaf(self, request: web.Request) -> web.Response:
         return web.json_response(await self._overleaf_status(), headers={"Cache-Control": "no-store"})
@@ -1104,7 +1293,10 @@ class TexMcpWebServer:
 
     async def _handle_overleaf_upstream(self, request: web.Request) -> web.Response:
         try:
-            return web.json_response(await self._overleaf_upstream(fresh=request.method == "POST"))
+            answer = await self._overleaf_upstream(fresh=request.method == "POST")
+            if suggested := self._suggested_lines():
+                answer["suggested"] = suggested
+            return web.json_response(answer)
         except overleaf_git.GitError as error:
             return web.json_response({"error": str(error)}, status=409)
         except NotConnected as error:
@@ -1258,6 +1450,7 @@ class TexMcpWebServer:
         try:
             async with self._overleaf_import:
                 data = await overleaf.fetch_export(self.config.overleaf, cookie)
+                await self._take_tracked(data)
                 return web.json_response(await self._bring_in_overleaf(data, new=True))
         except overleaf.SignedOut as error:
             return web.json_response({"error": f"{error} (the cookie has expired or is wrong)"}, status=401)

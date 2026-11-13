@@ -150,6 +150,14 @@
           <button id="resolve-picked-btn" class="icon-btn" type="button" disabled aria-label="Resolve" title="Resolve the picked comments">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M5 8l2 2 4-4"/></svg><span class="count"></span>
           </button>
+          <!-- Shown in the leaf tab's suggested edits view, in place of Resolve and Send: the picked
+               suggested edits are accepted or rejected on Overleaf. -->
+          <button id="accept-picked-btn" class="icon-btn" type="button" hidden disabled aria-label="Accept" title="Accept the picked suggested edits on Overleaf">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5l3.5 3.5L13 4.5"/></svg><span class="count"></span>
+          </button>
+          <button id="reject-picked-btn" class="icon-btn" type="button" hidden disabled aria-label="Reject" title="Reject the picked suggested edits on Overleaf">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg><span class="count"></span>
+          </button>
           <!-- Shown in the leaf Comments tab: each picked thread sends what its reply box holds
                to its own thread on Overleaf. -->
           <button id="send-picked-btn" class="icon-btn" type="button" hidden disabled aria-label="Send to Overleaf" title="Send the picked replies to Overleaf">
@@ -229,6 +237,7 @@
     <!-- Who is in the project, and the files edited there that this folder does not hold yet. -->
     <section id="overleaf-live" class="overleaf-direct" hidden>
       <p id="overleaf-live-status" class="overleaf-live-status"></p>
+      <p id="overleaf-tracking" class="overleaf-live-status" hidden>Track changes is on for you on Overleaf, so the edits Send and Live make there are suggested edits. git push makes them as they are.</p>
       <ul id="overleaf-live-users" class="overleaf-live-list"></ul>
       <p id="overleaf-live-changes-head" class="overleaf-live-head" hidden>Edited on Overleaf, not yet here</p>
       <ul id="overleaf-live-changes" class="overleaf-live-list"></ul>

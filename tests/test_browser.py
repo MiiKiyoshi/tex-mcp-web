@@ -2646,7 +2646,7 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
         # drafts still to send, then those already on Overleaf.
         assert browser.execute_script(
             'return [...document.querySelectorAll("#comment-filter option")].map((o) => o.textContent);') \
-            == ["unanswered", "answered", "new thread", "open", "resolved", "all"]
+            == ["unanswered", "answered", "new thread", "suggested edits", "open", "resolved", "all"]
         browser.execute_script('const f = document.querySelector("#comment-filter"); f.value = "new";'
                                ' f.dispatchEvent(new Event("change"));')
         assert wait_until(lambda: browser.execute_script(
@@ -3395,6 +3395,104 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
             'return document.querySelector("#overleaf-live-btn").classList.contains("trouble")') is True
         assert browser.execute_script('return document.querySelector("#overleaf-live-btn").hidden') is False
         assert text("#overleaf-live-label") == "Comments not coming in"
+    finally:
+        if browser is not None:
+            try:
+                browser.delete_session()
+            except Exception:
+                pass
+        if browser_process is not None:
+            browser_process.terminate()
+            try:
+                browser_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                browser_process.kill()
+        shutil.rmtree(profile, ignore_errors=True)
+        shared.stop()
+        asyncio.run_coroutine_threadsafe(realtime.close(), loop).result(10)
+        loop.call_soon_threadsafe(loop.stop)
+
+
+@pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
+def test_suggested_edits_from_overleaf_have_their_own_view_and_marks_in_the_editor(
+        tmp_path: Path, monkeypatch) -> None:
+    """Edits a co-author made on Overleaf with track changes on wait in the leaf tab's suggested
+    edits view, counted on the tab, each card with who, when, its words and Accept and Reject.
+    The editor marks the inserted words and where words were deleted, and a card shows its place."""
+    import asyncio
+    import threading
+    from aiohttp.test_utils import TestServer
+    from tests.test_overleaf_live import FIGURE, PROJECT_ID, FakeRealtime
+    from tex_mcp_web import overleaf
+
+    loop = asyncio.new_event_loop()
+    threading.Thread(target=loop.run_forever, daemon=True).start()
+    fake = FakeRealtime()
+    realtime = TestServer(fake.app, loop=loop)
+    asyncio.run_coroutine_threadsafe(realtime.start_server(), loop).result(10)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config-home"))
+    monkeypatch.delenv(overleaf.COOKIE_ENV, raising=False)
+    overleaf.save_cookie(fake.cookie)
+    main = "\\documentclass{article}\n\\begin{document}\nHello world.\n\\end{document}\n"
+    (tmp_path / "main.tex").write_text(main, encoding="utf-8")
+    (tmp_path / "tex").mkdir()
+    (tmp_path / "tex" / "body.tex").write_text("Body text.\n", encoding="utf-8")
+    (tmp_path / "a.png").write_bytes(FIGURE)
+    fake.texts = {"d-main": main, "d-body": "Body text.\n"}
+    # A co-author wrote "world" over "there".
+    at = main.index("world")
+    stamp = {"user_id": "u-co", "ts": "2026-11-13T00:49:00.000Z"}
+    fake.changes["d-main"] = [{"id": "s1", "op": {"p": at, "i": "world"}, "metadata": stamp},
+                              {"id": "s2", "op": {"p": at + 5, "d": "there"}, "metadata": stamp}]
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: main.tex\nport: {port}\n"
+                           f"overleaf: http://127.0.0.1:{realtime.port}/project/{PROJECT_ID}\n", encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    profile = tempfile.mkdtemp(prefix="tex_mcp_suggested_")
+    marionette_port = available_port()
+    (Path(profile) / "user.js").write_text(
+        f'user_pref("marionette.port", {marionette_port});\n', encoding="utf-8")
+    browser_process = None
+    browser = None
+    script = lambda code: browser.execute_script(code)
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        browser_process = subprocess.Popen(
+            ["firefox", "-marionette", "-headless", "-no-remote", "-profile", profile, "about:blank"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        browser = marionette.Marionette(host="127.0.0.1", port=marionette_port, startup_timeout=30)
+        browser.start_session()
+        browser.navigate(base)
+        # Counted on the leaf tab, with no thread there.
+        wait_until(lambda: script('return document.querySelector("#overleaf-tab-count").textContent') == "1",
+                   timeout=15)
+        script('document.querySelector(\'.tab-btn[data-tab="overleaf-comments"]\').click()')
+        assert "suggested edits (1)" in script(
+            'return [...document.querySelectorAll("#comment-filter option")].map((o) => o.textContent).join("|")')
+        script('const f = document.querySelector("#comment-filter"); f.value = "changes";'
+               'f.dispatchEvent(new Event("change"))')
+        wait_until(lambda: script('return document.querySelector(".suggested-edit") !== null'))
+        card = script('return document.querySelector(".suggested-edit").innerText')
+        assert "Co Author" in card and "main.tex:3" in card and "there" in card and "world" in card
+        # Resolve and Send give way to Accept and Reject in the row.
+        assert script('return [document.querySelector("#resolve-picked-btn").hidden,'
+                      ' document.querySelector("#accept-picked-btn").hidden]') == [True, False]
+        # The card shows its place in the source, where the editor marks it.
+        script('document.querySelector(".suggested-edit .cmt-head").click()')
+        wait_until(lambda: script('return document.querySelector("#source-file")?.value') == "main.tex")
+        wait_until(lambda: script('return [document.querySelectorAll(".source-suggested-insert").length,'
+                                  ' document.querySelectorAll(".source-suggested-delete").length]') == [1, 1])
+        assert browser.execute_script('return ace.edit("source-editor").getCursorPosition()',
+                                      sandbox=None) == {"row": 2, "column": 6}
+        # Accepted on Overleaf, it leaves the view and the editor.
+        script('document.querySelector(".suggested-edit .change-accept").click()')
+        wait_until(lambda: fake.written == [("accept", "d-main", ["s1", "s2"])])
+        wait_until(lambda: script('return document.querySelector("#comments-list").textContent')
+                   == "No suggested edits on Overleaf.")
+        wait_until(lambda: script('return document.querySelectorAll(".source-suggested-insert").length') == 0)
     finally:
         if browser is not None:
             try:

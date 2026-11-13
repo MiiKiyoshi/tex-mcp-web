@@ -352,3 +352,26 @@ def nearest(text: str, words: str, line: int) -> int | None:
             found = (distance, at)
         at = text.find(words, at + 1)
     return None if found is None else js_len(text[:found[1]])
+
+
+# ----- Suggested edits -----
+
+def undo(text: str, changes: list[dict]) -> Op:
+    """The edit that rejects suggested edits in *text*, as Overleaf's editor rejects them: a
+    suggested insertion's words deleted and a suggested deletion's words put back, each step
+    marked as an undo (``"u"``) so Overleaf drops the suggestion rather than tracking the undo.
+    Each change is ``{"op": {"p", "i" | "d"}}`` with its position in *text*. The steps run from
+    the end of the text back, a deletion before an insertion at one place, so no step moves the
+    place of one after it."""
+    steps = []
+    for change in changes:
+        op = change["op"]
+        at = py_index(text, op["p"])
+        if "i" in op:
+            if text[at:at + len(op["i"])] != op["i"]:
+                raise Mismatch(f"a suggested insertion at {op['p']} names {op['i'][:30]!r}, "
+                               f"but the text there is {text[at:at + len(op['i'])][:30]!r}")
+            steps.append({"p": op["p"], "d": op["i"], "u": True})
+        else:
+            steps.append({"p": op["p"], "i": op["d"], "u": True})
+    return sorted(steps, key=lambda step: (-step["p"], "i" in step))

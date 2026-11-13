@@ -66,12 +66,18 @@ class FakeRealtime:
         app.router.add_get(f"/project/{PROJECT_ID}", self._editor_page)
         app.router.add_post(f"/project/{PROJECT_ID}/thread/{{thread}}/messages", self._post_message)
         app.router.add_post(f"/project/{PROJECT_ID}/doc/{{doc}}/thread/{{thread}}/{{what:resolve|reopen}}", self._close)
+        app.router.add_post(f"/project/{PROJECT_ID}/doc/{{doc}}/changes/accept", self._accept)
+        app.router.add_get(f"/project/{PROJECT_ID}/changes/users", self._change_users)
         self.written: list = []            # every write Overleaf took
         self.refuse_writes = False
         # The documents' text and version, which an editor opens and edits by its own calls.
         self.texts = {"d-main": MAIN, "d-body": BODY}
         self.versions = {"d-main": 1, "d-body": 1}
         self.applied: list = []            # (doc, op) of every edit taken
+        self.updates: list = []            # every edit as sent, with what it carries besides
+        # Suggested edits by document, made with track changes on, and whom Overleaf tracks.
+        self.changes: dict[str, list] = {}
+        self.track_state: dict | None = None
         self.app = app
 
     async def _editor_page(self, request: web.Request) -> web.Response:
@@ -94,6 +100,17 @@ class FakeRealtime:
         thread = self.threads[request.match_info["thread"]]
         thread["messages"].append({"id": f"m-{len(self.written)}", "user": {"first_name": "Me"}, "content": body["content"]})
         return web.Response(status=204)
+
+    async def _accept(self, request: web.Request) -> web.Response:
+        self._check_write(request)
+        doc, accepted = request.match_info["doc"], (await request.json())["change_ids"]
+        self.written.append(("accept", doc, accepted))
+        self.changes[doc] = [change for change in self.changes.get(doc, []) if change["id"] not in accepted]
+        return web.Response(status=204)
+
+    async def _change_users(self, request: web.Request) -> web.Response:
+        self._refuse(request)
+        return web.json_response([{"id": "u-co", "first_name": "Co", "last_name": "Author", "email": "co@example.org"}])
 
     async def _close(self, request: web.Request) -> web.Response:
         self._check_write(request)
@@ -119,7 +136,7 @@ class FakeRealtime:
         comments, self.ranges_read = list(self.ranges), self.ranges_read + 1
         self.ranges += self.ranges_after_first_read
         self.ranges_after_first_read = []
-        return web.json_response([{"id": "d-main", "ranges": {"comments": comments}}])
+        return web.json_response([{"id": "d-main", "ranges": {"comments": comments, "changes": self.changes.get("d-main", [])}}])
 
     async def _entities(self, request: web.Request) -> web.Response:
         self._refuse(request)
@@ -127,7 +144,7 @@ class FakeRealtime:
 
     async def _download(self, request: web.Request) -> web.Response:
         self._refuse(request)
-        return web.Response(text=MAIN, content_type="text/plain",
+        return web.Response(text=self.texts["d-main"], content_type="text/plain",
                             headers={"Content-Disposition": 'attachment; filename="main.tex"'})
 
     async def _handshake(self, request: web.Request) -> web.Response:
@@ -147,7 +164,8 @@ class FakeRealtime:
             await ws.send_str(event("connectionRejected", {"message": self.reject_with or "invalid session"}))
             await ws.close()
             return ws
-        await ws.send_str(event("joinProjectResponse", {"publicId": "me-1", "project": PROJECT,
+        project = PROJECT if self.track_state is None else {**PROJECT, "trackChangesState": self.track_state}
+        await ws.send_str(event("joinProjectResponse", {"publicId": "me-1", "project": project,
                                                         "permissionsLevel": "owner", "protocolVersion": 2}))
         self.connected.set()
         async for message in ws:
@@ -174,8 +192,11 @@ class FakeRealtime:
         doc = str(args[0]) if args else ""
         if name == "joinDoc":
             ranges = {"comments": self.ranges} if doc == "d-main" else {}
+            if self.changes.get(doc):
+                ranges["changes"] = self.changes[doc]
             return [None, self.texts[doc].split("\n"), self.versions[doc], [], ranges, "sharejs-text-ot", {}]
         if name == "applyOtUpdate":
+            self.updates.append(args[1])
             op = args[1]["op"]
             self.texts[doc] = ot.apply(self.texts[doc], ot.text_only(op))
             self.versions[doc] += 1
@@ -821,3 +842,99 @@ async def test_a_ledger_from_before_messages_had_ids_adds_nothing_again(review) 
     await wait_for(lambda: fake.ranges_read >= read + 2)
     assert len(server.comments.get(comment.id).thread) == 1
     await page.close()
+
+
+# ----- Suggested edits -----
+
+def suggested_change():
+    """A co-author's change of "folks" to "there" in the main file, made with track changes on:
+    Overleaf's text holds "there", and "folks" only as a suggested deletion."""
+    at = MAIN.index("there")
+    return [{"id": "s1", "op": {"p": at, "i": "there"}, "metadata": {"user_id": "u-co", "ts": "2026-11-13T00:49:00.000Z"}},
+            {"id": "s2", "op": {"p": at + 5, "d": "folks"}, "metadata": {"user_id": "u-co", "ts": "2026-11-13T00:49:00.000Z"}}]
+
+
+async def suggested(client) -> list:
+    return (await (await client.get("/overleaf")).json())["suggested"]
+
+
+async def test_suggested_edits_show_where_they_are_and_go_when_accepted_or_rejected(review) -> None:
+    client, server, fake = review
+    fake.changes["d-main"] = suggested_change()
+    page = await opened(client, fake)
+    await wait_for(lambda: server._overleaf_tracked)
+    (edit,) = await suggested(client)
+    line = MAIN.count("\n", 0, MAIN.index("there")) + 1
+    assert {key: edit[key] for key in ("doc", "ids", "file", "line", "inserted", "deleted", "name", "here")} == {
+        "doc": "d-main", "ids": ["s1", "s2"], "file": "main.tex", "line": line, "inserted": "there",
+        "deleted": "folks", "name": "Co Author",
+        "here": {"line_start": line, "column_start": 3, "line_end": line, "column_end": 8}}
+    # The agent reads them too, where they are in the file here.
+    assert (await (await client.get("/overleaf/upstream")).json())["suggested"] == [
+        f"main.tex:{line} Co Author changed 'folks' to 'there'"]
+
+    # Accepted, on Overleaf by its route, and gone from the page at once.
+    response = await client.post("/overleaf/changes/accept", json={"doc": "d-main", "ids": ["s1", "s2"]})
+    assert response.status == 200, await response.text()
+    assert fake.written[-1] == ("accept", "d-main", ["s1", "s2"]) and await suggested(client) == []
+
+    # Rejected, by an edit that takes the words back, marked as an undo, from the end back.
+    fake.changes["d-main"] = suggested_change()
+    assert (await client.post("/overleaf/comments")).status == 200
+    assert len(await suggested(client)) == 1
+    response = await client.post("/overleaf/changes/reject", json={"doc": "d-main", "ids": ["s1", "s2"]})
+    assert response.status == 200, await response.text()
+    at = MAIN.index("there")
+    assert fake.updates[-1] == {"doc": "d-main", "v": 1, "op": [{"p": at + 5, "i": "folks", "u": True},
+                                                                {"p": at, "d": "there", "u": True}]}
+    assert fake.texts["d-main"] == MAIN.replace("there", "folks") and await suggested(client) == []
+    # The file here takes it as any edit made on Overleaf: by Get.
+    await wait_for(lambda: server.overleaf_hand.state()["get"] == ["main.tex"])
+    await page.close()
+
+
+async def test_a_suggested_edit_is_placed_only_where_the_file_holds_the_text_around_it(review) -> None:
+    client, server, fake = review
+    fake.changes["d-main"] = suggested_change()
+    (Path(server.watch_dir) / "main.tex").write_text("% a line added here\n" + MAIN)
+    page = await opened(client, fake)
+    await wait_for(lambda: server._overleaf_tracked)
+    (edit,) = await suggested(client)
+    assert edit["here"]["line_start"] == edit["line"] + 1
+    (Path(server.watch_dir) / "main.tex").write_text(MAIN.replace("there", "folks"))
+    (edit,) = await suggested(client)
+    assert edit["here"] is None
+    await page.close()
+
+
+async def test_edits_sent_by_hand_go_as_suggestions_while_overleaf_tracks_the_reviewers(review) -> None:
+    client, server, fake = review
+    fake.track_state = {"u-me": True}
+    page = await opened(client, fake)
+    await wait_for(lambda: server.overleaf_live.tracking() is True)
+    assert (await (await client.get("/overleaf/live")).json())["tracking"] is True
+    (Path(server.watch_dir) / "main.tex").write_text(MAIN.replace("Hi", "Hello"))
+    response = await client.post("/overleaf/files/send")
+    assert response.status == 200, await response.text()
+    assert re.fullmatch(r"[0-9a-f]{18}", fake.updates[-1]["meta"]["tc"])
+    assert fake.texts["d-main"] == MAIN.replace("Hi", "Hello")
+    await fake.push(event("toggle-track-changes", {}))
+    await wait_for(lambda: server.overleaf_live.tracking() is False)
+    await page.close()
+
+
+async def test_an_edit_made_as_a_suggestion_on_overleaf_is_read_once_the_typing_settles(review) -> None:
+    client, server, fake = review
+    server.OVERLEAF_TRACKED_SETTLE = 0.5
+    page = await opened(client, fake)
+    await wait_for(lambda: fake.ranges_read >= 1)
+    await asyncio.sleep(0.1)
+    before = fake.ranges_read
+    typed = {"doc": "d-main", "op": [{"p": 0, "i": "%"}], "v": 1, "meta": {"user_id": "u-co", "tc": "0" * 18}}
+    for _ in range(3):
+        await fake.push(event("otUpdateApplied", typed))
+        await asyncio.sleep(0.05)
+    assert fake.ranges_read == before
+    await wait_for(lambda: fake.ranges_read > before)
+    await page.close()
+

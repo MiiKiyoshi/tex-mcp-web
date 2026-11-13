@@ -850,10 +850,13 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
     async def overleaf(action: Literal["state", "get", "push"] = "state") -> str:
         """This folder against its Overleaf project. state reads Overleaf again and names only
         what differs: get, Overleaf's edits not here, send, edits here not on Overleaf, choose,
-        files waiting for the reviewer, and in a git clone the commits behind and ahead. get
-        brings Overleaf's edits here (git pull in a git clone, Get otherwise), changing only
-        files here, and a clash changes nothing. push sends a git clone's commits (git push).
-        Sending edits without git is the reviewer's, from the page."""
+        files waiting for the reviewer, and in a git clone the commits behind and ahead.
+        suggested lists the edits made on Overleaf with track changes on, which wait for the
+        reviewer to accept or reject them from the page: Overleaf's text holds a suggested
+        insertion's words and not a suggested deletion's. get brings Overleaf's edits here
+        (git pull in a git clone, Get otherwise), changing only files here, and a clash changes
+        nothing. push sends a git clone's commits (git push). Sending edits without git is the
+        reviewer's, from the page."""
         import httpx
 
         cfg, _, _ = _load_project(binding)

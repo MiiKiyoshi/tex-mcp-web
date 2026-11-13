@@ -8,11 +8,13 @@ This reads that and sends no edit to the text. It asks once who is connected, an
 reviewer is, the top of the main file, which needs that file opened (joinDoc) first: an
 editor that sees no one else sends its cursor every five minutes, and one that sees the
 reviewer sends it twice a second. To the others it is one more tab of the reviewer's, idle.
-The service also says when a comment changes, which is passed on for the server to read.
+The service also says when a comment changes, and when an edit made with track changes on
+comes or a suggested edit is accepted, which is passed on for the server to read.
 When the reviewer sends a new thread, the session puts it on its words with an edit that
-changes no text, as the editor does for a comment. With a sync attached, the session also
-carries the files' edits both ways (overleaf_sync); a file added, renamed or deleted on
-Overleaf joins the project again, to read its files anew.
+changes no text, as the editor does for a comment. When the reviewer rejects suggested edits,
+the session makes the edit that takes them back, as the editor does. With a sync attached,
+the session also carries the files' edits both ways (overleaf_sync); a file added, renamed or
+deleted on Overleaf joins the project again, to read its files anew.
 
 The protocol is the service's own (services/real-time in overleaf/overleaf), not a public
 API; a change on Overleaf's side ends in an error here, never in a change there.
@@ -31,8 +33,8 @@ import aiohttp
 
 from . import __version__
 from . import overleaf_ot as ot
-from .overleaf import project_of
-from .overleaf_sync import _decode
+from .overleaf import change_seed, project_of
+from .overleaf_sync import _decode, _suggestions
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +45,8 @@ _OPEN_MAIN = 2
 # stays as it came in.
 COMMENT_NEWS = ("new-comment", "new-comment-threads", "delete-message", "resolve-thread", "reopen-thread",
                 "delete-thread")
+# What the server is told, as a comment's news, when suggested edits may have changed.
+TRACKED = "tracked"
 
 
 def _paths(folder: dict, prefix: str = "") -> dict[str, str]:
@@ -160,6 +164,11 @@ class LivePresence:
         self._people: dict[str, str] = {}
         self._users: dict[str, dict] = {}
         self._changes: dict[str, dict] = {}
+        # Whom Overleaf tracks the edits of, the reviewer's place in the project, and the
+        # reviewer's account, read with who is in the project.
+        self._track_state: Any = None
+        self._permission = ""
+        self._user_id = ""
 
     # ----- What the page shows -----
 
@@ -174,9 +183,24 @@ class LivePresence:
         return {"status": self.status, "message": self.message, "project": self.link,
                 "users": sorted(users, key=lambda user: user["name"]), "changes": changes,
                 "comments_trouble": self.comments_trouble, "doc_type": self.doc_type, "me": self.me,
+                "tracking": self.tracking() if self.status == "live" else None,
                 "files": (self.sync.snapshot() if self.sync is not None
                           else self.files.snapshot() if self.files is not None else []),
                 "by_hand": self.files.state() if self.files is not None else None}
+
+    def tracking(self) -> bool | None:
+        """Whether an edit sent from here goes to Overleaf as a suggested edit, as Overleaf's
+        editor sends the reviewer's: always when the reviewer may only suggest, and otherwise
+        while the project's track changes is on for the reviewer's account. None while the
+        session does not know whose account it is."""
+        if self._permission == "review":
+            return True
+        state = self._track_state
+        if not isinstance(state, dict) or not any(state.values()):
+            return False
+        if not self._user_id:
+            return None
+        return bool(state.get(self._user_id))
 
     def _set(self, status: str, message: str = "") -> None:
         self.status, self.message = status, message
@@ -325,6 +349,9 @@ class LivePresence:
             project = first.get("project") or {}
             self.project_name = str(project.get("name") or "")
             self._me = str(first.get("publicId", ""))
+            self._track_state = project.get("trackChangesState")
+            self._permission = str(first.get("permissionsLevel") or "")
+            self._user_id = ""
             self._docs = {}
             self._uploads, self._folders = {}, {}
             for root in project.get("rootFolder") or []:
@@ -353,6 +380,11 @@ class LivePresence:
                     {"name": "joinDoc", "args": [self._main_doc, -1, {"encodeRanges": True, "supportsHistoryOT": True}]}))
         elif name in COMMENT_NEWS:
             self._comment_news(name, args)
+        elif name == "toggle-track-changes":
+            self._track_state = first
+            self._notify()
+        elif name == "accept-changes":
+            self._comment_news(TRACKED, args)
         elif name == "clientTracking.clientUpdated" and isinstance(first, dict):
             if str(first.get("id")) != self._me:
                 self._users[str(first.get("id"))] = {
@@ -365,12 +397,19 @@ class LivePresence:
         elif name == "otUpdateError" and self.sync is not None:
             detail = args[1] if len(args) > 1 and isinstance(args[1], dict) else {}
             self.sync.failed(str(detail.get("doc_id", "")), str(first))
-        elif name == "otUpdateApplied" and isinstance(first, dict) and self.sync is not None and not first.get("op"):
-            self.sync.remote(first)
+        elif name == "otUpdateApplied" and isinstance(first, dict) and not first.get("op"):
+            # One's own edit, applied: a suggestion when sent as one.
+            if self.sync is not None:
+                self.sync.remote(first)
+            if self.tracking():
+                self._comment_news(TRACKED, [])
         elif name == "otUpdateApplied" and isinstance(first, dict) and first.get("op"):
             # A collaborator's edit; one's own comes back without its op.
             if self.sync is not None:
                 self.sync.remote(first)
+            if (first.get("meta") or {}).get("tc") or any(
+                    isinstance(step, dict) and step.get("u") for step in first["op"]):
+                self._comment_news(TRACKED, [])
             path = self._docs.get(str(first.get("doc")))
             # The files kept the same live take the edit in by themselves.
             doc = self.sync.docs.get(str(first.get("doc"))) if self.sync is not None else None
@@ -437,17 +476,84 @@ class LivePresence:
                 return f"Overleaf took the thread's message but did not put it on its words ({answer[0]}). Send again."
             return None
         finally:
-            # The main file stays open, as the presence keeps it; any other is let go.
-            if doc != self._main_doc:
-                try:
-                    await api.call("leaveDoc", [doc], timeout=5)
-                except (ConnectionError, asyncio.TimeoutError):
-                    pass
+            await self._leave(api, doc)
+
+    async def reviewable(self, doc: str) -> str | None:
+        """Why suggested edits in the document *doc* cannot be accepted or rejected from here,
+        or None: Overleaf's newer kind of document takes them otherwise, on Overleaf."""
+        if self.sync is not None and doc in self.sync.docs:
+            followed = self.sync.docs[doc]
+            return followed.message if followed.status == "unsupported" else None
+        api = self._session_api
+        if api is None or self.status != "live":
+            return "The page is not connected to Overleaf right now. Try again in a moment."
+        path = self._docs.get(doc)
+        if path is None:
+            return "Overleaf's project no longer has this file."
+        reply = await api.call("joinDoc", [doc, -1, {"encodeRanges": True, "supportsHistoryOT": True}])
+        try:
+            if not reply or reply[0] is not None:
+                return f"Overleaf did not open {path}: {reply[0] if reply else 'no answer'}."
+            if len(reply) > 5 and reply[5] != "sharejs-text-ot":
+                return f"Overleaf keeps {path} in a form ({reply[5]}) this page does not edit. Do it on Overleaf."
+            return None
+        finally:
+            await self._leave(api, doc)
+
+    async def reject(self, doc: str, changes: list[str]) -> str | None:
+        """Reject the suggested edits *changes* in the document *doc* on Overleaf, as Overleaf's
+        editor does: one edit takes their words back, itself a suggestion while Overleaf tracks
+        the reviewer's edits. With the files following Overleaf live, the sync makes that edit in
+        turn with the file's own and the file here takes it at once. Otherwise the file takes it
+        as it takes any edit made on Overleaf. Says why not, or None."""
+        if self.sync is not None and doc in self.sync.docs:
+            return await self.sync.reject(doc, changes)
+        api = self._session_api
+        if api is None or self.status != "live":
+            return "The page is not connected to Overleaf right now. Try again in a moment."
+        path = self._docs.get(doc)
+        if path is None:
+            return "Overleaf's project no longer has this file."
+        tracked = self.tracking()
+        if tracked is None:
+            return "The page does not know yet whether Overleaf tracks your edits. Try again in a moment."
+        reply = await api.call("joinDoc", [doc, -1, {"encodeRanges": True, "supportsHistoryOT": True}])
+        try:
+            if not reply or reply[0] is not None:
+                return f"Overleaf did not open {path}: {reply[0] if reply else 'no answer'}."
+            if len(reply) > 5 and reply[5] != "sharejs-text-ot":
+                return f"Overleaf keeps {path} in a form ({reply[5]}) this page does not edit. Do it on Overleaf."
+            chosen = _suggestions((reply[4] if len(reply) > 4 else None) or {}, changes)
+            if not chosen:
+                return "Overleaf no longer has these suggested edits."
+            try:
+                op = ot.undo("\n".join(_decode(str(row)) for row in reply[1]), chosen)
+            except ot.Mismatch:
+                return f"Overleaf's {path} changed while it was read. Try again."
+            update: dict[str, Any] = {"doc": doc, "op": op, "v": reply[2]}
+            if tracked:
+                update["meta"] = {"tc": change_seed()}
+            answer = await api.call("applyOtUpdate", [doc, update])
+            if answer and answer[0] is not None:
+                return f"Overleaf did not take it ({answer[0]}), so nothing was changed there."
+            return None
+        finally:
+            await self._leave(api, doc)
+
+    async def _leave(self, api: _Session, doc: str) -> None:
+        """Let a document go again, unless it is the main file, which the presence keeps open."""
+        if doc != self._main_doc:
+            try:
+                await api.call("leaveDoc", [doc], timeout=5)
+            except (ConnectionError, asyncio.TimeoutError):
+                pass
 
     def _connected_users(self, reply: list) -> None:
         users = reply[1] if len(reply) > 1 and isinstance(reply[1], list) else []
-        self.me = next((_name(user) for user in users if isinstance(user, dict)
-                        and str(user.get("client_id")) == self._me), self.me)
+        mine = next((user for user in users if isinstance(user, dict) and str(user.get("client_id")) == self._me), None)
+        if mine is not None:
+            self.me = _name(mine)
+            self._user_id = str(mine.get("user_id") or "")
         self._users = {
             str(user["client_id"]): {
                 "user_id": str(user.get("user_id", "")), "name": _name(user),

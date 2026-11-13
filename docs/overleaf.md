@@ -1,8 +1,8 @@
 # Working with Overleaf
 
-The review page follows the paper's Overleaf project: its comment threads come into their own
-tab, your co-authors show in the top bar, and the paper's files keep in step with the
-project in one of three ways.
+The review page follows the paper's Overleaf project: its comment threads and suggested edits
+come into their own tab, your co-authors show in the top bar, and the paper's files keep in
+step with the project in one of three ways.
 
 ## Connecting
 
@@ -84,6 +84,34 @@ and on Overleaf through it.
   only once Overleaf has what those ranges held, and the refusal says to press commit &
   push first, or, when the files here no longer hold those words, that the lines changed
   after the draft and it is drafted again.
+
+## Suggested edits
+
+An edit made on Overleaf with track changes on is a suggested edit until someone accepts or
+rejects it. Overleaf's text holds a suggested insertion's words and not a suggested deletion's,
+and so do the files here once they hold Overleaf's text.
+
+- The leaf Comments tab's **suggested edits** view lists them in the order the paper reads
+  them, and the tab counts them with its open threads. A card names who suggested the edit and
+  when, and shows the deleted words on a − line and the inserted ones on a + line, as a
+  proposal's are shown. Words typed over others make one card. A click on the card, or Space,
+  shows the edit in the source.
+- The editor marks them whichever tab is shown: the inserted words underlined in their
+  author's colour, a red bar where words were deleted, and a mark beside the line that opens
+  the card, as `K` does on the words. An edit is marked where the file here holds the text
+  around it as Overleaf has it. Otherwise its card shows its line on Overleaf, and the editor
+  leaves it unmarked.
+- **Accept** keeps the words as they are and **Reject** takes them back, on Overleaf, for
+  everyone in the project, as Overleaf's own buttons do. The buttons atop the view do the same
+  for the picked edits, after asking once, and `aa` and `dd` press a card's Accept and Reject.
+  Rejecting changes Overleaf's text, which the file takes as any edit made there: at once when
+  the files follow Overleaf live, by Get by hand, and by git pull in a git clone. In Overleaf's
+  newer kind of document they are accepted and rejected on Overleaf.
+- The page reads them when it joins the project, when a comment changes there, and a few
+  seconds after someone typing with track changes on stops.
+- While track changes is on for you on Overleaf, the edits Send and Live make there are
+  suggested edits too, as Overleaf's editor makes yours, and Settings says so. git push makes
+  them as they are.
 
 ## Your co-authors on the page
 
@@ -189,8 +217,10 @@ exclude file when it starts, so a commit of every file leaves them out.
 
 The agent reads where the folder stands with `overleaf()`, which reads Overleaf again and
 names only what differs: files with edits on Overleaf not here, files with edits here not on
-Overleaf, files waiting for a choice, and in a git clone the commits behind and ahead.
+Overleaf, files waiting for a choice, and in a git clone the commits behind and ahead. It
+also lists the suggested edits, one line each, with where each is in the file here.
 `read_comments(new=True)` adds one line when Overleaf has edits this folder lacks.
 `overleaf(action="get")` brings those edits in, by Get or by git pull in a git clone, and
 changes nothing when they clash. `overleaf(action="push")` runs git push in a git clone.
-Sending replies, Send, Resolve and Reopen stay yours, from the page.
+Sending replies, Send, Resolve and Reopen, and accepting and rejecting suggested edits, stay
+yours, from the page.
