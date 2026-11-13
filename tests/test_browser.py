@@ -48,6 +48,16 @@ def type_keys(browser, keys):
             actions.key_down(key).key_up(key)
     actions.perform()
 
+def show_view(browser, view: str) -> None:
+    """The comment list's view, chosen as a reader chooses it in the list atop the tab, once the
+    page has drawn the tab's views: each comment tab opens on to do."""
+    wait_until(lambda: browser.execute_script(
+        'return [...document.querySelectorAll("#comment-filter option")].some((o) => o.value === arguments[0])',
+        script_args=[view]))
+    browser.execute_script('const f = document.querySelector("#comment-filter"); f.value = arguments[0];'
+                           ' f.dispatchEvent(new Event("change"));', script_args=[view])
+
+
 def available_port() -> int:
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
@@ -125,6 +135,7 @@ def test_browser_comment_actions(tmp_path: Path) -> None:
         browser.start_session()
         browser.set_window_rect(x=0, y=0, width=1500, height=1000)
         browser.navigate(base)
+        show_view(browser, "open")
         wait_until(lambda: browser.execute_script(
             'return document.querySelectorAll("[data-comment-id]").length === 1'))
         # A paper with no Overleaf project and no threads from one has no leaf tab.
@@ -1568,6 +1579,7 @@ def test_shift_picks_the_run_between_two_boxes(tmp_path: Path) -> None:
         browser.start_session()
         browser.set_window_rect(x=0, y=0, width=1500, height=1000)
         browser.navigate(base)
+        show_view(browser, "open")
         wait_until(lambda: browser.execute_script(
             "return document.querySelectorAll('.comment-pick').length === 5 || false;"))
 
@@ -1672,6 +1684,7 @@ def test_a_comment_highlight_shows_on_the_cursors_line_in_every_look(tmp_path: P
         browser.start_session()
         browser.set_window_rect(x=0, y=0, width=1500, height=900)
         browser.navigate(base)
+        show_view(browser, "open")
         wait_until(lambda: browser.execute_script(
             'return document.querySelectorAll("#comments-list .cmt").length === 1'))
         browser.execute_script('document.querySelector("[data-view=source]").click()')
@@ -1743,6 +1756,7 @@ def test_a_comment_opened_by_space_shows_its_line_a_third_of_the_way_down_the_ed
         browser.start_session()
         browser.set_window_rect(x=0, y=0, width=1500, height=900)
         browser.navigate(base)
+        show_view(browser, "open")
         wait_until(lambda: browser.execute_script(
             'return document.querySelectorAll("#comments-list .cmt").length === 2'))
         browser.execute_script('document.querySelector("[data-view=source]").click()')
@@ -1767,6 +1781,76 @@ def test_a_comment_opened_by_space_shows_its_line_a_third_of_the_way_down_the_ed
     finally:
         if browser is not None:
             browser.delete_session()
+        if browser_process is not None:
+            browser_process.terminate()
+            try:
+                browser_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                browser_process.kill()
+        shutil.rmtree(profile, ignore_errors=True)
+        shared.stop()
+
+
+@pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
+def test_each_comment_tab_opens_on_what_waits_for_the_reviewer(tmp_path: Path) -> None:
+    """The Comments tab opens on to do: the comments whose suggestion waits to be applied. The
+    editor still marks every open comment, one opened from its mark shows in the open view,
+    and applied, the suggestion leaves to do empty."""
+    lines = [f"Sentence {n} of an invented body." for n in range(1, 21)]
+    (tmp_path / "paper.tex").write_text(
+        "\\documentclass{article}\n\\begin{document}\n" + "\n".join(lines) + "\n\\end{document}\n", encoding="utf-8")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    profile = tempfile.mkdtemp(prefix="tex_mcp_todo_")
+    marionette_port = available_port()
+    (Path(profile) / "user.js").write_text(
+        f'user_pref("marionette.port", {marionette_port});\n', encoding="utf-8")
+    browser_process = None
+    browser = None
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        anchor = lambda line: {"kind": "source_range", "file": "paper.tex", "line_start": line, "line_end": line,
+                               "column_start": 0, "column_end": 8}
+        asked = post_json(f"{base}/comments", {"anchor": anchor(5), "text": "Is this right?"})
+        proposed = post_json(f"{base}/comments", {"anchor": anchor(9), "text": "Rename it.",
+                                                  "suggestion": {"old": "Sentence 7 ", "new": "Line 7 "}})
+        browser_process = subprocess.Popen(
+            ["firefox", "-marionette", "-headless", "-no-remote", "-profile", profile, "about:blank"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        browser = marionette.Marionette(host="127.0.0.1", port=marionette_port, startup_timeout=30)
+        browser.start_session()
+        browser.set_window_rect(x=0, y=0, width=1500, height=900)
+        browser.navigate(base)
+        browser.execute_script('localStorage.setItem("texMcpVimKeys", "1")')
+        browser.navigate(base)
+        script = lambda code: browser.execute_script(code, sandbox=None)
+        listed = lambda: script('return [...document.querySelectorAll("#comments-list .cmt")].map((c) => c.dataset.commentId)')
+        wait_until(lambda: listed() == [proposed["id"]])
+        assert script('return document.querySelector("#comment-filter-name").textContent') == "to do (1)"
+        # The editor marks both open comments, whatever the list shows.
+        script('document.querySelector("[data-view=source]").click()')
+        wait_until(lambda: script('return document.querySelectorAll("#source-editor .source-comment-highlight").length') == 2)
+        # K on the words of the comment to do leaves out opens it in the open view.
+        script('const e = ace.edit("source-editor"); e.focus(); e.gotoLine(5, 2);')
+        type_keys(browser, ["K"])
+        wait_until(lambda: script('return document.querySelector("#comment-filter").value') == "open")
+        wait_until(lambda: script('return document.querySelector(".cmt.is-focused")?.dataset.commentId') == asked["id"])
+        # Applied, the suggestion leaves nothing to do.
+        show_view(browser, "todo")
+        wait_until(lambda: listed() == [proposed["id"]])
+        script('document.querySelector("#comments-list .sugg-apply").click()')
+        wait_until(lambda: script('return document.querySelector("#comments-list").textContent') == "Nothing waits for you here.")
+        assert script('return document.querySelector("#comment-filter-name").textContent') == "to do"
+    finally:
+        if browser is not None:
+            try:
+                browser.delete_session()
+            except Exception:
+                pass
         if browser_process is not None:
             browser_process.terminate()
             try:
@@ -1818,6 +1902,7 @@ def test_applying_a_suggestion_keeps_the_ring_where_it_is(tmp_path: Path) -> Non
         browser.start_session()
         browser.set_window_rect(x=0, y=0, width=1500, height=700)
         browser.navigate(base)
+        show_view(browser, "open")
         script = lambda code: browser.execute_script(code, sandbox=None)
         wait_until(lambda: script('return document.querySelectorAll("#comments-list .cmt").length') == 8)
         ringed = lambda: script('return document.querySelector(".cmt.is-focused")?.dataset.commentId ?? null')
@@ -1979,6 +2064,7 @@ def test_the_ring_holds_a_third_of_the_way_down_and_an_opened_card_shows_its_end
         browser.start_session()
         browser.set_window_rect(x=0, y=0, width=1500, height=700)
         browser.navigate(base)
+        show_view(browser, "open")
         wait_until(lambda: browser.execute_script(
             "return document.querySelectorAll('#comments-list .cmt').length === 12 || false;"))
         browser.execute_script("document.activeElement.blur();")
@@ -2070,6 +2156,7 @@ def test_the_comment_list_goes_by_keys(tmp_path: Path) -> None:
         browser.start_session()
         browser.set_window_rect(x=0, y=0, width=1500, height=1000)
         browser.navigate(base)
+        show_view(browser, "open")
         wait_until(lambda: browser.execute_script(
             "return document.querySelectorAll('#comments-list .cmt').length === 4 || false;"))
         browser.execute_script("document.activeElement.blur();")
@@ -2405,6 +2492,7 @@ def test_archived_threads_have_their_own_view_and_picked_archive_action(tmp_path
         browser.start_session()
         browser.set_window_rect(x=0, y=0, width=1500, height=1000)
         browser.navigate(base)
+        show_view(browser, "open")
 
         def shown(status, expected):
             # The view is asked for and then waited for by its content: the cards of the
@@ -2419,11 +2507,11 @@ def test_archived_threads_have_their_own_view_and_picked_archive_action(tmp_path
                 '  .map((card) => card.dataset.commentId);'
                 f'return JSON.stringify([...ids].sort()) === {json.dumps(json.dumps(sorted(expected), separators=(",", ":")))} ? ids : false;'))
 
-        # The tab of comments written here offers these views, and no unanswered one.
+        # The tab of comments written here offers these views, to do first, and no unanswered one.
         assert browser.execute_script(
             'return Array.from(document.querySelectorAll("#comment-filter option"))'
             '.map((o) => [o.value, o.textContent]);'
-        ) == [["open", "open"], ["resolved", "resolved"], ["archived", "archived"], ["all", "all"]]
+        ) == [["todo", "to do"], ["open", "open"], ["resolved", "resolved"], ["archived", "archived"], ["all", "all"]]
         assert shown("open", [working, untouched]) == [working, untouched]
         assert shown("archived", [kept]) == [kept]
 
@@ -2706,6 +2794,7 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
         post_json(f"{base}/comments", {"anchor": {"kind": "paper"}, "text": "Written here."})
         listed = 'return document.querySelector("#comments-list").textContent'
         count = lambda selector: browser.execute_script(f'return document.querySelector("{selector}").textContent')
+        show_view(browser, "open")
         wait_until(lambda: "Written here." in browser.execute_script(listed))
         assert "Say hello properly." not in browser.execute_script(listed)
         assert count("#comments-tab-count") == "1" and count("#overleaf-tab-count") == "4"
@@ -2722,12 +2811,15 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
               }});''') is True
         browser.execute_script('document.querySelector(".layout").style.removeProperty("--tex-mcp-sidebar-width")')
         browser.execute_script(f"document.querySelector('{leaf_tab}').click()")
+        # The tab opens on what waits for the reviewer.
+        wait_until(lambda: browser.execute_script('return document.querySelector("#comment-filter").value') == "todo")
+        # The unanswered view holds the threads whose last message on Overleaf is someone
+        # else's. Who the reviewer is on Overleaf comes with the page's place in the project.
+        show_view(browser, "unanswered")
         wait_until(lambda: "Say hello properly." in browser.execute_script(listed))
         assert "Written here." not in browser.execute_script(listed)
-        # The tab opens on the threads whose last message on Overleaf is someone else's. Who
-        # the reviewer is on Overleaf comes with the page's place in the project.
         assert browser.execute_script('const f = document.querySelector("#comment-filter");'
-                                      ' return [f.value, f.options[0].value, f.options[0].hidden,'
+                                      ' return [f.value, f.options[1].value, f.options[1].hidden,'
                                       ' document.querySelector("#comment-filter-name").textContent];') \
             == ["unanswered", "unanswered", False, "unanswered"]
         assert "Which words?" not in browser.execute_script(listed)
@@ -2811,7 +2903,7 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
         # drafts still to send, then those already on Overleaf.
         assert browser.execute_script(
             'return [...document.querySelectorAll("#comment-filter option")].map((o) => o.textContent);') \
-            == ["unanswered", "answered", "new thread", "suggested edits", "open", "resolved", "all"]
+            == ["to do (1)", "unanswered", "answered", "new thread", "suggested edits", "open", "resolved", "all"]
         browser.execute_script('const f = document.querySelector("#comment-filter"); f.value = "new";'
                                ' f.dispatchEvent(new Event("change"));')
         assert wait_until(lambda: browser.execute_script(
@@ -2841,8 +2933,9 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
             'document.querySelector(\'.tab-btn[data-tab="comments"]\').click();'
             ' const f = document.querySelector("#comment-filter");'
             ' return [f.value, [...f.options].map((o) => o.value),'
-            ' document.querySelector("#comment-filter-name").textContent];') \
-            == ["open", ["open", "resolved", "archived", "all"], "open"]
+            ' document.querySelector("#comment-filter-name").textContent.startsWith("to do")];') \
+            == ["todo", ["todo", "open", "resolved", "archived", "all"], True]
+        show_view(browser, "open")
         wait_until(lambda: "Written here." in browser.execute_script(listed))
         assert "Feedback and answer." not in browser.execute_script(
             'return [...document.querySelectorAll(".overleaf-reply-input")].map((b) => b.value).join("|")')
@@ -3087,6 +3180,7 @@ def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path
         wait_until(lambda: not hidden("#overleaf-sync-comments-btn"))
         browser.execute_script('document.querySelector("#overleaf-sync-comments-btn").click()')
         wait_until(lambda: status().startswith("Synced: 1 new comments"))
+        show_view(browser, "open")
         wait_until(lambda: browser.execute_script(
             'return document.querySelector("#comments-list").textContent.includes("Say hello properly.")'))
 
@@ -3438,6 +3532,7 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
         click = lambda selector: browser.execute_script(f'document.querySelector("{selector}").click()')
         wait_until(lambda: not browser.execute_script('return document.querySelector("#overleaf-sync-comments-btn").disabled'))
         click("#overleaf-sync-comments-btn")
+        show_view(browser, "unanswered")
         wait_until(lambda: browser.execute_script(
             'return document.body.textContent.includes("Came in when asked.")'), timeout=15)
         assert browser.execute_script('return document.querySelector("#settings-dialog").open') is False
@@ -3476,8 +3571,7 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
         click(".overleaf-send")
         assert busy(".overleaf-send") and text(".overleaf-reply-note") == "Sending…"
         wait_until(lambda: fake.written == [("reply", "t1", "Drafted for Ann, and checked.")], timeout=15)
-        # Answered, it leaves the threads that wait for the reviewer, the view the tab opened
-        # on, and stays among the open ones.
+        # Answered, it leaves the unanswered threads, and stays among the open ones.
         wait_until(lambda: not browser.execute_script(
             'return document.querySelector("#comments-list").textContent.includes("Came in when asked.")'), timeout=15)
         browser.execute_script('const f = document.querySelector("#comment-filter"); f.value = "open";'
@@ -3665,8 +3759,8 @@ def test_suggested_edits_from_overleaf_have_their_own_view_and_marks_in_the_edit
         card = script('return document.querySelector(".suggested-edit").innerText')
         assert "Co Author" in card and "main.tex:3" in card and "there" in card and "world" in card
         # Resolve and Send give way to Accept and Reject in the row.
-        assert script('return [document.querySelector("#resolve-picked-btn").hidden,'
-                      ' document.querySelector("#accept-picked-btn").hidden]') == [True, False]
+        wait_until(lambda: script('return [document.querySelector("#resolve-picked-btn").hidden,'
+                                  ' document.querySelector("#accept-picked-btn").hidden]') == [True, False])
         # The card shows its place in the source, where the editor marks it.
         script('document.querySelector(".suggested-edit .cmt-head").click()')
         wait_until(lambda: script('return document.querySelector("#source-file")?.value') == "main.tex")
@@ -3740,6 +3834,7 @@ def test_a_page_with_its_token_on_opens_from_its_link_and_then_from_its_plain_ad
         browser.navigate(f"http://127.0.0.1:{port}/")
         assert "opens from its link" in browser.execute_script("return document.body.textContent")
         browser.navigate(page_token.link(port, True))
+        show_view(browser, "open")
         wait_until(lambda: browser.execute_script("return document.querySelector('#comments-list') !== null"))
         assert browser.execute_script("return location.href") == f"http://127.0.0.1:{port}/"
         # The live connection is taken on the cookie, and a comment written elsewhere reaches
@@ -3749,6 +3844,7 @@ def test_a_page_with_its_token_on_opens_from_its_link_and_then_from_its_plain_ad
         wait_until(lambda: browser.execute_script(
             "return document.body.textContent.includes('Seen through the cookie.')"), timeout=15)
         browser.navigate(f"http://127.0.0.1:{port}/")
+        show_view(browser, "open")
         wait_until(lambda: browser.execute_script(
             "return document.body.textContent.includes('Seen through the cookie.')"), timeout=15)
     finally:
@@ -3800,6 +3896,7 @@ def test_keys_typed_in_the_pdf_viewers_own_boxes_stay_there(tmp_path: Path) -> N
         browser.start_session()
         browser.set_window_rect(x=0, y=0, width=1400, height=900)
         browser.navigate(base)
+        show_view(browser, "open")
         wait_until(lambda: browser.execute_script('return document.querySelectorAll("[data-comment-id]").length === 2'))
         ringed = lambda: browser.execute_script(
             'return document.querySelector("[data-comment-id].is-focused")?.dataset.commentId ?? null')

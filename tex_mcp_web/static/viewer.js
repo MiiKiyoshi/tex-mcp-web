@@ -71,6 +71,10 @@ const state = {
   rangeFrom: null,
   // Whether a press in the editor is held down, which moves the cursor with the text in place.
   editorPointing: false,
+  // How many things wait for the reviewer in each comment tab, as the to do view lists them.
+  todoCounts: {},
+  // The open comments of the tab shown, whatever its view lists: the PDF and the editor mark these.
+  markedComments: [],
   // The suggested edits being accepted or rejected now, and when they were last read.
   reviewingEdits: new Set(),
   suggestedRead: 0,
@@ -566,9 +570,11 @@ async function initializePdfViewer(pdfView) {
     if (commentId) {
       setSidebarCollapsed(false);
       switchTab(state.commentTab);
-      const comment = state.comments.find((item) => item.id === commentId);
+      const comment = state.markedComments.find((item) => item.id === commentId);
       // The comment the list has just opened and shown here is left as the list has it.
-      if (comment && !(comment.id === state.focusedCommentId && state.expanded.has(comment.id))) focusComment(comment);
+      if (comment && !(comment.id === state.focusedCommentId && state.expanded.has(comment.id))) {
+        revealComment(comment).catch((error) => console.error(error));
+      }
       return;
     }
     const selected = state.annotations.getSelectedAnnotation();
@@ -926,7 +932,7 @@ function syncSourceCommentMarkers() {
   clearSourceCommentMarkers();
   if (!state.sourcePath) return;
   const Range = window.ace.require("ace/range").Range;
-  for (const comment of state.comments) {
+  for (const comment of state.markedComments) {
     if (comment.status !== "open" || comment.anchor.kind !== "source_range"
         || comment.anchor.file !== state.sourcePath) continue;
     if (comment.stale || state.sourceDirty) continue;
@@ -975,7 +981,7 @@ function syncSourceCommentMarkers() {
   // that moves or duplicates it leaves that piece unmarked rather than marked wrongly.
   if (state.sourceDirty) return;
   const text = state.editor.session.getValue();
-  for (const comment of state.comments) {
+  for (const comment of state.markedComments) {
     const suggestion = comment.suggestion;
     if (comment.status !== "open" || !suggestion || suggestion.file !== state.sourcePath) continue;
     for (const change of suggestion.changes) {
@@ -2285,7 +2291,7 @@ function showCommentAtCursor() {
     return;
   }
   switchTab(state.commentTab);
-  if (chosen !== undefined) focusComment(chosen);
+  if (chosen !== undefined) revealComment(chosen).catch((error) => console.error(error));
   $("#comments-list").focus({ preventScroll: true });
 }
 
@@ -2356,7 +2362,7 @@ async function initializeSourceEditor() {
     event.stop();
     setSidebarCollapsed(false);
     switchTab(state.commentTab);
-    focusComment(comments[0]);
+    revealComment(comments[0]).catch((error) => console.error(error));
   });
   state.editor.commands.addCommand({
     name: "saveSource",
@@ -2548,6 +2554,8 @@ async function submitCompose(event) {
     $("#compose-dialog").close();
     clearPendingSelection();
     if (state.commentTab !== "comments") switchTab("comments");
+    // It waits for the agent, not for the reviewer, so it shows among the open ones.
+    if ($("#comment-filter").value === "todo") setCommentFilter("open");
     await refreshComments();
   } finally {
     applyComposeSubmitting(false);
@@ -2560,7 +2568,7 @@ async function refreshComments() {
   const asked = ++state.commentsAsked;
   const status = $("#comment-filter").value;
   const url = status === "all" ? "/comments"
-    : `/comments?status=${["unanswered", "answered", "new", "changes"].includes(status) ? "open" : status}`;
+    : `/comments?status=${["todo", "unanswered", "answered", "new", "changes"].includes(status) ? "open" : status}`;
   const [response, overleaf] = await Promise.all([fetch(url), fetch("/overleaf")]);
   if (!response.ok) throw new Error(await responseError(response));
   const data = await response.json();
@@ -2580,8 +2588,16 @@ async function refreshComments() {
   const opened = (comments) => comments.filter((comment) => comment.status === "open").length;
   const onOverleaf = data.comments.filter(forOverleaf);
   const here = data.comments.filter((comment) => !forOverleaf(comment));
+  // A view of closed comments holds no open one, and leaves the counts of what waits as they were.
+  if (!["resolved", "archived"].includes(status)) {
+    state.todoCounts = { comments: here.filter(waitsForReviewer).length,
+                         "overleaf-comments": onOverleaf.filter(waitsForReviewer).length + state.overleafSuggested.length };
+  }
+  state.markedComments = (state.commentTab === "overleaf-comments" ? onOverleaf : here)
+    .filter((comment) => comment.status === "open");
   renderCommentTabs(opened(here), opened(onOverleaf) + state.overleafSuggested.length);
-  data.comments = state.commentTab !== "overleaf-comments" ? here
+  data.comments = state.commentTab !== "overleaf-comments" ? (status === "todo" ? here.filter(waitsForReviewer) : here)
+    : status === "todo" ? [...onOverleaf.filter(waitsForReviewer), ...state.overleafSuggested.map(suggestedItem)]
     : status === "unanswered" ? onOverleaf.filter(answeredByOthers)
     : status === "answered" ? onOverleaf.filter(answeredByMe)
     : status === "new" ? [...onOverleaf.filter(draftedThread), ...onOverleaf.filter(openedHere)]
@@ -2603,7 +2619,7 @@ async function refreshComments() {
     : status === "archived" ? (comment) => comment.updated
     : (comment) => comment.created;
   const before = state.comments;
-  state.comments = ["open", "unanswered", "answered", "new", "changes"].includes(status) ? data.comments
+  state.comments = ["todo", "open", "unanswered", "answered", "new", "changes"].includes(status) ? data.comments
     : [...data.comments].sort((first, second) => (moment(first) < moment(second) ? 1
       : moment(first) > moment(second) ? -1 : 0));
   // A focused comment that leaves the view, as one resolved in the open view does, hands the
@@ -2679,10 +2695,18 @@ function renderCommentTabs(here, onOverleaf) {
 // The views each comment tab's list offers, as [value, name]. Overleaf has no archive, and only
 // its threads wait for an answer, have one, or are opened from here.
 const COMMENT_VIEWS = {
-  comments: [["open", "open"], ["resolved", "resolved"], ["archived", "archived"], ["all", "all"]],
-  "overleaf-comments": [["unanswered", "unanswered"], ["answered", "answered"], ["new", "new thread"],
+  comments: [["todo", "to do"], ["open", "open"], ["resolved", "resolved"], ["archived", "archived"], ["all", "all"]],
+  "overleaf-comments": [["todo", "to do"], ["unanswered", "unanswered"], ["answered", "answered"], ["new", "new thread"],
     ["changes", "suggested edits"], ["open", "open"], ["resolved", "resolved"], ["all", "all"]],
 };
+
+// What waits for the reviewer alone, which each tab opens on: a suggestion to apply, and in
+// the leaf tab a draft to send there, a reply or a new thread, and the suggested edits to
+// accept or reject. Each leaves the view once done, so an empty view is nothing left to do.
+function waitsForReviewer(comment) {
+  return comment.status === "open"
+    && (Boolean(comment.suggestion) || (forOverleaf(comment) && Boolean(comment.overleaf_draft)));
+}
 
 // The row above the list holds what the shown tab can do, from the moment the tab is chosen.
 // The list holds the tab's views and no others, since Safari still lists a hidden option.
@@ -2692,8 +2716,13 @@ function renderCommentFilter() {
   if ([...filter.options].map((option) => option.value).join(" ") !== views.map(([value]) => value).join(" ")) {
     const chosen = filter.value;
     filter.replaceChildren(...views.map(([value, name]) => h("option", { value, text: name })));
-    setCommentFilter(views.some(([value]) => value === chosen) ? chosen : "open");
+    setCommentFilter(views.some(([value]) => value === chosen) ? chosen : "todo");
   }
+  // The to do view says how many wait in the tab shown.
+  const todo = [...filter.options].find((option) => option.value === "todo");
+  const waiting = state.todoCounts[state.commentTab] ?? 0;
+  todo.textContent = waiting ? `to do (${waiting})` : "to do";
+  if (filter.value === "todo") $("#comment-filter-name").textContent = todo.textContent;
   // The suggested edits' view says how many wait.
   const changes = [...filter.options].find((option) => option.value === "changes");
   if (changes) {
@@ -2720,8 +2749,10 @@ function renderComments() {
   } : null;
   clear(list);
   if (state.comments.length === 0) {
-    list.appendChild(placeholder($("#comment-filter").value === "changes" && state.commentTab === "overleaf-comments"
-      ? "No suggested edits on Overleaf." : "No comments at this filter."));
+    const view = $("#comment-filter").value;
+    list.appendChild(placeholder(view === "todo" ? "Nothing waits for you here."
+      : view === "changes" && state.commentTab === "overleaf-comments" ? "No suggested edits on Overleaf."
+      : "No comments at this filter."));
   } else {
     for (const comment of state.comments) {
       list.appendChild(comment.suggested ? renderSuggestedEdit(comment) : renderCommentItem(comment));
@@ -2798,14 +2829,15 @@ function renderPickedActions() {
   send.title = state.overleafSignedIn ? "Send the picked replies to Overleaf, for everyone in the project"
     : "Save your Overleaf cookie first";
   send.dataset.ids = sendable.join(" ");
-  // The suggested edits' view accepts or rejects the picked ones in place of resolving and sending.
+  // A view of suggested edits accepts or rejects the picked ones: the suggested edits view, in
+  // place of resolving and sending, and the to do view beside them.
   const suggesting = state.commentTab === "overleaf-comments" && $("#comment-filter").value === "changes";
   const edits = state.comments.filter((item) => item.suggested && state.picked.has(item.id));
   resolve.hidden = suggesting;
   send.hidden = send.hidden || suggesting;
   for (const [id, word] of [["#accept-picked-btn", "Accept"], ["#reject-picked-btn", "Reject"]]) {
     const button = $(id);
-    button.hidden = !suggesting;
+    button.hidden = !state.comments.some((item) => item.suggested);
     button.disabled = edits.length === 0 || state.reviewingEdits.size > 0;
     button.classList.toggle("busy", edits.some((item) => state.reviewingEdits.has(item.id)));
     button.querySelector(".count").textContent = edits.length > 0 ? String(edits.length) : "";
@@ -3519,7 +3551,7 @@ function annotationId(commentId, page) {
 function commentBadgePlans() {
   let number = 0;
   const plans = new Map();
-  for (const comment of state.comments) {
+  for (const comment of state.markedComments) {
     if (comment.status !== "open") continue;
     const selection = comment.anchor.kind === "text_selection"
       ? comment.anchor.selection
@@ -3602,8 +3634,7 @@ function syncCommentBadges() {
         }
         setSidebarCollapsed(false);
         switchTab(state.commentTab);
-        const comment = state.comments.find((item) => item.id === plan.comment.id);
-        if (comment) focusComment(comment);
+        revealComment(plan.comment).catch((error) => console.error(error));
       });
       layer.appendChild(badge);
     }
@@ -3637,7 +3668,7 @@ function syncCommentAnnotations() {
     }
   }
   state.annotationCommentById.clear();
-  for (const comment of state.comments) {
+  for (const comment of state.markedComments) {
     if (comment.status !== "open") continue;
     // A stale comment's text has moved or gone; what the page still has is the place it
     // was written at, and a faint mark in the STALE badge's red stands there: it says the
@@ -3740,8 +3771,8 @@ function switchTab(name) {
   state.commentTab = name;
   state.picked.clear();
   renderCommentFilter();
-  // The leaf tab opens on the threads that wait for the reviewer's answer.
-  if (name === "overleaf-comments") setCommentFilter("unanswered");
+  // Each comment tab opens on what waits for the reviewer.
+  setCommentFilter("todo");
   refreshComments().catch((error) => console.error(error));
 }
 
@@ -4158,6 +4189,17 @@ async function jumpToComment(commentId) {
 }
 
 // A comment shown from elsewhere, a mark on the paper or the editor: its card opens and flashes.
+// A comment the PDF or the editor marks, opened in the list: in the open view of its tab when
+// the view shown leaves it out, as the to do view leaves out what waits for the agent.
+async function revealComment(comment) {
+  if (!state.comments.some((item) => item.id === comment.id)) {
+    setCommentFilter("open");
+    await refreshComments();
+  }
+  const listed = state.comments.find((item) => item.id === comment.id);
+  if (listed) focusComment(listed);
+}
+
 function focusComment(comment) {
   state.focusedCommentId = comment.id;
   state.expanded.add(comment.id);
@@ -4246,7 +4288,7 @@ const COMMENT_KEYS = [
     { keys: ["*"], does: "Pick every comment, or let them all go", run: () => $("#pick-all-btn").click() },
   ]],
   ["View", [
-    { keys: ["f"], does: "Next view in the list atop the tab: open, resolved, …", run: () => cycleStatus(1) },
+    { keys: ["f"], does: "Next view in the list atop the tab: to do, open, …", run: () => cycleStatus(1) },
     { keys: ["F"], does: "Previous view", run: () => cycleStatus(-1) },
     { keys: ["t"], does: "Next tab", scope: "sidebar", run: () => cycleTab(1) },
     { keys: ["T"], does: "Previous tab", scope: "sidebar", run: () => cycleTab(-1) },

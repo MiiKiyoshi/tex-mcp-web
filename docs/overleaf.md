@@ -31,11 +31,15 @@ address, so on the shared machine's own browser, open no page another account se
 ## Comment threads
 
 - The threads come into the leaf **Comments** tab beside **Comments**, kept as Overleaf has
-  them. The editor and the PDF mark the comments of the tab shown. The tab lists the
-  threads in the order the paper reads them and opens on **unanswered**, the open threads
-  whose last message on Overleaf is someone else's. A reply sent from here, or one written
-  on Overleaf under your name, moves a thread to **answered**. The list atop the tab also
-  shows the open, resolved and all threads.
+  them. The editor and the PDF mark the open comments of the tab shown. The tab lists the
+  threads in the order the paper reads them and opens on **to do**, what waits for you
+  alone: a suggestion to apply, a draft to send, a reply or a new thread, and the suggested
+  edits to accept or reject. Each leaves it once done, so an empty to do is nothing left.
+  **unanswered** holds the open threads whose last message on Overleaf is someone else's,
+  and a reply sent from here, or one written on Overleaf under your name, moves a thread to
+  **answered**. The list atop the tab also shows the new threads, the suggested edits, and
+  the open, resolved and all threads. A comment opened from its mark in the PDF or the
+  editor, when to do leaves it out, shows in **open**.
 - The sync button with the leaf atop the tab brings Overleaf's open threads in as comments
   on the words they were written about, with their replies. While a page is open, a new
   thread on Overleaf is counted on that button within seconds, and threads already here

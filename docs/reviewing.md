@@ -29,6 +29,10 @@ zoom centres on the pointer. A mouse-wheel notch zooms by a quarter.
 
 ## Threads
 
+- The Comments tab opens on **to do**: the comments whose suggestion waits for you to apply
+  it, each gone from it once applied. **open** lists every open comment, and a comment you
+  write, or open from its mark in the PDF or the editor, shows there. The PDF and the editor
+  mark every open comment of the tab, whatever the list shows.
 - **Resolve** a thread whose edit satisfies you, or **Reply** in it when it does not.
   **Archive** sets a thread aside, and it still takes replies.
 - A proposed edit shows as the source lines the agent would change, as a −/+ pair, and the
@@ -72,7 +76,7 @@ typing.
 | `x` | Pick the comment, or let it go |
 | `*` | Pick every comment, or let them all go |
 | `v` | Hold a range, which the moving keys stretch. `R`, `A`, `ss` and `x` then act on the whole range, and Escape or `v` lets it go |
-| `f` `F` | Next and previous view in the list atop the tab |
+| `f` `F` | Next and previous view in the list atop the tab: to do, open, … |
 | `t` `T` | Next and previous tab |
 | `?` | These keys |
 
