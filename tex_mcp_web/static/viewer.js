@@ -1151,6 +1151,7 @@ function renderOverleafStatus({ project, cookie, sync = false, live = false, set
     ? "While this review page is open, text files such as .tex change both ways within a second, and a new comment thread on Overleaf comes in by itself. Figures and other uploaded files go by git: one changed here goes with commit & push, and one added on Overleaf comes in by itself, or with git pull when the top bar shows it."
     : "While this review page is open, text files such as .tex change both ways within a second, and a new comment thread on Overleaf comes in by itself. Figures and other uploaded files are copied whole when one side replaces them, and a new figure or source file here goes up by itself.";
   $("#overleaf-direct").hidden = !project;
+  $("#overleaf-tracking-git").hidden = !git;
   $("#overleaf-git").hidden = !git && !state.overleafFiles;
   if (!git) {
     state.overleafGit = null;

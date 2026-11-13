@@ -10,7 +10,7 @@ import pytest
 from aiohttp import WSMsgType, web
 from aiohttp.test_utils import TestClient, TestServer
 
-from tex_mcp_web import overleaf
+from tex_mcp_web import overleaf, overleaf_git
 from tex_mcp_web import overleaf_ot as ot
 from tex_mcp_web.config import load_config
 from tex_mcp_web.overleaf_live import LivePresence
@@ -937,4 +937,51 @@ async def test_an_edit_made_as_a_suggestion_on_overleaf_is_read_once_the_typing_
     assert fake.ranges_read == before
     await wait_for(lambda: fake.ranges_read > before)
     await page.close()
+
+
+async def test_suggested_edits_in_a_git_repository_of_its_own_leave_the_repository_to_its_owner(
+        tmp_path: Path, monkeypatch, realtime) -> None:
+    """A paper kept in a git repository of the reviewer's own, which pushes elsewhere and
+    follows Overleaf by hand: the edits show, a rejection reaches the file by Get, and the page
+    adds nothing to what git sees."""
+    import subprocess
+
+    fake, link = realtime
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config-home"))
+    monkeypatch.delenv(overleaf.COOKIE_ENV, raising=False)
+    paper = tmp_path / "paper"
+    (paper / "tex").mkdir(parents=True)
+    (paper / "main.tex").write_text(MAIN)
+    (paper / "tex" / "body.tex").write_text(BODY)
+    (paper / "a.png").write_bytes(FIGURE)
+    (paper / ".tex-mcp-web.yaml").write_text(f"main: main.tex\noverleaf: {link}\n")
+    git = lambda *args: subprocess.run(["git", "-C", str(paper), *args], check=True, capture_output=True,
+                                       text=True).stdout
+    git("init", "-q")
+    git("remote", "add", "origin", "https://example.org/me/paper.git")
+    git("add", ".")
+    git("-c", "user.name=Me", "-c", "user.email=me@example.org", "commit", "-q", "-m", "paper")
+    fake.changes["d-main"] = suggested_change()
+    server = TexMcpWebServer(load_config(paper / ".tex-mcp-web.yaml"))
+    server.OVERLEAF_LIVE_GRACE = 0
+    server.OVERLEAF_COMMENT_SETTLE = 0.01
+    # As the server does when it starts.
+    await overleaf_git.keep_records_out(paper)
+    client = TestClient(TestServer(server.app))
+    await client.start_server()
+    try:
+        page = await opened(client, fake)
+        await wait_for(lambda: server._overleaf_tracked)
+        status = await (await client.get("/overleaf")).json()
+        assert status["git"] is None and len(status["suggested"]) == 1
+        response = await client.post("/overleaf/changes/reject", json={"doc": "d-main", "ids": ["s1", "s2"]})
+        assert response.status == 200, await response.text()
+        await wait_for(lambda: server.overleaf_hand.state()["get"] == ["main.tex"])
+        assert git("status", "--porcelain") == ""
+        assert (await client.post("/overleaf/files/get")).status == 200
+        assert (paper / "main.tex").read_text() == MAIN.replace("there", "folks")
+        assert git("status", "--porcelain") == " M main.tex\n"
+        await page.close()
+    finally:
+        await client.close()
 

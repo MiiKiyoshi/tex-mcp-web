@@ -3444,6 +3444,8 @@ def test_suggested_edits_from_overleaf_have_their_own_view_and_marks_in_the_edit
     stamp = {"user_id": "u-co", "ts": "2026-11-13T00:49:00.000Z"}
     fake.changes["d-main"] = [{"id": "s1", "op": {"p": at, "i": "world"}, "metadata": stamp},
                               {"id": "s2", "op": {"p": at + 5, "d": "there"}, "metadata": stamp}]
+    # Track changes is on for the reviewer too.
+    fake.track_state = {"u-me": True}
     port = available_port()
     config_path = tmp_path / ".tex-mcp-web.yaml"
     config_path.write_text(f"main: main.tex\nport: {port}\n"
@@ -3469,6 +3471,10 @@ def test_suggested_edits_from_overleaf_have_their_own_view_and_marks_in_the_edit
         # Counted on the leaf tab, with no thread there.
         wait_until(lambda: script('return document.querySelector("#overleaf-tab-count").textContent') == "1",
                    timeout=15)
+        # Settings says the page's edits go as suggestions, and says nothing of git push in a
+        # folder that is no git clone of the project.
+        wait_until(lambda: script('return document.querySelector("#overleaf-tracking").hidden') is False)
+        assert script('return document.querySelector("#overleaf-tracking-git").hidden') is True
         script('document.querySelector(\'.tab-btn[data-tab="overleaf-comments"]\').click()')
         assert "suggested edits (1)" in script(
             'return [...document.querySelectorAll("#comment-filter option")].map((o) => o.textContent).join("|")')

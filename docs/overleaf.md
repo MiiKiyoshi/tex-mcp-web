@@ -109,9 +109,9 @@ and so do the files here once they hold Overleaf's text.
   newer kind of document they are accepted and rejected on Overleaf.
 - The page reads them when it joins the project, when a comment changes there, and a few
   seconds after someone typing with track changes on stops.
-- While track changes is on for you on Overleaf, the edits Send and Live make there are
-  suggested edits too, as Overleaf's editor makes yours, and Settings says so. git push makes
-  them as they are.
+- While track changes is on for you on Overleaf, the edits the page makes there, by Send or
+  Live, are suggested edits too, as Overleaf's editor makes yours, and Settings says so. In a
+  git clone of the project, git push makes them as they are.
 
 ## Your co-authors on the page
 
