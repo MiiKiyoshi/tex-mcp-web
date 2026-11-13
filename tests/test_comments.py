@@ -11,6 +11,7 @@ from tex_mcp_web.comments import (
     STORE_VERSION,
     AreaAnchor,
     CommentStore,
+    OverleafDraft,
     PageSelection,
     PaperAnchor,
     ResolvedSource,
@@ -916,3 +917,31 @@ def test_a_comment_placed_anew_follows_edits_from_the_text_it_was_placed_on(stor
     assert store.get(comment.id).source_selector.exact == "ZZZZZ"
     moved, words = _after(store, source, "More. " + placed, comment)
     assert (moved.resolved_source, words) == (ResolvedSource("paper.tex", 1, 1, at + 6, at + 11), "ZZZZZ")
+
+
+def test_a_reply_sent_from_a_draft_answers_only_what_came_before_the_draft(store: CommentStore, monkeypatch):
+    """The agent drafts a reply for Overleaf, the reviewer asks for something else in the thread,
+    then sends the draft. The draft answered what came before it, and the reviewer's request
+    written while it waited still waits for the agent. A reply sent with no draft answers what
+    came before it."""
+    clock = {"now": "2026-01-01T00:00:00+00:00"}
+    monkeypatch.setattr("tex_mcp_web.comments._now", lambda: clock["now"])
+    comment = store.add(PaperAnchor(), "why?", name="Ann")
+    clock["now"] = "2026-01-01T00:01:00+00:00"
+    store.draft_overleaf(comment.id, store.get(comment.id).updated, OverleafDraft("Because."), {})
+    clock["now"] = "2026-01-01T00:02:00+00:00"
+    store.reply(comment.id, "Also fix the caption.", author="human")
+    clock["now"] = "2026-01-01T00:03:00+00:00"
+    store.sent_to_overleaf(comment.id, "Because.", "")
+    assert store.get(comment.id).thread[-1].draft_at == "2026-01-01T00:01:00+00:00"
+    assert [entry.text for entry in store.get(comment.id).waiting(on_overleaf=True)] == ["Also fix the caption."]
+    # The record keeps it.
+    assert [entry.text for entry in CommentStore(store.path).get(comment.id).waiting(on_overleaf=True)] == [
+        "Also fix the caption."]
+    # Typed without a draft, a sent reply answers what came before it.
+    other = store.add(PaperAnchor(), "and where?", name="Ann")
+    clock["now"] = "2026-01-01T00:04:00+00:00"
+    store.reply(other.id, "Check the table too.", author="human")
+    clock["now"] = "2026-01-01T00:05:00+00:00"
+    store.sent_to_overleaf(other.id, "Here.", "")
+    assert store.get(other.id).waiting(on_overleaf=True) == []

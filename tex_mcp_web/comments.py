@@ -453,6 +453,9 @@ class ThreadEntry:
     # Set when the entry was sent to the Overleaf thread: the commit Overleaf's branch was
     # at, or "" for a folder that does not follow Overleaf by git.
     overleaf: str | None = None
+    # Set on a reply sent from the agent's draft: when that draft was put up. The reply
+    # answers what came before then, and not what the reviewer wrote while it waited.
+    draft_at: str | None = None
     # Who wrote it, as Overleaf names them, for an entry the Overleaf thread holds.
     name: str | None = None
     # Set on the entry that records the reviewer applying a suggestion, which asks nothing.
@@ -473,6 +476,8 @@ class ThreadEntry:
             d["updated_at"] = self.updated_at
         if self.overleaf is not None:
             d["overleaf"] = self.overleaf
+        if self.draft_at is not None:
+            d["draft_at"] = self.draft_at
         if self.name is not None:
             d["name"] = self.name
         if self.applied:
@@ -489,6 +494,7 @@ class ThreadEntry:
             id=str(d["id"]) if "id" in d else _new_entry_id(),
             updated_at=str(d["updated_at"]) if "updated_at" in d else None,
             overleaf=str(d["overleaf"]) if "overleaf" in d else None,
+            draft_at=str(d["draft_at"]) if "draft_at" in d else None,
             name=str(d["name"]) if "name" in d else None,
             applied="applied" in d,
         )
@@ -590,14 +596,18 @@ class Comment:
         """The entries that wait for the agent: those asking it that came after the last
         answer the thread has, an entry the agent wrote or a reply sent to Overleaf, and
         after the draft the agent put up for Overleaf, which answers what came before it.
-        On a thread from Overleaf with no draft, the record of a suggestion applied waits
-        too, for the agent to draft the reply the change calls for. *after* leaves only
-        those written after that moment."""
-        answered = max((position for position, entry in enumerate(self.thread)
-                        if entry.author == "agent" or entry.overleaf is not None), default=-1)
+        A reply sent from a draft answers what came before the draft, so what the reviewer
+        wrote while it waited to be sent still waits. On a thread from Overleaf with no
+        draft, the record of a suggestion applied waits too, for the agent to draft the
+        reply the change calls for. *after* leaves only those written after that moment."""
+        answered = max((position for position, entry in enumerate(self.thread) if entry.author == "agent"), default=-1)
+        # Up to when each reply sent to Overleaf answers: its draft's moment, or its own.
+        sent = max((_moment(entry.draft_at or entry.at) for entry in self.thread if entry.overleaf is not None),
+                   default=None)
         drafted = _moment(self.overleaf_draft.at) if self.overleaf_draft is not None else None
         undrafted = on_overleaf and drafted is None
         return [entry for entry in self.thread[answered + 1:] if (entry.asks_agent or undrafted and entry.applied)
+                and (sent is None or _moment(entry.at) > sent)
                 and (drafted is None or _moment(entry.at) >= drafted)
                 and (after is None or _moment(entry.at) > after)]
 
@@ -1678,8 +1688,9 @@ class CommentStore:
                     continue
                 now = _now()
                 edits = [r.label for r in comment.overleaf_draft.ranges] if comment.overleaf_draft is not None else []
-                comment.thread.append(ThreadEntry(author="human", at=now, text=text, edits=list(edits),
-                                                  overleaf=commit))
+                comment.thread.append(ThreadEntry(
+                    author="human", at=now, text=text, edits=list(edits), overleaf=commit,
+                    draft_at=comment.overleaf_draft.at if comment.overleaf_draft is not None else None))
                 comment.overleaf_draft = None
                 comment.updated = now
                 comments[position] = comment
