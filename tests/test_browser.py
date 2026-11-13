@@ -1778,6 +1778,77 @@ def test_a_comment_opened_by_space_shows_its_line_a_third_of_the_way_down_the_ed
 
 
 @pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
+def test_applying_a_suggestion_keeps_the_ring_where_it_is(tmp_path: Path) -> None:
+    """A comment on PDF words opened earlier leaves its highlight selected. The highlights are
+    drawn again whenever the list is, as after Apply suggestion on another comment, and that
+    highlight coming back selected does not take the ring to its comment."""
+    import pymupdf
+
+    lines = [f"Sentence {n} of an invented body." for n in range(1, 41)]
+    (tmp_path / "paper.tex").write_text(
+        "\\documentclass{article}\n\\begin{document}\n" + "\n".join(lines) + "\n\\end{document}\n", encoding="utf-8")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    profile = tempfile.mkdtemp(prefix="tex_mcp_apply_ring_")
+    marionette_port = available_port()
+    (Path(profile) / "user.js").write_text(
+        f'user_pref("marionette.port", {marionette_port});\n', encoding="utf-8")
+    browser_process = None
+    browser = None
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: shared.server.pdf_digest is not None, timeout=60)
+        with pymupdf.open(tmp_path / "paper.pdf") as pdf:
+            box = list(pdf[0].search_for("Sentence 1 of")[0])
+        post_json(f"{base}/comments", {"anchor": {"kind": "text_selection", "quote": "Sentence 1 of",
+                                                  "selection": {"page": 1, "bbox": box, "rects": [box]},
+                                                  "pdf_digest": shared.server.pdf_digest}, "text": "On the PDF."})
+        for n in range(5, 40, 5):
+            post_json(f"{base}/comments", {
+                "anchor": {"kind": "source_range", "file": "paper.tex", "line_start": n + 2, "line_end": n + 2,
+                           "column_start": 0, "column_end": 8},
+                "text": f"Rename sentence {n}.", "suggestion": {"old": f"Sentence {n} ", "new": f"Line {n} "}})
+        browser_process = subprocess.Popen(
+            ["firefox", "-marionette", "-headless", "-no-remote", "-profile", profile, "about:blank"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        browser = marionette.Marionette(host="127.0.0.1", port=marionette_port, startup_timeout=30)
+        browser.start_session()
+        browser.set_window_rect(x=0, y=0, width=1500, height=700)
+        browser.navigate(base)
+        script = lambda code: browser.execute_script(code, sandbox=None)
+        wait_until(lambda: script('return document.querySelectorAll("#comments-list .cmt").length') == 8)
+        ringed = lambda: script('return document.querySelector(".cmt.is-focused")?.dataset.commentId ?? null')
+        # The comment on the PDF opened by Space, which selects its highlight, then the ring moved on.
+        script('document.querySelector("#comments-list").focus()')
+        type_keys(browser, ["j", " "])
+        time.sleep(1)
+        type_keys(browser, [" ", "j", "j", "j", "j", "j"])
+        before = wait_until(ringed)
+        assert before != script('return document.querySelector("#comments-list .cmt").dataset.commentId')
+        type_keys(browser, ["a", "a"])
+        wait_until(lambda: "Line " in (tmp_path / "paper.tex").read_text(encoding="utf-8"), timeout=15)
+        time.sleep(2)
+        assert ringed() == before
+    finally:
+        if browser is not None:
+            try:
+                browser.delete_session()
+            except Exception:
+                pass
+        if browser_process is not None:
+            browser_process.terminate()
+            try:
+                browser_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                browser_process.kill()
+        shutil.rmtree(profile, ignore_errors=True)
+        shared.stop()
+
+
+@pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
 def test_the_editor_holds_the_cursor_line_a_third_down_when_chosen(tmp_path: Path) -> None:
     """Chosen in Settings, the cursor's line stays a third of the way down the editor as Vim's
     keys move it, the last line too, and the first lines stay at the top."""

@@ -553,9 +553,16 @@ async function initializePdfViewer(pdfView) {
     },
   });
 
+  // A highlight newly selected, as a click on it selects it, opens its comment. The highlights
+  // are drawn again each time the list is, and one left selected comes back selected, which is
+  // no new choice of the reader's: it took the ring off the comment the reader was on.
+  let selectedBefore = null;
   state.annotations.onStateChange((annotationState) => {
-    if (annotationState.selectedUids.length !== 1) return;
-    const commentId = state.annotationCommentById.get(annotationState.selectedUids[0]);
+    const selectedNow = annotationState.selectedUids.length === 1 ? annotationState.selectedUids[0] : null;
+    const chosen = selectedNow !== selectedBefore;
+    selectedBefore = selectedNow;
+    if (selectedNow === null || !chosen) return;
+    const commentId = state.annotationCommentById.get(selectedNow);
     if (commentId) {
       setSidebarCollapsed(false);
       switchTab(state.commentTab);
