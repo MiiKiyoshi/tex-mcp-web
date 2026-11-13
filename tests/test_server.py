@@ -285,64 +285,6 @@ async def test_overlapping_compile_requests_share_one_build(project, monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_create_comment_with_suggestion(client):
-    tc, _ = client
-    resp = await tc.post(
-        "/comments",
-        json={
-            "anchor": {"kind": "source_range", "file": "paper.tex",
-                       "line_start": 5, "line_end": 5},
-            "text": "rephrase",
-            "suggestion": {"old": "Some prose", "new": "Clear prose"},
-        },
-    )
-    assert resp.status == 201
-    data = await resp.json()
-    # The page offers one piece of the file the comment sits in.
-    assert data["suggestion"] == {
-        "file": "paper.tex",
-        "changes": [{"old": "Some prose", "new": "Clear prose"}],
-    }
-
-
-@pytest.mark.asyncio
-async def test_a_suggestion_needs_a_comment_whose_place_in_the_source_is_known(client):
-    """A proposal is applied to a file, so a whole-paper note cannot carry one."""
-    tc, _ = client
-    resp = await tc.post(
-        "/comments",
-        json={"anchor": {"kind": "paper"}, "text": "rephrase",
-              "suggestion": {"old": "a", "new": "b"}},
-    )
-    assert resp.status == 400
-    assert "place in the source is known" in (await resp.json())["error"]
-
-
-@pytest.mark.asyncio
-async def test_a_reviewer_replacement_on_a_section_goes_to_its_source(client):
-    """A section, like PDF text, points into the source through what it resolves to, so
-    the replacement a reviewer types beside it lands in that file, once it is found there."""
-    tc, _ = client
-    resp = await tc.post(
-        "/comments",
-        json={"anchor": {"kind": "section", "title": "Methods"}, "text": "clearer",
-              "suggestion": {"old": "Some methods.", "new": "Two careful methods."}},
-    )
-    assert resp.status == 201
-    assert (await resp.json())["suggestion"] == {
-        "file": "paper.tex",
-        "changes": [{"old": "Some methods.", "new": "Two careful methods."}],
-    }
-    resp = await tc.post(
-        "/comments",
-        json={"anchor": {"kind": "section", "title": "Methods"}, "text": "clearer",
-              "suggestion": {"old": "Words the PDF shows but the source spells otherwise", "new": "x"}},
-    )
-    assert resp.status == 400
-    assert "not found in the source" in (await resp.json())["error"]
-
-
-@pytest.mark.asyncio
 async def test_a_section_comment_keeps_to_the_heading_it_was_made_on(client_with_pdf, project):
     """Headings can share a title. The Sections tab names the heading pressed, the
     comment keeps to it through lines added above, and the title alone is refused."""
@@ -402,41 +344,18 @@ async def test_the_pdf_downloads_named_as_overleaf_names_it(client_with_pdf, pro
         "filename*=UTF-8''%EB%85%BC%EB%AC%B8_v2__Final.pdf")
 
 
-@pytest.mark.asyncio
-async def test_empty_suggestion_omitted(client):
-    """Both old and new empty -> no suggestion stored (avoid empty pair)."""
-    tc, _ = client
-    resp = await tc.post(
-        "/comments",
-        json={
-            "anchor": {"kind": "paper"},
-            "text": "x",
-            "suggestion": {"old": "", "new": ""},
-        },
-    )
-    data = await resp.json()
-    assert "suggestion" not in data
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("suggestion", [{"old": "x"}, {"old": "x", "new": None}])
-async def test_incomplete_suggestion_rejected(client, suggestion):
-    tc, _ = client
-    response = await tc.post(
-        "/comments",
-        json={"anchor": {"kind": "paper"}, "text": "x", "suggestion": suggestion},
-    )
-    assert response.status == 400
-    assert "suggestion old and new must be strings" in (await response.json())["error"]
-
-
 async def _source_suggestion(
     tc,
+    server,
+    project,
     *,
     old: str = "Some prose with \\cite{ref1}.",
     new: str = "Clear prose with \\cite{ref1}.",
     anchor: dict | None = None,
 ) -> dict:
+    """A reviewer's comment with the wording the agent proposed for it."""
+    from tex_mcp_web.server import derive_suggestion
+
     response = await tc.post(
         "/comments",
         json={
@@ -447,11 +366,14 @@ async def _source_suggestion(
                 "line_end": 5,
             },
             "text": "Use the suggested wording.",
-            "suggestion": {"old": old, "new": new},
         },
     )
     assert response.status == 201
-    return await response.json()
+    asked = await response.json()
+    server.comments.suggest(
+        asked["id"], asked["updated"], "Reworded.",
+        lambda current: derive_suggestion(project, current.resolved_source, [(old, new)]))
+    return await (await tc.get(f"/comments/{asked['id']}")).json()
 
 
 @pytest.mark.asyncio
@@ -462,7 +384,7 @@ async def test_apply_source_suggestion_replaces_only_anchor_and_keeps_comment_op
     path = project / "paper.tex"
     path.chmod(0o640)
     before = path.read_text(encoding="utf-8")
-    comment = await _source_suggestion(tc)
+    comment = await _source_suggestion(tc, server, project)
     server.do_compile = AsyncMock()
 
     response = await tc.post(
@@ -502,7 +424,7 @@ async def test_apply_source_suggestion_rejects_stale_thread(client, project):
     tc, server = client
     path = project / "paper.tex"
     before = path.read_text(encoding="utf-8")
-    comment = await _source_suggestion(tc)
+    comment = await _source_suggestion(tc, server, project)
     server.comments.reply(comment["id"], "The thread moved on.", author="human")
 
     response = await tc.post(
@@ -517,9 +439,9 @@ async def test_apply_source_suggestion_rejects_stale_thread(client, project):
 
 @pytest.mark.asyncio
 async def test_apply_source_suggestion_rechecks_changed_source(client, project):
-    tc, _ = client
+    tc, server = client
     path = project / "paper.tex"
-    comment = await _source_suggestion(tc)
+    comment = await _source_suggestion(tc, server, project)
     changed = path.read_text(encoding="utf-8").replace("Some prose", "Other prose", 1)
     path.write_text(changed, encoding="utf-8")
 
@@ -558,12 +480,12 @@ async def test_apply_refuses_a_comment_with_nothing_to_apply(client, project):
 async def test_apply_source_suggestion_refuses_an_ambiguous_piece(client, project):
     """A piece that appears twice is refused with the lines it was found on, so the quote
     can be extended on purpose."""
-    tc, _ = client
+    tc, server = client
     path = project / "paper.tex"
+    comment = await _source_suggestion(tc, server, project, old="Some prose with \\cite{ref1}.",
+                                       new="Replacement.")
     path.write_text(path.read_text(encoding="utf-8") + "Some prose with \\cite{ref1}.\n",
                     encoding="utf-8")
-    comment = await _source_suggestion(tc, old="Some prose with \\cite{ref1}.",
-                                       new="Replacement.")
     before = path.read_text(encoding="utf-8")
 
     response = await tc.post(
@@ -612,16 +534,10 @@ async def test_a_proposal_may_reach_past_what_the_reviewer_underlined(client, pr
 
 
 @pytest.mark.asyncio
-async def test_the_page_refuses_an_empty_replacement_but_an_agent_may_remove_text(client, project):
-    """Clearing the replacement box is a slip; deleting a sentence on purpose is what a
-    reviewer sometimes asks for, and the agent says so in the reply beside it."""
+async def test_an_agent_may_propose_removing_text(client, project):
+    """Deleting a sentence on purpose is what a reviewer sometimes asks for, and the agent
+    says so in the reply beside it."""
     tc, server = client
-    refused = await tc.post("/comments", json={
-        "anchor": {"kind": "source_range", "file": "paper.tex", "line_start": 5, "line_end": 5},
-        "text": "drop it", "suggestion": {"old": "Some prose", "new": ""}})
-    assert refused.status == 400
-    assert "replacement must not be empty" in (await refused.json())["error"]
-
     from tex_mcp_web.server import derive_suggestion
     asked = await (await tc.post("/comments", json={
         "anchor": {"kind": "source_range", "file": "paper.tex", "line_start": 5, "line_end": 5},
@@ -757,9 +673,9 @@ async def test_apply_source_suggestion_rejects_source_outside_project(
 
 @pytest.mark.asyncio
 async def test_apply_source_suggestion_is_single_use_under_concurrency(client, project):
-    tc, _ = client
+    tc, server = client
     path = project / "paper.tex"
-    comment = await _source_suggestion(tc)
+    comment = await _source_suggestion(tc, server, project)
 
     first, second = await asyncio.gather(
         tc.post(
@@ -781,7 +697,7 @@ async def test_apply_source_suggestion_is_single_use_under_concurrency(client, p
     assert path.read_text(encoding="utf-8").count("Clear prose with \\cite{ref1}.") == 1
     stored = await (await tc.get(f"/comments/{comment['id']}")).json()
     assert stored["status"] == "open"
-    assert len(stored["thread"]) == 2
+    assert len(stored["thread"]) == 3
 
     duplicate = await tc.post(
         f"/comments/{comment['id']}/apply-suggestion",
@@ -793,7 +709,7 @@ async def test_apply_source_suggestion_is_single_use_under_concurrency(client, p
 
 @pytest.mark.asyncio
 async def test_apply_source_suggestion_preserves_unicode_multiline_range(client, project):
-    tc, _ = client
+    tc, server = client
     path = project / "paper.tex"
     text = (
         "\\documentclass{article}\n"
@@ -809,6 +725,8 @@ async def test_apply_source_suggestion_preserves_unicode_multiline_range(client,
     new = "새 첫 줄 😀 γ\n새 둘째 줄 δ"
     comment = await _source_suggestion(
         tc,
+        server,
+        project,
         old=old,
         new=new,
         anchor={
@@ -3175,7 +3093,7 @@ async def test_a_replaced_suggestion_can_be_applied_again(client, project):
     from tex_mcp_web.server import derive_suggestion
 
     path = project / "paper.tex"
-    comment = await _source_suggestion(tc)
+    comment = await _source_suggestion(tc, server, project)
     applied = await (await tc.post(
         f"/comments/{comment['id']}/apply-suggestion", json={"updated": comment["updated"]}
     )).json()
@@ -3196,7 +3114,7 @@ async def test_a_replaced_suggestion_can_be_applied_again(client, project):
     assert response.status == 200
     assert "Plain prose with \\cite{ref1}." in path.read_text(encoding="utf-8")
     assert [entry.text for entry in server.comments.get(comment["id"]).thread] == [
-        "Use the suggested wording.", "Applied suggestion.", "tighter still", "Applied suggestion.",
+        "Use the suggested wording.", "Reworded.", "Applied suggestion.", "tighter still", "Applied suggestion.",
     ]
 
 

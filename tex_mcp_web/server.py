@@ -236,34 +236,6 @@ def _clamp_dpi(value: str | int) -> int:
     return max(36, min(n, 600))
 
 
-def _suggestion_from_dict(d: Any, file: str | None) -> SuggestedEdit | None:
-    """Build the browser's one-piece proposal, omitting an explicitly empty pair.
-
-    The page offers a replacement for the text the reviewer selected, which is one
-    piece of the file their comment is anchored to.
-    """
-    if d is None:
-        return None
-    if not isinstance(d, dict):
-        raise TypeError("suggestion must be an object")
-    if (
-        "old" not in d
-        or "new" not in d
-        or not isinstance(d["old"], str)
-        or not isinstance(d["new"], str)
-    ):
-        raise TypeError("suggestion old and new must be strings")
-    if not d["old"] and not d["new"]:
-        return None
-    if not d["new"]:
-        # The page offers a replacement, and an empty box is a box nobody filled in.
-        # An agent that means to remove text says so through its own call.
-        raise TypeError("a replacement must not be empty")
-    if file is None:
-        raise TypeError("a suggestion needs a comment whose place in the source is known")
-    return SuggestedEdit(file=file, changes=[(d["old"], d["new"])])
-
-
 def derive_suggestion(
     watch_dir: Path, source: ResolvedSource | None, edits: list[tuple[str, str]]
 ) -> SuggestedEdit:
@@ -2402,35 +2374,17 @@ class TexMcpWebServer:
             return web.json_response({"error": f"{exc}. Comment from the heading in the Sections tab."}, status=409)
         if isinstance(anchor, SourceRangeAnchor) and source_selector is None:
             return web.json_response({"error": "Source selection is out of bounds"}, status=400)
-        # A replacement is written into the file the comment points at: its own for a
-        # source range, the one PDF text or a section resolves to otherwise. Text copied
-        # from the PDF has to be found in that file as written, since the rendered words
-        # can differ from their source.
-        try:
-            if isinstance(anchor, SourceRangeAnchor):
-                suggestion = _suggestion_from_dict(data.get("suggestion"), anchor.file)
-            else:
-                suggestion = _suggestion_from_dict(
-                    data.get("suggestion"), resolved.file if resolved is not None else None)
-                if suggestion is not None:
-                    source_text = self._resolve_source_path(suggestion.file).read_text(encoding="utf-8")
-                    locate_fragments(source_text, suggestion.changes)
-        except (ValueError, KeyError, TypeError, OSError, UnicodeError) as exc:
-            return web.json_response(
-                {"error": f"invalid comment input: {exc}"}, status=400
-            )
         # A thread for Overleaf sits on source lines, as Overleaf puts a thread on words.
         for_overleaf = data.get("overleaf") is True
-        if for_overleaf and (not self.config.overleaf or not isinstance(anchor, SourceRangeAnchor) or suggestion):
+        if for_overleaf and (not self.config.overleaf or not isinstance(anchor, SourceRangeAnchor)):
             return web.json_response({"error": "a thread for Overleaf sits on source lines of a paper that names its "
-                                               "Overleaf project, and carries no suggestion"}, status=400)
+                                               "Overleaf project"}, status=400)
         comment = self.comments.add(
             anchor=anchor,
             text=text,
             author="human",
             resolved_source=resolved,
             source_selector=source_selector,
-            suggestion=suggestion,
             base_text=self._base_text(anchor, resolved),
             for_overleaf=for_overleaf,
         )

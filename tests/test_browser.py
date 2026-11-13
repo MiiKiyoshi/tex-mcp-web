@@ -69,6 +69,17 @@ def get_json(url: str) -> dict:
         return json.loads(response.read().decode("utf-8"))
 
 
+def post_suggested(base: str, shared, payload: dict, old: str, new: str) -> dict:
+    """A reviewer's comment with the wording the agent proposed for it."""
+    from tex_mcp_web.server import derive_suggestion
+
+    asked = post_json(f"{base}/comments", payload)
+    shared.server.comments.suggest(
+        asked["id"], asked["updated"], "Reworded.",
+        lambda current: derive_suggestion(shared.server.watch_dir, current.resolved_source, [(old, new)]))
+    return get_json(f"{base}/comments/{asked['id']}")
+
+
 def post_json(url: str, payload: dict) -> dict:
     request = urllib.request.Request(
         url,
@@ -201,9 +212,9 @@ def test_browser_comment_actions(tmp_path: Path) -> None:
         # A suggestion on the same words, as the agent leaves one.
         urllib.request.urlopen(urllib.request.Request(
             f"{base}/comments/{source_cid}", method="DELETE"), timeout=5).close()
-        source_comment = post_json(f"{base}/comments", {
-            "anchor": source_comment["anchor"], "text": "Clarify this source sentence.",
-            "suggestion": {"old": "Hello world.", "new": "Hello applied."}})
+        source_comment = post_suggested(base, shared, {
+            "anchor": source_comment["anchor"], "text": "Clarify this source sentence."},
+            "Hello world.", "Hello applied.")
         source_cid = source_comment["id"]
         assert source_comment["suggestion"] == {
             "file": "paper.tex",
@@ -222,7 +233,7 @@ def test_browser_comment_actions(tmp_path: Path) -> None:
         ''')
         applied = wait_until(lambda: (
             current
-            if len((current := get_json(f"{base}/comments/{source_cid}"))["thread"]) > 1
+            if len((current := get_json(f"{base}/comments/{source_cid}"))["thread"]) > 2
             else None
         ))
         assert applied["status"] == "open"
@@ -1880,8 +1891,7 @@ def test_each_comment_tab_opens_on_what_waits_for_the_reviewer(tmp_path: Path) -
         anchor = lambda line: {"kind": "source_range", "file": "paper.tex", "line_start": line, "line_end": line,
                                "column_start": 0, "column_end": 8}
         asked = post_json(f"{base}/comments", {"anchor": anchor(5), "text": "Is this right?"})
-        proposed = post_json(f"{base}/comments", {"anchor": anchor(9), "text": "Rename it.",
-                                                  "suggestion": {"old": "Sentence 7 ", "new": "Line 7 "}})
+        proposed = post_suggested(base, shared, {"anchor": anchor(9), "text": "Rename it."}, "Sentence 7 ", "Line 7 ")
         browser_process = subprocess.Popen(
             ["firefox", "-marionette", "-headless", "-no-remote", "-profile", profile, "about:blank"],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -1957,10 +1967,10 @@ def test_applying_a_suggestion_keeps_the_ring_where_it_is(tmp_path: Path) -> Non
                                                   "selection": {"page": 1, "bbox": box, "rects": [box]},
                                                   "pdf_digest": shared.server.pdf_digest}, "text": "On the PDF."})
         for n in range(5, 40, 5):
-            post_json(f"{base}/comments", {
+            post_suggested(base, shared, {
                 "anchor": {"kind": "source_range", "file": "paper.tex", "line_start": n + 2, "line_end": n + 2,
                            "column_start": 0, "column_end": 8},
-                "text": f"Rename sentence {n}.", "suggestion": {"old": f"Sentence {n} ", "new": f"Line {n} "}})
+                "text": f"Rename sentence {n}."}, f"Sentence {n} ", f"Line {n} ")
         browser_process = subprocess.Popen(
             ["firefox", "-marionette", "-headless", "-no-remote", "-profile", profile, "about:blank"],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -2206,12 +2216,11 @@ def test_the_comment_list_goes_by_keys(tmp_path: Path) -> None:
         wait_until(lambda: get_json(f"{base}/paper") is not None)
         note = lambda text: post_json(f"{base}/comments", {"anchor": {"kind": "paper"}, "text": text})["id"]
         first = note("Name the second example.")
-        source = post_json(f"{base}/comments", {
+        source = post_suggested(base, shared, {
             "anchor": {"kind": "source_range", "file": "paper.tex", "line_start": 4, "line_end": 4,
                        "column_start": 0, "column_end": 12},
             "text": "Say who is greeted.",
-            "suggestion": {"old": "Hello world.", "new": "Hello there."},
-        })["id"]
+        }, "Hello world.", "Hello there.")["id"]
         third = note("Shorten the title.")
         fourth = note("Cite the survey here.")
 
@@ -2857,9 +2866,9 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
         leaf_tab = '.tab-btn[data-tab="overleaf-comments"]'
         wait_until(lambda: browser.execute_script(f"return !document.querySelector('{leaf_tab}').hidden"))
         browser.execute_script('document.querySelector("#settings-dialog").close()')
-        post_json(f"{base}/comments", {"anchor": {"kind": "source_range", "file": "paper.tex", "line_start": 4,
-                                                  "line_end": 4, "column_start": 0, "column_end": 5},
-                                       "text": "Written here.", "suggestion": {"old": "Hello", "new": "Hi"}})
+        post_suggested(base, shared, {"anchor": {"kind": "source_range", "file": "paper.tex", "line_start": 4,
+                                                 "line_end": 4, "column_start": 0, "column_end": 5},
+                                      "text": "Written here."}, "Hello", "Hi")
         listed = 'return document.querySelector("#comments-list").textContent'
         count = lambda selector: browser.execute_script(f'return document.querySelector("{selector}").textContent')
         show_view(browser, "open")
