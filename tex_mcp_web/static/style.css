@@ -358,6 +358,7 @@ textarea {
    on every screen. */
 .source-toolbar #source-comment-btn { min-width: 44px; justify-content: center; }
 #source-vim-btn.active,
+#source-leaf-btn.active,
 #source-wrap-btn.active { background: var(--accent-soft); border-color: var(--accent); }
 .source-status {
   flex: 1;

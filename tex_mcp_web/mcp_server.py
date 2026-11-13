@@ -441,6 +441,8 @@ def _agent_comment_to_dict(comment, watch_dir: Path) -> dict[str, Any]:
             # Its words are in Overleaf's file and not yet in this one: the comment sits on
             # the paper and moves onto them once they are here.
             payload["overleaf_place"] = f"{where}, not found here"
+    elif comment.for_overleaf:
+        payload["new_thread"] = True
     if comment.overleaf_draft is not None:
         # The reply drafted for Overleaf, which the reviewer has not sent yet. A thread with a
         # draft and not on Overleaf is a new thread drafted for it, and one with no entries
@@ -740,6 +742,8 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         a thread from Overleaf with no draft it asks for the reply the change calls for. It reports the moment
         it read ``from`` and the one it moved to, so a turn that went wrong is taken again
         with since=<from>; to see again what was already answered, ask for the thread by id.
+        A thread from Overleaf comes marked on_overleaf, and one the reviewer started for
+        Overleaf and not yet sent there new_thread, with the draft for Overleaf when there is one.
 
         ``ids`` gives those threads whole, which is what to ask for when the conversation
         is no longer in mind; with ``since`` it gives only the entries after that time.
@@ -788,6 +792,8 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                         "entries": [_agent_entry(entry) for entry in said]}
                 if comment.id in brought:
                     told["on_overleaf"] = True
+                elif comment.for_overleaf:
+                    told["new_thread"] = True
                 if comment.overleaf_draft is not None:
                     # What the reviewer says may be about the draft, which they have not sent.
                     told["overleaf_draft"] = comment.overleaf_draft.text
@@ -1024,7 +1030,10 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         new thread for Overleaf on those lines, text being its first message: a thread with
         that draft and not on Overleaf, which id and rev then redraft and only the reviewer
         sends, once what those ranges now hold is on Overleaf. The reviewer may talk the draft
-        over with you in the thread before sending it, and those entries stay here. edit: id,
+        over with you in the thread before sending it, and those entries stay here. A thread
+        the reviewer started for Overleaf (new_thread) waits for its first message there: what
+        they wrote is for you, and overleaf with id and rev drafts the message they asked for,
+        in their words' meaning and the register they asked for. edit: id,
         entry, text, rev, rewriting an entry you wrote. delete: id,
         refused once the reviewer has written in the thread.
 
@@ -1102,7 +1111,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                 if not id or not text or not rev:
                     return _err("overleaf requires id, text and rev, or text and anchor for a new thread")
                 target = store.get(id)
-                drafted = target is not None and target.overleaf_draft is not None
+                drafted = target is not None and (target.overleaf_draft is not None or target.for_overleaf)
                 if id not in _on_overleaf(watch_dir) and not drafted:
                     return _err("this comment did not come from Overleaf")
                 ranges, texts = _draft_ranges(watch_dir, edits or [])

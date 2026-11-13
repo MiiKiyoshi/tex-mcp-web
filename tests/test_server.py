@@ -26,7 +26,7 @@ from tex_mcp_web.comments import (
     SourceSelector,
     SuggestedEdit,
 )
-from tex_mcp_web.config import Config
+from tex_mcp_web.config import Config, load_config
 from tex_mcp_web.compiler import CompileResult
 from tex_mcp_web.server import TexMcpWebServer
 
@@ -1599,6 +1599,57 @@ async def test_a_search_finds_threads_by_what_was_said_in_them_and_when(bound_pr
     assert [h["id"] for h in (await call("read_comments", find="table", since=at("03T10:00"), status="all"))["comments"]] == []
     assert "find needs" in (await call("read_comments", find="  "))["error"]
     assert "on their own" in (await call("read_comments", find="table", new=True))["error"]
+
+
+@pytest.mark.asyncio
+async def test_the_reviewer_starts_a_thread_for_overleaf_and_the_agent_drafts_its_message(project):
+    """A comment on source lines can start a thread for Overleaf: what the reviewer writes is
+    for the agent, which reads it as a new thread and drafts the message to send there. It
+    needs the paper's Overleaf project and source lines, and carries no suggestion."""
+    pytest.importorskip("mcp")
+    from tex_mcp_web.comments import CommentStore
+    from tex_mcp_web.mcp_client import ProjectBinding
+    from tex_mcp_web.mcp_server import create_server
+
+    lines = {"kind": "source_range", "file": "paper.tex", "line_start": 5, "line_end": 5,
+             "column_start": 0, "column_end": 10}
+    config = project / ".tex-mcp-web.yaml"
+    config.write_text(f"main: paper.tex\nport: {_free_port()}\n")
+    server = TexMcpWebServer(load_config(config))
+    client = TestClient(TestServer(server.app))
+    await client.start_server()
+    try:
+        refused = await client.post("/comments", json={"anchor": lines, "text": "Ask her nicely.", "overleaf": True})
+        assert refused.status == 400 and "Overleaf project" in (await refused.json())["error"]
+        config.write_text(config.read_text() + "overleaf: https://www.overleaf.com/project/0123456789abcdef01234567\n")
+        server.config = load_config(config)
+        refused = await client.post("/comments", json={"anchor": {"kind": "paper"}, "text": "Everywhere.", "overleaf": True})
+        assert refused.status == 400
+        made = await client.post("/comments", json={"anchor": lines, "text": "ask whether this cite is the right one, politely",
+                                                    "overleaf": True})
+        assert made.status == 201, await made.text()
+        started = await made.json()
+        assert started["for_overleaf"] is True and "suggestion" not in started
+    finally:
+        await client.close()
+
+    binding = ProjectBinding(project)
+    mcp = create_server(binding)
+
+    async def call(tool_name, **arguments):
+        return json.loads((await mcp.call_tool(tool_name, arguments))[0].text)
+
+    [told] = (await call("read_comments", new=True))["comments"]
+    assert told["id"] == started["id"] and told["new_thread"] is True and "on_overleaf" not in told
+    assert [entry["text"] for entry in told["entries"]] == ["ask whether this cite is the right one, politely"]
+    drafted = await call("write_comments", action="overleaf", id=started["id"], rev=told["rev"],
+                         text="Could you check whether this is the right citation here?")
+    assert "error" not in drafted
+    store = CommentStore(project / ".tex-mcp-web" / "comments.json")
+    kept = store.get(started["id"])
+    assert kept.overleaf_draft.text == "Could you check whether this is the right citation here?"
+    assert [entry.text for entry in kept.thread] == ["ask whether this cite is the right one, politely"]
+    assert (await call("read_comments", ids=[started["id"]]))["comments"][0]["new_thread"] is True
 
 
 @pytest.mark.asyncio

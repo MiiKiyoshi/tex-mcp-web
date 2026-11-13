@@ -799,15 +799,23 @@ function selectQuoteInLines(quote, first, last) {
 }
 
 // A section comment names the heading it was pressed on too, since headings can share a title.
-function openCompose(anchor, label, selectionText = "", heading = null) {
+// A comment *forOverleaf* starts a thread for Overleaf: what is written goes to the agent, which
+// drafts the message there, so it takes no suggested rewrite.
+function openCompose(anchor, label, selectionText = "", heading = null, forOverleaf = false) {
   state.pendingAnchor = anchor;
   state.pendingSourceRevision = anchor.kind === "source_range" ? state.sourceRevision : null;
   state.pendingHeading = heading;
+  state.pendingForOverleaf = forOverleaf;
+  $("#compose-title").textContent = forOverleaf ? "New thread on Overleaf" : "New comment";
+  $("#compose-text").placeholder = forOverleaf
+    ? "tell the agent what to say on Overleaf; it drafts the message, and you send it…"
+    : "leave a comment for the coding agent…";
   $("#compose-anchor").textContent = label;
   $("#compose-text").value = "";
-  $("#compose-suggestion-old").value = selectionText;
+  $("#compose-suggestion-details").hidden = forOverleaf;
+  $("#compose-suggestion-old").value = forOverleaf ? "" : selectionText;
   $("#compose-suggestion-new").value = "";
-  $("#compose-suggestion-details").open = Boolean(selectionText);
+  $("#compose-suggestion-details").open = Boolean(selectionText) && !forOverleaf;
   $("#compose-dialog").showModal();
   setTimeout(() => $("#compose-text").focus(), 50);
 }
@@ -855,9 +863,10 @@ function updateSourceCommentButton() {
   if (!button) return;
   const selected = Boolean(state.editor?.getSelectedText().trim());
   button.disabled = !selected || state.sourceDirty;
+  const where = sourceForOverleaf() && state.overleafProject ? "Start a thread on Overleaf on" : "Comment on";
   button.title = state.sourceDirty
     ? "Save source before commenting"
-    : selected ? "Comment on the selected source text (Ctrl+Alt+M, gc with Vim keys)" : "Select source text to comment";
+    : selected ? `${where} the selected source text (Ctrl+Alt+M, gc with Vim keys)` : "Select source text to comment";
   $("#source-pdf-btn").disabled = !selected;
 }
 
@@ -1025,6 +1034,8 @@ function openSourceCommentCompose() {
     },
     `Source: ${state.sourcePath}:${lineStart}-${lineEnd}`,
     text,
+    null,
+    sourceForOverleaf() && Boolean(state.overleafProject),
   );
 }
 
@@ -1794,6 +1805,23 @@ function vimKeys() {
   return localStorage.getItem("texMcpVimKeys") === "1";
 }
 
+// With the leaf pressed beside + Comment, a comment on source text starts a thread for
+// Overleaf, where comments sit on source words: what the reviewer writes is for the agent,
+// which drafts the thread's first message, and the reviewer sends it. Kept for next time, and
+// offered once the paper names its Overleaf project.
+function sourceForOverleaf() {
+  try { return localStorage.getItem("texMcpSourceLeaf") === "1"; } catch { return false; }
+}
+
+function applySourceLeaf() {
+  const button = $("#source-leaf-btn");
+  const on = sourceForOverleaf() && Boolean(state.overleafProject);
+  button.hidden = !state.overleafProject;
+  button.classList.toggle("active", on);
+  button.setAttribute("aria-pressed", String(on));
+  updateSourceCommentButton();
+}
+
 // The cursor's line held a third of the way down the editor, as the comment keys hold the
 // ringed card in the list, when the viewer chose it in Settings: the keys move the text under
 // the cursor and the eyes stay where they are. A click or a drag leaves the text where it is.
@@ -2538,7 +2566,8 @@ async function submitCompose(event) {
   if (state.pendingHeading !== null) body.heading = state.pendingHeading;
   const suggestionOld = $("#compose-suggestion-old").value.trim();
   const suggestionNew = $("#compose-suggestion-new").value.trim();
-  if (suggestionOld && suggestionNew) body.suggestion = { old: suggestionOld, new: suggestionNew };
+  if (state.pendingForOverleaf) body.overleaf = true;
+  else if (suggestionOld && suggestionNew) body.suggestion = { old: suggestionOld, new: suggestionNew };
 
   applyComposeSubmitting(true);
   try {
@@ -2553,9 +2582,11 @@ async function submitCompose(event) {
     }
     $("#compose-dialog").close();
     clearPendingSelection();
-    if (state.commentTab !== "comments") switchTab("comments");
-    // It waits for the agent, not for the reviewer, so it shows among the open ones.
-    if ($("#comment-filter").value === "todo") setCommentFilter("open");
+    // A thread started for Overleaf waits among the new threads for the agent's draft, and a
+    // comment for the agent among the open ones.
+    const tab = state.pendingForOverleaf ? "overleaf-comments" : "comments";
+    if (state.commentTab !== tab) switchTab(tab);
+    setCommentFilter(state.pendingForOverleaf ? "new" : "open");
     await refreshComments();
   } finally {
     applyComposeSubmitting(false);
@@ -2582,6 +2613,7 @@ async function refreshComments() {
   state.overleafFullSync = Boolean(linked.live);
   state.overleafWaiting = linked.waiting ?? 0;
   state.overleafSuggested = linked.suggested ?? [];
+  applySourceLeaf();
   // The other tab's comments are left out here, once, so the list, the editor's marks and
   // the PDF's highlights agree without each asking. Each tab counts its own open ones, and the
   // leaf tab the suggested edits waiting too.
@@ -2645,10 +2677,11 @@ function suggestedItem(edit) {
            resolved_source: { file: edit.file, ...place } };
 }
 
-// A thread drafted for Overleaf and not yet opened there: it holds the draft of its first
-// message, and what the reviewer and the agent say about the draft here, which stays here.
+// A thread drafted for Overleaf, or started for it by the reviewer, and not yet opened there:
+// it holds the draft of its first message, once the agent writes one, and what the reviewer
+// and the agent say about it here, which stays here.
 function draftedThread(comment) {
-  return !state.overleafImported.has(comment.id) && Boolean(comment.overleaf_draft);
+  return !state.overleafImported.has(comment.id) && (Boolean(comment.overleaf_draft) || Boolean(comment.for_overleaf));
 }
 
 // A thread opened on Overleaf from here: its first message there is the draft the reviewer sent.
@@ -3052,7 +3085,8 @@ function renderCommentItem(comment) {
                                text: `${writer(latest)}  ${latest.text}` }));
     }
   }
-  const onOverleaf = state.overleafImported.has(comment.id);
+  // A thread on Overleaf, or one for it still here, marks each entry as sent there or not.
+  const onOverleaf = forOverleaf(comment);
   if (expanded) {
     // The thread reads downward, oldest first, the way it was written.
     children.push(
@@ -3064,7 +3098,7 @@ function renderCommentItem(comment) {
   if (comment.suggestion) children.push(renderSuggestion(comment));
   // So does the reply drafted for Overleaf, or a new thread's first message, shown closed or
   // open while it waits to be sent.
-  if (forOverleaf(comment) && comment.status === "open" && (expanded || comment.overleaf_draft)) {
+  if (forOverleaf(comment) && comment.status === "open" && (expanded || comment.overleaf_draft || draftedThread(comment))) {
     children.push(renderOverleafReply(comment));
   }
   if (expanded) {
@@ -5212,6 +5246,11 @@ async function init() {
   $("#source-vim-btn").addEventListener("click", () => {
     localStorage.setItem("texMcpVimKeys", vimKeys() ? "0" : "1");
     applyVimKeys();
+    state.editor?.focus();
+  });
+  $("#source-leaf-btn").addEventListener("click", () => {
+    try { localStorage.setItem("texMcpSourceLeaf", sourceForOverleaf() ? "0" : "1"); } catch { /* this visit only */ }
+    applySourceLeaf();
     state.editor?.focus();
   });
   applySourceWrap();

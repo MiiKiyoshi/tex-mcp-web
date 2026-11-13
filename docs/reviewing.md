@@ -4,6 +4,9 @@
 
 - Drag over PDF text and write what should change. Add a suggested wording in the
   replacement box when you have one.
+- With a paper that follows an Overleaf project, the leaf beside **+ Comment** in the
+  editor's bar makes a comment on source text start a thread for Overleaf, which the agent
+  drafts from what you write and you send. [Working with Overleaf](overleaf.md) says more.
 - The box tool, beside pan and pointer in the PDF's toolbar, turns a drag on the PDF into a
   box to comment on what has no text to select, such as part of a figure. The box holds
   while a compile leaves what it covers as it was.

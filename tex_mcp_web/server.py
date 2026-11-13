@@ -36,6 +36,7 @@ from .comments import (
     AreaAnchor,
     Comment,
     CommentStore,
+    OverleafDraft,
     PageSelection,
     PdfTextIndex,
     PaperAnchor,
@@ -1611,9 +1612,10 @@ class TexMcpWebServer:
         async with self._overleaf_import:
             ledger = self._overleaf_ledger()
             thread = next((key for key, known in ledger.items() if known["comment"] == cid), None)
-            # A thread drafted for Overleaf, not yet opened there, opens with its draft, whatever
-            # the reviewer and the agent said about the draft here.
-            opening = thread is None and comment is not None and comment.overleaf_draft is not None
+            # A thread drafted for Overleaf, or started for it by the reviewer, not yet opened
+            # there, opens with what is sent, whatever was said about it here.
+            opening = thread is None and comment is not None and (comment.overleaf_draft is not None
+                                                                   or comment.for_overleaf)
             if thread is None and not opening:
                 return web.json_response({"error": "this comment did not come from Overleaf"}, status=409), ""
             if not self.config.overleaf:
@@ -1662,6 +1664,10 @@ class TexMcpWebServer:
             return "The lines this thread is on are not in the file here any more.", ""
         if self.overleaf_live is None:
             return "The page is not connected to Overleaf right now. Send again in a moment.", ""
+        # A first message the reviewer wrote with no draft from the agent is kept as the draft,
+        # where the thread's id goes before anything is sent.
+        if comment.overleaf_draft is None:
+            comment = self.comments.draft_overleaf(comment.id, comment.updated, OverleafDraft(text), {})
         thread = comment.overleaf_draft.thread or overleaf.new_thread_id()
         if comment.overleaf_draft.thread is None:
             self.comments.name_overleaf_thread(comment.id, thread)
@@ -2413,6 +2419,11 @@ class TexMcpWebServer:
             return web.json_response(
                 {"error": f"invalid comment input: {exc}"}, status=400
             )
+        # A thread for Overleaf sits on source lines, as Overleaf puts a thread on words.
+        for_overleaf = data.get("overleaf") is True
+        if for_overleaf and (not self.config.overleaf or not isinstance(anchor, SourceRangeAnchor) or suggestion):
+            return web.json_response({"error": "a thread for Overleaf sits on source lines of a paper that names its "
+                                               "Overleaf project, and carries no suggestion"}, status=400)
         comment = self.comments.add(
             anchor=anchor,
             text=text,
@@ -2421,6 +2432,7 @@ class TexMcpWebServer:
             source_selector=source_selector,
             suggestion=suggestion,
             base_text=self._base_text(anchor, resolved),
+            for_overleaf=for_overleaf,
         )
         await self.broadcast({"type": "comment_added", "comment": _comment_to_dict(comment)})
         return web.json_response(_comment_to_dict(comment), status=201)

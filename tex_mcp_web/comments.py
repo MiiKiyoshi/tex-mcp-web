@@ -575,6 +575,9 @@ class Comment:
     source_selector: SourceSelector | None = None
     suggestion: SuggestedEdit | None = None
     overleaf_draft: OverleafDraft | None = None
+    # A thread the reviewer started on source lines for Overleaf: what they wrote in it is for
+    # the agent, which drafts the thread's first message there, and the reviewer sends it.
+    for_overleaf: bool = False
     created: str = field(default_factory=_now)
     updated: str = field(default_factory=_now)
     # When the comment was last closed; None while it is open.
@@ -630,6 +633,8 @@ class Comment:
             d["suggestion"] = self.suggestion.to_dict()
         if self.overleaf_draft is not None:
             d["overleaf_draft"] = self.overleaf_draft.to_dict()
+        if self.for_overleaf:
+            d["for_overleaf"] = True
         if self.stale:
             d["stale"] = True
         if self.reanchored:
@@ -665,6 +670,7 @@ class Comment:
                 if "overleaf_draft" in d
                 else None
             ),
+            for_overleaf=bool(d.get("for_overleaf", False)),
             created=str(d["created"]),
             updated=str(d["updated"]),
             resolved=str(d["resolved"]) if "resolved" in d else None,
@@ -1424,9 +1430,11 @@ class CommentStore:
         suggestion: SuggestedEdit | None = None,
         base_text: str | None = None,
         name: str | None = None,
+        for_overleaf: bool = False,
     ) -> Comment:
         """*base_text* is the file's text *resolved_source* was found in, which later edits
-        carry the comment from. *name* is who wrote *text* on Overleaf."""
+        carry the comment from. *name* is who wrote *text* on Overleaf. *for_overleaf* starts
+        a thread for Overleaf, on source lines."""
         now = _now()
         comment = Comment(
             id=_new_id(),
@@ -1436,6 +1444,7 @@ class CommentStore:
             resolved_source=resolved_source,
             source_selector=source_selector,
             suggestion=suggestion,
+            for_overleaf=for_overleaf,
             created=now,
             updated=now,
         )

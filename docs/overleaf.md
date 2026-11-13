@@ -79,6 +79,11 @@ address, so on the shared machine's own browser, open no page another account se
   against Overleaf's branch afresh. Picked replies sent together ask once, at the end,
   naming every such file. Overleaf takes the reply first, so what it refuses is not shown
   as said here.
+- You can start a thread for Overleaf yourself. With the leaf beside **+ Comment** in the
+  editor's bar pressed, a comment on the selected source text starts one, since Overleaf puts
+  a thread on source words: what you write is for the agent, say a rough note to be put
+  politely, and it drafts the thread's first message. You edit that and send it, or write
+  the message yourself and send it with no draft. What you told the agent stays here.
 - The agent can also draft a new thread on source lines (`write_comments` with
   `action="overleaf"` and an `anchor` instead of an `id`). It waits in the tab as a card
   whose draft is its first message on Overleaf. **Reply** talks the draft over with the

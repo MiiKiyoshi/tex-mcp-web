@@ -988,6 +988,33 @@ async def test_what_was_said_about_a_drafted_thread_stays_here_when_it_opens_on_
         await opened.close()
 
 
+async def test_a_thread_the_reviewer_started_for_overleaf_opens_there_with_what_is_sent(paper, overleaf_site) -> None:
+    """The reviewer starts a thread for Overleaf on source lines, telling the agent what to say.
+    Sent, here with no draft from the agent, it opens on Overleaf with the message sent alone,
+    and what the reviewer told the agent stays here."""
+    fake, link = overleaf_site
+    opened = await Review(paper, fake, link, sync=False).open()
+    try:
+        await wait_for(lambda: opened.server.overleaf_live is not None and opened.server.overleaf_live.status == "live")
+        response = await opened.client.post("/comments", json={
+            "anchor": {"kind": "source_range", "file": "tex/body.tex", "line_start": 2, "line_end": 2,
+                       "column_start": 0, "column_end": 4},
+            "text": "ask if this is enough, politely", "overleaf": True})
+        assert response.status == 201, await response.text()
+        started = await response.json()
+        response = await opened.client.post(f"/comments/{started['id']}/reply",
+                                            json={"text": "Would this be enough?", "overleaf": True})
+        assert response.status == 200, await response.text()
+        [thread] = fake.threads
+        assert [m["content"] for m in fake.threads[thread]["messages"]] == ["Would this be enough?"]
+        await wait_for(lambda: fake.docs["d-body"]["comments"])
+        sent = opened.server.comments.get(started["id"])
+        assert [(entry.text, entry.overleaf is not None) for entry in sent.thread] == [
+            ("ask if this is enough, politely", False), ("Would this be enough?", True)]
+    finally:
+        await opened.close()
+
+
 async def test_a_drafted_thread_whose_lines_overleaf_lacks_is_not_opened_at_all(paper, overleaf_site) -> None:
     """The lines are looked for on Overleaf before anything is written there, so a thread
     whose words Overleaf lacks leaves no message behind, and keeps its draft here."""
