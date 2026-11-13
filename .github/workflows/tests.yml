@@ -22,7 +22,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends latexmk texlive-latex-base
       - name: Python packages
-        run: pip install -e ".[mcp,dev]" marionette_driver
+        run: pip install -e ".[dev]" marionette_driver
       - name: Tests
         run: |
           firefox --version

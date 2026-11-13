@@ -144,7 +144,7 @@ def _check_deps() -> None:
     if not HAS_MCP:
         print(
             f"tex-mcp cannot import its MCP dependencies: {MISSING_MCP}\n"
-            "Install tex-mcp-web[mcp] into this interpreter.",
+            "Install tex-mcp-web into this interpreter.",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -959,10 +959,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         compares extracted PDF text and excludes visual-only changes. Read the log
         yourself for warnings and for an error's surroundings.
         """
-        try:
-            import httpx
-        except ImportError:
-            return _err("httpx not installed; install tex-mcp-web[mcp]")
+        import httpx
 
         from .config import get_main_file
 

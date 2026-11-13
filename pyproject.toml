@@ -1,18 +1,18 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-fancy-pypi-readme"]
 build-backend = "hatchling.build"
 
 [project]
 name = "tex-mcp-web"
-version = "0.8.1"
-description = "Agentic-first review tool for LaTeX papers: live PDF preview and comment queue"
-readme = "README.md"
+version = "0.8.2"
+description = "LaTeX MCP server for paper review: comment on the PDF while an AI agent edits the source, with Overleaf sync."
+dynamic = ["readme"]
 license = "MIT"
 requires-python = ">=3.10"
 authors = [
     { name = "MiiKiyoshi" }
 ]
-keywords = ["tex", "latex", "pdf", "watcher", "viewer", "review", "annotation", "agent", "mcp"]
+keywords = ["tex", "latex", "pdf", "watcher", "viewer", "review", "annotation", "agent", "mcp", "mcp-server", "overleaf"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
@@ -30,10 +30,12 @@ dependencies = [
     "aiohttp>=3.9.0",
     "pyyaml>=6.0",
     "pymupdf>=1.24.3",
+    "mcp>=1.0,<2",
+    "httpx",
+    "pydantic>=2.0",
 ]
 
 [project.optional-dependencies]
-mcp = ["mcp>=1.0,<2", "httpx", "pydantic>=2.0"]
 dev = [
     "pytest>=7.0",
     "pytest-asyncio>=0.21",
@@ -51,6 +53,25 @@ Repository = "https://github.com/MiiKiyoshi/tex-mcp-web"
 
 [tool.hatch.build.targets.wheel]
 packages = ["tex_mcp_web"]
+
+# The README's films are shown from GitHub, so the source archive leaves them out.
+[tool.hatch.build.targets.sdist]
+exclude = ["docs/images"]
+
+# PyPI shows the README with its images and pages named by path, which it takes from GitHub.
+[tool.hatch.metadata.hooks.fancy-pypi-readme]
+content-type = "text/markdown"
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.fragments]]
+path = "README.md"
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = '(src|srcset)="(?!https?:)([^"]+)"'
+replacement = '\1="https://raw.githubusercontent.com/MiiKiyoshi/tex-mcp-web/main/\2"'
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = '\]\((?!https?:)([^)]+)\)'
+replacement = '](https://github.com/MiiKiyoshi/tex-mcp-web/blob/main/\1)'
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

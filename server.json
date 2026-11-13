@@ -1,0 +1,28 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.MiiKiyoshi/tex-mcp-web",
+  "title": "tex-mcp-web",
+  "description": "LaTeX paper review: comment on the PDF while an AI agent edits the source, with Overleaf sync.",
+  "repository": {
+    "url": "https://github.com/MiiKiyoshi/tex-mcp-web",
+    "source": "github"
+  },
+  "websiteUrl": "https://github.com/MiiKiyoshi/tex-mcp-web",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "registryBaseUrl": "https://pypi.org",
+      "identifier": "tex-mcp-web",
+      "runtimeHint": "uvx",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "mcp"
+        }
+      ]
+    }
+  ]
+}
