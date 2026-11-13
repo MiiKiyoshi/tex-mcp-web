@@ -2629,15 +2629,15 @@ function suggestedItem(edit) {
            resolved_source: { file: edit.file, ...place } };
 }
 
-// A thread from Overleaf, or one drafted for it: a comment with no entries, since nothing
-// has been said in it until the reviewer sends its draft.
+// A thread drafted for Overleaf and not yet opened there: it holds the draft of its first
+// message, and what the reviewer and the agent say about the draft here, which stays here.
 function draftedThread(comment) {
-  return comment.thread.length === 0 && Boolean(comment.overleaf_draft);
+  return !state.overleafImported.has(comment.id) && Boolean(comment.overleaf_draft);
 }
 
-// A thread opened on Overleaf from here: its first message is the draft the reviewer sent.
+// A thread opened on Overleaf from here: its first message there is the draft the reviewer sent.
 function openedHere(comment) {
-  return comment.thread[0]?.overleaf !== undefined;
+  return comment.thread.find((entry) => entry.name !== undefined || entry.overleaf !== undefined)?.overleaf !== undefined;
 }
 
 function forOverleaf(comment) {
@@ -3343,8 +3343,11 @@ function actionButtons(comment) {
   // empty summary flips the status without adding an entry. An archived thread still
   // takes replies, and goes back to open or resolved from the same row.
   const buttons = [];
-  // A thread drafted for Overleaf has nothing said in it yet: it is sent, or deleted here.
-  if (draftedThread(comment)) return [deleteButton];
+  // A thread drafted for Overleaf takes replies here, about its draft, and is sent, or deleted
+  // here: it is not on Overleaf to resolve.
+  if (draftedThread(comment)) {
+    return [actionButton("cmt-reply", "Reply", () => setActiveForm(comment.id, "reply")), deleteButton];
+  }
   // A thread from Overleaf resolves and reopens there, at once: Overleaf takes no summary,
   // has no archive, and deletes a thread only there.
   if (state.overleafImported.has(comment.id)) {

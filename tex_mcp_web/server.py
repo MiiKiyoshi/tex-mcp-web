@@ -1611,7 +1611,9 @@ class TexMcpWebServer:
         async with self._overleaf_import:
             ledger = self._overleaf_ledger()
             thread = next((key for key, known in ledger.items() if known["comment"] == cid), None)
-            opening = thread is None and comment is not None and not comment.thread and comment.overleaf_draft is not None
+            # A thread drafted for Overleaf, not yet opened there, opens with its draft, whatever
+            # the reviewer and the agent said about the draft here.
+            opening = thread is None and comment is not None and comment.overleaf_draft is not None
             if thread is None and not opening:
                 return web.json_response({"error": "this comment did not come from Overleaf"}, status=409), ""
             if not self.config.overleaf:
@@ -2292,14 +2294,14 @@ class TexMcpWebServer:
         comments = self.comments.list(status=status)  # type: ignore[arg-type]
         # The leaf tab lists Overleaf's threads in the order the paper reads them, as
         # Overleaf's review panel does: they come in many at once, in the order Overleaf
-        # hands them out. A thread on no line of the paper goes last. The comments
-        # written here keep the order they were written in.
+        # hands them out, and so do the threads drafted for it. A thread on no line of the
+        # paper goes last. The comments written here keep the order they were written in.
         brought = {known["comment"] for known in self._overleaf_ledger().values()}
         chains = {_relative(path, self.watch_dir): chain
                   for path, chain in reading_places(self.main_file, self.watch_dir).items()}
 
         def place(comment: Comment) -> tuple[Any, ...]:
-            if comment.id not in brought and (comment.thread or comment.overleaf_draft is None):
+            if comment.id not in brought and comment.overleaf_draft is None:
                 return ()
             source = comment.resolved_source
             if source is None:

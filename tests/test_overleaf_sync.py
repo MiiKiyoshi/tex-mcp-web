@@ -957,6 +957,37 @@ async def test_a_thread_drafted_for_overleaf_opens_there_on_its_lines_when_sent(
         await opened.close()
 
 
+async def test_what_was_said_about_a_drafted_thread_stays_here_when_it_opens_on_overleaf(paper, overleaf_site) -> None:
+    """The reviewer and the agent talk a drafted thread over here. Sent, the thread opens on
+    Overleaf with the draft alone, and the talk stays in it here, before the message sent."""
+    from tex_mcp_web.comments import OverleafDraft, ResolvedSource, SourceRangeAnchor, capture_source_selector
+
+    fake, link = overleaf_site
+    opened = await Review(paper, fake, link, sync=False).open()
+    try:
+        await wait_for(lambda: opened.server.overleaf_live is not None and opened.server.overleaf_live.status == "live")
+        store = opened.server.comments
+        drafted = store.add_overleaf_thread(
+            SourceRangeAnchor(file="tex/body.tex", line_start=2, line_end=2), OverleafDraft("Enough?"),
+            ResolvedSource(file="tex/body.tex", line_start=2, line_end=2),
+            capture_source_selector(paper / "tex" / "body.tex", 2, 2),
+            {"tex/body.tex": (paper / "tex" / "body.tex").read_text()})
+        response = await opened.client.post(f"/comments/{drafted.id}/reply", json={"text": "Make it a question."})
+        assert response.status == 200, await response.text()
+        store.reply(drafted.id, "Drafted it as one.", author="agent")
+        response = await opened.client.post(f"/comments/{drafted.id}/reply",
+                                            json={"text": "Is this enough?", "overleaf": True})
+        assert response.status == 200, await response.text()
+        [thread] = fake.threads
+        assert [m["content"] for m in fake.threads[thread]["messages"]] == ["Is this enough?"]
+        sent = store.get(drafted.id)
+        assert [(entry.text, entry.overleaf is not None) for entry in sent.thread] == [
+            ("Make it a question.", False), ("Drafted it as one.", False), ("Is this enough?", True)]
+        assert sent.overleaf_draft is None
+    finally:
+        await opened.close()
+
+
 async def test_a_drafted_thread_whose_lines_overleaf_lacks_is_not_opened_at_all(paper, overleaf_site) -> None:
     """The lines are looked for on Overleaf before anything is written there, so a thread
     whose words Overleaf lacks leaves no message behind, and keeps its draft here."""

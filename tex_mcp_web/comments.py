@@ -531,7 +531,7 @@ class DraftRange:
 @dataclass
 class OverleafDraft:
     """What the agent drafted for Overleaf, which the reviewer edits and sends: a reply to the
-    thread a comment came from, or, on a comment with no entries yet, the first message of a
+    thread a comment came from, or, on a comment not yet on Overleaf, the first message of a
     new thread on its lines. *ranges* are the source lines it describes: the files a reply is
     compared in before it goes, and the words that must be on Overleaf before a new thread
     goes. *thread* is the id a new thread was given on Overleaf when it was first sent, so a

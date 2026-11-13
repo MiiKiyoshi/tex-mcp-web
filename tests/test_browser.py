@@ -2781,7 +2781,7 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
         browser.execute_script(f'document.querySelector("{card} .cmt-head").click()')
         wait_until(lambda: browser.execute_script(f'return document.querySelector("{card} .cmt-actions") !== null'))
         assert browser.execute_script(
-            f'return [...document.querySelectorAll("{card} .cmt-actions button")].map((b) => b.textContent)') == ["Delete"]
+            f'return [...document.querySelectorAll("{card} .cmt-actions button")].map((b) => b.textContent)') == ["Reply", "Delete"]
         # i puts the cursor in the thread's box for Overleaf, and Escape leaves it with its words.
         browser.execute_script(
             f'document.querySelector("{card} .cmt-overleaf-head").dispatchEvent(new MouseEvent("mousedown", {{bubbles: true}}))')
@@ -2817,6 +2817,22 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
         assert wait_until(lambda: browser.execute_script(
             'const ids = [...document.querySelectorAll("[data-comment-id]")].map((c) => c.dataset.commentId);'
             ' return ids.length === 2 ? ids : false;')) == [drafted.id, opened_here.id]
+        # The drafted thread takes a reply here, about its draft, and stays a draft in this view.
+        card = f'document.querySelector(\'[data-comment-id="{drafted.id}"]\')'
+        browser.execute_script(f'if (!{card}.querySelector(".cmt-reply")) {card}.querySelector(".cmt-head").click()')
+        wait_until(lambda: browser.execute_script(f'return {card}?.querySelector(".cmt-reply") !== null'))
+        browser.execute_script(f'{card}.querySelector(".cmt-reply").click()')
+        wait_until(lambda: browser.execute_script(
+            f'return {card}?.querySelector(".cmt-form-input:not(.overleaf-reply-input)") !== null'))
+        browser.execute_script(
+            f'const box = {card}.querySelector(".cmt-form-input:not(.overleaf-reply-input)"); box.value = "Shorter, please.";'
+            'box.dispatchEvent(new Event("input", {bubbles: true}));'
+            f'{card}.querySelector(".cmt-form-submit").click();')
+        wait_until(lambda: browser.execute_script(f'return {card}?.textContent.includes("Shorter, please.") ?? false'))
+        assert browser.execute_script(
+            'return [...document.querySelectorAll("[data-comment-id]")].map((c) => c.dataset.commentId);') \
+            == [drafted.id, opened_here.id]
+        assert "New thread on Overleaf" in browser.execute_script(f"return {card}.textContent")
         # The other tab has no unanswered view from the moment it is chosen, not from when its
         # comments arrive.
         browser.execute_script('const f = document.querySelector("#comment-filter"); f.value = "unanswered";'

@@ -1250,7 +1250,7 @@ async def test_mcp_contract_is_typed_and_nonduplicative(tmp_path: Path):
     assert all(mcp.instructions not in (tool.description or "") for tool in tools.values())
     read_schema = tools["read_comments"].inputSchema["properties"]
     assert read_schema["status"]["enum"] == ["open", "resolved", "archived", "all"]
-    assert set(read_schema) == {"ids", "new", "status", "unanswered", "since", "limit", "save"}
+    assert set(read_schema) == {"ids", "new", "status", "unanswered", "since", "until", "find", "limit", "save"}
 
     comment_schema = tools["write_comments"].inputSchema
     assert comment_schema["properties"]["action"]["enum"] == [
@@ -1521,6 +1521,84 @@ async def test_mcp_drafts_a_new_overleaf_thread_on_source_lines(bound_project, p
     assert "no id or rev" in both["error"]
     # The agent may take back its own draft: nobody has said anything in it.
     assert (await call("write_comments", action="delete", id=drafted.id))["ok"] is True
+
+
+@pytest.mark.asyncio
+async def test_the_reviewer_talks_a_drafted_thread_over_with_the_agent_before_sending_it(bound_project, project):
+    """A thread drafted for Overleaf takes the reviewer's replies here, which the agent reads with
+    the draft they are about and answers by redrafting it. The thread stays a draft for Overleaf."""
+    pytest.importorskip("mcp")
+    from tex_mcp_web.comments import CommentStore
+    from tex_mcp_web.mcp_server import create_server
+
+    mcp = create_server(bound_project)
+
+    async def call(tool_name, **arguments):
+        return json.loads((await mcp.call_tool(tool_name, arguments))[0].text)
+
+    store = CommentStore(project / ".tex-mcp-web" / "comments.json")
+    await call("read_comments", new=True)
+    receipt = await call("write_comments", action="overleaf", text="Which prose do you mean?",
+                         anchor={"kind": "source_range", "file": "paper.tex", "start": 5, "end": 5})
+    store.reply(receipt["id"], "Ask about the methods instead.", author="human")
+    [told] = (await call("read_comments", new=True))["comments"]
+    assert told["id"] == receipt["id"] and [entry["text"] for entry in told["entries"]] == ["Ask about the methods instead."]
+    assert told["overleaf_draft"] == "Which prose do you mean?" and "on_overleaf" not in told
+    redrafted = await call("write_comments", action="overleaf", id=receipt["id"], text="Which method do you mean?",
+                           rev=told["rev"])
+    assert "error" not in redrafted
+    kept = store.get(receipt["id"])
+    assert kept.overleaf_draft.text == "Which method do you mean?"
+    assert [entry.text for entry in kept.thread] == ["Ask about the methods instead."]
+    # The reviewer has written in it, so the agent no longer takes it back.
+    assert "error" in await call("write_comments", action="delete", id=receipt["id"])
+
+
+@pytest.mark.asyncio
+async def test_a_search_finds_threads_by_what_was_said_in_them_and_when(bound_project, project, monkeypatch):
+    """find and until search entry by entry: a thread opened long ago is found by a reply sent
+    to Overleaf yesterday, and by the words its draft holds, with where it is."""
+    pytest.importorskip("mcp")
+    from tex_mcp_web.comments import CommentStore, OverleafDraft, PaperAnchor, ResolvedSource, SectionAnchor
+    from tex_mcp_web.mcp_server import create_server, short_time
+
+    mcp = create_server(bound_project)
+
+    async def call(tool_name, **arguments):
+        return json.loads((await mcp.call_tool(tool_name, arguments))[0].text)
+
+    store = CommentStore(project / ".tex-mcp-web" / "comments.json")
+    clock = {"now": "2026-01-01T09:00:00+09:00"}
+    monkeypatch.setattr("tex_mcp_web.comments._now", lambda: clock["now"])
+    old = store.add(SectionAnchor("Methods"), "Say where the table goes.",
+                    resolved_source=ResolvedSource("paper.tex", 6, 8))
+    other = store.add(PaperAnchor(), "Check the units.")
+    clock["now"] = "2026-01-03T10:00:00+09:00"
+    store.sent_to_overleaf(old.id, "Moved the table to Section 3.", "")
+    store.reply(other.id, "The table stays where it is.", author="agent")
+    clock["now"] = "2026-01-03T11:00:00+09:00"
+    store.draft_overleaf(other.id, store.get(other.id).updated, OverleafDraft("Units are SI now."), {})
+    store.resolve(other.id, "")
+
+    # Words alone, in what was said or sent: the sent reply carries overleaf.
+    [hit] = (await call("read_comments", find="table to section"))["comments"]
+    assert hit["id"] == old.id and hit["source"] == "paper.tex:6-8"
+    assert [(m["text"], "overleaf" in m) for m in hit["matches"]] == [("Moved the table to Section 3.", True)]
+    # Closed threads too when asked, and a draft's words.
+    hits = (await call("read_comments", find="table", status="all"))["comments"]
+    assert [h["id"] for h in hits] == [old.id, other.id]
+    assert [m["draft"] for m in (await call("read_comments", find="si now", status="all"))["comments"][0]["matches"]] \
+        == ["Units are SI now."]
+    # A window alone, entry by entry: what came between two times, the old thread by its new reply.
+    at = lambda stamp: short_time(f"2026-01-{stamp}:00+09:00")
+    window = (await call("read_comments", since=at("03T09:59"), until=at("03T10:00"), status="all"))["comments"]
+    assert {h["id"]: [m.get("text") for m in h["matches"]] for h in window} == {
+        old.id: ["Moved the table to Section 3."], other.id: ["The table stays where it is."]}
+    assert (await call("read_comments", until=at("01T08:59")))["comments"] == []
+    # Both, and the bounds and words are each checked.
+    assert [h["id"] for h in (await call("read_comments", find="table", since=at("03T10:00"), status="all"))["comments"]] == []
+    assert "find needs" in (await call("read_comments", find="  "))["error"]
+    assert "on their own" in (await call("read_comments", find="table", new=True))["error"]
 
 
 @pytest.mark.asyncio

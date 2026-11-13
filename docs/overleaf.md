@@ -77,15 +77,16 @@ address, so on the shared machine's own browser, open no page another account se
   as said here.
 - The agent can also draft a new thread on source lines (`write_comments` with
   `action="overleaf"` and an `anchor` instead of an `id`). It waits in the tab as a card
-  with nothing said in it yet, the draft being its first message, and you edit and send it
-  the same way, alone or with the picked threads, or delete it. Sent, it opens on Overleaf
-  as Overleaf's editor opens a thread: the lines are looked for in Overleaf's file, the
-  occurrence nearest the line they are on here, then the message goes, then an edit that
-  changes no text puts the thread on them. Lines Overleaf does not have yet leave nothing
-  behind there, and the card keeps its draft. A draft naming the ranges it describes goes
-  only once Overleaf has what those ranges held, and the refusal says to press commit &
-  push first, or, when the files here no longer hold those words, that the lines changed
-  after the draft and it is drafted again.
+  whose draft is its first message on Overleaf. **Reply** talks the draft over with the
+  agent, which redrafts it, and that talk stays here, as on any thread. You edit the draft
+  and send it the same way, alone or with the picked threads, or delete the card. Sent, it
+  opens on Overleaf as Overleaf's editor opens a thread: the lines are looked for in
+  Overleaf's file, the occurrence nearest the line they are on here, then the message goes,
+  then an edit that changes no text puts the thread on them. Lines Overleaf does not have
+  yet leave nothing behind there, and the card keeps its draft. A draft naming the ranges
+  it describes goes only once Overleaf has what those ranges held, and the refusal says to
+  press commit & push first, or, when the files here no longer hold those words, that the
+  lines changed after the draft and it is drafted again.
 
 ## Suggested edits
 

@@ -30,7 +30,7 @@ import sys
 import threading
 import time
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -442,8 +442,9 @@ def _agent_comment_to_dict(comment, watch_dir: Path) -> dict[str, Any]:
             # the paper and moves onto them once they are here.
             payload["overleaf_place"] = f"{where}, not found here"
     if comment.overleaf_draft is not None:
-        # The reply drafted for Overleaf, which the reviewer has not sent yet. A comment with
-        # no entries is a new thread drafted for Overleaf, and the draft is all it holds.
+        # The reply drafted for Overleaf, which the reviewer has not sent yet. A thread with a
+        # draft and not on Overleaf is a new thread drafted for it, and one with no entries
+        # holds the draft alone.
         payload["overleaf_draft"] = comment.overleaf_draft.text
         if not comment.thread:
             del payload["comment"]
@@ -724,6 +725,8 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         status: Literal["open", "resolved", "archived", "all"] = "open",
         unanswered: Annotated[bool, Field(description="Only threads where the reviewer wrote to you after the thread's last answer: your reply, your Overleaf draft, or a reply sent to Overleaf.")] = False,
         since: Annotated[str | None, Field(description="A time this server printed, like '09-19 00:52'; only what came after it.")] = None,
+        until: Annotated[str | None, Field(description="A time this server printed; a search looks only at what came up to that minute.")] = None,
+        find: Annotated[str | None, Field(description="Words a search looks for, case ignored, in what was said in a thread and in its draft for Overleaf.")] = None,
         limit: Annotated[int, Field(ge=1, le=200)] = 50,
         save: bool = False,
     ) -> str:
@@ -743,14 +746,23 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
 
         Without either, a listing: each request cut to its opening, the newest ``limit``
         threads with the rest counted in ``older``, narrowed by status, unanswered or
-        since. Times read and are written back as ``MM-DD HH:MM`` on this server's clock.
+        since. With ``find`` or ``until`` it is a search, entry by entry: a thread is listed
+        when something said in it between ``since`` and ``until`` holds ``find``'s words, the
+        reviewer's, yours, a reply sent to Overleaf, which carries ``overleaf``, or its draft
+        for Overleaf, and it comes with those entries and where it is. Each bound and the
+        words may be left out, and status="all" searches closed threads too. Times read and
+        are written back as ``MM-DD HH:MM`` on this server's clock.
         ``save`` needs ids; edit only the draft's Reply and Edit blocks.
         """
         cfg, watch_dir, store = _load_project(binding)
         try:
             moment = parse_short_time(since) if since is not None else None
+            # The minute named is whole: what came up to its end.
+            end = parse_short_time(until) + timedelta(minutes=1) if until is not None else None
         except ValueError as error:
             return _err(str(error))
+        if (find is not None or until is not None) and (new or ids is not None or save):
+            return _err("find and until search on their own; they take no new, ids or save")
 
         if new:
             if ids is not None or save:
@@ -776,6 +788,9 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                         "entries": [_agent_entry(entry) for entry in said]}
                 if comment.id in brought:
                     told["on_overleaf"] = True
+                if comment.overleaf_draft is not None:
+                    # What the reviewer says may be about the draft, which they have not sent.
+                    told["overleaf_draft"] = comment.overleaf_draft.text
                 if comment.resolved_source is not None:
                     source = comment.resolved_source
                     told["source"] = f"{source.file}:{source.line_start}-{source.line_end}"
@@ -824,8 +839,39 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             return _ok({"comments": comments})
         if save:
             return _err("save needs the ids of the threads to write out")
-        summaries = []
         brought = _on_overleaf(watch_dir)
+        if find is not None or until is not None:
+            words = (find or "").casefold()
+            if find is not None and not words.strip():
+                return _err("find needs the words to look for")
+
+            def within(at: str) -> bool:
+                when = datetime.fromisoformat(at)
+                when = when if when.tzinfo else when.replace(tzinfo=timezone.utc)
+                return (moment is None or when > moment) and (end is None or when < end)
+
+            found = []
+            for comment in store.list(status=None if status == "all" else status):
+                said = [(_agent_entry(entry), entry.at, entry.text) for entry in comment.thread]
+                if comment.overleaf_draft is not None:
+                    draft = comment.overleaf_draft
+                    said.append(({"draft": draft.text, "at": short_time(draft.at)}, draft.at, draft.text))
+                matches = [shown for shown, at, text in said if within(at) and words in text.casefold()]
+                if not matches:
+                    continue
+                source = comment.resolved_source
+                hit: dict[str, Any] = {"id": comment.id, "rev": revision_of(comment.updated), "status": comment.status,
+                                       "source": f"{source.file}:{source.line_start}-{source.line_end}"
+                                       if source is not None else comment.anchor.kind,
+                                       "matches": matches}
+                if comment.id in brought:
+                    hit["on_overleaf"] = True
+                found.append(hit)
+            listed = {"comments": found[-limit:]}
+            if len(found) > limit:
+                listed["older"] = len(found) - limit
+            return _ok(listed)
+        summaries = []
         for comment in store.list(status=None if status == "all" else status):
             if unanswered and not comment.waiting(on_overleaf=comment.id in brought):
                 continue
@@ -975,9 +1021,10 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         the reviewer sends it, asked first when a file those ranges are in is not the same
         here as on Overleaf. The draft is for the people on Overleaf. What the reviewer asks
         you in the thread is answered with reply. With anchor, a source_range, instead of id and rev, overleaf drafts a
-        new thread for Overleaf on those lines, text being its first message: a comment with
-        no entries and that draft, which id and rev then redraft and only the reviewer
-        sends, once what those ranges now hold is on Overleaf. edit: id,
+        new thread for Overleaf on those lines, text being its first message: a thread with
+        that draft and not on Overleaf, which id and rev then redraft and only the reviewer
+        sends, once what those ranges now hold is on Overleaf. The reviewer may talk the draft
+        over with you in the thread before sending it, and those entries stay here. edit: id,
         entry, text, rev, rewriting an entry you wrote. delete: id,
         refused once the reviewer has written in the thread.
 
@@ -1055,7 +1102,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                 if not id or not text or not rev:
                     return _err("overleaf requires id, text and rev, or text and anchor for a new thread")
                 target = store.get(id)
-                drafted = target is not None and not target.thread and target.overleaf_draft is not None
+                drafted = target is not None and target.overleaf_draft is not None
                 if id not in _on_overleaf(watch_dir) and not drafted:
                     return _err("this comment did not come from Overleaf")
                 ranges, texts = _draft_ranges(watch_dir, edits or [])
