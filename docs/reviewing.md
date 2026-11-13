@@ -33,7 +33,7 @@ zoom centres on the pointer. A mouse-wheel notch zooms by a quarter.
 ## Threads
 
 - The Comments tab opens on **to do**: the comments whose suggestion waits for you to apply
-  it, each gone from it once applied. **open** lists every open comment, and a comment you
+  it, each gone from it once applied. The number on the tab counts them. **open** lists every open comment, and a comment you
   write, or open from its mark in the PDF or the editor, shows there. The PDF and the editor
   mark every open comment of the tab, whatever the list shows.
 - **Resolve** a thread whose edit satisfies you, or **Reply** in it when it does not.

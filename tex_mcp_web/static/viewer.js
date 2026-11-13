@@ -2615,9 +2615,7 @@ async function refreshComments() {
   state.overleafSuggested = linked.suggested ?? [];
   applySourceLeaf();
   // The other tab's comments are left out here, once, so the list, the editor's marks and
-  // the PDF's highlights agree without each asking. Each tab counts its own open ones, and the
-  // leaf tab the suggested edits waiting too.
-  const opened = (comments) => comments.filter((comment) => comment.status === "open").length;
+  // the PDF's highlights agree without each asking. Each tab counts what waits in its to do.
   const onOverleaf = data.comments.filter(forOverleaf);
   const here = data.comments.filter((comment) => !forOverleaf(comment));
   // A view of closed comments holds no open one, and leaves the counts of what waits as they were.
@@ -2627,7 +2625,7 @@ async function refreshComments() {
   }
   state.markedComments = (state.commentTab === "overleaf-comments" ? onOverleaf : here)
     .filter((comment) => comment.status === "open");
-  renderCommentTabs(opened(here), opened(onOverleaf) + state.overleafSuggested.length);
+  renderCommentTabs();
   data.comments = state.commentTab !== "overleaf-comments" ? (status === "todo" ? here.filter(waitsForReviewer) : here)
     : status === "todo" ? [...onOverleaf.filter(waitsForReviewer), ...state.overleafSuggested.map(suggestedItem)]
     : status === "unanswered" ? onOverleaf.filter(answeredByOthers)
@@ -2710,15 +2708,18 @@ function lastOnOverleaf(comment) {
   return comment.thread.filter((entry) => entry.name !== undefined || entry.overleaf !== undefined).at(-1);
 }
 
-// The leaf tab shows once the paper names an Overleaf project or has threads from one.
-function renderCommentTabs(here, onOverleaf) {
+// The leaf tab shows once the paper names an Overleaf project or has threads from one. Each
+// tab's number is how many wait in its to do.
+function renderCommentTabs() {
   const leafTab = $('.tab-btn[data-tab="overleaf-comments"]');
   leafTab.hidden = !state.overleafProject && state.overleafImported.size === 0;
   if (leafTab.hidden && state.commentTab === "overleaf-comments") {
     state.commentTab = "comments";
     if (leafTab.classList.contains("active")) switchTab("comments");
   }
-  for (const [badge, count] of [[$("#comments-tab-count"), here], [$("#overleaf-tab-count"), onOverleaf]]) {
+  for (const tab of ["comments", "overleaf-comments"]) {
+    const badge = $(tab === "comments" ? "#comments-tab-count" : "#overleaf-tab-count");
+    const count = state.todoCounts[tab] ?? 0;
     badge.textContent = String(count);
     badge.classList.toggle("hidden", count === 0);
   }
@@ -2751,11 +2752,6 @@ function renderCommentFilter() {
     filter.replaceChildren(...views.map(([value, name]) => h("option", { value, text: name })));
     setCommentFilter(views.some(([value]) => value === chosen) ? chosen : "todo");
   }
-  // The to do view says how many wait in the tab shown.
-  const todo = [...filter.options].find((option) => option.value === "todo");
-  const waiting = state.todoCounts[state.commentTab] ?? 0;
-  todo.textContent = waiting ? `to do (${waiting})` : "to do";
-  if (filter.value === "todo") $("#comment-filter-name").textContent = todo.textContent;
   // The suggested edits' view says how many wait.
   const changes = [...filter.options].find((option) => option.value === "changes");
   if (changes) {

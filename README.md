@@ -11,7 +11,7 @@ Review a LaTeX paper from its rendered PDF, on a desktop, tablet, or phone, whil
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/pdf-review-dark.webp">
-  <img alt="A sentence selected in the PDF takes a comment asking for a number. Called, the agent proposes a wording as a −/+ pair, the source marks the words it would replace, and once the wording is applied and the paper compiled, the PDF shows the new sentence." src="docs/images/pdf-review.webp">
+  <img alt="A sentence selected in the PDF takes a comment asking for a number. Called, the agent proposes a wording as a −/+ pair, which waits in to do, and the source marks the words it would replace. Applied with aa, it leaves to do empty, and once the paper is compiled, the PDF shows the new sentence." src="docs/images/pdf-review.webp">
 </picture>
 
 Select words in the PDF, or draw a box over part of a figure, and write what should change.
@@ -59,8 +59,8 @@ Press **Connect Overleaf** in the top bar and paste the project's link. Its comm
 come into a tab of their own, **Comments** with a leaf, beside the comments you write here. In
 a thread you talk with the agent, which drafts the reply for Overleaf under it, and you send
 that reply once it reads right. Each tab opens on **to do**, what waits for you alone: a
-suggestion to apply, a reply to send, a suggested edit to accept. Once it is empty, nothing is
-left.
+suggestion to apply, a reply to send, a suggested edit to accept. The number on the tab counts
+them, and once it is gone, nothing is left.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/overleaf-thread-dark.webp">

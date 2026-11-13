@@ -34,7 +34,8 @@ address, so on the shared machine's own browser, open no page another account se
   them. The editor and the PDF mark the open comments of the tab shown. The tab lists the
   threads in the order the paper reads them and opens on **to do**, what waits for you
   alone: a suggestion to apply, a draft to send, a reply or a new thread, and the suggested
-  edits to accept or reject. Each leaves it once done, so an empty to do is nothing left.
+  edits to accept or reject. Each leaves it once done, so an empty to do is nothing left,
+  and the number on the tab counts what is in it.
   **unanswered** holds the open threads whose last message on Overleaf is someone else's,
   and a reply sent from here, or one written on Overleaf under your name, moves a thread to
   **answered**. The list atop the tab also shows the new threads, the suggested edits, and
@@ -104,7 +105,7 @@ rejects it. Overleaf's text holds a suggested insertion's words and not a sugges
 and so do the files here once they hold Overleaf's text.
 
 - The leaf Comments tab's **suggested edits** view lists them in the order the paper reads
-  them, and the tab counts them with its open threads. A card names who suggested the edit and
+  them, and the tab's number counts them with the rest of its to do. A card names who suggested the edit and
   when, and shows the deleted words on a − line and the inserted ones on a + line, as a
   proposal's are shown. Words typed over others make one card. A click on the card, or Space,
   shows the edit in the source.

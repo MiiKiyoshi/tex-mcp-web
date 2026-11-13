@@ -1830,7 +1830,9 @@ def test_each_comment_tab_opens_on_what_waits_for_the_reviewer(tmp_path: Path) -
         script = lambda code: browser.execute_script(code, sandbox=None)
         listed = lambda: script('return [...document.querySelectorAll("#comments-list .cmt")].map((c) => c.dataset.commentId)')
         wait_until(lambda: listed() == [proposed["id"]])
-        assert script('return document.querySelector("#comment-filter-name").textContent') == "to do (1)"
+        # The tab's number counts the to do, not every open comment.
+        assert script('return document.querySelector("#comment-filter-name").textContent') == "to do"
+        assert script('return document.querySelector("#comments-tab-count").textContent') == "1"
         # The editor marks both open comments, whatever the list shows.
         script('document.querySelector("[data-view=source]").click()')
         wait_until(lambda: script('return document.querySelectorAll("#source-editor .source-comment-highlight").length') == 2)
@@ -2791,13 +2793,18 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
         leaf_tab = '.tab-btn[data-tab="overleaf-comments"]'
         wait_until(lambda: browser.execute_script(f"return !document.querySelector('{leaf_tab}').hidden"))
         browser.execute_script('document.querySelector("#settings-dialog").close()')
-        post_json(f"{base}/comments", {"anchor": {"kind": "paper"}, "text": "Written here."})
+        post_json(f"{base}/comments", {"anchor": {"kind": "source_range", "file": "paper.tex", "line_start": 4,
+                                                  "line_end": 4, "column_start": 0, "column_end": 5},
+                                       "text": "Written here.", "suggestion": {"old": "Hello", "new": "Hi"}})
         listed = 'return document.querySelector("#comments-list").textContent'
         count = lambda selector: browser.execute_script(f'return document.querySelector("{selector}").textContent')
         show_view(browser, "open")
         wait_until(lambda: "Written here." in browser.execute_script(listed))
         assert "Say hello properly." not in browser.execute_script(listed)
-        assert count("#comments-tab-count") == "1" and count("#overleaf-tab-count") == "4"
+        # Each tab's number counts its to do: here the suggestion to apply, and nothing yet among
+        # the threads from Overleaf.
+        assert count("#comments-tab-count") == "1" and count("#overleaf-tab-count") == "0"
+        assert browser.execute_script('return document.querySelector("#overleaf-tab-count").classList.contains("hidden")')
         # However narrow the panel, its four tabs and their counts show: the words give way.
         for width in (520, 240):
             assert browser.execute_script(f'''
@@ -2869,7 +2876,7 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
         (tmp_path / "paper.tex").write_text(PAPER.replace("\\section", "\\relax\n\\relax\n\\section"), encoding="utf-8")
         wait_until(lambda: browser.execute_script(label) == "paper.tex:5-5", timeout=15)
         assert "New thread on Overleaf" in browser.execute_script(f'return document.querySelector("{card}").textContent')
-        assert count("#overleaf-tab-count") == "5"
+        assert count("#overleaf-tab-count") == "1"
         browser.execute_script(f'document.querySelector("{card} .cmt-head").click()')
         wait_until(lambda: browser.execute_script(f'return document.querySelector("{card} .cmt-actions") !== null'))
         assert browser.execute_script(
@@ -2903,7 +2910,7 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
         # drafts still to send, then those already on Overleaf.
         assert browser.execute_script(
             'return [...document.querySelectorAll("#comment-filter option")].map((o) => o.textContent);') \
-            == ["to do (1)", "unanswered", "answered", "new thread", "suggested edits", "open", "resolved", "all"]
+            == ["to do", "unanswered", "answered", "new thread", "suggested edits", "open", "resolved", "all"]
         browser.execute_script('const f = document.querySelector("#comment-filter"); f.value = "new";'
                                ' f.dispatchEvent(new Event("change"));')
         assert wait_until(lambda: browser.execute_script(
@@ -3603,6 +3610,7 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
         wait_until(lambda: browser.execute_script(
             'return [...document.querySelectorAll(".overleaf-reply-input")].map((box) => box.value).sort().join("|")')
             == "Both go, the first.|Both go, the second.", timeout=15)
+        assert text("#overleaf-tab-count") == "2"
         assert browser.execute_script('return document.querySelector("#send-picked-btn").disabled') is True
         for cid in (brought.id, second.id):
             click(f"[data-comment-id='{cid}'] .comment-pick")
@@ -3641,9 +3649,11 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
             "main.tex is not the same here as on Overleaf, so this reply may describe an edit Overleaf does not have yet. "
             "Send it anyway?"]
 
+        # Sent, the replies wait for the reviewer no more, and the tab's number goes.
+        wait_until(lambda: browser.execute_script(
+            'return document.querySelector("#overleaf-tab-count").classList.contains("hidden")'))
         # Resolve on a thread's card resolves it on Overleaf, for everyone, and then here.
         # Reopen brings it back the same way. Overleaf has no archive, so neither does the tab.
-        assert text("#overleaf-tab-count") == "2"
         assert browser.execute_script('return document.querySelector("#archive-picked-btn").hidden') is True
         # Its card is still open from the reply written on it.
         wait_until(lambda: browser.execute_script(
@@ -3653,7 +3663,6 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
         click(f"[data-comment-id='{brought.id}'] .cmt-resolve")
         wait_until(lambda: fake.written[-1] == ("resolve", "t1", "d-main"), timeout=15)
         wait_until(lambda: store.get(brought.id).status == "resolved")
-        wait_until(lambda: text("#overleaf-tab-count") == "1")
         browser.execute_script('const f = document.querySelector("#comment-filter"); f.value = "resolved";'
                                ' f.dispatchEvent(new Event("change"));')
         wait_until(lambda: browser.execute_script(
