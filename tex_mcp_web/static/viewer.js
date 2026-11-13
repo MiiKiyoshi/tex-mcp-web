@@ -69,8 +69,9 @@ const state = {
   focusedCommentId: null,
   // The comment a range started from, while v holds one.
   rangeFrom: null,
-  // The suggested edits being accepted or rejected now.
+  // The suggested edits being accepted or rejected now, and when they were last read.
   reviewingEdits: new Set(),
+  suggestedRead: 0,
   // The comment tab and status the list shows, so a list drawn again knows it is the same view.
   commentsView: null,
   // How many times the list was asked for, so only the latest answer is drawn.
@@ -3044,6 +3045,15 @@ function renderSuggestedEdit(item) {
   h("div", { class: "cmt-actions" }, accept, reject));
 }
 
+// Overleaf's suggested edits read again when the reviewer comes back to the page or opens their
+// view, at most every ten seconds: an edit suggested in a file the page does not follow live
+// is not told to it. The list changes once the reading finds something new.
+function readSuggestedEdits() {
+  if (!state.overleafProject || Date.now() - state.suggestedRead < 10000) return;
+  state.suggestedRead = Date.now();
+  fetch("/overleaf/changes/read", { method: "POST" }).catch((error) => console.error(error));
+}
+
 // Accept or reject suggested edits on Overleaf, the edits of one file in one request.
 async function reviewSuggestedEdits(action, items) {
   const docs = new Map();
@@ -4590,6 +4600,7 @@ function attachSidebarToggle() {
   $("#commit-cancel").addEventListener("click", () => $("#commit-dialog").close());
   window.addEventListener("focus", () => {
     if (Date.now() - state.overleafGitRead > 60000) readOverleafGitSoon(0);
+    readSuggestedEdits();
   });
   for (const button of document.querySelectorAll("[data-theme-choice]")) {
     button.addEventListener("click", () => {
@@ -5204,6 +5215,7 @@ async function init() {
   // comments: the list would keep them, and Safari focuses no button it clicks.
   $("#comment-filter").addEventListener("change", () => {
     setCommentFilter($("#comment-filter").value);
+    if ($("#comment-filter").value === "changes") readSuggestedEdits();
     $("#comments-list").focus({ preventScroll: true });
     refreshComments().catch((error) => console.error(error));
   });

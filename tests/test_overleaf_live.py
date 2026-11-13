@@ -985,3 +985,17 @@ async def test_suggested_edits_in_a_git_repository_of_its_own_leave_the_reposito
     finally:
         await client.close()
 
+
+
+async def test_the_page_reads_suggested_edits_again_when_the_reviewer_comes_back(review) -> None:
+    """Overleaf tells the session of an edit only in a file it has open, so an edit suggested in
+    another file is read when the page asks, as it does when the reviewer comes back to it."""
+    client, server, fake = review
+    assert (await client.post("/overleaf/changes/read")).status == 409
+    page = await opened(client, fake)
+    await wait_for(lambda: fake.ranges_read >= 1)
+    fake.changes["d-main"] = suggested_change()
+    assert (await client.post("/overleaf/changes/read")).status == 200
+    await wait_for(lambda: server._overleaf_tracked)
+    assert len(await suggested(client)) == 1
+    await page.close()

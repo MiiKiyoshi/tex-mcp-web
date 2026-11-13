@@ -109,7 +109,8 @@ and so do the files here once they hold Overleaf's text.
   Rejecting changes Overleaf's text, which the file takes as any edit made there: at once when
   the files follow Overleaf live, by Get by hand, and by git pull in a git clone. In Overleaf's
   newer kind of document they are accepted and rejected on Overleaf.
-- The page reads them when it joins the project, when a comment changes there, and a few
+- The page reads them when it joins the project, when a comment changes there, when you
+  come back to the page or open the view, and, in the files that follow Overleaf live, a few
   seconds after someone typing with track changes on stops.
 - While track changes is on for you on Overleaf, the edits the page makes there, by Send or
   Live, are suggested edits too, as Overleaf's editor makes yours, and Settings says so. In a

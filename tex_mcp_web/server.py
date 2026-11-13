@@ -660,6 +660,7 @@ class TexMcpWebServer:
         app.router.add_post("/overleaf/cookie", self._handle_overleaf_cookie)
         app.router.add_delete("/overleaf/cookie", self._handle_overleaf_cookie)
         app.router.add_post("/overleaf/comments", self._handle_overleaf_comments)
+        app.router.add_post("/overleaf/changes/read", self._handle_overleaf_changes_read)
         app.router.add_post(r"/overleaf/changes/{action:accept|reject}", self._handle_overleaf_changes)
         app.router.add_post(r"/overleaf/git/{action:fetch|state|pull|push}", self._handle_overleaf_git)
         app.router.add_post(r"/overleaf/files/{action:read|get|send}", self._handle_overleaf_files)
@@ -1061,6 +1062,15 @@ class TexMcpWebServer:
                      else f"{shown['file']}:{shown['line']} on Overleaf, not in the file here yet")
             lines.append(f"{where} {shown['name'] or 'someone'} {what}")
         return lines
+
+    async def _handle_overleaf_changes_read(self, request: web.Request) -> web.Response:
+        """Read Overleaf's suggested edits again, as the page asks when the reviewer comes back
+        to it. Overleaf tells the session of an edit only in a file the session has open, so an
+        edit suggested in another file comes to no session but one that follows every file live."""
+        if self.overleaf_live is None:
+            return web.json_response({"error": "The page is not connected to Overleaf right now."}, status=409)
+        self._overleaf_comment_news("", [])
+        return web.json_response({"ok": True})
 
     async def _handle_overleaf_changes(self, request: web.Request) -> web.Response:
         """Accept or reject suggested edits on Overleaf, for everyone in the project."""
