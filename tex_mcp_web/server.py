@@ -105,6 +105,9 @@ def _comment_to_dict(c: Comment) -> dict[str, Any]:
     # the page and the agent name a moment alike.
     for entry in d["thread"]:
         entry["when"] = short_time(entry["at"])
+    # The reviewer wrote in it after the agent's last answer, which the page's to do lists.
+    if c.waiting():
+        d["awaits_agent"] = True
     if c.overleaf_draft is not None:
         # The lines each range a draft describes is on now, or its file alone while it is
         # not found, and whether those lines were edited after the draft was written.

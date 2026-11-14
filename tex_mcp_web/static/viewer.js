@@ -71,7 +71,7 @@ const state = {
   rangeFrom: null,
   // Whether a press in the editor is held down, which moves the cursor with the text in place.
   editorPointing: false,
-  // How many things wait for the reviewer in each comment tab, as the to do view lists them.
+  // How many things are not done yet in each comment tab, as the to do view lists them.
   todoCounts: {},
   // The open comments of the tab shown, whatever its view lists: the PDF and the editor mark these.
   markedComments: [],
@@ -2614,14 +2614,14 @@ async function refreshComments() {
   const here = data.comments.filter((comment) => !forOverleaf(comment));
   // A view of closed comments holds no open one, and leaves the counts of what waits as they were.
   if (!["resolved", "archived"].includes(status)) {
-    state.todoCounts = { comments: here.filter(waitsForReviewer).length,
-                         "overleaf-comments": onOverleaf.filter(waitsForReviewer).length + state.overleafSuggested.length };
+    state.todoCounts = { comments: here.filter(inToDo).length,
+                         "overleaf-comments": onOverleaf.filter(inToDo).length + state.overleafSuggested.length };
   }
   state.markedComments = (state.commentTab === "overleaf-comments" ? onOverleaf : here)
     .filter((comment) => comment.status === "open");
   renderCommentTabs();
-  data.comments = state.commentTab !== "overleaf-comments" ? (status === "todo" ? here.filter(waitsForReviewer) : here)
-    : status === "todo" ? [...onOverleaf.filter(waitsForReviewer), ...state.overleafSuggested.map(suggestedItem)]
+  data.comments = state.commentTab !== "overleaf-comments" ? (status === "todo" ? here.filter(inToDo) : here)
+    : status === "todo" ? [...onOverleaf.filter(inToDo), ...state.overleafSuggested.map(suggestedItem)]
     : status === "unanswered" ? onOverleaf.filter(answeredByOthers)
     : status === "answered" ? onOverleaf.filter(answeredByMe)
     : status === "new" ? [...onOverleaf.filter(draftedThread), ...onOverleaf.filter(openedHere)]
@@ -2728,12 +2728,14 @@ const COMMENT_VIEWS = {
     ["changes", "suggested edits"], ["open", "open"], ["resolved", "resolved"], ["all", "all"]],
 };
 
-// What waits for the reviewer alone, which each tab opens on: a suggestion to apply, and in
-// the leaf tab a draft to send there, a reply or a new thread, and the suggested edits to
-// accept or reject. Each leaves the view once done, so an empty view is nothing left to do.
-function waitsForReviewer(comment) {
-  return comment.status === "open"
-    && (Boolean(comment.suggestion) || (forOverleaf(comment) && Boolean(comment.overleaf_draft)));
+// What is not done yet, which each tab opens on: a suggestion to apply, and a comment the
+// agent has yet to answer, one just written or one replied to since its last answer. In the
+// leaf tab, whose threads the people on Overleaf answer, a draft to send there, a reply or a
+// new thread, and the suggested edits to accept or reject. Each leaves the view once done,
+// so an empty view is nothing left to do.
+function inToDo(comment) {
+  return comment.status === "open" && (Boolean(comment.suggestion)
+    || (forOverleaf(comment) ? Boolean(comment.overleaf_draft) : Boolean(comment.awaits_agent)));
 }
 
 // The row above the list holds what the shown tab can do, from the moment the tab is chosen.
@@ -2773,7 +2775,7 @@ function renderComments() {
   clear(list);
   if (state.comments.length === 0) {
     const view = $("#comment-filter").value;
-    list.appendChild(placeholder(view === "todo" ? "Nothing waits for you here."
+    list.appendChild(placeholder(view === "todo" ? "Nothing is left to do here."
       : view === "changes" && state.commentTab === "overleaf-comments" ? "No suggested edits on Overleaf."
       : "No comments at this filter."));
   } else {
@@ -3795,7 +3797,7 @@ function switchTab(name) {
   state.commentTab = name;
   state.picked.clear();
   renderCommentFilter();
-  // Each comment tab opens on what waits for the reviewer.
+  // Each comment tab opens on what is not done yet.
   setCommentFilter("todo");
   refreshComments().catch((error) => console.error(error));
 }
@@ -4214,7 +4216,7 @@ async function jumpToComment(commentId) {
 
 // A comment shown from elsewhere, a mark on the paper or the editor: its card opens and flashes.
 // A comment the PDF or the editor marks, opened in the list: in the open view of its tab when
-// the view shown leaves it out, as the to do view leaves out what waits for the agent.
+// the view shown leaves it out, as the to do view leaves out what the agent answered.
 async function revealComment(comment) {
   if (!state.comments.some((item) => item.id === comment.id)) {
     setCommentFilter("open");

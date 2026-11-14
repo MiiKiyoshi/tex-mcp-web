@@ -32,10 +32,12 @@ screen zoom and move the page as they go, the point between them staying between
 
 ## Threads
 
-- The Comments tab opens on **to do**: the comments whose suggestion waits for you to apply
-  it, each gone from it once applied. The number on the tab counts them. **open** lists every open comment, and a comment you
-  write, or open from its mark in the PDF or the editor, shows there. The PDF and the editor
-  mark every open comment of the tab, whatever the list shows.
+- The Comments tab opens on **to do**: the comments the agent has yet to answer, one you
+  just wrote or replied in, and those whose suggestion waits for you to apply it. An answer
+  with nothing to apply takes a comment out of it, and so does applying. The number on the
+  tab counts them. **open** lists every open comment, and one opened from its mark in the
+  PDF or the editor shows there when to do leaves it out. The PDF and the editor mark every
+  open comment of the tab, whatever the list shows.
 - **Resolve** a thread whose edit satisfies you, or **Reply** in it when it does not.
   **Archive** sets a thread aside, and it still takes replies.
 - A proposed edit shows as the source lines the agent would change, as a −/+ pair, and the

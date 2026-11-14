@@ -58,9 +58,9 @@ comment.
 Press **Connect Overleaf** in the top bar and paste the project's link. Its comment threads
 come into a tab of their own, **Comments** with a leaf, beside the comments you write here. In
 a thread you talk with the agent, which drafts the reply for Overleaf under it, and you send
-that reply once it reads right. Each tab opens on **to do**, what waits for you alone: a
-suggestion to apply, a reply to send, a suggested edit to accept. The number on the tab counts
-them, and once it is gone, nothing is left.
+that reply once it reads right. Each tab opens on **to do**, what is not done yet: a
+comment the agent has yet to answer, a suggestion to apply, a reply to send, a suggested edit
+to accept. The number on the tab counts them, and once it is gone, nothing is left.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/overleaf-thread-dark.webp">

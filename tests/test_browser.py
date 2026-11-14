@@ -1868,9 +1868,10 @@ def test_a_comment_opened_by_space_shows_its_line_a_third_of_the_way_down_the_ed
 
 @pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
 def test_each_comment_tab_opens_on_what_waits_for_the_reviewer(tmp_path: Path) -> None:
-    """The Comments tab opens on to do: the comments whose suggestion waits to be applied. The
-    editor still marks every open comment, one opened from its mark shows in the open view,
-    and applied, the suggestion leaves to do empty."""
+    """The Comments tab opens on to do: the comments the agent has yet to answer and those
+    whose suggestion waits to be applied. Answered with nothing to apply, a comment leaves
+    it, and a reply brings it back. The editor still marks every open comment, one opened
+    from its mark shows in the open view, and applied, the suggestion leaves to do empty."""
     lines = [f"Sentence {n} of an invented body." for n in range(1, 21)]
     (tmp_path / "paper.tex").write_text(
         "\\documentclass{article}\n\\begin{document}\n" + "\n".join(lines) + "\n\\end{document}\n", encoding="utf-8")
@@ -1903,9 +1904,14 @@ def test_each_comment_tab_opens_on_what_waits_for_the_reviewer(tmp_path: Path) -
         browser.navigate(base)
         script = lambda code: browser.execute_script(code, sandbox=None)
         listed = lambda: script('return [...document.querySelectorAll("#comments-list .cmt")].map((c) => c.dataset.commentId)')
-        wait_until(lambda: listed() == [proposed["id"]])
-        # The tab's number counts the to do, not every open comment.
+        wait_until(lambda: listed() == [asked["id"], proposed["id"]])
         assert script('return document.querySelector("#comment-filter-name").textContent') == "to do"
+        assert script('return document.querySelector("#comments-tab-count").textContent') == "2"
+        # Answered with nothing to apply, the comment leaves to do, and the tab's number
+        # counts the to do, not every open comment.
+        shared.server.comments.reply(asked["id"], "It is.", author="agent")
+        show_view(browser, "todo")
+        wait_until(lambda: listed() == [proposed["id"]])
         assert script('return document.querySelector("#comments-tab-count").textContent') == "1"
         # The editor marks both open comments, whatever the list shows.
         script('document.querySelector("[data-view=source]").click()')
@@ -1919,7 +1925,11 @@ def test_each_comment_tab_opens_on_what_waits_for_the_reviewer(tmp_path: Path) -
         show_view(browser, "todo")
         wait_until(lambda: listed() == [proposed["id"]])
         script('document.querySelector("#comments-list .sugg-apply").click()')
-        wait_until(lambda: script('return document.querySelector("#comments-list").textContent') == "Nothing waits for you here.")
+        wait_until(lambda: script('return document.querySelector("#comments-list").textContent') == "Nothing is left to do here.")
+        # A reply in the answered comment asks the agent again, which brings it back.
+        post_json(f"{base}/comments/{asked['id']}/reply", {"text": "And the next one?"})
+        show_view(browser, "todo")
+        wait_until(lambda: listed() == [asked["id"]])
         assert script('return document.querySelector("#comment-filter-name").textContent') == "to do"
     finally:
         if browser is not None:
