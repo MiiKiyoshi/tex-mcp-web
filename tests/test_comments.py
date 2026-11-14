@@ -282,6 +282,51 @@ def test_canonicalize_pdf_selection_trims_text_below_loose_browser_rect(
     assert quote == "S=30 dT + 50 dP,\n(1)"
 
 
+def test_a_selection_spaced_otherwise_by_the_browser_is_found_where_it_was_made(
+    tmp_path: Path,
+):
+    """The browser's reader puts a space between a subscript and the full stop after it
+    where PyMuPDF reads none. The quote is found on its lines all the same, though the
+    lines above and below reach into the selection's boxes, and not at other words
+    of the page that read alike without their spaces."""
+    pdf = tmp_path / "subscript.pdf"
+    document = pymupdf.open()
+    page = document.new_page()
+    page.insert_text((72, 60), "The rate is r 1. Next comes the sum.", fontsize=10)
+    page.insert_text((72, 96), "an earlier line of the paragraph. The value,", fontsize=10)
+    page.insert_text((72, 108), "taken after the last step, is r1. Next comes", fontsize=10)
+    page.insert_text((72, 120), "a later line of the paragraph.", fontsize=10)
+    document.save(pdf)
+    document.close()
+
+    first = locate_pdf_quote(pdf, "The value,")
+    second = locate_pdf_quote(pdf, "taken after the last step, is r1. N")
+    assert first is not None and second is not None
+    # The browser's boxes meet at whole points, each a line high, as these do.
+    loose = [(first.bbox[0], 86, first.bbox[2], 98), (second.bbox[0], 98, second.bbox[2], 110)]
+    hint = PageSelection(page=1, bbox=(second.bbox[0], 86, first.bbox[2], 110), rects=loose)
+    canonical = canonicalize_pdf_selection(
+        pdf, "The value, taken after the last step, is r1 . N", hint
+    )
+    assert canonical is not None
+    quote, selection = canonical
+    assert quote == "The value,\ntaken after the last step, is r1. N"
+    assert len(selection.rects) == 2
+
+    # The same letters stand higher on the page with another spacing. A selection made
+    # there is found there, and one made lower is not moved up to it.
+    upper = locate_pdf_quote(pdf, "is r 1. Next")
+    lower = locate_pdf_quote(pdf, "is r1. Next")
+    assert upper is not None and lower is not None
+    for made, printed in ((upper, "is r 1. Next"), (lower, "is r1. Next")):
+        canonical = canonicalize_pdf_selection(
+            pdf, "is r1 . Next", PageSelection(page=1, bbox=made.bbox, rects=[made.bbox])
+        )
+        assert canonical is not None
+        assert canonical[0] == printed
+        assert abs(canonical[1].bbox[1] - made.bbox[1]) < 1
+
+
 def test_locate_pdf_quote_rejects_duplicate_without_hint(tmp_path: Path):
     pdf = tmp_path / "paper.pdf"
     make_pdf(pdf, "duplicate phrase\n\nduplicate phrase")

@@ -34,7 +34,6 @@ import difflib
 import hashlib
 import json
 import logging
-import math
 import os
 import re
 import secrets
@@ -1190,58 +1189,34 @@ def canonicalize_pdf_selection(
     quote: str,
     hint: PageSelection,
 ) -> tuple[str, PageSelection] | None:
-    """Verify a browser selection and return text PyMuPDF can find again."""
-    located = locate_pdf_quote(pdf_path, quote, hint=hint)
-    if located is not None:
-        return quote, located
+    """Verify a browser selection and return text PyMuPDF can find again.
 
-    document = pymupdf.open(pdf_path)
+    The browser's reader and PyMuPDF space the same glyphs differently, around a subscript
+    or an operator for one. A quote that is not on the page as written is looked for there
+    with spaces left out, where the selection lies, and returned as PyMuPDF reads it."""
+    index = PdfTextIndex(pdf_path)
     try:
-        if hint.page < 1 or hint.page > len(document) or not hint.rects:
+        located = index.locate(quote, hint=hint)
+        if located is not None:
+            return quote, located
+        compact_quote, _ = _compact_pdf_text(quote)
+        if not compact_quote or not 1 <= hint.page <= len(index.pages):
             return None
-        page = document[hint.page - 1]
-        page_rect = page.rect
-        selected_rects: list[pymupdf.Rect] = []
-        for values in hint.rects:
-            if not all(math.isfinite(value) for value in values):
-                return None
-            rect = pymupdf.Rect(values)
-            if rect.is_empty or not page_rect.contains(rect):
-                return None
-            selected_rects.append(rect)
-
-        line_rects: list[pymupdf.Rect] = []
-        for rect in sorted(selected_rects, key=lambda item: (item.y0, item.x0)):
-            for index, line_rect in enumerate(line_rects):
-                if rect.y0 < line_rect.y1 and rect.y1 > line_rect.y0:
-                    line_rects[index] = line_rect | rect
-                    break
-            else:
-                line_rects.append(rect)
-
-        fragments: list[str] = []
-        for rect in sorted(line_rects, key=lambda item: (item.y0, item.x0)):
-            fragment = page.get_textbox(rect).strip()
-            if not fragment:
-                return None
-            fragments.append(fragment)
+        raw_page = index.pages[hint.page - 1][0]
+        compact_page, raw_indexes = _compact_pdf_text(raw_page)
+        x1, y1, x2, y2 = hint.bbox
+        for start in _all_occurrences(compact_page, compact_quote):
+            raw_end = raw_indexes[start + len(compact_quote) - 1] + 1
+            canonical_quote = raw_page[raw_indexes[start]:raw_end].strip()
+            located = index.locate(canonical_quote, hint=hint)
+            if located is not None and located.page == hint.page and (
+                located.bbox[2] >= x1 and located.bbox[0] <= x2
+                and located.bbox[3] >= y1 and located.bbox[1] <= y2
+            ):
+                return canonical_quote, located
+        return None
     finally:
-        document.close()
-
-    selected_text = "\n".join(fragments)
-    compact_selected, raw_indexes = _compact_pdf_text(selected_text)
-    compact_quote, _ = _compact_pdf_text(quote)
-    positions = _all_occurrences(compact_selected, compact_quote)
-    if len(positions) != 1:
-        return None
-    start = positions[0]
-    raw_start = raw_indexes[start]
-    raw_end = raw_indexes[start + len(compact_quote) - 1] + 1
-    canonical_quote = selected_text[raw_start:raw_end].strip()
-    located = locate_pdf_quote(pdf_path, canonical_quote, hint=hint)
-    if located is None:
-        return None
-    return canonical_quote, located
+        index.close()
 
 
 # ---------------------------------------------------------------------------
