@@ -2276,6 +2276,40 @@ async def test_a_press_counts_the_threads_new_gives_by_the_rule_unanswered_lists
 
 
 @pytest.mark.asyncio
+async def test_a_suggestion_applied_is_told_to_the_agent_once(bound_project, project) -> None:
+    """The reviewer applying a suggestion asks nothing, and the agent hears of it once: the
+    press counts its thread, read_comments(new=True) carries the record with the lines it
+    changed, and neither does again though no reply follows. unanswered=True, which lists
+    what waits for an answer, leaves it out."""
+    pytest.importorskip("mcp")
+    from tex_mcp_web.comments import CommentStore, PaperAnchor
+    from tex_mcp_web.mcp_server import create_server
+
+    mcp = create_server(bound_project)
+
+    async def read(**arguments) -> list[dict]:
+        return json.loads((await mcp.call_tool("read_comments", arguments))[0].text)["comments"]
+
+    store = CommentStore(project / ".tex-mcp-web" / "comments.json")
+    server = TexMcpWebServer(Config(main="paper.tex", config_path=project / ".tex-mcp-web.yaml"))
+    asked = store.add(PaperAnchor(), "Tighten it.")
+    assert [told["id"] for told in await read(new=True)] == [asked.id]
+    proposed = store.suggest(asked.id, store.get(asked.id).updated, "Shorter.",
+                             lambda current: SuggestedEdit("paper.tex", [("Some prose", "Prose")]))
+    assert "no new comments" in server._review_line()
+
+    store.apply_suggestion(asked.id, proposed.updated, lambda current: ["paper.tex:5-5"])
+    assert "1 new comments" in server._review_line()
+    assert await read(unanswered=True) == []
+    (told,) = await read(new=True)
+    assert told["id"] == asked.id
+    (entry,) = told["entries"]
+    assert entry["applied"] is True and entry["edits"] == ["paper.tex:5-5"]
+    assert "no new comments" in server._review_line()
+    assert await read(new=True) == []
+
+
+@pytest.mark.asyncio
 async def test_a_suggestion_applied_on_a_thread_from_overleaf_waits_while_it_has_no_draft(bound_project,
                                                                                          project) -> None:
     """Applying a suggestion asks nothing of the agent on a thread of the page's own. On a

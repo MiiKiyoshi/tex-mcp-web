@@ -738,8 +738,10 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         written that this has neither carried before nor already taken up, thread by
         thread, each with the rev a write quotes back. A thread's last answer takes up
         what came before it: your reply, your Overleaf draft, or a reply the reviewer sent
-        to Overleaf, which is for the people there. A suggestion applied asks nothing, but on
-        a thread from Overleaf with no draft it asks for the reply the change calls for. It reports the moment
+        to Overleaf, which is for the people there. A suggestion the reviewer applied comes
+        once, as an entry marked applied with the lines it changed: your wording is in the
+        file, and it asks for no reply, but on a thread from Overleaf with no draft it asks
+        for the reply the change calls for. It reports the moment
         it read ``from`` and the one it moved to, so a turn that went wrong is taken again
         with since=<from>; to see again what was already answered, ask for the thread by id.
         A thread from Overleaf comes marked on_overleaf, and one the reviewer started for

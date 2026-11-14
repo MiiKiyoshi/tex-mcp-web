@@ -602,14 +602,17 @@ class Comment:
         A reply sent from a draft answers what came before the draft, so what the reviewer
         wrote while it waited to be sent still waits. On a thread from Overleaf with no
         draft, the record of a suggestion applied waits too, for the agent to draft the
-        reply the change calls for. *after* leaves only those written after that moment."""
+        reply the change calls for. *after* leaves only those written after that moment,
+        and with it the record of a suggestion applied is among them on any thread: it asks
+        nothing, and the agent hears once that its wording went into the file."""
         answered = max((position for position, entry in enumerate(self.thread) if entry.author == "agent"), default=-1)
         # Up to when each reply sent to Overleaf answers: its draft's moment, or its own.
         sent = max((_moment(entry.draft_at or entry.at) for entry in self.thread if entry.overleaf is not None),
                    default=None)
         drafted = _moment(self.overleaf_draft.at) if self.overleaf_draft is not None else None
         undrafted = on_overleaf and drafted is None
-        return [entry for entry in self.thread[answered + 1:] if (entry.asks_agent or undrafted and entry.applied)
+        return [entry for entry in self.thread[answered + 1:]
+                if (entry.asks_agent or entry.applied and (undrafted or after is not None))
                 and (sent is None or _moment(entry.at) > sent)
                 and (drafted is None or _moment(entry.at) >= drafted)
                 and (after is None or _moment(entry.at) > after)]
