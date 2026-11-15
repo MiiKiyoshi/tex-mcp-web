@@ -1169,7 +1169,7 @@ async def test_mcp_contract_is_typed_and_nonduplicative(tmp_path: Path):
     assert all(mcp.instructions not in (tool.description or "") for tool in tools.values())
     read_schema = tools["read_comments"].inputSchema["properties"]
     assert read_schema["status"]["enum"] == ["open", "resolved", "archived", "all"]
-    assert set(read_schema) == {"ids", "new", "status", "unanswered", "since", "until", "find", "limit", "save"}
+    assert set(read_schema) == {"ids", "new", "status", "unanswered", "since", "until", "find", "on_overleaf", "limit", "save"}
 
     comment_schema = tools["write_comments"].inputSchema
     assert comment_schema["properties"]["action"]["enum"] == [
@@ -1530,6 +1530,34 @@ async def test_a_search_finds_threads_by_what_was_said_in_them_and_when(bound_pr
     assert [h["id"] for h in hits] == [old.id, other.id]
     assert [m["draft"] for m in (await call("read_comments", find="si now", status="all"))["comments"][0]["matches"]] \
         == ["Units are SI now."]
+    # A long entry comes as the words around what was found, and a thread with many
+    # entries holding them as its newest few and a count, so a common word in a long
+    # review does not pour the review out. The thread read by its id is whole.
+    long = "Filler words go on here. " * 40 + "The needle sits in the middle. " + "More filler follows it. " * 40
+    clock["now"] = "2026-01-04T09:00:00+09:00"
+    busy = store.add(PaperAnchor(), "A busy thread.")
+    store.reply(busy.id, long, author="agent")
+    for n in range(7):
+        store.reply(busy.id, f"Needle again, reply {n}.", author="human")
+    [hit] = (await call("read_comments", find="needle"))["comments"]
+    assert hit["id"] == busy.id and hit["more_matches"] == 5
+    assert [m["text"] for m in hit["matches"]] == [f"Needle again, reply {n}." for n in range(4, 7)]
+    [hit] = (await call("read_comments", find="needle sits"))["comments"]
+    (cut,) = hit["matches"]
+    assert cut["cut"] is True and "The needle sits in the middle." in cut["text"] and len(cut["text"]) < 260
+    assert cut["text"].startswith("…") and cut["text"].endswith("…")
+    whole = (await call("read_comments", ids=[busy.id]))["comments"][0]
+    assert whole["replies"][0]["text"] == long
+    # on_overleaf keeps a search or a listing to Overleaf's threads or to the page's own.
+    from tex_mcp_web import overleaf as overleaf_module
+    overleaf_module.ledger_path(project).write_text(json.dumps({"t1": {"comment": old.id, "entries": {}}}))
+    there = (await call("read_comments", find="table", status="all", on_overleaf=True))["comments"]
+    here = (await call("read_comments", find="table", status="all", on_overleaf=False))["comments"]
+    assert [h["id"] for h in there] == [old.id] and [h["id"] for h in here] == [other.id]
+    assert [c["id"] for c in (await call("read_comments", on_overleaf=True))["comments"]] == [old.id]
+    assert old.id not in [c["id"] for c in (await call("read_comments", on_overleaf=False))["comments"]]
+    overleaf_module.ledger_path(project).unlink()
+    store.delete(busy.id)
     # A window alone, entry by entry: what came between two times, the old thread by its new reply.
     at = lambda stamp: short_time(f"2026-01-{stamp}:00+09:00")
     window = (await call("read_comments", since=at("03T09:59"), until=at("03T10:00"), status="all"))["comments"]

@@ -245,6 +245,11 @@ def _err(message: str) -> str:
 
 # How much of a request a listing shows before it is cut.
 REQUEST_PREVIEW = 120
+# A search shows as much of a long entry around the words found, and so many of a
+# thread's entries holding them, the newest ones: enough to tell the thread, which is read
+# whole by its id.
+MATCH_PREVIEW = 240
+MATCHES_SHOWN = 3
 
 # How many errors one compile reports; the log holds the rest.
 ERROR_LIMIT = 20
@@ -729,6 +734,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         since: Annotated[str | None, Field(description="A time this server printed, like '09-19 00:52'; only what came after it.")] = None,
         until: Annotated[str | None, Field(description="A time this server printed; a search looks only at what came up to that minute.")] = None,
         find: Annotated[str | None, Field(description="Words a search looks for, case ignored, in what was said in a thread and in its draft for Overleaf.")] = None,
+        on_overleaf: Annotated[bool | None, Field(description="true: only threads from Overleaf or started for it. false: only the page's own. Left out: both. For a listing or a search.")] = None,
         limit: Annotated[int, Field(ge=1, le=200)] = 50,
         save: bool = False,
     ) -> str:
@@ -759,9 +765,13 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         since. With ``find`` or ``until`` it is a search, entry by entry: a thread is listed
         when something said in it between ``since`` and ``until`` holds ``find``'s words, the
         reviewer's, yours, a reply sent to Overleaf, which carries ``overleaf``, or its draft
-        for Overleaf, and it comes with those entries and where it is. Each bound and the
-        words may be left out, and status="all" searches closed threads too. Times read and
-        are written back as ``MM-DD HH:MM`` on this server's clock.
+        for Overleaf, and it comes with those entries and where it is. A long entry comes
+        as the words around what was found, marked ``cut``, and a thread's entries past the
+        first few as a count in ``more_matches``: ask for the thread by id to read it whole.
+        Each bound and the words may be left out, and status="all" searches closed threads
+        too. ``on_overleaf`` keeps a listing or a search to Overleaf's threads or to the
+        page's own. Times read and are written back as ``MM-DD HH:MM`` on this server's
+        clock.
         ``save`` needs ids; edit only the draft's Reply and Edit blocks.
         """
         cfg, watch_dir, store = _load_project(binding)
@@ -852,10 +862,27 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         if save:
             return _err("save needs the ids of the threads to write out")
         brought = _on_overleaf(watch_dir)
+
+        def wanted(comment) -> bool:
+            """Whether the comment is on the side asked for: Overleaf's threads and those
+            started for it, or the page's own."""
+            return on_overleaf is None or on_overleaf == (comment.id in brought or comment.for_overleaf)
+
         if find is not None or until is not None:
             words = (find or "").casefold()
             if find is not None and not words.strip():
                 return _err("find needs the words to look for")
+
+            def shown_cut(shown: dict[str, Any], text: str) -> dict[str, Any]:
+                """A long entry as the words around what was found: a search is for finding
+                the thread, which is then read by its id."""
+                if len(text) <= MATCH_PREVIEW:
+                    return shown
+                at = max(text.casefold().find(words), 0)
+                start = max(0, min(at - MATCH_PREVIEW // 3, len(text) - MATCH_PREVIEW))
+                piece = text[start:start + MATCH_PREVIEW]
+                piece = ("…" if start > 0 else "") + piece + ("…" if start + MATCH_PREVIEW < len(text) else "")
+                return {**shown, "draft" if "draft" in shown else "text": piece, "cut": True}
 
             def within(at: str) -> bool:
                 when = datetime.fromisoformat(at)
@@ -864,20 +891,27 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
 
             found = []
             for comment in store.list(status=None if status == "all" else status):
+                if not wanted(comment):
+                    continue
                 said = [(_agent_entry(entry), entry.at, entry.text) for entry in comment.thread]
                 if comment.overleaf_draft is not None:
                     draft = comment.overleaf_draft
                     said.append(({"draft": draft.text, "at": short_time(draft.at)}, draft.at, draft.text))
-                matches = [shown for shown, at, text in said if within(at) and words in text.casefold()]
+                matches = [shown_cut(shown, text) for shown, at, text in said
+                           if within(at) and words in text.casefold()]
                 if not matches:
                     continue
                 source = comment.resolved_source
                 hit: dict[str, Any] = {"id": comment.id, "rev": revision_of(comment.updated), "status": comment.status,
                                        "source": f"{source.file}:{source.line_start}-{source.line_end}"
                                        if source is not None else comment.anchor.kind,
-                                       "matches": matches}
+                                       "matches": matches[-MATCHES_SHOWN:]}
+                if len(matches) > MATCHES_SHOWN:
+                    hit["more_matches"] = len(matches) - MATCHES_SHOWN
                 if comment.id in brought:
                     hit["on_overleaf"] = True
+                elif comment.for_overleaf:
+                    hit["new_thread"] = True
                 found.append(hit)
             listed = {"comments": found[-limit:]}
             if len(found) > limit:
@@ -885,6 +919,8 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             return _ok(listed)
         summaries = []
         for comment in store.list(status=None if status == "all" else status):
+            if not wanted(comment):
+                continue
             if unanswered and not comment.waiting(on_overleaf=comment.id in brought):
                 continue
             human = next((entry for entry in reversed(comment.thread) if entry.asks_agent), None)
