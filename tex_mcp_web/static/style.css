@@ -897,7 +897,7 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
   color: var(--fg-dim);
   font-family: var(--mono);
 }
-.cmt-edit {
+.cmt-edit, .leaf-edit, .leaf-delete {
   padding: 0;
   border: none;
   background: none;
@@ -907,7 +907,8 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
   text-decoration: underline;
   cursor: pointer;
 }
-.cmt-edit:hover { color: var(--fg); }
+.cmt-edit:hover, .leaf-edit:hover { color: var(--fg); }
+.leaf-delete:hover { color: var(--err); }
 .thread-text {
   font-size: 0.9rem;
   white-space: pre-wrap;

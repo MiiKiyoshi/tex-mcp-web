@@ -3125,6 +3125,12 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
             f'return [...{mine}.querySelectorAll(".thread-meta")].map((meta) =>'
             ' [...meta.querySelectorAll("button")].map((button) => button.className))') \
             == [[], ["leaf-edit", "leaf-delete"]]
+        # They look as the Edit of an entry written here does.
+        assert browser.execute_script(
+            f'const look = (node) => {{ const s = getComputedStyle(node);'
+            ' return [s.textDecorationLine, s.borderTopWidth, s.backgroundColor, s.fontSize]; };'
+            f' return [".leaf-edit", ".leaf-delete"].map((name) => look({mine}.querySelector(name)));') \
+            == [["underline", "0px", "rgba(0, 0, 0, 0)", "10.5px"]] * 2
     finally:
         if browser is not None:
             try:
