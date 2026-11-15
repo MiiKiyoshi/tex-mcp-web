@@ -1959,7 +1959,11 @@ def test_each_comment_tab_opens_on_what_waits_for_the_reviewer(tmp_path: Path) -
         wait_until(lambda: listed() == [turned["id"]])
         assert script('return [...document.querySelectorAll("#comments-list .sugg-actions button")].map((b) => b.textContent)') \
             == ["Reject", "Apply suggestion"]
-        script('document.querySelector("#comments-list .sugg-reject").click()')
+        # nn presses Reject on the ringed card, as aa presses Apply suggestion.
+        script(f'document.querySelector(\'[data-comment-id="{turned["id"]}"] .cmt-head\')'
+               '.dispatchEvent(new MouseEvent("mousedown", {bubbles: true}))')
+        script('document.querySelector("#comments-list").focus()')
+        type_keys(browser, ["n", "n"])
         wait_until(lambda: script('return document.querySelector("#comments-list").textContent') == "Nothing is left to do here.")
         assert script('return document.querySelector("#comments-tab-count").classList.contains("hidden")')
         last = shared.server.comments.get(turned["id"]).thread[-1]
@@ -2380,7 +2384,7 @@ def test_the_comment_list_goes_by_keys(tmp_path: Path) -> None:
         letters = ('return [document.querySelector("#comments-list").classList.contains("show-keys"),'
                    ' [...document.querySelectorAll("#comments-list [data-key]")].map((node) => node.dataset.key)]')
         shown, marked = browser.execute_script(letters)
-        assert shown is True and sorted(marked) == sorted(["x", "e", "D", "aa", "r", "R", "A", "dd"])
+        assert shown is True and sorted(marked) == sorted(["x", "e", "D", "aa", "nn", "r", "R", "A", "dd"])
         ActionSequence(browser, "pointer", "mouse", {"pointerType": "mouse"}) \
             .pointer_move(300, 300).pointer_move(340, 340).perform()
         assert browser.execute_script(letters)[0] is False

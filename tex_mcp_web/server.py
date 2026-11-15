@@ -697,6 +697,15 @@ class TexMcpWebServer:
                 # failed run leaves the last good set in place.
                 if self.watcher is not None:
                     self.watcher.set_roots(self.source_roots())
+                # Read before the PDF is named as the one to comment on: from then on the
+                # build is as good as over, and a selection is taken.
+                if self.main_file.suffix.lower() == ".tex":
+                    from . import layout
+                    try:
+                        self.last_result.layout = await asyncio.to_thread(
+                            layout.check, self.last_result.output_file, self.watch_dir)
+                    except Exception:  # a PDF this cannot read still compiled
+                        logger.exception("Layout check failed")
                 self.pdf_digest = pdf_digest(self.last_result.output_file)
                 self.comments.refresh_anchors(
                     self.watch_dir,
@@ -715,13 +724,6 @@ class TexMcpWebServer:
                     self._prev_page_hashes, new_hashes
                 )
                 self._prev_page_hashes = new_hashes
-                if self.main_file.suffix.lower() == ".tex":
-                    from . import layout
-                    try:
-                        self.last_result.layout = await asyncio.to_thread(
-                            layout.check, self.last_result.output_file, self.watch_dir)
-                    except Exception:  # a PDF this cannot read still compiled
-                        logger.exception("Layout check failed")
 
             self.last_result.pages_changed = changed_pages
             logger.info(

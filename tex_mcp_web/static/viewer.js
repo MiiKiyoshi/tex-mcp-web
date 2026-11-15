@@ -4471,6 +4471,12 @@ const COMMENT_KEYS = [
       range: () => pressForRange(["#archive-picked-btn"]) },
     { keys: ["aa"], does: "Apply its suggestion to the file, or accept a suggested edit on Overleaf",
       button: ["sugg-apply", "change-accept"], run: () => pressCard(".sugg-apply, .change-accept") },
+    { keys: ["nn"], does: "Reject its suggestion, or with none its draft for Overleaf",
+      button: ["sugg-reject", "overleaf-reject"],
+      run: () => {
+        const card = focusedCard();
+        (card?.querySelector(".sugg-reject") ?? card?.querySelector(".overleaf-reject"))?.click();
+      } },
     { keys: ["ss"], does: "Send its reply to Overleaf, for everyone in the project", button: ["overleaf-send"], picked: true,
       run: () => pressPickedOr(["#send-picked-btn"], ".overleaf-send"),
       range: () => pressForRange(["#send-picked-btn"]) },

@@ -101,6 +101,7 @@ typing.
 | `R` | Resolve, or reopen a comment that is not open |
 | `A` | Archive |
 | `aa` | Apply the suggestion to the file, or accept a suggested edit on Overleaf |
+| `nn` | Reject the suggestion, or with none the draft for Overleaf |
 | `ss` | Send the reply to Overleaf, for everyone in the project |
 | `dd` | Delete, once you say yes, or reject a suggested edit on Overleaf |
 | `D` | Delete the last thing you wrote in the thread, here or on Overleaf, once you say yes |
