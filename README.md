@@ -11,13 +11,13 @@ Write a LaTeX paper in the session that did the work, and review it from its ren
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/from-work-dark.webp">
-  <img alt="In a project folder a coding agent analyses logs and prints a table, sets a paper up in a folder of its own with do tex init, and writes what it found up as LaTeX. On the review page three sentences of the PDF each take a comment, and one Call agent sends them. The agent answers all three from the logs with wordings to apply. Applied and resolved by keys, and the paper compiled, the PDF shows the three sentences with their numbers." src="docs/images/from-work.webp">
+  <img alt="In a project folder a coding agent analyses logs and prints a table, writes what it found up as LaTeX in a folder of the paper's own, and sets the review up with do tex init. On the review page three sentences of the PDF each take a comment, and one Call agent sends them. The agent answers all three from the logs with wordings to apply. Applied and resolved by keys, and the paper compiled, the PDF shows the three sentences with their numbers." src="docs/images/from-work.webp">
 </picture>
 
 The agent that ran your analysis, wrote your code or worked through your data already holds
-what the paper has to say. Name a folder for the paper and say `do tex init`: from where it
-is working, the agent writes the paper out of what it found, sets the review page up for
-that folder, and compiles. Nothing is carried over to another tool by hand. Comment on as
+what the paper has to say. Have it write the paper in a folder you name, and say
+`do tex init`: from where it is working, the agent sets the review page up for that folder
+and compiles. Nothing is carried over to another tool by hand. Comment on as
 many places as you like, then press **Call agent** once: the agent takes them all in one
 turn and answers each from the work it did.
 
@@ -46,8 +46,9 @@ apply or reject. The keys at the bottom right are the ones pressed.
    The agent checks for Python 3.10 or newer and `latexmk`, shows where it will install and
    which agents it will register with, and installs once you agree.
 
-2. Start the agent in the paper's folder and say `do tex init`. It finds the main `.tex` file
-   and a free port, shows you the settings, and writes `.tex-mcp-web.yaml` once you agree.
+2. Start the agent in the paper's folder, or stay where the work is with the paper in a
+   folder of its own, and say `do tex init`. It finds the main `.tex` file and a free port,
+   shows you the settings, and writes `.tex-mcp-web.yaml` once you agree.
 
 3. Open `http://localhost:<port>`. On a machine other people log in to, say yes to the page
    token at `do tex init`, and open the link `tex-mcp-web link` prints once in each browser.
