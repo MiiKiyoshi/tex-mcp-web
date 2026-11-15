@@ -897,7 +897,8 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
   color: var(--fg-dim);
   font-family: var(--mono);
 }
-.cmt-edit, .leaf-edit, .leaf-delete {
+.entry-actions { display: inline-flex; gap: 0.6rem; }
+.cmt-edit, .entry-delete {
   padding: 0;
   border: none;
   background: none;
@@ -907,8 +908,8 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
   text-decoration: underline;
   cursor: pointer;
 }
-.cmt-edit:hover, .leaf-edit:hover { color: var(--fg); }
-.leaf-delete:hover { color: var(--err); }
+.cmt-edit:hover { color: var(--fg); }
+.entry-delete:hover { color: var(--err); }
 .thread-text {
   font-size: 0.9rem;
   white-space: pre-wrap;

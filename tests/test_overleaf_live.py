@@ -708,8 +708,11 @@ async def test_the_reviewer_rewords_and_deletes_their_own_messages_on_overleaf(r
     assert texts(server.comments.get(comment.id)) == [("Ann", "Which words?"), ("Me", "Mine, reworded."),
                                                       (None, "For the agent.")]
     assert server.comments.get(comment.id).thread[1].overleaf == ""
-    # What stays here is edited here, as before.
+    # What stays here is edited and deleted here, and Overleaf hears of neither.
     assert (await client.post(f"/comments/{comment.id}/edit", json={"index": 2, "text": "For you."})).status == 200
+    await client.post(f"/comments/{comment.id}/reply", json={"text": "Never mind."})
+    assert (await client.post(f"/comments/{comment.id}/delete-entry", json={"index": 3})).status == 200
+    assert texts(server.comments.get(comment.id))[2:] == [(None, "For you.")]
     assert fake.written[-1][0] == "edit" and len(fake.written) == 2
 
     fake.refuse_writes = True

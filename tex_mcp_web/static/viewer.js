@@ -3344,10 +3344,12 @@ function writer(entry) {
   return entry.name ?? entry.author;
 }
 
-// A message on Overleaf the reviewer wrote: one sent from here, or one written there under
-// the name Overleaf gives them.
-function ownOnOverleaf(entry) {
-  return entry.overleaf !== undefined || (entry.name !== undefined && entry.name === state.overleafMe);
+// What the reviewer wrote and may change: an entry written here, or on a thread from
+// Overleaf one sent from here or written there under the name Overleaf gives them.
+function ownEntry(entry, onOverleaf) {
+  if (entry.author !== "human" || entry.applied || entry.rejected) return false;
+  if (entry.name === undefined && entry.overleaf === undefined) return true;
+  return onOverleaf && (entry.overleaf !== undefined || entry.name === state.overleafMe);
 }
 
 // On a thread from Overleaf, each entry says whether Overleaf has it: one written there, one
@@ -3370,22 +3372,22 @@ function renderThreadEntry(entry, commentId, index, onOverleaf) {
     h("div", { class: "thread-meta" },
       h("span", { text: `${writer(entry)} · ${entry.when}` }),
       onOverleaf ? overleafMark(entry) : null,
-      // What Overleaf holds is changed there. Others' messages are answered, not edited, and
-      // one's own, sent from here or written there, is reworded or deleted on Overleaf, for
-      // everyone in the project. A thread's first message goes with its thread, as there.
-      entry.author === "human" && !editing && entry.name === undefined && entry.overleaf === undefined
-        && !entry.applied && !entry.rejected
-        ? actionButton("cmt-edit", "Edit", () => startEntryEdit(commentId, index, entry.text))
-        : null,
-      onOverleaf && !editing && ownOnOverleaf(entry)
-        ? actionButton("leaf-edit", "Edit", () => startEntryEdit(commentId, index, entry.text))
-        : null,
-      onOverleaf && !editing && ownOnOverleaf(entry)
-        ? actionButton("leaf-delete", "Delete", async () => {
-          if (!confirm(index === 0 ? "Delete this thread on Overleaf, with every reply in it, for everyone in the project?"
-            : "Delete this message on Overleaf, for everyone in the project?")) return;
-          if (await doMutation(commentId, "delete-entry", { index })) await refreshComments();
-        })
+      // What the reviewer wrote carries Edit and Delete, here or on Overleaf alike. One on
+      // Overleaf, sent from here or written there, is reworded or deleted there, for
+      // everyone in the project, and others' messages there are answered. A thread's first
+      // message goes with its thread. The records of applying and rejecting stay.
+      !editing && ownEntry(entry, onOverleaf)
+        ? h("span", { class: "entry-actions" },
+          actionButton("cmt-edit", "Edit", () => startEntryEdit(commentId, index, entry.text)),
+          actionButton("entry-delete", "Delete", async () => {
+            const there = entry.name !== undefined || entry.overleaf !== undefined;
+            const asked = there
+              ? (index === 0 ? "Delete this thread on Overleaf, with every reply in it, for everyone in the project?"
+                : "Delete this message on Overleaf, for everyone in the project?")
+              : (index === 0 ? `Permanently delete ${commentId}?` : "Delete this message?");
+            if (!confirm(asked)) return;
+            if (await doMutation(commentId, "delete-entry", { index })) await refreshComments();
+          }))
         : null),
   ];
   if (editing) children.push(renderEntryEditor(commentId, index));
@@ -4440,7 +4442,7 @@ const COMMENT_KEYS = [
     { keys: ["r"], does: "Reply here, where the agent reads it and Overleaf does not", button: ["cmt-reply"],
       run: () => pressCard(".cmt-reply") },
     { keys: ["i"], does: "Write its reply for Overleaf", marks: ".cmt-overleaf", run: () => writeForOverleaf() },
-    { keys: ["e"], does: "Edit the last thing you wrote in it", marks: ".cmt-edit", run: () => pressCard(".cmt-edit") },
+    { keys: ["e"], does: "Edit the last thing you wrote in it, here or on Overleaf", marks: ".cmt-edit", run: () => pressCard(".cmt-edit") },
     { keys: ["c"], does: "Add a paper note", run: () => $("#paper-comment-btn").click() },
     { keys: ["Escape"], does: "Leave a box: a reply or an edit being written is dropped, a reply for Overleaf keeps its words" },
   ]],

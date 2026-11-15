@@ -2518,7 +2518,9 @@ class TexMcpWebServer:
             return web.json_response({"error": str(error)}, status=400)
 
     async def _handle_delete_comment_entry(self, request: web.Request) -> web.Response:
-        """Delete a message the reviewer wrote on Overleaf, there and then here."""
+        """Delete a message the reviewer wrote: one on Overleaf there and then here, and one
+        written here from its thread. A thread's first message goes with its thread. What
+        the agent wrote and the records of applying and rejecting stay."""
         cid = request.match_info["id"]
         data, err = await self._read_json(request)
         if err is not None:
@@ -2527,7 +2529,21 @@ class TexMcpWebServer:
             index = int(data["index"])
         except (KeyError, TypeError, ValueError):
             return web.json_response({"error": "index is required"}, status=400)
-        return await self._change_own_on_overleaf(cid, index, None)
+        comment = self.comments.get(cid)
+        entry = comment.thread[index] if comment is not None and 0 <= index < len(comment.thread) else None
+        if entry is None:
+            return web.json_response({"error": f"no such entry in {cid}"}, status=404)
+        if entry.name is not None or entry.overleaf is not None:
+            return await self._change_own_on_overleaf(cid, index, None)
+        if entry.author != "human" or entry.applied or entry.rejected:
+            return web.json_response({"error": "only what you wrote is deleted"}, status=409)
+        if index == 0:
+            self.comments.delete(cid)
+            await self.broadcast({"type": "comment_deleted", "id": cid})
+            return web.json_response({"deleted": cid})
+        updated = self.comments.remove_entry(cid, entry.id)
+        await self.broadcast({"type": "comment_updated", "comment": _comment_to_dict(updated)})
+        return web.json_response(_comment_to_dict(updated))
 
     async def _change_own_on_overleaf(self, cid: str, index: int, text: str | None) -> web.Response:
         """Reword a message the reviewer wrote on Overleaf, sent from here or written there

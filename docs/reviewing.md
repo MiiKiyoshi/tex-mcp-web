@@ -59,6 +59,8 @@ last line of the PDF. Running heads and page numbers are left out.
   the words it is on, its file, its suggestion or its draft for Overleaf. Enter gives the
   keys to the comments found, and Escape in the box, or choosing a view, puts the search
   away.
+- What you wrote in a thread carries **Edit** and **Delete**. **Delete** on a thread's first
+  message deletes the thread.
 - **Resolve** a thread whose edit satisfies you, or **Reply** in it when it does not.
   **Archive** sets a thread aside, and it still takes replies.
 - A proposed edit shows as the source lines the agent would change, as a −/+ pair, and the
@@ -93,7 +95,7 @@ typing.
 | `K`, Ctrl+Alt+K | Go into the source at the comment's words, the keys going with the cursor. `K` in the editor, or Ctrl+Alt+K without Vim keys, comes back |
 | `r` | Reply here, where the agent reads it and Overleaf does not |
 | `i` | Write the thread's reply for Overleaf |
-| `e` | Edit the last thing you wrote in the thread |
+| `e` | Edit the last thing you wrote in the thread, here or on Overleaf |
 | `c` | Add a paper note |
 | Escape | Leave a box: a reply or an edit being written is dropped, a reply for Overleaf keeps its words |
 | `R` | Resolve, or reopen a comment that is not open |

@@ -3113,8 +3113,8 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
         assert "Feedback and answer." not in browser.execute_script(
             'return [...document.querySelectorAll(".overleaf-reply-input")].map((b) => b.value).join("|")')
         assert browser.execute_script('return document.querySelector("#archive-picked-btn").hidden') is False
-        # A reply the reviewer sent to Overleaf carries Edit and Delete, which act there, and
-        # someone else's message carries neither. The e key stays with what is written here.
+        # A reply the reviewer sent to Overleaf carries Edit and Delete, which act there, as
+        # an entry written here carries them, and someone else's message carries neither.
         browser.execute_script('document.querySelector(\'.tab-btn[data-tab="overleaf-comments"]\').click()')
         show_view(browser, "answered")
         mine = f'document.querySelector(\'[data-comment-id="{answered.id}"]\')'
@@ -3124,12 +3124,12 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
         assert browser.execute_script(
             f'return [...{mine}.querySelectorAll(".thread-meta")].map((meta) =>'
             ' [...meta.querySelectorAll("button")].map((button) => button.className))') \
-            == [[], ["leaf-edit", "leaf-delete"]]
+            == [[], ["cmt-edit", "entry-delete"]]
         # They look as the Edit of an entry written here does.
         assert browser.execute_script(
             f'const look = (node) => {{ const s = getComputedStyle(node);'
             ' return [s.textDecorationLine, s.borderTopWidth, s.backgroundColor, s.fontSize]; };'
-            f' return [".leaf-edit", ".leaf-delete"].map((name) => look({mine}.querySelector(name)));') \
+            f' return [".cmt-edit", ".entry-delete"].map((name) => look({mine}.querySelector(name)));') \
             == [["underline", "0px", "rgba(0, 0, 0, 0)", "10.5px"]] * 2
     finally:
         if browser is not None:

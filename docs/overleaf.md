@@ -67,9 +67,10 @@ address, so on the shared machine's own browser, open no page another account se
   Overleaf and the replies you sent, each entry marked as written on Overleaf, sent there,
   or here only, so the thread reads whole. An entry Overleaf holds goes by the name
   Overleaf gives its writer. Someone else's is answered rather than edited. Your own, sent
-  from here or written on Overleaf, carries **Edit** and **Delete**, which reword or delete
-  the message on Overleaf, for everyone in the project, and then here. **Delete** on a
-  thread's first message deletes the thread with its replies, as on Overleaf.
+  from here or written on Overleaf, carries **Edit** and **Delete** as an entry written
+  here does, and they reword or delete the message on Overleaf, for everyone in the
+  project, and then here. **Delete** on a thread's first message deletes the thread with
+  its replies, as on Overleaf.
 - The box under the thread is the reply on Overleaf, which everyone in the project reads.
   The agent puts its draft there (`write_comments` with `action="overleaf"`), one per
   thread, and you edit it and send it with **Send to** and the leaf. **Reject draft** takes
