@@ -7,7 +7,21 @@
 [![release](https://img.shields.io/github/v/release/MiiKiyoshi/tex-mcp-web)](https://github.com/MiiKiyoshi/tex-mcp-web/releases/latest)
 [![python](https://img.shields.io/python/required-version-toml?tomlFilePath=https://raw.githubusercontent.com/MiiKiyoshi/tex-mcp-web/main/pyproject.toml)](pyproject.toml)
 
-Review a LaTeX paper from its rendered PDF, on a desktop, tablet, or phone, while Claude Code or Codex edits the source.
+Write a LaTeX paper in the session that did the work, and review it from its rendered PDF, on a desktop, tablet, or phone, while Claude Code or Codex edits the source.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/from-work-dark.webp">
+  <img alt="In a project folder a coding agent analyses logs and prints a table, sets a paper up in a folder of its own with do tex init, and writes what it found up as LaTeX. On the review page three sentences of the PDF each take a comment, and one Call agent sends them. The agent answers all three from the logs with wordings to apply. Applied and resolved by keys, and the paper compiled, the PDF shows the three sentences with their numbers." src="docs/images/from-work.webp">
+</picture>
+
+The agent that ran your analysis, wrote your code or worked through your data already holds
+what the paper has to say. Name a folder for the paper and say `do tex init`: from where it
+is working, the agent writes the paper out of what it found, sets the review page up for
+that folder, and compiles. Nothing is carried over to another tool by hand. Comment on as
+many places as you like, then press **Call agent** once: the agent takes them all in one
+turn and answers each from the work it did.
+
+## Review from the PDF
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/pdf-review-dark.webp">
@@ -16,8 +30,8 @@ Review a LaTeX paper from its rendered PDF, on a desktop, tablet, or phone, whil
 
 Select words in the PDF, or draw a box over part of a figure, and write what should change.
 Press **Call agent**, the bell above the comments, when they are ready. The agent edits the
-source, compiles, and answers in the thread, at times with a wording to apply. The keys at the
-bottom right are the ones pressed.
+source, compiles, and answers in the thread, at times with a wording to apply, which you
+apply or reject. The keys at the bottom right are the ones pressed.
 
 > ⭐ **If this helps your writing, please give it a star.** It helps others find the project.
 
