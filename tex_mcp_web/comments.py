@@ -1277,6 +1277,8 @@ class CommentStore:
 
     def __init__(self, path: Path):
         self.path = path
+        # The file as last parsed, with what named it then: see _read.
+        self._parsed: tuple[tuple[int, int, int], dict[str, Any]] | None = None
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock_path = self.path.with_name(self.path.name + ".lock")
         if not self.path.exists():
@@ -1358,11 +1360,20 @@ class CommentStore:
                 fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
 
     def _read(self) -> dict[str, Any]:
+        """The store's file, parsed. A paper's file grows to megabytes, and one request
+        asks for many comments, so the file is parsed again only once it has changed:
+        every write puts a new file in its place, another process's too, which its
+        inode, size and time tell. What this returns is shared, and is read, not changed."""
+        stat = self.path.stat()
+        named = (stat.st_ino, stat.st_size, stat.st_mtime_ns)
+        if self._parsed is not None and self._parsed[0] == named:
+            return self._parsed[1]
         data = json.loads(self.path.read_text(encoding="utf-8"))
         if data["version"] != STORE_VERSION:
             raise ValueError(
                 f"unsupported comment store version {data['version']}; expected {STORE_VERSION}"
             )
+        self._parsed = (named, data)
         return data
 
     def _write(self, data: dict[str, Any]) -> None:
@@ -1375,9 +1386,17 @@ class CommentStore:
             suffix=".tmp",
             delete=False,
         ) as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
+            # In one piece: the encoder writes a megabyte twice as fast whole as in parts.
+            f.write(json.dumps(data, indent=2, ensure_ascii=False))
             tmp = Path(f.name)
+            f.flush()
+            stat = os.fstat(f.fileno())
         os.replace(tmp, self.path)
+        # What was written is what the file holds until someone writes again, so the next
+        # read parses nothing. The file is named as it was written, not as it is found
+        # after the rename, which another process's file may have followed.
+        self._parsed = ((stat.st_ino, stat.st_size, stat.st_mtime_ns), data) \
+            if data.get("version") == STORE_VERSION else None
 
     def _all(self) -> list[Comment]:
         data = self._read()
@@ -1396,17 +1415,17 @@ class CommentStore:
         status: Status | None = None,
         include_stale: bool = True,
     ) -> list[Comment]:
-        comments = self._all()
-        if status is not None:
-            comments = [c for c in comments if c.status == status]
+        # Only the comments asked for are built: most of a long review's are resolved.
+        comments = [Comment.from_dict(c) for c in self._read()["comments"]
+                    if status is None or c["status"] == status]
         if not include_stale:
             comments = [c for c in comments if not c.stale]
         return comments
 
     def get(self, comment_id: str) -> Comment | None:
-        for c in self._all():
-            if c.id == comment_id:
-                return c
+        for c in self._read()["comments"]:
+            if c["id"] == comment_id:
+                return Comment.from_dict(c)
         return None
 
     def add(

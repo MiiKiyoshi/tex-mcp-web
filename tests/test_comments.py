@@ -333,6 +333,39 @@ def test_locate_pdf_quote_rejects_duplicate_without_hint(tmp_path: Path):
     assert locate_pdf_quote(pdf, "duplicate phrase") is None
 
 
+def test_the_store_parses_its_file_only_when_it_has_changed(tmp_path: Path, monkeypatch) -> None:
+    """A long review's file is megabytes, and one request asks for many comments: the file
+    is parsed once however many are asked for, and again after a write, this store's or
+    another process's. What a read gives is the caller's own, not the store's copy."""
+    import tex_mcp_web.comments as module
+
+    store = CommentStore(tmp_path / "comments.json")
+    ids = [store.add(PaperAnchor(), f"Note {n}.").id for n in range(5)]
+    parsed = []
+    real = module.json.loads
+    monkeypatch.setattr(module.json, "loads", lambda text: parsed.append(1) or real(text))
+
+    for _ in range(3):
+        assert [store.get(comment_id).text for comment_id in ids] == [f"Note {n}." for n in range(5)]
+        assert len(store.list(status="open")) == 5
+    assert parsed == []                       # the store's own last write is what it holds
+
+    got = store.get(ids[0])
+    got.thread[0].text = "Changed in hand only."
+    assert store.get(ids[0]).text == "Note 0."
+
+    other = CommentStore(tmp_path / "comments.json")     # as the agent's process is
+    before = len(parsed)
+    other.reply(ids[1], "From the other process.", author="agent")
+    assert [entry.text for entry in store.get(ids[1]).thread] == ["Note 1.", "From the other process."]
+    seen = len(parsed)
+    assert seen > before
+    assert store.get(ids[2]).text == "Note 2." and len(store.list()) == 5
+    assert len(parsed) == seen
+    store.resolve(ids[2], "", author="human")
+    assert [c.id for c in other.list(status="resolved")] == [ids[2]]
+
+
 @pytest.fixture
 def store(tmp_path: Path) -> CommentStore:
     return CommentStore(tmp_path / "comments.json")
