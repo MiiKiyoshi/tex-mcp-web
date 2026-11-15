@@ -200,6 +200,18 @@ class _Reader:
             raise OverleafError(f"could not reach Overleaf, so it may or may not have arrived: "
                                 f"{error or 'no answer'}") from error
 
+    async def delete(self, path: str, token: str) -> None:
+        headers = {"X-Csrf-Token": token, "Origin": self.server}
+        try:
+            async with self.session.delete(self.server + path, headers=headers, allow_redirects=False) as response:
+                if response.status in (301, 302, 303, 307, 308, 401):
+                    raise SignedOut("Overleaf did not accept the cookie; paste a new one")
+                if response.status >= 300:
+                    raise OverleafError(f"Overleaf refused it ({response.status}); nothing was changed there")
+        except (aiohttp.ClientError, asyncio.TimeoutError) as error:
+            raise OverleafError(f"could not reach Overleaf, so it may or may not have gone: "
+                                f"{error or 'no answer'}") from error
+
 
 def _place(names: dict[str, str | None], paths: list[str]) -> dict[str, str]:
     """Each document's path: the one path its file name ends, else the bare name."""
@@ -241,6 +253,42 @@ async def post_reply(link: str, cookie: tuple[str, str], thread: str, content: s
         read = _Reader(session, server)
         await read.post(f"/project/{project}/thread/{thread}/messages", await _write_token(read, project),
                         {"content": content})
+
+
+async def edit_message(link: str, cookie: tuple[str, str], thread: str, message: str, content: str, *,
+                       timeout: float = 30) -> None:
+    """Reword a message the reviewer wrote in a thread on Overleaf, as Overleaf's editor does."""
+    server, project = project_of(link)
+    async with _session(server, cookie, timeout) as session:
+        read = _Reader(session, server)
+        await read.post(f"/project/{project}/thread/{thread}/messages/{message}/edit",
+                        await _write_token(read, project), {"content": content})
+
+
+async def delete_message(link: str, cookie: tuple[str, str], thread: str, message: str, *, timeout: float = 30) -> None:
+    """Delete a message the reviewer wrote in a thread on Overleaf, by the route Overleaf
+    keeps for one's own messages."""
+    server, project = project_of(link)
+    async with _session(server, cookie, timeout) as session:
+        read = _Reader(session, server)
+        await read.delete(f"/project/{project}/thread/{thread}/own-messages/{message}",
+                          await _write_token(read, project))
+
+
+async def delete_thread(link: str, cookie: tuple[str, str], thread: str, *, timeout: float = 30) -> None:
+    """Delete a thread on Overleaf with every message in it. Overleaf files the change under
+    the file the thread is on, which its ranges say."""
+    server, project = project_of(link)
+    async with _session(server, cookie, timeout) as session:
+        read = _Reader(session, server)
+        ranges = await read.get(f"/project/{project}/ranges")
+        docs = ranges.get("docs", []) if isinstance(ranges, dict) else ranges or []
+        doc = next((str(doc.get("id") or doc.get("_id")) for doc in docs if isinstance(doc, dict)
+                    for comment in (doc.get("ranges") or {}).get("comments") or []
+                    if str(((comment or {}).get("op") or {}).get("t")) == thread), None)
+        if doc is None:
+            raise OverleafError("Overleaf has this thread on no file, so nothing was changed there")
+        await read.delete(f"/project/{project}/doc/{doc}/thread/{thread}", await _write_token(read, project))
 
 
 async def open_thread(link: str, cookie: tuple[str, str], thread: str, content: str, *, timeout: float = 30) -> None:

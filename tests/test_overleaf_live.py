@@ -66,6 +66,9 @@ class FakeRealtime:
         app.router.add_get(f"/project/{PROJECT_ID}", self._editor_page)
         app.router.add_post(f"/project/{PROJECT_ID}/thread/{{thread}}/messages", self._post_message)
         app.router.add_post(f"/project/{PROJECT_ID}/doc/{{doc}}/thread/{{thread}}/{{what:resolve|reopen}}", self._close)
+        app.router.add_post(f"/project/{PROJECT_ID}/thread/{{thread}}/messages/{{message}}/edit", self._edit_message)
+        app.router.add_delete(f"/project/{PROJECT_ID}/thread/{{thread}}/own-messages/{{message}}", self._delete_message)
+        app.router.add_delete(f"/project/{PROJECT_ID}/doc/{{doc}}/thread/{{thread}}", self._delete_thread)
         app.router.add_post(f"/project/{PROJECT_ID}/doc/{{doc}}/changes/accept", self._accept)
         app.router.add_get(f"/project/{PROJECT_ID}/changes/users", self._change_users)
         self.written: list = []            # every write Overleaf took
@@ -99,6 +102,35 @@ class FakeRealtime:
         self.written.append(("reply", request.match_info["thread"], body["content"]))
         thread = self.threads[request.match_info["thread"]]
         thread["messages"].append({"id": f"m-{len(self.written)}", "user": {"first_name": "Me"}, "content": body["content"]})
+        return web.Response(status=204)
+
+    def _message(self, request: web.Request) -> dict:
+        found = next((message for message in self.threads[request.match_info["thread"]]["messages"]
+                      if message.get("id") == request.match_info["message"]), None)
+        if found is None:
+            raise web.HTTPNotFound()
+        return found
+
+    async def _edit_message(self, request: web.Request) -> web.Response:
+        self._check_write(request)
+        message, content = self._message(request), (await request.json())["content"]
+        self.written.append(("edit", request.match_info["thread"], message["id"], content))
+        message["content"] = content
+        return web.Response(status=204)
+
+    async def _delete_message(self, request: web.Request) -> web.Response:
+        self._check_write(request)
+        message = self._message(request)
+        self.written.append(("delete", request.match_info["thread"], message["id"]))
+        self.threads[request.match_info["thread"]]["messages"].remove(message)
+        return web.Response(status=204)
+
+    async def _delete_thread(self, request: web.Request) -> web.Response:
+        self._check_write(request)
+        thread = request.match_info["thread"]
+        self.written.append(("delete-thread", thread, request.match_info["doc"]))
+        del self.threads[thread]
+        self.ranges = [comment for comment in self.ranges if comment["op"]["t"] != thread]
         return web.Response(status=204)
 
     async def _accept(self, request: web.Request) -> web.Response:
@@ -652,6 +684,56 @@ async def test_a_reply_goes_to_overleaf_once_and_does_not_come_back_as_another(r
     await fake.push(event("new-comment", "t1", {}))
     await wait_for(lambda: len(server.comments.get(comment.id).thread) == 3)
     assert texts(server.comments.get(comment.id))[2] == ("Bo", "Good.")
+    await page.close()
+
+
+async def test_the_reviewer_rewords_and_deletes_their_own_messages_on_overleaf(review) -> None:
+    """A message the reviewer sent to Overleaf, or wrote there, is reworded and deleted from
+    the page: on Overleaf first, for everyone in the project, then here. One sent a moment
+    ago is found by reading Overleaf. Someone else's is left alone, what Overleaf refuses
+    changes nothing here, and a thread's first message goes with its thread."""
+    client, server, fake = review
+    page, comment = await on_overleaf(client, server, fake)
+    theirs = await client.post(f"/comments/{comment.id}/edit", json={"index": 0, "text": "Not mine."})
+    assert theirs.status == 409 and "you wrote" in (await theirs.json())["error"]
+    assert (await client.post(f"/comments/{comment.id}/delete-entry", json={"index": 0})).status == 409
+    assert fake.written == []
+
+    assert (await client.post(f"/comments/{comment.id}/reply", json={"text": "Mine.", "overleaf": True})).status == 200
+    await client.post(f"/comments/{comment.id}/reply", json={"text": "For the agent."})
+    # Sent a moment ago, the message is not yet known by its id here: Overleaf is read first.
+    reworded = await client.post(f"/comments/{comment.id}/edit", json={"index": 1, "text": " Mine, reworded. "})
+    assert reworded.status == 200
+    assert fake.written[-1] == ("edit", "t1", "m-1", "Mine, reworded.")
+    assert texts(server.comments.get(comment.id)) == [("Ann", "Which words?"), ("Me", "Mine, reworded."),
+                                                      (None, "For the agent.")]
+    assert server.comments.get(comment.id).thread[1].overleaf == ""
+    # What stays here is edited here, as before.
+    assert (await client.post(f"/comments/{comment.id}/edit", json={"index": 2, "text": "For you."})).status == 200
+    assert fake.written[-1][0] == "edit" and len(fake.written) == 2
+
+    fake.refuse_writes = True
+    refused = await client.post(f"/comments/{comment.id}/delete-entry", json={"index": 1})
+    assert refused.status == 502 and len(server.comments.get(comment.id).thread) == 3
+    fake.refuse_writes = False
+    assert (await client.post(f"/comments/{comment.id}/delete-entry", json={"index": 1})).status == 200
+    assert fake.written[-1] == ("delete", "t1", "m-1")
+    assert texts(server.comments.get(comment.id)) == [("Ann", "Which words?"), (None, "For you.")]
+    # A reading afterwards finds Overleaf as the page left it.
+    await downloaded(client, server, 1)
+    assert texts(server.comments.get(comment.id)) == [("Ann", "Which words?"), (None, "For you.")]
+
+    # A thread whose first message the reviewer wrote on Overleaf goes whole, there and here.
+    fake.threads["t2"] = {"messages": [{"id": "m-mine", "user": {"first_name": "Me", "last_name": "Myself"},
+                                        "content": "My own thread."}, {"id": "m-ann", **said("Ann", "Agreed.")}]}
+    fake.ranges.append(on_the_words("t2", "Hi"))
+    await downloaded(client, server, 2)
+    mine = next(c for c in server.comments.list() if c.id != comment.id)
+    assert (await client.post(f"/comments/{mine.id}/delete-entry", json={"index": 1})).status == 409
+    gone = await client.post(f"/comments/{mine.id}/delete-entry", json={"index": 0})
+    assert gone.status == 200 and fake.written[-1] == ("delete-thread", "t2", "d-main")
+    assert [c.id for c in server.comments.list()] == [comment.id] and "t2" not in fake.threads
+    await downloaded(client, server, 1)
     await page.close()
 
 

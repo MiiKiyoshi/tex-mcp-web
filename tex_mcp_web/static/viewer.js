@@ -3328,6 +3328,12 @@ function writer(entry) {
   return entry.name ?? entry.author;
 }
 
+// A message on Overleaf the reviewer wrote: one sent from here, or one written there under
+// the name Overleaf gives them.
+function ownOnOverleaf(entry) {
+  return entry.overleaf !== undefined || (entry.name !== undefined && entry.name === state.overleafMe);
+}
+
 // On a thread from Overleaf, each entry says whether Overleaf has it: one written there, one
 // sent there, or one that stays on this page.
 function overleafMark(entry) {
@@ -3348,10 +3354,22 @@ function renderThreadEntry(entry, commentId, index, onOverleaf) {
     h("div", { class: "thread-meta" },
       h("span", { text: `${writer(entry)} · ${entry.when}` }),
       onOverleaf ? overleafMark(entry) : null,
-      // Overleaf keeps what it holds as written there, so that is answered, not edited.
+      // What Overleaf holds is changed there. Others' messages are answered, not edited, and
+      // one's own, sent from here or written there, is reworded or deleted on Overleaf, for
+      // everyone in the project. A thread's first message goes with its thread, as there.
       entry.author === "human" && !editing && entry.name === undefined && entry.overleaf === undefined
         && !entry.applied && !entry.rejected
         ? actionButton("cmt-edit", "Edit", () => startEntryEdit(commentId, index, entry.text))
+        : null,
+      onOverleaf && !editing && ownOnOverleaf(entry)
+        ? actionButton("leaf-edit", "Edit", () => startEntryEdit(commentId, index, entry.text))
+        : null,
+      onOverleaf && !editing && ownOnOverleaf(entry)
+        ? actionButton("leaf-delete", "Delete", async () => {
+          if (!confirm(index === 0 ? "Delete this thread on Overleaf, with every reply in it, for everyone in the project?"
+            : "Delete this message on Overleaf, for everyone in the project?")) return;
+          if (await doMutation(commentId, "delete-entry", { index })) await refreshComments();
+        })
         : null),
   ];
   if (editing) children.push(renderEntryEditor(commentId, index));

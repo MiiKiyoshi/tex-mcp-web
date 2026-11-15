@@ -3545,8 +3545,8 @@ async def test_a_message_from_overleaf_goes_by_its_writers_name_and_is_answered_
         assert [(e.name, e.text) for e in server.comments.get(comment.id).thread] == [("A. Reviewer", words)]
 
     refused = await http.post(f"/comments/{older.id}/edit", json={"index": 0, "text": "Mine now."})
-    assert refused.status == 400
-    assert (await refused.json())["error"] == "thread entry 0 is on Overleaf, which keeps it as written there: reply instead"
+    assert refused.status == 409
+    assert (await refused.json())["error"] == "only a message you wrote on Overleaf is changed there: reply instead"
     assert server.comments.get(older.id).thread[0].text == "Which prose?"
 
 

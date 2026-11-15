@@ -66,7 +66,10 @@ address, so on the shared machine's own browser, open no page another account se
   never reaches Overleaf, and it sits in the thread in time order with the messages from
   Overleaf and the replies you sent, each entry marked as written on Overleaf, sent there,
   or here only, so the thread reads whole. An entry Overleaf holds goes by the name
-  Overleaf gives its writer, and is answered rather than edited.
+  Overleaf gives its writer. Someone else's is answered rather than edited. Your own, sent
+  from here or written on Overleaf, carries **Edit** and **Delete**, which reword or delete
+  the message on Overleaf, for everyone in the project, and then here. **Delete** on a
+  thread's first message deletes the thread with its replies, as on Overleaf.
 - The box under the thread is the reply on Overleaf, which everyone in the project reads.
   The agent puts its draft there (`write_comments` with `action="overleaf"`), one per
   thread, and you edit it and send it with **Send to** and the leaf. **Reject draft** takes
@@ -240,5 +243,5 @@ also lists the suggested edits, one line each, with where each is in the file he
 `read_comments(new=True)` adds one line when Overleaf has edits this folder lacks.
 `overleaf(action="get")` brings those edits in, by Get or by git pull in a git clone, and
 changes nothing when they clash. `overleaf(action="push")` runs git push in a git clone.
-Sending replies, Send, Resolve and Reopen, and accepting and rejecting suggested edits, stay
-yours, from the page.
+Sending replies, rewording and deleting them, Send, Resolve and Reopen, and accepting and
+rejecting suggested edits, stay yours, from the page.

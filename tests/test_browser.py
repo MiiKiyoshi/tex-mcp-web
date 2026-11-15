@@ -3064,6 +3064,18 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
         assert "Feedback and answer." not in browser.execute_script(
             'return [...document.querySelectorAll(".overleaf-reply-input")].map((b) => b.value).join("|")')
         assert browser.execute_script('return document.querySelector("#archive-picked-btn").hidden') is False
+        # A reply the reviewer sent to Overleaf carries Edit and Delete, which act there, and
+        # someone else's message carries neither. The e key stays with what is written here.
+        browser.execute_script('document.querySelector(\'.tab-btn[data-tab="overleaf-comments"]\').click()')
+        show_view(browser, "answered")
+        mine = f'document.querySelector(\'[data-comment-id="{answered.id}"]\')'
+        wait_until(lambda: browser.execute_script(f'return {mine} !== null'))
+        browser.execute_script(f'if (!{mine}.querySelector(".thread-meta")) {mine}.querySelector(".cmt-head").click()')
+        wait_until(lambda: browser.execute_script(f'return {mine}?.querySelectorAll(".thread-meta").length === 2'))
+        assert browser.execute_script(
+            f'return [...{mine}.querySelectorAll(".thread-meta")].map((meta) =>'
+            ' [...meta.querySelectorAll("button")].map((button) => button.className))') \
+            == [[], ["leaf-edit", "leaf-delete"]]
     finally:
         if browser is not None:
             try:

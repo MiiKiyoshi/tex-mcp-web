@@ -46,6 +46,7 @@ from .comments import (
     SourceSelector,
     SuggestedEdit,
     TextSelectionAnchor,
+    ThreadEntry,
     anchor_from_dict,
     capture_source_selector,
     canonicalize_pdf_selection,
@@ -623,6 +624,7 @@ class TexMcpWebServer:
         app.router.add_post(r"/comments/{id}/reopen", self._handle_reopen_comment)
         app.router.add_post(r"/comments/{id}/archive", self._handle_archive_comment)
         app.router.add_post(r"/comments/{id}/edit", self._handle_edit_comment_entry)
+        app.router.add_post(r"/comments/{id}/delete-entry", self._handle_delete_comment_entry)
         app.router.add_delete(r"/comments/{id}", self._handle_delete_comment)
         app.router.add_get("/synctex/source-to-pdf", self._handle_synctex_forward)
         app.router.add_post("/synctex/pdf-to-source", self._handle_synctex_backward)
@@ -2495,6 +2497,10 @@ class TexMcpWebServer:
             text = str(data["text"])
         except (KeyError, TypeError, ValueError):
             return web.json_response({"error": "index and text are required"}, status=400)
+        comment = self.comments.get(cid)
+        if comment is not None and 0 <= index < len(comment.thread) and text.strip() and (
+                comment.thread[index].name is not None or comment.thread[index].overleaf is not None):
+            return await self._change_own_on_overleaf(cid, index, text.strip())
         try:
             return await self._mutate_comment(
                 cid,
@@ -2502,6 +2508,92 @@ class TexMcpWebServer:
             )
         except (IndexError, ValueError) as error:
             return web.json_response({"error": str(error)}, status=400)
+
+    async def _handle_delete_comment_entry(self, request: web.Request) -> web.Response:
+        """Delete a message the reviewer wrote on Overleaf, there and then here."""
+        cid = request.match_info["id"]
+        data, err = await self._read_json(request)
+        if err is not None:
+            return err
+        try:
+            index = int(data["index"])
+        except (KeyError, TypeError, ValueError):
+            return web.json_response({"error": "index is required"}, status=400)
+        return await self._change_own_on_overleaf(cid, index, None)
+
+    async def _change_own_on_overleaf(self, cid: str, index: int, text: str | None) -> web.Response:
+        """Reword a message the reviewer wrote on Overleaf, sent from here or written there
+        under their name, or with no *text* delete it: on Overleaf first, for everyone in the
+        project, and then here, so that what Overleaf does not take is not shown as done. A
+        thread's first message is deleted with its thread, as on Overleaf. A message sent a
+        moment ago is not yet known by the id Overleaf gave it, so Overleaf is read first."""
+        comment = self.comments.get(cid)
+        entry = comment.thread[index] if comment is not None and 0 <= index < len(comment.thread) else None
+        if entry is None:
+            return web.json_response({"error": f"no such entry in {cid}"}, status=404)
+        me = self.overleaf_live.me if self.overleaf_live is not None else ""
+        if entry.overleaf is None and (entry.name is None or entry.name != me):
+            return web.json_response({"error": "only a message you wrote on Overleaf is changed there: "
+                                               "reply instead"}, status=409)
+        cookie = overleaf.read_cookie()
+        if cookie is None:
+            return web.json_response({"error": "paste your Overleaf session cookie first"}, status=401)
+        if not self.config.overleaf:
+            return web.json_response({"error": "name the Overleaf project in .tex-mcp-web.yaml first"}, status=409)
+        link, wanted = self.config.overleaf, entry.id
+
+        def place() -> tuple[Comment | None, ThreadEntry | None, str | None, str | None]:
+            comment = self.comments.get(cid)
+            entry = comment.thread[index] if comment is not None and 0 <= index < len(comment.thread) else None
+            thread, known = next(((key, known) for key, known in self._overleaf_ledger().items()
+                                  if known["comment"] == cid), (None, {}))
+            message = next((key for key, held in known.get("entries", {}).items()
+                            if entry is not None and held == entry.id and not key.startswith("#")), None)
+            return comment, entry, thread, message
+
+        try:
+            async with self._overleaf_import:
+                comment, entry, thread, message = place()
+                if comment is None or entry is None or entry.id != wanted:
+                    return web.json_response({"error": "the thread changed: look again"}, status=409)
+                if thread is None:
+                    return web.json_response({"error": "this comment did not come from Overleaf"}, status=409)
+                if message is None:
+                    await self._bring_in_overleaf(await overleaf.fetch_export(link, cookie), new=False)
+                    comment, entry, thread, message = place()
+                    if entry is None or entry.id != wanted or thread is None or message is None:
+                        return web.json_response({"error": "Overleaf does not show this message yet. Try again in "
+                                                           "a moment."}, status=409)
+                first = entry.id == comment.thread[0].id
+                if text is not None:
+                    await overleaf.edit_message(link, cookie, thread, message, text)
+                    comment = self.comments.rewrite_entry(cid, entry.id, text, entry.name)
+                elif first:
+                    await overleaf.delete_thread(link, cookie, thread)
+                    ledger = self._overleaf_ledger()
+                    ledger.pop(thread, None)
+                    self._save_overleaf_ledger(ledger)
+                    for follower in (self.overleaf_sync, self.overleaf_hand):
+                        if follower is not None and hasattr(follower, "forget_thread"):
+                            follower.forget_thread(thread)
+                    self.comments.delete(cid)
+                    await self.broadcast({"type": "comment_deleted", "id": cid})
+                    return web.json_response({"deleted": cid})
+                else:
+                    await overleaf.delete_message(link, cookie, thread, message)
+                    ledger = self._overleaf_ledger()
+                    ledger[thread]["entries"].pop(message, None)
+                    self._save_overleaf_ledger(ledger)
+                    comment = self.comments.remove_entry(cid, entry.id)
+        except overleaf.SignedOut as error:
+            return web.json_response({"error": f"{error} (the cookie has expired or is wrong)"}, status=401)
+        except overleaf.OverleafError as error:
+            return web.json_response({"error": str(error)}, status=502)
+        except (ConnectionError, asyncio.TimeoutError):
+            return web.json_response({"error": "The connection to Overleaf closed before it answered. "
+                                               "Try again."}, status=502)
+        await self.broadcast({"type": "comment_updated", "comment": _comment_to_dict(comment)})
+        return web.json_response(_comment_to_dict(comment))
 
     def _write_comment_suggestion(self, comment: Comment) -> list[str]:
         """Write a thread's proposal into its file and name the lines it changed.
