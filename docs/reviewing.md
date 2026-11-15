@@ -42,8 +42,9 @@ screen zoom and move the page as they go, the point between them staying between
   **Archive** sets a thread aside, and it still takes replies.
 - A proposed edit shows as the source lines the agent would change, as a −/+ pair, and the
   Source tab marks the same text in red. **Apply suggestion** writes the change into the
-  file, and your next **Call agent** tells the agent once that it went in. Proposing again
-  replaces the proposal.
+  file. **Reject** takes the proposal off the card, leaves the file as it is, and notes in
+  the thread what was turned down. Say why in a **Reply**. Your next **Call agent** tells
+  the agent once which of the two you did. Proposing again replaces the proposal.
 - A comment on source text follows the file's edits as a comment on Overleaf does: text
   inserted before it moves it, inside it widens it, words written over its words take it,
   and deleting all of them leaves it where they were. A paragraph moved elsewhere takes its

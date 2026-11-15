@@ -2310,6 +2310,89 @@ async def test_a_suggestion_applied_is_told_to_the_agent_once(bound_project, pro
 
 
 @pytest.mark.asyncio
+async def test_a_suggestion_or_a_draft_rejected_is_told_to_the_agent_once(bound_project, project) -> None:
+    """The reviewer turns down a suggestion, a draft of a reply for Overleaf and a draft of
+    a new thread there. Each leaves the thread with a record that holds what was turned
+    down, which the press counts and read_comments(new=True) carries once, and a thread
+    read by its id still shows. None waits for an answer: a draft rejected has answered
+    what came before it, and what the reviewer writes after it is asked as ever."""
+    pytest.importorskip("mcp")
+    from aiohttp.test_utils import TestClient, TestServer
+    from tex_mcp_web import overleaf
+    from tex_mcp_web.comments import CommentStore, OverleafDraft, PaperAnchor
+    from tex_mcp_web.mcp_server import create_server
+
+    mcp = create_server(bound_project)
+
+    async def read(**arguments) -> list[dict]:
+        return json.loads((await mcp.call_tool("read_comments", arguments))[0].text)["comments"]
+
+    store = CommentStore(project / ".tex-mcp-web" / "comments.json")
+    server = TexMcpWebServer(Config(main="paper.tex", config_path=project / ".tex-mcp-web.yaml"))
+    client = TestClient(TestServer(server.app))
+    await client.start_server()
+    try:
+        here = store.add(PaperAnchor(), "Tighten it.")
+        brought = store.add(PaperAnchor(), "Could this be shorter?", name="Ann")
+        opened = store.add(PaperAnchor(), "Ask her about the units.", for_overleaf=True)
+        overleaf.ledger_path(project).write_text(json.dumps({"t1": {"comment": brought.id, "messages": 1}}))
+        assert len(await read(new=True)) == 3
+        store.suggest(here.id, store.get(here.id).updated, "Shorter.",
+                      lambda current: SuggestedEdit("paper.tex", [("Some prose", "Prose")]))
+        store.draft_overleaf(brought.id, store.get(brought.id).updated, OverleafDraft("It is shorter now."), {})
+        store.draft_overleaf(opened.id, store.get(opened.id).updated, OverleafDraft("Which units are these?"), {})
+        assert "no new comments" in server._review_line()
+        assert await read(unanswered=True) == []
+
+        async def reject(what: str, comment_id: str, stamp: str | None = None) -> tuple[int, dict]:
+            response = await client.post(f"/comments/{comment_id}/reject-{what}",
+                                         json={"updated": stamp or store.get(comment_id).updated})
+            return response.status, await response.json()
+
+        # A card read before the thread changed, and one with nothing to reject, are refused.
+        assert (await reject("suggestion", here.id, here.updated))[0] == 409
+        assert (await reject("draft", here.id))[0] == 409
+        assert (await reject("suggestion", brought.id))[0] == 409
+
+        status, told = await reject("suggestion", here.id)
+        assert status == 200 and "suggestion" not in told and "awaits_agent" not in told
+        assert told["thread"][-1]["text"] == "Rejected suggestion.\n− Some prose\n+ Prose"
+        for comment_id in (brought.id, opened.id):
+            status, told = await reject("draft", comment_id)
+            assert status == 200 and "overleaf_draft" not in told and "awaits_agent" not in told
+        assert told["thread"][-1]["text"] == "Rejected draft for Overleaf.\nWhich units are these?"
+        # The thread started for Overleaf stays one, for the agent to draft again.
+        assert store.get(opened.id).for_overleaf
+
+        # The record is not the reviewer's word to rewrite.
+        edited = await client.post(f"/comments/{here.id}/edit", json={"index": 2, "text": "Never mind."})
+        assert edited.status >= 400
+
+        assert "3 new comments" in server._review_line()
+        assert await read(unanswered=True) == []
+        fresh = {told["id"]: told["entries"] for told in await read(new=True)}
+        assert set(fresh) == {here.id, brought.id, opened.id}
+        assert all(len(entries) == 1 and entries[0]["rejected"] is True for entries in fresh.values())
+        assert "no new comments" in server._review_line()
+        assert await read(new=True) == []
+        # Read whole later, each thread still says what was turned down.
+        whole = {told["id"]: told for told in await read(ids=[here.id, brought.id, opened.id])}
+        assert whole[here.id]["replies"][-1]["text"].startswith("Rejected suggestion.")
+        assert whole[brought.id]["replies"][-1] == {**whole[brought.id]["replies"][-1], "rejected": True,
+                                                    "text": "Rejected draft for Overleaf.\nIt is shorter now."}
+        assert whole[opened.id]["new_thread"] is True and "overleaf_draft" not in whole[opened.id]
+
+        # Why, the reviewer says in a reply, which asks the agent as any reply does.
+        store.reply(brought.id, "Too curt for her.", author="human")
+        (asked,) = await read(unanswered=True)
+        assert asked["id"] == brought.id
+        (told,) = await read(new=True)
+        assert [entry["text"] for entry in told["entries"]] == ["Too curt for her."]
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
 async def test_a_suggestion_applied_on_a_thread_from_overleaf_waits_while_it_has_no_draft(bound_project,
                                                                                          project) -> None:
     """Applying a suggestion asks nothing of the agent on a thread of the page's own. On a

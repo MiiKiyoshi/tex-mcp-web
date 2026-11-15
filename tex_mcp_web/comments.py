@@ -459,13 +459,16 @@ class ThreadEntry:
     name: str | None = None
     # Set on the entry that records the reviewer applying a suggestion, which asks nothing.
     applied: bool = False
+    # Set on the entry that records the reviewer rejecting the agent's suggestion or its
+    # draft for Overleaf. Its text holds what was rejected, and it asks nothing.
+    rejected: bool = False
 
     @property
     def asks_agent(self) -> bool:
         """Whether it waits for the agent: the reviewer's word, or a message from Overleaf,
         but not a reply the reviewer sent to Overleaf, which is for the people there, nor
-        the record of a suggestion applied."""
-        return self.author == "human" and self.overleaf is None and not self.applied
+        the record of a suggestion applied or of a suggestion or a draft rejected."""
+        return self.author == "human" and self.overleaf is None and not self.applied and not self.rejected
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {"id": self.id, "author": self.author, "at": self.at, "text": self.text}
@@ -481,6 +484,8 @@ class ThreadEntry:
             d["name"] = self.name
         if self.applied:
             d["applied"] = True
+        if self.rejected:
+            d["rejected"] = True
         return d
 
     @classmethod
@@ -496,6 +501,7 @@ class ThreadEntry:
             draft_at=str(d["draft_at"]) if "draft_at" in d else None,
             name=str(d["name"]) if "name" in d else None,
             applied="applied" in d,
+            rejected="rejected" in d,
         )
 
 
@@ -601,17 +607,22 @@ class Comment:
         A reply sent from a draft answers what came before the draft, so what the reviewer
         wrote while it waited to be sent still waits. On a thread from Overleaf with no
         draft, the record of a suggestion applied waits too, for the agent to draft the
-        reply the change calls for. *after* leaves only those written after that moment,
-        and with it the record of a suggestion applied is among them on any thread: it asks
-        nothing, and the agent hears once that its wording went into the file."""
+        reply the change calls for. A draft the reviewer rejected has answered what came
+        before it all the same, so that is not asked again. *after* leaves only those
+        written after that moment, and with it the record of a suggestion applied, or of a
+        suggestion or a draft rejected, is among them on any thread: it asks nothing, and
+        the agent hears once what became of what it put up."""
         answered = max((position for position, entry in enumerate(self.thread) if entry.author == "agent"), default=-1)
         # Up to when each reply sent to Overleaf answers: its draft's moment, or its own.
-        sent = max((_moment(entry.draft_at or entry.at) for entry in self.thread if entry.overleaf is not None),
+        # A draft rejected answers up to its moment as one sent does.
+        sent = max((_moment(entry.draft_at or entry.at) for entry in self.thread
+                    if entry.overleaf is not None or entry.rejected and entry.draft_at is not None),
                    default=None)
         drafted = _moment(self.overleaf_draft.at) if self.overleaf_draft is not None else None
         undrafted = on_overleaf and drafted is None
         return [entry for entry in self.thread[answered + 1:]
-                if (entry.asks_agent or entry.applied and (undrafted or after is not None))
+                if (entry.asks_agent or entry.applied and (undrafted or after is not None)
+                    or entry.rejected and after is not None)
                 and (sent is None or _moment(entry.at) > sent)
                 and (drafted is None or _moment(entry.at) >= drafted)
                 and (after is None or _moment(entry.at) > after)]
@@ -1765,6 +1776,62 @@ class CommentStore:
                 return comment
         raise KeyError(f"comment {comment_id!r} not found")
 
+    def reject_suggestion(self, comment_id: str, expected_updated: str) -> Comment:
+        """Take the agent's suggestion off a thread as one the reviewer will not apply. The
+        entry it leaves holds the pieces it proposed, so the thread still says what was
+        turned down once the proposal is gone."""
+        with self._locked():
+            comments = self._all()
+            for position, comment in enumerate(comments):
+                if comment.id != comment_id:
+                    continue
+                if comment.updated != expected_updated:
+                    raise ValueError("stale thread: comment changed since it was read")
+                if comment.suggestion is None:
+                    raise ValueError("the comment carries no suggestion")
+                pieces = "".join(f"\n− {old}\n+ {new}" for old, new in comment.suggestion.changes)
+                now = _now()
+                comment.thread.append(
+                    ThreadEntry(author="human", at=now, text=f"Rejected suggestion.{pieces}", rejected=True))
+                comment.suggestion = None
+                comment.updated = now
+                comments[position] = comment
+                self._save(comments)
+                return comment
+        raise KeyError(f"comment {comment_id!r} not found")
+
+    def reject_draft(self, comment_id: str, expected_updated: str, new_thread: bool) -> Comment:
+        """Take the agent's draft for Overleaf off a thread as one the reviewer will not
+        send. The entry it leaves holds the draft's words and when the draft was put up:
+        the draft answered what came before then. *new_thread* is whether the draft was a
+        thread's first message, on a comment not on Overleaf, which stays one started for
+        Overleaf. A new thread already opened there by a send that stopped halfway is
+        finished by sending, not rejected."""
+        with self._locked():
+            comments = self._all()
+            for position, comment in enumerate(comments):
+                if comment.id != comment_id:
+                    continue
+                if comment.updated != expected_updated:
+                    raise ValueError("stale thread: comment changed since it was read")
+                draft = comment.overleaf_draft
+                if draft is None:
+                    raise ValueError("the comment carries no draft for Overleaf")
+                if draft.thread is not None:
+                    raise ValueError("this thread was begun on Overleaf: send it to finish it there")
+                now = _now()
+                comment.thread.append(ThreadEntry(
+                    author="human", at=now, text=f"Rejected draft for Overleaf.\n{draft.text}",
+                    draft_at=draft.at, rejected=True))
+                comment.overleaf_draft = None
+                if new_thread:
+                    comment.for_overleaf = True
+                comment.updated = now
+                comments[position] = comment
+                self._save(comments)
+                return comment
+        raise KeyError(f"comment {comment_id!r} not found")
+
     def resolve(
         self,
         comment_id: str,
@@ -1804,6 +1871,8 @@ class CommentStore:
                 entry = comment.thread[index]
                 if entry.author != author:
                     raise ValueError(f"thread entry {index} was written by {entry.author}")
+                if entry.applied or entry.rejected:
+                    raise ValueError(f"thread entry {index} records what was done, which is not rewritten: reply instead")
                 if entry.name is not None or entry.overleaf is not None:
                     raise ValueError(f"thread entry {index} is on Overleaf, which keeps it as written there: reply instead")
                 entry.text = text.strip()

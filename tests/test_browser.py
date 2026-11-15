@@ -1930,6 +1930,23 @@ def test_each_comment_tab_opens_on_what_waits_for_the_reviewer(tmp_path: Path) -
         post_json(f"{base}/comments/{asked['id']}/reply", {"text": "And the next one?"})
         show_view(browser, "todo")
         wait_until(lambda: listed() == [asked["id"]])
+        # Reject takes a suggestion off its card and out of to do, the thread saying what
+        # was turned down, and a reply saying why brings the comment back.
+        shared.server.comments.reply(asked["id"], "The next one too.", author="agent")
+        turned = post_suggested(base, shared, {"anchor": anchor(12), "text": "Shorten it."}, "Sentence 10 ", "Line 10 ")
+        show_view(browser, "todo")
+        wait_until(lambda: listed() == [turned["id"]])
+        assert script('return [...document.querySelectorAll("#comments-list .sugg-actions button")].map((b) => b.textContent)') \
+            == ["Reject", "Apply suggestion"]
+        script('document.querySelector("#comments-list .sugg-reject").click()')
+        wait_until(lambda: script('return document.querySelector("#comments-list").textContent') == "Nothing is left to do here.")
+        assert script('return document.querySelector("#comments-tab-count").classList.contains("hidden")')
+        last = shared.server.comments.get(turned["id"]).thread[-1]
+        assert last.rejected and last.text == "Rejected suggestion.\n− Sentence 10 \n+ Line 10 "
+        assert (tmp_path / "paper.tex").read_text(encoding="utf-8").count("Sentence 10 ") == 1
+        post_json(f"{base}/comments/{turned['id']}/reply", {"text": "Keep the word."})
+        show_view(browser, "todo")
+        wait_until(lambda: listed() == [turned["id"]])
         assert script('return document.querySelector("#comment-filter-name").textContent') == "to do"
     finally:
         if browser is not None:
@@ -3015,6 +3032,23 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
             'return [...document.querySelectorAll("[data-comment-id]")].map((c) => c.dataset.commentId);') \
             == [drafted.id, opened_here.id]
         assert "New thread on Overleaf" in browser.execute_script(f"return {card}.textContent")
+        # Reject draft takes the draft, with what was typed over it, off the card. The thread
+        # says what was turned down, in an entry with no Edit, and stays one for Overleaf.
+        edits = f'return {card}.querySelectorAll(".cmt-edit").length'
+        before = browser.execute_script(edits)
+        browser.execute_script(
+            f'const box = {card}.querySelector(".overleaf-reply-input"); box.value = "Typed over.";'
+            'box.dispatchEvent(new Event("input", {bubbles: true}));'
+            f'{card}.querySelector(".overleaf-reject").click();')
+        wait_until(lambda: browser.execute_script(
+            f'return {card} !== null && {card}.querySelector(".overleaf-reject") === null'
+            f' && {card}.textContent.includes("Rejected draft for Overleaf.")'))
+        assert browser.execute_script(
+            f'return [{card}.querySelector(".overleaf-reply-input").value,'
+            f' {card}.textContent.includes("New thread on Overleaf"), {card}.textContent.includes("Feedback and answer.")]') \
+            == ["", True, True]
+        assert browser.execute_script(edits) == before
+        assert kept.get(drafted.id).overleaf_draft is None and kept.get(drafted.id).for_overleaf
         # The other tab has no unanswered view from the moment it is chosen, not from when its
         # comments arrive.
         browser.execute_script('const f = document.querySelector("#comment-filter"); f.value = "unanswered";'

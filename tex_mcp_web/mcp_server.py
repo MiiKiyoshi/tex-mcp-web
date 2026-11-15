@@ -741,7 +741,11 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         to Overleaf, which is for the people there. A suggestion the reviewer applied comes
         once, as an entry marked applied with the lines it changed: your wording is in the
         file, and it asks for no reply, but on a thread from Overleaf with no draft it asks
-        for the reply the change calls for. It reports the moment
+        for the reply the change calls for. A suggestion or an Overleaf draft the reviewer
+        rejected comes once too, as an entry marked rejected that holds what was turned
+        down, and stays in the thread for a later read by id: it asks for no reply, and
+        the same proposal is not put up again unless the reviewer asks. Why, when they say,
+        is in a reply of theirs. It reports the moment
         it read ``from`` and the one it moved to, so a turn that went wrong is taken again
         with since=<from>; to see again what was already answered, ask for the thread by id.
         A thread from Overleaf comes marked on_overleaf, and one the reviewer started for

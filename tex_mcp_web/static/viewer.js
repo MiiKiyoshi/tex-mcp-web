@@ -3185,7 +3185,18 @@ function renderSuggestion(comment) {
   // The proposal names its own file, so it applies whatever the comment points at: a
   // source range, PDF text, or a section.
   let applyButton = null;
+  let rejectButton = null;
   if (changes.length > 0 && comment.status === "open") {
+    // Rejected, the proposal leaves the card and the thread says what was turned down,
+    // which the agent hears once. Why is said in a reply.
+    rejectButton = actionButton("sugg-reject", "Reject", async () => {
+      rejectButton.disabled = true;
+      if (await doMutation(comment.id, "reject-suggestion", { updated: comment.updated })) {
+        await refreshComments();
+        return;
+      }
+      rejectButton.disabled = false;
+    });
     applyButton = actionButton("sugg-apply", "Apply suggestion", async () => {
       applyButton.disabled = true;
       applyButton.textContent = "Applying…";
@@ -3212,7 +3223,7 @@ function renderSuggestion(comment) {
         h("span", { class: "sugg-marker", text: "+" }),
         h("span", { class: "sugg-text", text: change.new })),
     ]),
-    applyButton ? h("div", { class: "sugg-actions" }, applyButton) : null,
+    applyButton ? h("div", { class: "sugg-actions" }, rejectButton, applyButton) : null,
   );
 }
 
@@ -3276,6 +3287,22 @@ function renderOverleafReply(comment) {
       renderComments();
     }
   });
+  // The agent's draft, turned down: it leaves the card with what was typed over it, and
+  // the thread says what it was. Nothing goes to Overleaf, where it never was. A new thread
+  // a send left half opened there is finished by sending.
+  let reject = null;
+  if (draft && !draft.thread && comment.status === "open") {
+    reject = actionButton("overleaf-reject", "Reject draft", async () => {
+      reject.disabled = true;
+      if (await doMutation(comment.id, "reject-draft", { updated: comment.updated })) {
+        state.overleafReplies.delete(comment.id);
+        await refreshComments();
+        return;
+      }
+      reject.disabled = false;
+    });
+    reject.disabled = sending;
+  }
   return h("div", { class: "cmt-overleaf" },
     h("div", { class: "cmt-overleaf-head" }, leafIcon(),
       h("span", { text: draftedThread(comment) ? "New thread on Overleaf"
@@ -3285,7 +3312,7 @@ function renderOverleafReply(comment) {
       ? h("div", { class: "thread-edits" }, ...draft.ranges.map(draftRange))
       : null,
     note,
-    h("div", { class: "cmt-form-actions" }, send));
+    h("div", { class: "cmt-form-actions" }, reject, send));
 }
 
 // The lines a draft describes, where they are now as a comment's are. A range not found has
@@ -3323,6 +3350,7 @@ function renderThreadEntry(entry, commentId, index, onOverleaf) {
       onOverleaf ? overleafMark(entry) : null,
       // Overleaf keeps what it holds as written there, so that is answered, not edited.
       entry.author === "human" && !editing && entry.name === undefined && entry.overleaf === undefined
+        && !entry.applied && !entry.rejected
         ? actionButton("cmt-edit", "Edit", () => startEntryEdit(commentId, index, entry.text))
         : null),
   ];

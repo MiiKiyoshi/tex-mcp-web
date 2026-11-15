@@ -69,7 +69,10 @@ address, so on the shared machine's own browser, open no page another account se
   Overleaf gives its writer, and is answered rather than edited.
 - The box under the thread is the reply on Overleaf, which everyone in the project reads.
   The agent puts its draft there (`write_comments` with `action="overleaf"`), one per
-  thread, and you edit it and send it with **Send to** and the leaf. The send button atop
+  thread, and you edit it and send it with **Send to** and the leaf. **Reject draft** takes
+  the draft off the card, with what you typed over it, and notes in the thread what was
+  turned down. Nothing goes to Overleaf, and your next **Call agent** tells the agent once.
+  Say why in a **Reply**, and the agent drafts again. The send button atop
   the tab sends the reply of every picked thread, one after another, and a refused one
   keeps its words and says why on its card while the rest go. While a reply is on its way,
   and while the sync button brings threads in, the button stays pressed in and dimmed with
@@ -89,7 +92,8 @@ address, so on the shared machine's own browser, open no page another account se
   `action="overleaf"` and an `anchor` instead of an `id`). It waits in the tab as a card
   whose draft is its first message on Overleaf. **Reply** talks the draft over with the
   agent, which redrafts it, and that talk stays here, as on any thread. You edit the draft
-  and send it the same way, alone or with the picked threads, or delete the card. Sent, it
+  and send it the same way, alone or with the picked threads, reject the draft, which
+  leaves the card for another draft, or delete the card. Sent, it
   opens on Overleaf as Overleaf's editor opens a thread: the lines are looked for in
   Overleaf's file, the occurrence nearest the line they are on here, then the message goes,
   then an edit that changes no text puts the thread on them. Lines Overleaf does not have

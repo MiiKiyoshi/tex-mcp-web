@@ -975,7 +975,9 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
   padding: 0.35rem 0.5rem;
   border-top: 1px solid var(--border);
 }
-.cmt-suggestion .sugg-apply {
+.cmt-suggestion .sugg-actions { gap: 0.4rem; }
+.cmt-suggestion .sugg-reject, .cmt-form-actions .overleaf-reject { color: var(--err); }
+.cmt-suggestion .sugg-apply, .cmt-suggestion .sugg-reject {
   padding: 0.25rem 0.5rem;
   border: 1px solid var(--border);
   border-radius: 3px;

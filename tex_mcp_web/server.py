@@ -616,6 +616,7 @@ class TexMcpWebServer:
             r"/comments/{id}/apply-suggestion",
             self._handle_apply_suggestion,
         )
+        app.router.add_post(r"/comments/{id}/reject-{what:suggestion|draft}", self._handle_reject)
         app.router.add_post(r"/comments/{id}/reply", self._handle_reply_comment)
         app.router.add_post("/comments/status", self._handle_set_status)
         app.router.add_post(r"/comments/{id}/resolve", self._handle_resolve_comment)
@@ -2591,6 +2592,28 @@ class TexMcpWebServer:
         # waiting for the watcher keeps the next read from quoting a moved range.
         self.comments.refresh_source_anchors(self.watch_dir)
         updated = self.comments.get(cid) or updated
+        await self.broadcast({"type": "comment_updated", "comment": _comment_to_dict(updated)})
+        return web.json_response(_comment_to_dict(updated))
+
+    async def _handle_reject(self, request: web.Request) -> web.Response:
+        """The reviewer turns down the agent's suggestion or its draft for Overleaf. Nothing
+        goes to Overleaf: the draft was never there."""
+        cid = request.match_info["id"]
+        data, err = await self._read_json(request)
+        if err is not None:
+            return err
+        if not isinstance(data, dict) or not isinstance(data.get("updated"), str) or not data["updated"]:
+            return web.json_response({"error": "updated stamp is required"}, status=400)
+        try:
+            if request.match_info["what"] == "suggestion":
+                updated = self.comments.reject_suggestion(cid, data["updated"])
+            else:
+                brought = {known["comment"] for known in self._overleaf_ledger().values()}
+                updated = self.comments.reject_draft(cid, data["updated"], new_thread=cid not in brought)
+        except KeyError:
+            return web.json_response({"error": f"no comment {cid}"}, status=404)
+        except ValueError as error:
+            return web.json_response({"error": str(error)}, status=409)
         await self.broadcast({"type": "comment_updated", "comment": _comment_to_dict(updated)})
         return web.json_response(_comment_to_dict(updated))
 
