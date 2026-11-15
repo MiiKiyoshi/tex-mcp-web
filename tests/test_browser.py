@@ -1996,6 +1996,22 @@ def test_each_comment_tab_opens_on_what_waits_for_the_reviewer(tmp_path: Path) -
         wait_until(lambda: listed() == [turned["id"]])
         assert script('return [document.querySelector("#comment-search").value,'
                       ' document.querySelector("#comment-filter").value]') == ["", "todo"]
+        # D deletes the last thing the reviewer wrote in the ringed thread, once they say yes:
+        # the reply, and not the thread, which dd deletes. Declined, nothing goes.
+        said = lambda: [entry.text for entry in shared.server.comments.get(turned["id"]).thread]
+        assert said()[-1] == "Keep the word."
+        script(f'document.querySelector(\'[data-comment-id="{turned["id"]}"] .cmt-head\')'
+               '.dispatchEvent(new MouseEvent("mousedown", {bubbles: true}))')
+        script('document.querySelector("#comments-list").focus()')
+        for accept in (False, True):
+            type_keys(browser, ["D"])
+            asked_first = wait_until(lambda: browser.switch_to_alert())
+            assert asked_first.text == "Delete this message?"
+            asked_first.accept() if accept else asked_first.dismiss()
+            if not accept:
+                assert said()[-1] == "Keep the word."
+        wait_until(lambda: said()[-1].startswith("Rejected suggestion."))
+        assert shared.server.comments.get(turned["id"]) is not None
         assert script('return document.querySelector("#comment-filter-name").textContent') == "to do"
     finally:
         if browser is not None:
@@ -2364,7 +2380,7 @@ def test_the_comment_list_goes_by_keys(tmp_path: Path) -> None:
         letters = ('return [document.querySelector("#comments-list").classList.contains("show-keys"),'
                    ' [...document.querySelectorAll("#comments-list [data-key]")].map((node) => node.dataset.key)]')
         shown, marked = browser.execute_script(letters)
-        assert shown is True and sorted(marked) == sorted(["x", "e", "aa", "r", "R", "A", "dd"])
+        assert shown is True and sorted(marked) == sorted(["x", "e", "D", "aa", "r", "R", "A", "dd"])
         ActionSequence(browser, "pointer", "mouse", {"pointerType": "mouse"}) \
             .pointer_move(300, 300).pointer_move(340, 340).perform()
         assert browser.execute_script(letters)[0] is False

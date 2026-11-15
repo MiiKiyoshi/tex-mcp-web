@@ -4461,6 +4461,8 @@ const COMMENT_KEYS = [
       range: () => pressForRange(["#send-picked-btn"]) },
     { keys: ["dd"], does: "Delete it, once you say yes, or reject a suggested edit on Overleaf",
       button: ["cmt-delete", "change-reject"], run: () => pressCard(".cmt-delete, .change-reject") },
+    { keys: ["D"], does: "Delete the last thing you wrote in it, here or on Overleaf, once you say yes",
+      marks: ".entry-delete", run: () => pressCard(".entry-delete") },
   ]],
   ["Pick and range", [
     { keys: ["x"], does: "Pick it, or let it go, and with a range held the whole range", marks: ".cmt-head",

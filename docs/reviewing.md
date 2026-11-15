@@ -103,6 +103,7 @@ typing.
 | `aa` | Apply the suggestion to the file, or accept a suggested edit on Overleaf |
 | `ss` | Send the reply to Overleaf, for everyone in the project |
 | `dd` | Delete, once you say yes, or reject a suggested edit on Overleaf |
+| `D` | Delete the last thing you wrote in the thread, here or on Overleaf, once you say yes |
 | `x` | Pick the comment, or let it go |
 | `*` | Pick every comment, or let them all go |
 | `v` | Hold a range, which the moving keys stretch. `R`, `A`, `ss` and `x` then act on the whole range, and Escape or `v` lets it go |
