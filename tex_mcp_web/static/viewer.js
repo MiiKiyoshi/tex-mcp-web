@@ -2591,7 +2591,15 @@ async function submitCompose(event) {
   }
 }
 
-async function refreshComments() {
+// The list read again. A reading overtaken by a later one ends when that one does, so
+// whoever waits for it finds the list as the latest reading left it.
+function refreshComments() {
+  const reading = readComments();
+  state.commentsReading = reading;
+  return reading;
+}
+
+async function readComments() {
   // A list asked for again while one is on its way, as when the view changes, is the one that
   // stands: an answer that comes back after a later one is dropped.
   const asked = ++state.commentsAsked;
@@ -2605,7 +2613,7 @@ async function refreshComments() {
   const data = await response.json();
   // Which threads came from Overleaf, and so can be answered there.
   const linked = overleaf.ok ? await overleaf.json() : {};
-  if (asked !== state.commentsAsked) return;
+  if (asked !== state.commentsAsked) return state.commentsReading;
   state.overleafImported = new Set(linked.imported ?? []);
   state.overleafUnplaced = linked.unplaced ?? {};
   state.overleafSignedIn = Boolean(linked.cookie);
