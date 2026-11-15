@@ -11,13 +11,14 @@ Write a LaTeX paper in the session that did the work, and review it from its ren
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/from-work-dark.webp">
-  <img alt="In a project folder a coding agent analyses logs and prints a table, writes what it found up as LaTeX in a folder of the paper's own, and sets the review up with do tex init. On the review page three sentences of the PDF each take a comment, and one Call agent sends them. The agent answers all three from the logs with wordings to apply. Applied and resolved by keys, and the paper compiled, the PDF shows the three sentences with their numbers." src="docs/images/from-work.webp">
+  <img alt="In a project folder a coding agent analyses logs and prints a table, writes what it found up as LaTeX in a folder of the paper's own, and at do tex init shows the settings it proposes and asks whether others can log in to the machine. Told it is a shared server, it turns the page token on. On the review page three sentences of the PDF each take a comment, and one Call agent sends them. The agent answers all three from the logs with wordings to apply. Applied and resolved by keys, and the paper compiled, the PDF shows the three sentences with their numbers." src="docs/images/from-work.webp">
 </picture>
 
 The agent that ran your analysis, wrote your code or worked through your data already holds
 what the paper has to say. Have it write the paper in a folder you name, and say
-`do tex init`: from where it is working, the agent sets the review page up for that folder
-and compiles. Nothing is carried over to another tool by hand. Comment on as
+`do tex init`: from where it is working, the agent shows the settings it proposes, the port
+and whether the page opens only from your link among them, and sets the review page up for
+that folder once you agree. Nothing is carried over to another tool by hand. Comment on as
 many places as you like, then press **Call agent** once: the agent takes them all in one
 turn and answers each from the work it did.
 
