@@ -30,6 +30,22 @@ it fits the pane, and filling the pane's width once it is wider. Over the middle
 zoom centres on the pointer. A mouse-wheel notch zooms by a quarter. Two fingers on a touch
 screen zoom and move the page as they go, the point between them staying between them.
 
+## Problems
+
+The **Problems** tab lists what the last build said, errors first and then warnings, and
+under them where the paper stands against a page limit. **BODY END** is the last line before
+the bibliography: its page and column, and how many more lines fit under it in that column,
+once the paper has full columns to measure by. Each **SHORT LINE** is a paragraph whose last line is narrower than
+a quarter of its column, with the words on it: a slightly shorter paragraph pulls such a
+line up and gives the line back. A click on either opens its source line, which for a
+paragraph is the line where it ends. The number on the tab counts the errors, the warnings
+and the short lines. The agent's `compile()` reports the same two things, so you and the
+agent look at one list.
+
+The bibliography is known by its `.bbl` file, through SyncTeX, at the paper's end. A paper
+that sets its references otherwise, or puts an appendix after them, has its body end at the
+last line of the PDF. Running heads and page numbers are left out.
+
 ## Threads
 
 - The Comments tab opens on **to do**: the comments the agent has yet to answer, one you

@@ -964,6 +964,15 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         Call once after a batch of source edits. ``pages_changed``
         compares extracted PDF text and excludes visual-only changes. Read the log
         yourself for warnings and for an error's surroundings.
+
+        A build that succeeded also says where the paper stands against a page limit, as
+        the page's Problems tab does. ``body_end`` is the last line before the
+        bibliography: its page, its column of how many, the room under it to the end of
+        the text block in points and in lines, once the paper has full columns to measure
+        by, and its source. ``short_lines`` are the paragraphs whose last line is narrower than a
+        quarter of its column, each with its page, column, words, width and source: a
+        shorter paragraph pulls such a line up. A source is the line SyncTeX gives, which
+        for a paragraph is where it ends.
         """
         import httpx
 
@@ -991,6 +1000,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             "warnings": len(result["warnings"]),
             "log": str(get_main_file(cfg).with_suffix(".log")),
         }
+        report.update(result.get("layout") or {})
         if not result["success"]:
             report["errors"] = [
                 {"at": f"{error['file']}:{error['line']}" if error["line"] else error["file"],

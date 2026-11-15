@@ -31,6 +31,8 @@ const state = {
   composeSubmitting: false,
   errors: [],
   warnings: [],
+  // Where the body ends and the paragraphs ending in a short line, as the last build left them.
+  layout: {},
   expanded: new Set(),
   picked: new Set(),
   // The box a pick last started from, so shift can run from it to the next one.
@@ -3777,10 +3779,15 @@ function syncCommentAnnotations() {
   scheduleCommentBadges();
 }
 
+// The Problems tab: what the build said, then where the paper stands against a page limit,
+// which the agent's compile() reports in the same words. A line that names its source opens
+// it there.
 function renderErrorBanner() {
   const banner = $("#error-banner");
   clear(banner);
-  if (state.errors.length === 0 && state.warnings.length === 0) {
+  const layout = state.layout ?? {};
+  const short = layout.short_lines ?? [];
+  if (state.errors.length === 0 && state.warnings.length === 0 && !layout.body_end && short.length === 0) {
     banner.appendChild(placeholder("No errors or warnings."));
     return;
   }
@@ -3797,6 +3804,37 @@ function renderErrorBanner() {
     ];
     if (item.context?.length) children.push(h("pre", { class: "err-context", text: item.context.join("\n") }));
     banner.appendChild(h("div", { class: `err-item err-${item.level}` }, ...children));
+  }
+  const place = (at) => `page ${at.page}, column ${at.column}`;
+  const item = (level, word, at, message) => {
+    const node = h("div", { class: `err-item err-${level}${at.source ? " err-goes" : ""}` },
+      h("div", { class: "err-loc" },
+        h("span", { class: `err-level err-level-${level}`, text: word }),
+        h("span", { text: at.source ?? "" })),
+      h("div", { class: "err-msg", text: message }));
+    if (at.source) {
+      const [, file, line] = /^(.*):(\d+)$/.exec(at.source);
+      node.addEventListener("click", async () => {
+        if (state.view === "pdf") await setWorkspaceView("split");
+        await openSource(file, Number(line));
+      });
+      node.title = "Show in the source";
+    }
+    banner.appendChild(node);
+  };
+  if (layout.body_end) {
+    const end = layout.body_end;
+    const lines = (count) => `${count} line${count === 1 ? "" : "s"}`;
+    item("info", "BODY END", end,
+      `The body ends on ${place(end)}${end.room_lines === undefined ? "."
+        : `, with room for ${lines(end.room_lines)} under it.`}`);
+  }
+  for (const line of short) {
+    item("warning", "SHORT LINE", line,
+      `A paragraph on ${place(line)} ends in a line ${line.width} of the column wide: “${line.text}”`);
+  }
+  if (layout.more_short_lines) {
+    banner.appendChild(placeholder(`${layout.more_short_lines} more short lines.`));
   }
 }
 
@@ -3910,12 +3948,14 @@ function switchTab(name) {
 function applyCompileResult(result) {
   state.errors = result.errors;
   state.warnings = result.warnings;
+  state.layout = result.layout ?? {};
   const duration = typeof result.duration_seconds === "number"
     ? ` · ${result.duration_seconds.toFixed(1)}s`
     : "";
   $("#compile-status").textContent = (result.success ? "✓ ok" : "✗ failed") + duration;
   const badge = $("#compile-tab-count");
-  const total = state.errors.length + state.warnings.length;
+  const total = state.errors.length + state.warnings.length + (state.layout.short_lines?.length ?? 0)
+    + (state.layout.more_short_lines ?? 0);
   badge.textContent = String(total);
   badge.classList.toggle("hidden", total === 0);
   badge.classList.toggle("has-errors", state.errors.length > 0);

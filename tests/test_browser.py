@@ -920,6 +920,27 @@ def test_source_beside_comment_opens_the_selected_words_in_the_editor(tmp_path: 
                 .some((button) => button.textContent.trim() === "{label}" && button.getBoundingClientRect().width > 0);
             ''')
 
+        # The build says where the body ends, and the Problems tab shows it as the agent's
+        # compile() reports it: the page, the column, the line and the room under it.
+        end = get_json(f"{base}/paper")["last_compile"]["layout"]["body_end"]
+        assert (end["page"], end["column"], end["columns"], end["source"]) == (1, 1, 1, "paper.tex:5")
+        assert browser.execute_script(
+            'return document.querySelector(\'.tab-btn[data-tab="compile"] .tab-label\').textContent') == "Problems"
+        shown = wait_until(lambda: browser.execute_script(
+            'const item = document.querySelector("#error-banner .err-item.err-info");'
+            ' return item ? [item.querySelector(".err-level").textContent, item.querySelector(".err-loc").textContent,'
+            ' item.querySelector(".err-msg").textContent] : false'))
+        assert shown[0] == "BODY END" and shown[1].endswith("paper.tex:5")
+        # A paper of one short column has no full column to measure the room by.
+        assert shown[2] == "The body ends on page 1, column 1." and "room_lines" not in end
+        # The paragraph's last line is under a quarter of the column: a short line, which
+        # the tab counts, and a click on it opens its source line.
+        (short,) = get_json(f"{base}/paper")["last_compile"]["layout"]["short_lines"]
+        assert (short["text"], short["source"]) == ("A last line follows.", "paper.tex:5")
+        assert browser.execute_script('return document.querySelector("#compile-tab-count").textContent') == "1"
+        assert browser.execute_script(
+            'return document.querySelector("#error-banner .err-item.err-warning .err-msg").textContent') \
+            == f"A paragraph on page 1, column 1 ends in a line {short['width']} of the column wide: “A last line follows.”"
         # Pressed in the Preview alone, Source turns the view to Split and selects the words.
         select_words()
         wait_until(lambda: menu_button("Source"))

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
 import os
 import shlex
 from pathlib import Path
@@ -1214,6 +1215,28 @@ def bound_project(project: Path, monkeypatch):
 
 
 _TINY_PAPER = "\\documentclass{article}\n\\begin{document}x\\end{document}\n"
+
+
+@pytest.mark.skipif(shutil.which("latexmk") is None or shutil.which("synctex") is None,
+                    reason="latexmk and synctex are required")
+@pytest.mark.asyncio
+async def test_compile_tells_the_agent_where_the_body_ends(bound_project, project) -> None:
+    """compile() carries where the body ends and the paragraphs ending in a short line, as
+    the page's Problems tab shows them, with the source line of each."""
+    pytest.importorskip("mcp")
+    from tex_mcp_web.mcp_server import create_server
+
+    (project / "paper.tex").write_text(
+        "\\documentclass{article}\n\\begin{document}\n"
+        + "The keeper wrote the height of every tide in the ledger by the lamp. " * 3 + "\\linebreak Tides\n\n"
+        "The last body sentence closes the paper.\n"
+        "\\end{document}\n", encoding="utf-8")
+    mcp = create_server(bound_project)
+    told = json.loads((await mcp.call_tool("compile", {}))[0].text)
+    assert told["success"] is True
+    assert told["body_end"] == {"page": 1, "column": 1, "columns": 1, "source": "paper.tex:5"}
+    (short,) = told["short_lines"]
+    assert (short["page"], short["column"], short["text"], short["source"]) == (1, 1, "Tides", "paper.tex:4")
 
 
 def test_tools_keep_the_bound_project_when_a_closer_config_appears(tmp_path, monkeypatch):

@@ -130,6 +130,7 @@ def _result_to_dict(r: CompileResult | None) -> dict[str, Any] | None:
         "timestamp": r.timestamp.isoformat() if r.timestamp else None,
         "duration_seconds": r.duration_seconds,
         "pages_changed": r.pages_changed,
+        "layout": r.layout,
     }
 
 
@@ -714,6 +715,13 @@ class TexMcpWebServer:
                     self._prev_page_hashes, new_hashes
                 )
                 self._prev_page_hashes = new_hashes
+                if self.main_file.suffix.lower() == ".tex":
+                    from . import layout
+                    try:
+                        self.last_result.layout = await asyncio.to_thread(
+                            layout.check, self.last_result.output_file, self.watch_dir)
+                    except Exception:  # a PDF this cannot read still compiled
+                        logger.exception("Layout check failed")
 
             self.last_result.pages_changed = changed_pages
             logger.info(

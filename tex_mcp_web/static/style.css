@@ -1099,6 +1099,9 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .err-level-error { background: var(--err); }
 .err-level-warning { background: var(--warn); }
+.err-level-info { background: var(--fg-dim); }
+.err-item.err-goes { cursor: pointer; }
+.err-item.err-goes:hover { background: var(--accent-soft); }
 .err-loc {
   font-family: var(--mono);
   font-size: 0.78rem;
