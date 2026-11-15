@@ -1947,6 +1947,34 @@ def test_each_comment_tab_opens_on_what_waits_for_the_reviewer(tmp_path: Path) -
         post_json(f"{base}/comments/{turned['id']}/reply", {"text": "Keep the word."})
         show_view(browser, "todo")
         wait_until(lambda: listed() == [turned["id"]])
+        # / opens the search, which lists the tab's comments holding every word typed, in
+        # any letter case, whatever their status and whatever view was shown: in a reply,
+        # in what a rejected suggestion proposed, in a resolved comment.
+        post_json(f"{base}/comments/{asked['id']}/resolve", {"summary": ""})
+        script('document.querySelector("#comments-list").focus()')
+        type_keys(browser, ["/", *"NEXT one"])
+        assert script('return document.activeElement.id') == "comment-search"
+        wait_until(lambda: listed() == [asked["id"]])
+        script('const box = document.querySelector("#comment-search"); box.value = "line 10 keep";'
+               ' box.dispatchEvent(new Event("input"))')
+        wait_until(lambda: listed() == [turned["id"]])
+        script('const box = document.querySelector("#comment-search"); box.value = "nowhere";'
+               ' box.dispatchEvent(new Event("input"))')
+        wait_until(lambda: script('return document.querySelector("#comments-list").textContent')
+                   == "No comment here holds these words.")
+        script('const box = document.querySelector("#comment-search"); box.value = "sentence";'
+               ' box.dispatchEvent(new Event("input"))')
+        # The words a comment is on are searched too, as the file has them now.
+        wait_until(lambda: sorted(listed()) == sorted([asked["id"], turned["id"]]))
+        # Enter gives the keys to the comments found, and Escape in the box puts the search
+        # away, the list showing its view again.
+        type_keys(browser, ["\ue007"])
+        assert script('return document.activeElement.id') == "comments-list"
+        assert len(listed()) == 2 and script('return document.querySelector("#comment-search").value') == "sentence"
+        type_keys(browser, ["/", "\ue00c"])
+        wait_until(lambda: listed() == [turned["id"]])
+        assert script('return [document.querySelector("#comment-search").value,'
+                      ' document.querySelector("#comment-filter").value]') == ["", "todo"]
         assert script('return document.querySelector("#comment-filter-name").textContent') == "to do"
     finally:
         if browser is not None:

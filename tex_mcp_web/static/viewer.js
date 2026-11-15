@@ -71,6 +71,8 @@ const state = {
   rangeFrom: null,
   // Whether a press in the editor is held down, which moves the cursor with the text in place.
   editorPointing: false,
+  // The words typed in the comment search, which lists the tab's comments holding them all.
+  commentSearch: "",
   // How many things are not done yet in each comment tab, as the to do view lists them.
   todoCounts: {},
   // The open comments of the tab shown, whatever its view lists: the PDF and the editor mark these.
@@ -2591,7 +2593,9 @@ async function refreshComments() {
   // A list asked for again while one is on its way, as when the view changes, is the one that
   // stands: an answer that comes back after a later one is dropped.
   const asked = ++state.commentsAsked;
-  const status = $("#comment-filter").value;
+  // A search looks through every comment of the tab, whatever view the list atop names.
+  const words = searchWords();
+  const status = words.length > 0 ? "all" : $("#comment-filter").value;
   const url = status === "all" ? "/comments"
     : `/comments?status=${["todo", "unanswered", "answered", "new", "changes"].includes(status) ? "open" : status}`;
   const [response, overleaf] = await Promise.all([fetch(url), fetch("/overleaf")]);
@@ -2627,6 +2631,7 @@ async function refreshComments() {
     : status === "new" ? [...onOverleaf.filter(draftedThread), ...onOverleaf.filter(openedHere)]
     : status === "changes" ? state.overleafSuggested.map(suggestedItem)
     : onOverleaf;
+  if (words.length > 0) data.comments = data.comments.filter((comment) => holdsWords(comment, words));
   renderOverleafThreadSync();
   // The open view, and the unanswered and answered ones, keep the server's order: the
   // comments written here in the order they were written, and Overleaf's threads in the
@@ -2775,7 +2780,8 @@ function renderComments() {
   clear(list);
   if (state.comments.length === 0) {
     const view = $("#comment-filter").value;
-    list.appendChild(placeholder(view === "todo" ? "Nothing is left to do here."
+    list.appendChild(placeholder(searchWords().length > 0 ? "No comment here holds these words."
+      : view === "todo" ? "Nothing is left to do here."
       : view === "changes" && state.commentTab === "overleaf-comments" ? "No suggested edits on Overleaf."
       : "No comments at this filter."));
   } else {
@@ -3828,6 +3834,59 @@ function renderSections() {
   host.appendChild(list);
 }
 
+// The words a search is for: each must be somewhere in a comment, in any letter case.
+function searchWords() {
+  return state.commentSearch.toLowerCase().split(/\s+/).filter(Boolean);
+}
+
+// Whether a comment holds every word: in what was said in it and by whom, in the words it is
+// on, in its file, its id, its suggestion or its draft for Overleaf.
+function holdsWords(comment, words) {
+  const held = [
+    comment.id, comment.anchor?.quote, comment.anchor?.file, comment.anchor?.title, comment.resolved_source?.file,
+    comment.source_selector?.exact, comment.overleaf_draft?.text,
+    ...comment.thread.flatMap((entry) => [entry.text, entry.name]),
+    ...(comment.suggestion?.changes ?? []).flatMap((change) => [change.old, change.new]),
+  ].filter(Boolean).join("\n").toLowerCase();
+  return words.every((word) => held.includes(word));
+}
+
+function openCommentSearch() {
+  const box = $("#comment-search");
+  box.focus();
+  box.select();
+}
+
+// The search put away: the list shows its view again. Whether there was one.
+function closeCommentSearch() {
+  const searched = state.commentSearch !== "";
+  $("#comment-search").value = "";
+  state.commentSearch = "";
+  return searched;
+}
+
+function attachCommentSearch() {
+  const box = $("#comment-search");
+  let timer = null;
+  const list = () => refreshComments().catch((error) => console.error(error));
+  box.addEventListener("input", () => {
+    state.commentSearch = box.value;
+    clearTimeout(timer);
+    timer = setTimeout(list, 150);
+  });
+  // Enter goes to the comments found, for the keys to go on, and Escape puts the search away.
+  box.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" && event.key !== "Enter") return;
+    event.preventDefault();
+    event.stopPropagation();
+    clearTimeout(timer);
+    if (event.key === "Escape") closeCommentSearch();
+    else state.commentSearch = box.value;
+    list();
+    $("#comments-list").focus({ preventScroll: true });
+  });
+}
+
 // The two comment tabs share one pane, which shows the chosen tab's comments.
 function setCommentFilter(value) {
   const filter = $("#comment-filter");
@@ -4265,6 +4324,7 @@ async function jumpToComment(commentId) {
 // the view shown leaves it out, as the to do view leaves out what the agent answered.
 async function revealComment(comment) {
   if (!state.comments.some((item) => item.id === comment.id)) {
+    closeCommentSearch();
     setCommentFilter("open");
     await refreshComments();
   }
@@ -4360,6 +4420,8 @@ const COMMENT_KEYS = [
     { keys: ["*"], does: "Pick every comment, or let them all go", run: () => $("#pick-all-btn").click() },
   ]],
   ["View", [
+    { keys: ["/"], does: "Search the tab's comments, whatever their status. Enter goes to those found, Escape puts the search away",
+      run: () => openCommentSearch() },
     { keys: ["f"], does: "Next view in the list atop the tab: to do, open, …", run: () => cycleStatus(1) },
     { keys: ["F"], does: "Previous view", run: () => cycleStatus(-1) },
     { keys: ["t"], does: "Next tab", scope: "sidebar", run: () => cycleTab(1) },
@@ -5388,7 +5450,10 @@ async function init() {
   renderCommentFilter();
   // A view chosen in the list, and a comment tab chosen, give the comment keys back to the
   // comments: the list would keep them, and Safari focuses no button it clicks.
+  attachCommentSearch();
   $("#comment-filter").addEventListener("change", () => {
+    // A view chosen puts the search away: the list shows that view.
+    closeCommentSearch();
     setCommentFilter($("#comment-filter").value);
     if ($("#comment-filter").value === "changes") readSuggestedEdits();
     $("#comments-list").focus({ preventScroll: true });

@@ -38,6 +38,11 @@ screen zoom and move the page as they go, the point between them staying between
   tab counts them. **open** lists every open comment, and one opened from its mark in the
   PDF or the editor shows there when to do leaves it out. The PDF and the editor mark every
   open comment of the tab, whatever the list shows.
+- The search box above the comments, which `/` goes to, lists the tab's comments that hold
+  every word typed, in any letter case and whatever their status: in a comment or a reply,
+  the words it is on, its file, its suggestion or its draft for Overleaf. Enter gives the
+  keys to the comments found, and Escape in the box, or choosing a view, puts the search
+  away.
 - **Resolve** a thread whose edit satisfies you, or **Reply** in it when it does not.
   **Archive** sets a thread aside, and it still takes replies.
 - A proposed edit shows as the source lines the agent would change, as a −/+ pair, and the
@@ -83,6 +88,7 @@ typing.
 | `x` | Pick the comment, or let it go |
 | `*` | Pick every comment, or let them all go |
 | `v` | Hold a range, which the moving keys stretch. `R`, `A`, `ss` and `x` then act on the whole range, and Escape or `v` lets it go |
+| `/` | Search the tab's comments, whatever their status |
 | `f` `F` | Next and previous view in the list atop the tab: to do, open, … |
 | `t` `T` | Next and previous tab |
 | `?` | These keys |
