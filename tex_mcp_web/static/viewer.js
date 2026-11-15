@@ -73,8 +73,10 @@ const state = {
   rangeFrom: null,
   // Whether a press in the editor is held down, which moves the cursor with the text in place.
   editorPointing: false,
-  // The words typed in the comment search, which lists the tab's comments holding them all.
+  // The words typed in the comment search, which lists the tab's comments holding them all,
+  // and how many it found beyond those drawn.
   commentSearch: "",
+  searchMore: 0,
   // How many things are not done yet in each comment tab, as the to do view lists them.
   todoCounts: {},
   // The open comments of the tab shown, whatever its view lists: the PDF and the editor mark these.
@@ -2661,6 +2663,13 @@ async function readComments() {
   state.comments = ["todo", "open", "unanswered", "answered", "new", "changes"].includes(status) ? data.comments
     : [...data.comments].sort((first, second) => (moment(first) < moment(second) ? 1
       : moment(first) > moment(second) ? -1 : 0));
+  // A search for a word most comments hold finds hundreds, which take a second to draw at
+  // every key: the first ones show, with how many more there are.
+  state.searchMore = 0;
+  if (words.length > 0 && state.comments.length > SEARCH_SHOWN) {
+    state.searchMore = state.comments.length - SEARCH_SHOWN;
+    state.comments = state.comments.slice(0, SEARCH_SHOWN);
+  }
   // A focused comment that leaves the view, as one resolved in the open view does, hands the
   // focus to the comment now in its place, so the keys go on from there.
   const view = `${state.commentTab} ${status}`;
@@ -2797,6 +2806,9 @@ function renderComments() {
   } else {
     for (const comment of state.comments) {
       list.appendChild(comment.suggested ? renderSuggestedEdit(comment) : renderCommentItem(comment));
+    }
+    if (state.searchMore > 0) {
+      list.appendChild(placeholder(`${state.searchMore} more hold these words. Type more to find fewer.`));
     }
   }
   list.scrollTop = scrollTop;
@@ -3881,6 +3893,9 @@ function renderSections() {
   }
   host.appendChild(list);
 }
+
+// How many of the comments a search finds are drawn.
+const SEARCH_SHOWN = 100;
 
 // The words a search is for: each must be somewhere in a comment, in any letter case.
 function searchWords() {

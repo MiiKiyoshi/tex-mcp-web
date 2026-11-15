@@ -1553,9 +1553,20 @@ async def test_a_search_finds_threads_by_what_was_said_in_them_and_when(bound_pr
     overleaf_module.ledger_path(project).write_text(json.dumps({"t1": {"comment": old.id, "entries": {}}}))
     there = (await call("read_comments", find="table", status="all", on_overleaf=True))["comments"]
     here = (await call("read_comments", find="table", status="all", on_overleaf=False))["comments"]
-    assert [h["id"] for h in there] == [old.id] and [h["id"] for h in here] == [other.id]
+    # The other thread holds a draft for Overleaf, which puts it on Overleaf's side, as the
+    # page's leaf tab lists it. The busy thread is the page's own.
+    assert [h["id"] for h in there] == [old.id, other.id] and here == []
+    assert [h["id"] for h in (await call("read_comments", find="needle", on_overleaf=False))["comments"]] == [busy.id]
     assert [c["id"] for c in (await call("read_comments", on_overleaf=True))["comments"]] == [old.id]
     assert old.id not in [c["id"] for c in (await call("read_comments", on_overleaf=False))["comments"]]
+    # A thread the agent drafted for Overleaf, not yet sent, is on Overleaf's side too.
+    from tex_mcp_web.comments import SourceRangeAnchor
+    drafted = store.add_overleaf_thread(SourceRangeAnchor(file="paper.tex", line_start=5, line_end=5),
+                                        OverleafDraft("A table of units, perhaps?"), ResolvedSource("paper.tex", 5, 5),
+                                        None, {})
+    assert drafted.id in [h["id"] for h in (await call("read_comments", find="table", on_overleaf=True))["comments"]]
+    assert drafted.id not in [h["id"] for h in (await call("read_comments", find="table", on_overleaf=False))["comments"]]
+    store.delete(drafted.id)
     overleaf_module.ledger_path(project).unlink()
     store.delete(busy.id)
     # A window alone, entry by entry: what came between two times, the old thread by its new reply.

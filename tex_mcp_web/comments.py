@@ -1279,6 +1279,8 @@ class CommentStore:
         self.path = path
         # The file as last parsed, with what named it then: see _read.
         self._parsed: tuple[tuple[int, int, int], dict[str, Any]] | None = None
+        # Set while this store holds the lock to change the file.
+        self._changing = False
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock_path = self.path.with_name(self.path.name + ".lock")
         if not self.path.exists():
@@ -1354,9 +1356,11 @@ class CommentStore:
         # without truncating each other.
         with open(self._lock_path, "a") as lock_fd:
             fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX)
+            self._changing = True
             try:
                 yield
             finally:
+                self._changing = False
                 fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
 
     def _read(self) -> dict[str, Any]:
@@ -1366,7 +1370,9 @@ class CommentStore:
         inode, size and time tell. What this returns is shared, and is read, not changed."""
         stat = self.path.stat()
         named = (stat.st_ino, stat.st_size, stat.st_mtime_ns)
-        if self._parsed is not None and self._parsed[0] == named:
+        # A change is made to the file as it is, read under the lock: were a new file ever
+        # named as the last one was, a change built on the old one would undo a writer's.
+        if self._parsed is not None and self._parsed[0] == named and not self._changing:
             return self._parsed[1]
         data = json.loads(self.path.read_text(encoding="utf-8"))
         if data["version"] != STORE_VERSION:

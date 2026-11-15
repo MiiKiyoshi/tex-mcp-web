@@ -364,6 +364,13 @@ def test_the_store_parses_its_file_only_when_it_has_changed(tmp_path: Path, monk
     assert len(parsed) == seen
     store.resolve(ids[2], "", author="human")
     assert [c.id for c in other.list(status="resolved")] == [ids[2]]
+    # A change is built on the file as it is, read afresh under the lock, never on what
+    # was parsed before: two stores writing in turn lose nothing of each other's.
+    before = len(parsed)
+    for n in range(6):
+        (store if n % 2 else other).reply(ids[3], f"Turn {n}.", author="human")
+    assert [entry.text for entry in store.get(ids[3]).thread] == ["Note 3."] + [f"Turn {n}." for n in range(6)]
+    assert len(parsed) >= before + 6
 
 
 @pytest.fixture

@@ -865,8 +865,9 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
 
         def wanted(comment) -> bool:
             """Whether the comment is on the side asked for: Overleaf's threads and those
-            started for it, or the page's own."""
-            return on_overleaf is None or on_overleaf == (comment.id in brought or comment.for_overleaf)
+            started or drafted for it, as the page's leaf tab lists them, or the page's own."""
+            there = comment.id in brought or comment.for_overleaf or comment.overleaf_draft is not None
+            return on_overleaf is None or on_overleaf == there
 
         if find is not None or until is not None:
             words = (find or "").casefold()
