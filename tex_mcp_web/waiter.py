@@ -78,8 +78,9 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit("usage: python -m tex_mcp_web.waiter <port> <listener> [--codex <thread>]")
     try:
         wait(int(args[0]), args[1], args[3] if len(args) == 4 else None)
-    except (BrokenPipeError, KeyboardInterrupt):
-        # No one reads the lines any more: a press not printed is not acknowledged.
+    except (OSError, KeyboardInterrupt):
+        # No one reads the lines any more, which Windows reports as an invalid argument and
+        # others as a broken pipe: a press not printed is not acknowledged.
         os._exit(0)
 
 

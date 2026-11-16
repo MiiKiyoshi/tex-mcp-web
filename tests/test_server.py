@@ -2801,6 +2801,8 @@ async def test_listen(bound_project, project, monkeypatch, codex):
             assert (await response.json()) == {"calls": 1, "delivered": False}
 
     args = []
+    if codex and os.name == "nt":
+        pytest.skip("the stand-in for codex is a shell script, which Windows does not run as a program")
     if codex:
         stub = project / "codex"
         stub.write_text("#!/bin/sh\n"
