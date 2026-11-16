@@ -136,6 +136,8 @@ def test_a_centered_caption_and_a_list_item_end_short_and_an_equation_and_a_refe
     assert [(line["text"], line["source"]) for line in short] == [("lamp.", "paper.tex:3"), ("Item.", "paper.tex:7")]
 
 
+@pytest.mark.skipif(shutil.which("latexmk") is None or shutil.which("synctex") is None,
+                    reason="latexmk and synctex are required")
 def test_the_words_inside_an_included_picture_are_not_a_short_line(tmp_path: Path) -> None:
     """A picture's labels can sit one under the other in the middle of the column, as a
     centered caption's lines do, and are not the paper's to shorten."""
@@ -157,6 +159,8 @@ def test_the_words_inside_an_included_picture_are_not_a_short_line(tmp_path: Pat
     assert "short_lines" not in layout.check(tmp_path / "paper.pdf", tmp_path)
 
 
+@pytest.mark.skipif(shutil.which("latexmk") is None or shutil.which("synctex") is None,
+                    reason="latexmk and synctex are required")
 def test_a_short_line_names_the_source_line_that_holds_its_words(tmp_path: Path) -> None:
     """SyncTeX places a paragraph's last line at the line that ends the paragraph, the blank
     line or the \\end after it. The line named is the one before it that holds the words."""

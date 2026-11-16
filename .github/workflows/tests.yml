@@ -27,3 +27,21 @@ jobs:
         run: |
           firefox --version
           python -m pytest -o addopts="" -q
+
+  # The page's users are on Windows and macOS too. The browser tests and the ones that
+  # build a paper stay on Linux, where Firefox and LaTeX are installed above.
+  other-systems:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Python packages
+        run: pip install -e ".[dev]"
+      - name: Tests
+        run: python -m pytest -o addopts="" -q --ignore=tests/test_browser.py
