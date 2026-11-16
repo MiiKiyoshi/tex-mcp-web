@@ -15,7 +15,8 @@ environment's `Scripts` folder where the commands say `bin`.
   `py -0p`. A Python newer than every dependency's ready-built packages is no use either:
   when step 3's install has to build a dependency and fails, use Python 3.13. No Python
   that fits: name the command that installs one on this system, as `py install 3.13` on
-  Windows, and install it only when the user says to. Use the one found as `python3` below.
+  Windows, and install it only when the user says to. Use the one found as `python3` below,
+  on Windows as `py -3.13`.
 - LaTeX: `command -v latexmk`, and record its directory. Missing: name the TeX distribution
   that fits this system and the command that installs it, as TeX Live on Linux, MacTeX on
   macOS, MiKTeX or TeX Live on Windows, and install it only when the user says to. Go on

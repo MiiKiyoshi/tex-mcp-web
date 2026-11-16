@@ -19,8 +19,12 @@ DIRECTORY = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "
 
 
 def _parent_and_name(pid: int) -> tuple[int, str] | None:
-    result = subprocess.run(["ps", "-o", "ppid=,comm=", "-p", str(pid)],
-                            capture_output=True, text=True, check=False)
+    try:
+        result = subprocess.run(["ps", "-o", "ppid=,comm=", "-p", str(pid)],
+                                capture_output=True, text=True, check=False)
+    except OSError:
+        # A system with no ps, as Windows: no monitor is found, and the agent runs the waiter.
+        return None
     fields = result.stdout.split(None, 1)
     if len(fields) != 2:
         return None
@@ -50,7 +54,10 @@ def session_of(pid: int) -> int | None:
 def _is_monitor(pid: int) -> bool:
     """Whether *pid* runs the monitor. A monitor killed outright leaves its record, and the pid
     in it may since have gone to some other process."""
-    result = subprocess.run(["ps", "-o", "args=", "-p", str(pid)], capture_output=True, text=True, check=False)
+    try:
+        result = subprocess.run(["ps", "-o", "args=", "-p", str(pid)], capture_output=True, text=True, check=False)
+    except OSError:
+        return False
     return "monitors/review.sh" in result.stdout
 
 

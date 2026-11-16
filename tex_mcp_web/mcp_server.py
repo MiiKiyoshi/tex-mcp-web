@@ -646,7 +646,7 @@ def _write_waiter(watch_dir: Path, port: int) -> Path:
         "# With page_token on, the page answers only with the reviewer's token. It is read from its\n"
         "# file at each call and handed to curl on its input, never on its command line or in this\n"
         "# file, which others on the machine can read.\n"
-        f"token_file={shlex.quote(str(page_token.token_path()))}\n"
+        f"token_file={shlex.quote(page_token.token_path().as_posix())}\n"
         "page() {\n"
         f"  printf 'header = \"%s: %s\"\\n' {page_token.HEADER} \"$(cat \"$token_file\" 2>/dev/null)\" | curl -K - \"$@\"\n"
         "}\n"
@@ -1315,7 +1315,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             response = await client.post(f"{binding.base_url()}/wait-review/listen", params={
                 "listener": LISTENER, **({"session": session} if session is not None else {})})
         response.raise_for_status()
-        command = f"{shlex.quote(str(_write_waiter(watch_dir, shared.port)))} {LISTENER}"
+        command = f"{shlex.quote(_write_waiter(watch_dir, shared.port).as_posix())} {LISTENER}"
         return _ok({
             "command": command,
             "how": (
@@ -1411,7 +1411,7 @@ def _listen_from_start(shared: "SharedProjectServer") -> None:
     with urllib.request.urlopen(request, timeout=10) as response:
         if not json.loads(response.read())["listening"]:
             return
-    plugin_monitor.hand_over(f"{shlex.quote(str(_write_waiter(shared.watch_dir, shared.port)))} {LISTENER}")
+    plugin_monitor.hand_over(f"{shlex.quote(_write_waiter(shared.watch_dir, shared.port).as_posix())} {LISTENER}")
 
 
 def _listen_in_background(shared: "SharedProjectServer") -> None:

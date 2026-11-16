@@ -1,7 +1,6 @@
 """Shared ownership of the review server, bound to the MCP process."""
 
 import asyncio
-import fcntl
 import json
 import sys
 import threading
@@ -13,7 +12,7 @@ from typing import Any, Callable
 
 import yaml
 
-from . import page_token
+from . import filelock, page_token
 from .config import DEFAULT_CONFIG_NAME, Config, find_config, get_watch_dir, load_config
 
 # How a folder is set up for review, read only when it is: an agent follows it with its shell.
@@ -126,7 +125,7 @@ class SharedProjectServer:
         lock_path.parent.mkdir(parents=True, exist_ok=True)
         handle = lock_path.open("a")
         try:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            filelock.lock(handle, wait=False)
         except BlockingIOError:
             handle.close()
             for _ in range(50):
@@ -170,7 +169,7 @@ class SharedProjectServer:
     def _release_lock(self) -> None:
         with self.lock_guard:
             if self.lock_handle is not None:
-                fcntl.flock(self.lock_handle.fileno(), fcntl.LOCK_UN)
+                filelock.unlock(self.lock_handle)
                 self.lock_handle.close()
                 self.lock_handle = None
 

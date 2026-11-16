@@ -1292,7 +1292,7 @@ class CommentStore:
 
     Concurrency is real: the daemon, the MCP server, and the CLI may all
     mutate the store at the same time.  Each read-modify-write cycle is
-    serialized with an exclusive ``fcntl.flock`` on a sibling ``.lock``
+    serialized with an exclusive lock on a sibling ``.lock``
     file (POSIX only — on Windows the lock is a no-op and the last-writer-
     wins risk is documented).  The actual data write is atomic via temp
     file + ``os.replace``.
@@ -1368,23 +1368,18 @@ class CommentStore:
         Held only for the duration of one mutation; readers do not lock
         because the atomic rename guarantees they see a complete file.
         """
-        try:
-            import fcntl
-        except ImportError:
-            # Windows: no flock; accept last-writer-wins.  Most papers
-            # have one writer at a time anyway.
-            yield
-            return
+        from . import filelock
+
         # 'a' so concurrent processes share the same descriptor target
         # without truncating each other.
         with open(self._lock_path, "a") as lock_fd:
-            fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX)
+            filelock.lock(lock_fd)
             self._changing = True
             try:
                 yield
             finally:
                 self._changing = False
-                fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
+                filelock.unlock(lock_fd)
 
     def _read(self) -> dict[str, Any]:
         """The store's file, parsed. A paper's file grows to megabytes, and one request

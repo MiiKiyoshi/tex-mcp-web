@@ -1046,3 +1046,31 @@ def test_canonicalize_pdf_selection_finds_a_letter_whose_accent_the_browser_read
 
     assert canonical is not None
     assert canonical[0] == "\u00afTi and the drift \u00afPi of each"
+
+
+def test_a_file_lock_is_held_against_another_handle_and_given_back(tmp_path) -> None:
+    """The lock the server and the comment store take works on every system: a second
+    taker is refused while it is held, and takes it once it is given back."""
+    from tex_mcp_web import filelock
+
+    path = tmp_path / "server.lock"
+    with path.open("a") as held, path.open("a") as other:
+        filelock.lock(held, wait=False)
+        with pytest.raises(BlockingIOError):
+            filelock.lock(other, wait=False)
+        filelock.unlock(held)
+        filelock.lock(other, wait=False)
+        filelock.unlock(other)
+
+
+def test_a_system_with_no_ps_has_no_monitor_to_find(monkeypatch) -> None:
+    """Where ps is missing, as on Windows, the session lookup finds no Claude Code process
+    and the agent runs the waiter itself, with no error."""
+    from tex_mcp_web import plugin_monitor
+
+    def missing(*args, **kwargs):
+        raise FileNotFoundError("ps")
+
+    monkeypatch.setattr(plugin_monitor.subprocess, "run", missing)
+    assert plugin_monitor.claude_pid() is None
+    assert plugin_monitor.monitored_session() is None

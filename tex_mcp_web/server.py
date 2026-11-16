@@ -1921,6 +1921,10 @@ class TexMcpWebServer:
             return False
         if self.review_listener_pid is None:
             return asyncio.get_running_loop().time() - self.review_listener_claimed < self.LISTENER_START
+        if os.name == "nt":
+            # Windows has no signal that only asks, and the waiter's pid is its shell's own
+            # numbering: the waiter is alive while it is parked here.
+            return self.review_waiters > 0
         try:
             os.kill(self.review_listener_pid, 0)
         except ProcessLookupError:
