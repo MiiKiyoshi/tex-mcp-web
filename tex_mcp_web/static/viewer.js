@@ -2597,7 +2597,9 @@ async function submitCompose(event) {
     // comment for the agent among the open ones.
     const tab = state.pendingForOverleaf ? "overleaf-comments" : "comments";
     if (state.commentTab !== tab) switchTab(tab);
-    setCommentFilter(state.pendingForOverleaf ? "new" : "open");
+    // A comment for the agent is in to do as well, so a reader there stays there.
+    if (state.pendingForOverleaf) setCommentFilter("new");
+    else if ($("#comment-filter").value !== "todo") setCommentFilter("open");
     await refreshComments();
   } finally {
     applyComposeSubmitting(false);

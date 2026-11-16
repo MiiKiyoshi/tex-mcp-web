@@ -2020,12 +2020,18 @@ def test_the_ring_holds_a_third_of_the_way_down_and_an_opened_card_shows_its_end
           return {id: card.dataset.commentId, middle: it.top + it.height / 2 - box.top,
                   below: it.bottom - box.bottom, third: list.clientHeight / 3, scroll: list.scrollTop};"""
 
+        # The list's end holds the ring back where it cannot scroll further, which the
+        # system's type decides how soon.
+        at_end = ('const list = document.querySelector("#comments-list");'
+                  ' return list.scrollTop + list.clientHeight >= list.scrollHeight - 1')
         type_keys(browser, ["j"] * 6)
         at = browser.execute_script(place)
-        assert at["id"] == ids[5] and at["scroll"] > 0 and abs(at["middle"] - at["third"]) <= 2
+        assert at["id"] == ids[5] and at["scroll"] > 0
+        assert abs(at["middle"] - at["third"]) <= 2 or browser.execute_script(at_end), at
         type_keys(browser, ["j"])
         moved = browser.execute_script(place)
-        assert moved["id"] == ids[6] and abs(moved["middle"] - at["middle"]) <= 2
+        assert moved["id"] == ids[6]
+        assert abs(moved["middle"] - at["middle"]) <= 2 or browser.execute_script(at_end), (at, moved)
         # At the list's start the ring cannot sit lower than the first card does.
         type_keys(browser, ["g", "g"])
         assert browser.execute_script(place)["scroll"] == 0

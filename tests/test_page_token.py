@@ -74,18 +74,21 @@ async def test_the_page_answers_only_with_its_token(locked) -> None:
 
 
 async def test_the_agents_tools_and_the_waiter_send_the_token(locked, tmp_path: Path) -> None:
-    """The waiter is a shell script with curl, which gets the token on its input: a command
-    line on this machine is anyone's to read."""
-    from tex_mcp_web.mcp_server import _write_waiter
+    """The waiter reads the token from its file at each call: a command line on this
+    machine is anyone's to read, and the waiter's does not hold it."""
+    import shlex
+    import sys
+
+    from tex_mcp_web.mcp_server import LISTENER, _waiter_command
 
     client, server = locked
     token = page_token.ensure_token()
     port = client.server.port
-    listen = await client.post("/wait-review/listen?listener=one", headers=page_token.headers())
+    listen = await client.post(f"/wait-review/listen?listener={LISTENER}", headers=page_token.headers())
     assert listen.status == 200
-    waiter = _write_waiter(tmp_path, port)
-    assert token not in waiter.read_text(encoding="utf-8")
-    run = await asyncio.create_subprocess_exec("sh", str(waiter), "one", stdout=asyncio.subprocess.PIPE,
+    command = shlex.split(_waiter_command(port))
+    assert token not in " ".join(command)
+    run = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE,
                                                env={**os.environ, "XDG_CONFIG_HOME": os.environ["XDG_CONFIG_HOME"]})
     try:
         await client.post("/review-request", headers=page_token.headers())

@@ -1,7 +1,7 @@
 """Hand the review waiter to the tex-mcp plugin's monitor, which Claude Code runs for the whole
 session and whose lines reach the agent as notifications, with no expiry to start it again.
 
-The monitor (plugin/monitors/review.sh) and this server are both started by one Claude Code
+The monitor (tex_mcp_web/monitor.py, started by plugin/monitors/review.sh) and this server are both started by one Claude Code
 process, so that process's pid names the session to both: the server writes the command to
 run under it, and the monitor, which records its own pid there, runs the newest command it
 finds. A server with no Claude Code process above it, or a session without the plugin, has no
@@ -11,24 +11,21 @@ shell: its servers run under that session, but answer to the Codex.
 from __future__ import annotations
 
 import os
-import subprocess
 import time
 from pathlib import Path
+
+import psutil
 
 DIRECTORY = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "tex-mcp-web" / "monitor"
 
 
 def _parent_and_name(pid: int) -> tuple[int, str] | None:
     try:
-        result = subprocess.run(["ps", "-o", "ppid=,comm=", "-p", str(pid)],
-                                stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False)
-    except OSError:
-        # A system with no ps, as Windows: no monitor is found, and the agent runs the waiter.
+        process = psutil.Process(pid)
+        # A program's name without the .exe Windows gives it.
+        return process.ppid(), process.name().casefold().removesuffix(".exe")
+    except psutil.Error:
         return None
-    fields = result.stdout.split(None, 1)
-    if len(fields) != 2:
-        return None
-    return int(fields[0]), fields[1].strip()
 
 
 def claude_pid() -> int | None:
@@ -55,10 +52,9 @@ def _is_monitor(pid: int) -> bool:
     """Whether *pid* runs the monitor. A monitor killed outright leaves its record, and the pid
     in it may since have gone to some other process."""
     try:
-        result = subprocess.run(["ps", "-o", "args=", "-p", str(pid)], stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False)
-    except OSError:
+        return "tex_mcp_web.monitor" in psutil.Process(pid).cmdline()
+    except psutil.Error:
         return False
-    return "monitors/review.sh" in result.stdout
 
 
 def monitored_session() -> int | None:

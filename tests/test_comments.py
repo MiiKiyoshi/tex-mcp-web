@@ -1063,14 +1063,14 @@ def test_a_file_lock_is_held_against_another_handle_and_given_back(tmp_path) -> 
         filelock.unlock(other)
 
 
-def test_a_system_with_no_ps_has_no_monitor_to_find(monkeypatch) -> None:
-    """Where ps is missing, as on Windows, the session lookup finds no Claude Code process
-    and the agent runs the waiter itself, with no error."""
+def test_a_process_that_is_gone_has_no_session_above_it() -> None:
+    """The session lookup walks up from a process by what the system says of it, and one
+    that is gone, or under no Claude Code process, has no monitor to find."""
+    import subprocess
+    import sys
+
     from tex_mcp_web import plugin_monitor
 
-    def missing(*args, **kwargs):
-        raise FileNotFoundError("ps")
-
-    monkeypatch.setattr(plugin_monitor.subprocess, "run", missing)
-    assert plugin_monitor.claude_pid() is None
-    assert plugin_monitor.monitored_session() is None
+    ended = subprocess.Popen([sys.executable, "-c", "pass"], stdin=subprocess.DEVNULL)
+    ended.wait()
+    assert plugin_monitor.session_of(ended.pid) is None

@@ -593,11 +593,11 @@ def _wait_method(ctx: "Context", command: str) -> str:
         )
     if "codex" in name:
         return (
-            'Run sh <command> --codex "$CODEX_THREAD_ID" with '
+            'Run <command> --codex "$CODEX_THREAD_ID" with '
             'exec_command(yield_time_ms=1000, sandbox_permissions="require_escalated", '
             'justification="Allow the TeX review waiter to deliver events to this Codex thread?"). '
             "Once running, end the turn; do not poll. "
-            "The script uses codex queue to deliver events as labeled user messages, "
+            "The waiter uses codex queue to deliver events as labeled user messages, "
             "including while idle. Delivery may take about 10 seconds. "
             "Requires codex queue on PATH and CODEX_THREAD_ID in the agent shell. "
             "Run one waiter at a time. "
@@ -617,88 +617,10 @@ def _wait_method(ctx: "Context", command: str) -> str:
 LISTENER = secrets.token_hex(8)
 
 
-def _write_waiter(watch_dir: Path, port: int) -> Path:
-    """Write the paper's review waiter and return its path. It runs as <path> <listener>,
-    with the id the review server knows the listening session by."""
-    # The server keeps the press count and the consumption watermark, so the script
-    # carries no state of its own: a press made before this call answers it at once,
-    # and after a line is delivered the loop parks again rather than replaying the
-    # press it acked. The ack comes after the line is printed, so a press is offered
-    # until a waiter confirms it landed: delivery is at-least-once.
-    script = (
-        "#!/bin/sh\n"
-        "listener=${1:?Pass the listener id that listen() gave}\n"
-        "thread=\n"
-        "if [ \"${2-}\" = \"--codex\" ]; then\n"
-        "  thread=${3:?Pass the Codex thread ID}\n"
-        "  command -v codex >/dev/null || exit 1\n"
-        "fi\n"
-        "deliver() {\n"
-        "  if [ -n \"$thread\" ]; then\n"
-        "    until codex queue --thread \"$thread\" --message \"[TeX review event]\n"
-        "$1\"; do\n"
-        "      printf '%s\\n' 'Queue delivery failed; retrying in 5 seconds' >&2\n"
-        "      sleep 5\n"
-        "    done\n"
-        "  else\n"
-        "    printf '%s\\n' \"$1\"\n"
-        "  fi\n"
-        "}\n"
-        f"# Prints one line each time the reviewer presses 'Call agent' on http://127.0.0.1:{port},\n"
-        "# at once if an unacknowledged press is waiting, and keeps waiting for the next. A server\n"
-        "# that goes away is waited for too: one [gone] line, then [back] when it answers again.\n"
-        "# Presses go to one waiter: when a newer one takes over listening, one [moved] line ends this one.\n"
-        "# With page_token on, the page answers only with the reviewer's token. It is read from its\n"
-        "# file at each call and handed to curl on its input, never on its command line or in this\n"
-        "# file, which others on the machine can read.\n"
-        f"token_file={shlex.quote(page_token.token_path().as_posix())}\n"
-        "page() {\n"
-        f"  printf 'header = \"%s: %s\"\\n' {page_token.HEADER} \"$(cat \"$token_file\" 2>/dev/null)\" | curl -K - \"$@\"\n"
-        "}\n"
-        "headers=$(mktemp) || exit 1\n"
-        "trap 'rm -f \"$headers\"' EXIT\n"
-        "gone=0\n"
-        "delay=2\n"
-        "while :; do\n"
-        f"  out=$(page -sf -D \"$headers\" --max-time 60 \"http://127.0.0.1:{port}/wait-review?listener=$listener&pid=$$\"); rc=$?\n"
-        "  if [ $gone -eq 1 ] && { [ $rc -eq 0 ] || [ $rc -eq 28 ]; }; then\n"
-        "    deliver '[back] review server reachable again'; gone=0; delay=2\n"
-        "  fi\n"
-        "  if [ $rc -eq 0 ] && [ -n \"$out\" ]; then\n"
-        "    deliver \"$out\"\n"
-        "    grep -qi '^x-moved:' \"$headers\" && exit 0\n"
-        "    press=$(tr -d '\\r' < \"$headers\" | sed -n 's/^[Xx]-[Pp]ress: *//p' | head -1)\n"
-        f"    [ -n \"$press\" ] && page -sf -X POST \"http://127.0.0.1:{port}/wait-review/ack?upto=$press\" >/dev/null\n"
-        "  fi\n"
-        "  if [ $rc -ne 0 ] && [ $rc -ne 28 ]; then\n"
-        "    if [ $gone -eq 0 ]; then deliver \"[gone] review server unreachable (curl exit $rc); waiting for it\"; gone=1; fi\n"
-        "    sleep $delay\n"
-        "    [ $delay -lt 30 ] && delay=$((delay * 2))\n"
-        "  fi\n"
-        "done\n"
-    )
-    # Replaced atomically so a waiter started from the previous script keeps reading
-    # the file it opened.
-    directory = watch_dir / ".tex-mcp-web"
-    directory.mkdir(parents=True, exist_ok=True)
-    target = directory / "wait-review.sh"
-    try:
-        if target.read_bytes() == script.encode("utf-8"):
-            return target
-    except OSError:
-        pass
-    staging = directory / "wait-review.sh.new"
-    # A shell reads the line ends it is given: Windows would write its own.
-    staging.write_text(script, encoding="utf-8", newline="\n")
-    staging.chmod(0o755)
-    try:
-        staging.replace(target)
-    except PermissionError:
-        # Windows keeps a file a running waiter has open from being replaced: the new
-        # script gets a name of its own, and the old one is left to its waiter.
-        target = directory / f"wait-review-{secrets.token_hex(4)}.sh"
-        staging.replace(target)
-    return target
+def _waiter_command(port: int) -> str:
+    """The command that waits for this session's Call agent presses, run as it is or by the
+    plugin's monitor: Python, so that it is the same on every system."""
+    return f"{shlex.quote(Path(sys.executable).as_posix())} -m tex_mcp_web.waiter {port} {LISTENER}"
 
 
 def create_server(binding: "ProjectBinding") -> "FastMCP":
@@ -1332,15 +1254,15 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             response = await client.post(f"{binding.base_url()}/wait-review/listen", params={
                 "listener": LISTENER, **({"session": session} if session is not None else {})})
         response.raise_for_status()
-        command = f"{shlex.quote(_write_waiter(watch_dir, shared.port).as_posix())} {LISTENER}"
+        command = _waiter_command(shared.port)
         return _ok({
             "command": command,
             "how": (
                 _wait_method(ctx, command)
                 + " On [review], call read_comments(new=True) and handle the review. "
-                "[gone] means the review server is unreachable; the script keeps retrying. "
+                "[gone] means the review server is unreachable; the waiter keeps retrying. "
                 "[back] means it is reachable again. [moved] means a newer waiter, in another "
-                "session or in this one as the line says, took over listening, and the script has ended."
+                "session or in this one as the line says, took over listening, and the waiter has ended."
             ),
         })
 
@@ -1435,7 +1357,7 @@ def _listen_from_start(shared: "SharedProjectServer") -> None:
     with urllib.request.urlopen(request, timeout=10) as response:
         if not json.loads(response.read())["listening"]:
             return
-    plugin_monitor.hand_over(f"{shlex.quote(_write_waiter(shared.watch_dir, shared.port).as_posix())} {LISTENER}")
+    plugin_monitor.hand_over(_waiter_command(shared.port))
 
 
 def _listen_in_background(shared: "SharedProjectServer") -> None:

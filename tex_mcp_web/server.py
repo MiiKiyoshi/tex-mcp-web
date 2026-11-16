@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+import psutil
 from aiohttp import web
 
 from .comments import (
@@ -493,7 +494,7 @@ class TexMcpWebServer:
     """Single-paper watch + serve + comment store."""
 
     # A parked waiter is answered within this long even when nothing happened, so the
-    # script's curl never trips its own timeout and a lost connection is noticed.
+    # waiter's request never trips its own timeout and a lost connection is noticed.
     REVIEW_POLL_TIMEOUT = 55.0
     # How long a session that asked to listen has to start its waiter before a session
     # starting up may listen in its place.
@@ -1921,17 +1922,7 @@ class TexMcpWebServer:
             return False
         if self.review_listener_pid is None:
             return asyncio.get_running_loop().time() - self.review_listener_claimed < self.LISTENER_START
-        if os.name == "nt":
-            # Windows has no signal that only asks, and the waiter's pid is its shell's own
-            # numbering: the waiter is alive while it is parked here.
-            return self.review_waiters > 0
-        try:
-            os.kill(self.review_listener_pid, 0)
-        except ProcessLookupError:
-            return False
-        except PermissionError:
-            return True
-        return True
+        return psutil.pid_exists(self.review_listener_pid)
 
     async def _handle_review_request(self, request: web.Request) -> web.Response:
         self.review_calls += 1

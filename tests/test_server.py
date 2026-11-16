@@ -2775,10 +2775,10 @@ async def test_listen(bound_project, project, monkeypatch, codex):
         clientInfo=SimpleNamespace(name="claude-code"))))
     monkeypatch.setattr(mcp, "get_context", lambda: context)
     result = json.loads((await mcp.call_tool("listen", {}))[0].text)
-    script, listener = shlex.split(result["command"])
-    script = Path(script)
-    assert script == project / ".tex-mcp-web" / "wait-review.sh"
-    assert os.name == "nt" or script.stat().st_mode & 0o111  # Windows keeps no mode bits
+    # The waiter is Python, the same on every system: the interpreter the server runs in.
+    command = shlex.split(result["command"])
+    assert command[:3] == [Path(sys.executable).as_posix(), "-m", "tex_mcp_web.waiter"]
+    assert command[3] == str(bound_project.require_shared().port) and len(command) == 5
     # Claude Code's Monitor takes command, description and timeout_ms (at most 30 minutes).
     assert "Monitor" in result["how"] and "persistent" not in result["how"]
     assert 'description="' in result["how"] and "timeout_ms=1800000" in result["how"]
@@ -2794,7 +2794,6 @@ async def test_listen(bound_project, project, monkeypatch, codex):
         assert ('sandbox_permissions="require_escalated"' in selected["how"]) == (name == "codex-mcp-client")
     tool = next(t for t in await mcp.list_tools() if t.name == "listen")
     assert "ctx" not in tool.inputSchema["properties"]
-    subprocess.run(["sh", "-n", str(script)], check=True)
 
     base = bound_project.base_url()
     async with aiohttp.ClientSession() as session:
@@ -2812,8 +2811,7 @@ async def test_listen(bound_project, project, monkeypatch, codex):
         monkeypatch.setenv("PATH", f"{project}:{os.environ['PATH']}")
         args = ["--codex", "test-thread"]
     # Each listen() call names a new listener, and the last one is the one presses go to.
-    listener = shlex.split(selected["command"])[1]
-    waiter = subprocess.Popen(["sh", str(script), listener, *args], stdout=subprocess.PIPE, text=True)
+    waiter = subprocess.Popen([*shlex.split(selected["command"]), *args], stdout=subprocess.PIPE, text=True)
     try:
         if codex:
             deadline = time.monotonic() + 5
@@ -2919,8 +2917,7 @@ async def test_a_session_with_the_plugin_listens_from_its_start(bound_project, p
             # The other session never started its waiter: this one listens in its place.
             shared.server.LISTENER_START = 0
             await asyncio.to_thread(_listen_from_start, shared)
-            script, _ = shlex.split(handed.read_text(encoding="utf-8").splitlines()[1])
-            assert script == str(project / ".tex-mcp-web" / "wait-review.sh")
+            assert shlex.split(handed.read_text(encoding="utf-8").splitlines()[1])[1:3] == ["-m", "tex_mcp_web.waiter"]
             async with client.post(f"{base}/review-request") as response:
                 assert (await response.json())["calls"] == 1
         line = await asyncio.wait_for(monitor.stdout.readline(), 15)
@@ -3866,23 +3863,38 @@ async def test_the_cursor_moves_past_one_written_in_another_zone(bound_project, 
     assert (await new())["comments"] == []
 
 
-def test_a_waiter_script_in_use_is_left_and_the_new_one_gets_its_own_name(tmp_path, monkeypatch):
-    """Windows does not replace a file a running waiter has open. An unchanged script is
-    not written again, and a changed one is written beside the one in use."""
-    from tex_mcp_web import mcp_server
+def test_the_waiter_ends_when_no_one_reads_it_and_does_not_take_the_press(tmp_path):
+    """A waiter whose reader is gone ends at the first line it cannot print, and leaves the
+    press unacknowledged for the next waiter: a stopped monitor left a waiter that took
+    presses no one heard."""
+    import http.server
+    import subprocess
+    import threading
 
-    first = mcp_server._write_waiter(tmp_path, 8765)
-    stamp = first.stat().st_mtime_ns
-    assert mcp_server._write_waiter(tmp_path, 8765) == first and first.stat().st_mtime_ns == stamp
+    acked = []
 
-    replace = Path.replace
+    class Page(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("X-Press", "1")
+            self.end_headers()
+            self.wfile.write(b"[review] reviewer called (press #1)")
 
-    def in_use(self, target):
-        if Path(target).name == "wait-review.sh":
-            raise PermissionError(5, "Access is denied")
-        return replace(self, target)
+        def do_POST(self):
+            acked.append(self.path)
+            self.send_response(200)
+            self.end_headers()
 
-    monkeypatch.setattr(Path, "replace", in_use)
-    second = mcp_server._write_waiter(tmp_path, 8766)
-    assert second != first and second.parent == first.parent and second.suffix == ".sh"
-    assert ":8766/" in second.read_text(encoding="utf-8") and ":8765/" in first.read_text(encoding="utf-8")
+        def log_message(self, *args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Page)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        waiter = subprocess.Popen([sys.executable, "-m", "tex_mcp_web.waiter", str(server.server_port), "one"],
+                                  stdout=subprocess.PIPE, env={**os.environ, "XDG_CONFIG_HOME": str(tmp_path)})
+        waiter.stdout.close()
+        assert waiter.wait(timeout=20) == 0
+        assert acked == []
+    finally:
+        server.shutdown()

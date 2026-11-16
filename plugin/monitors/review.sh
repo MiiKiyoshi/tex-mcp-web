@@ -1,59 +1,10 @@
 #!/bin/sh
-# The tex-mcp review monitor. Claude Code starts it with the session and turns each line it
-# prints into a notification. It prints nothing of its own: it runs the newest waiter command
-# tex-mcp hands this session (tex_mcp_web/plugin_monitor.py), at the session's start or on
-# listen(), in place of the one it ran before, and passes on what the waiter prints. It never
-# ends while the session's Claude Code process lives, since Claude Code does not start an
-# ended monitor again.
-# The first argument, when given, names that process in place of the one found above.
-dir="${XDG_CACHE_HOME:-$HOME/.cache}/tex-mcp-web/monitor"
-session=${1-}
-if [ -z "$session" ]; then
-  pid=$$
-  while [ "$pid" -gt 1 ]; do
-    pid=$(ps -o ppid= -p "$pid" | tr -d ' ')
-    [ -n "$pid" ] || break
-    case $(ps -o comm= -p "$pid") in
-      claude|*/claude) session=$pid; break ;;
-    esac
-  done
-fi
-if [ -z "$session" ]; then
-  # No Claude Code process above: nothing can hand this monitor a waiter.
-  while kill -0 "$PPID" 2>/dev/null; do sleep 60; done
-  exit 0
-fi
-# A command left by a monitor killed outright, for a session whose pid this one now has, is
-# not this session's. It goes before the record, after which this session hands over its own.
-until mkdir -p "$dir" 2>/dev/null && rm -f "$dir/$session.command" && echo $$ > "$dir/$session.monitor"; do
-  sleep 30
-done
-child=
-current=
-below() {
-  # Every process under $1, each before the ones it started.
-  for kid in $(pgrep -P "$1"); do
-    echo "$kid"
-    below "$kid"
-  done
-}
-stop_child() {
-  # The waiter and all it started, the waiter first: a shell acts on the signal only once
-  # its read of the page's answer returns, so the signal has to be waiting by then, or the
-  # waiter asks the page again. The request under its subshell holds that read open.
-  # A shell that runs the command without becoming it stands above the waiter, and goes too.
-  [ -n "$child" ] && kill -TERM "$child" $(below "$child") 2>/dev/null
-  child=
-}
-trap 'stop_child; rm -f "$dir/$session.monitor" "$dir/$session.command"' EXIT
-trap 'exit 0' TERM INT HUP
-while kill -0 "$session" 2>/dev/null; do
-  next=$(cat "$dir/$session.command" 2>/dev/null)
-  if [ -n "$next" ] && [ "$next" != "$current" ]; then
-    stop_child
-    current=$next
-    sh -c "$(printf '%s\n' "$next" | sed 1d)" &
-    child=$!
+# Starts the tex-mcp review monitor (tex_mcp_web/monitor.py) with the Python tex-mcp-web is
+# installed in: the checkout's own environment, or the Python on the PATH that has it.
+# An argument, when given, names the session's Claude Code process.
+root=$(cd "$(dirname "$0")/../.." && pwd)
+for python in "$root/.venv/bin/python" "$root/.venv/Scripts/python.exe" python3 python; do
+  if PYTHONPATH="$root" "$python" -c "import tex_mcp_web.monitor" 2>/dev/null; then
+    PYTHONPATH="$root" exec "$python" -m tex_mcp_web.monitor "$@"
   fi
-  sleep 1
 done
