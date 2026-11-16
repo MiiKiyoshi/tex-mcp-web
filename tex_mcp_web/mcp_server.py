@@ -1329,9 +1329,10 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
 
     @mcp.tool(structured_output=False)
     async def setup_info() -> str:
-        """Report setup paths, the existing binding and the guidelines to choose from, without
-        connecting or changing files."""
+        """Report setup paths, the existing binding, the guidelines to choose from and the
+        path of the tex-mcp-web command, without connecting or changing files."""
         from .config import find_config, list_guidelines
+        from .mcp_client import CLI
 
         discovered = find_config(binding.start_dir)
         bound = binding.bound_config_path()
@@ -1340,6 +1341,8 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             "discovered_config_path": None if discovered is None else str(discovered.resolve()),
             "bound_config_path": None if bound is None else str(bound),
             "guidelines": list_guidelines(),
+            # The shell an agent runs commands in need not have this on its PATH.
+            "cli": str(CLI),
         })
 
     return mcp

@@ -58,11 +58,12 @@ the user has already approved is not asked again.
 ## 3. Write
 
 Run init and subsequent config commands with the MCP startup directory as their working
-directory, with the command that `listen()`'s missing-config error names. Changing the shell's
-working directory does not retarget this MCP process.
+directory. `tex-mcp-web` below is the path `setup_info()` gives as `cli`: the shell need not
+have it on its PATH. Changing the shell's working directory does not retarget this MCP process.
 
     tex-mcp-web --port <port> init --main <file>
-    tex-mcp-web config <dir|compiler|watch|ignore|references|guideline|page_token> <value>   # only for changed fields
+    tex-mcp-web config dir <folder>      # right after init, when the paper is in another folder
+    tex-mcp-web config <compiler|watch|ignore|references|guideline|page_token> <value>   # only for changed fields
 
 Continue only if init succeeds and the expected local config exists. Before changing any
 setting, run `tex-mcp-web config` without arguments and confirm that it selects the intended

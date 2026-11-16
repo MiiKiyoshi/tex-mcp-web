@@ -11,6 +11,7 @@ import json
 import shutil
 import os
 import shlex
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -1329,6 +1330,7 @@ async def test_setup_info_reports_paths_without_connecting(tmp_path, monkeypatch
             "startup_dir": str(child.resolve()),
             "discovered_config_path": str(config.resolve()),
             "bound_config_path": None,
+            "cli": str(Path(sys.executable).parent / "tex-mcp-web"),
         }
         # A report only: no server, no binding, no file.
         assert binding.bound_config_path() is None
