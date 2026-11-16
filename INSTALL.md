@@ -11,13 +11,17 @@ environment's `Scripts` folder where the commands say `bin`.
 ## 1. Inspect (change nothing)
 
 - Python 3.10 or newer (the `mcp` package has no release for older ones): `python3 --version`.
-  When older, `command -v python3.13 python3.12 python3.11 python3.10`. None: name the
-  command that installs one on this system, and install it only when the user says to. Use
-  the one found as `python3` below.
+  When older, `command -v python3.13 python3.12 python3.11 python3.10`, or on Windows
+  `py -0p`. A Python newer than every dependency's ready-built packages is no use either:
+  when step 3's install has to build a dependency and fails, use Python 3.13. No Python
+  that fits: name the command that installs one on this system, as `py install 3.13` on
+  Windows, and install it only when the user says to. Use the one found as `python3` below.
 - LaTeX: `command -v latexmk`, and record its directory. Missing: name the TeX distribution
   that fits this system and the command that installs it, as TeX Live on Linux, MacTeX on
   macOS, MiKTeX or TeX Live on Windows, and install it only when the user says to. Go on
-  once `latexmk` is found.
+  once `latexmk` runs, by its full path when this shell's PATH does not have it yet. With
+  MiKTeX, set it to install missing packages without asking
+  (`initexmf --set-config-value "[MPM]AutoInstall=1"`), since a build has no one to ask.
 - Install directory: `$HOME/.local/share/tex-mcp-web`, unless the user named another.
   Note whether it already holds a checkout.
 - Agents: `command -v claude` and `command -v codex`. Register with each one found.
@@ -37,8 +41,8 @@ user-level, available in every folder. Do not ask about scope.
     DIR="$HOME/.local/share/tex-mcp-web"
     git clone https://github.com/MiiKiyoshi/tex-mcp-web.git "$DIR"   # update: git -C "$DIR" pull --ff-only
     python3 -m venv "$DIR/.venv"
-    "$DIR/.venv/bin/pip" install -q -U pip                              # editable installs need a recent pip
-    "$DIR/.venv/bin/pip" install -e "$DIR"
+    "$DIR/.venv/bin/python" -m pip install -q -U pip                    # editable installs need a recent pip
+    "$DIR/.venv/bin/python" -m pip install -e "$DIR"
     "$DIR/.venv/bin/tex-mcp-web" mcp --check                          # lists the tools
 
 ## 4. Register
@@ -50,6 +54,9 @@ Remove a registration the user agreed to replace (`claude mcp remove --scope use
     P="$BIN:<latexmk directory>:/usr/bin:/bin"
     claude mcp add --scope user tex-mcp -e PATH="$P" -- "$BIN/tex-mcp"
     codex mcp add tex-mcp --env PATH="$P" -- "$BIN/tex-mcp"
+
+On Windows the PATH is joined with `;` and holds Windows folders: the two above, then
+`C:\Windows\System32` and `C:\Windows`, and the folder of `perl` when latexmk needs one.
 
 For Claude Code, also install the plugin from the checkout. It refuses tex-mcp's tools other
 than `guide()` and `setup_info()` until that context has read the files `guide()` lists, again
