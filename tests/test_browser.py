@@ -2062,7 +2062,8 @@ def test_the_ring_holds_a_third_of_the_way_down_and_an_opened_card_shows_its_end
             # The list's end holds the ring back where it cannot scroll further.
             ended = browser.execute_script('const list = document.querySelector("#comments-list");'
                                            ' return list.scrollTop + list.clientHeight >= list.scrollHeight - 1')
-            assert handed["scroll"] > 0 and (abs(handed["middle"] - handed["third"]) <= 2 or ended), (keys, handed)
+            # A list short enough to show whole does not scroll at all.
+            assert ended or (handed["scroll"] > 0 and abs(handed["middle"] - handed["third"]) <= 2), (keys, handed)
             browser.execute_script('document.querySelector("#comments-list").scrollTop = 0;')
     finally:
         if browser is not None:
