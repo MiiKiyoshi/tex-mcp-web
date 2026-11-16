@@ -9,7 +9,7 @@
 
 **Your coding agent already did the research. Let it write, review and fix the paper in the same session.**
 
-You comment on the rendered PDF, on a desktop, tablet, or phone, and Claude Code or Codex edits the LaTeX source.
+You comment on the rendered PDF, on a desktop, tablet, or phone, and Claude Code or Codex edits the LaTeX source. It runs on Windows, macOS and Linux.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/from-work-dark.webp">
@@ -46,7 +46,8 @@ apply or reject. The keys at the bottom right are the ones pressed.
    Install tex-mcp-web by following https://raw.githubusercontent.com/MiiKiyoshi/tex-mcp-web/main/INSTALL.md
    ```
 
-   The agent sets up everything it needs on your machine and installs once you agree.
+   The agent sets up everything it needs on your machine, Windows, macOS or Linux, and
+   installs once you agree.
 
 2. Say `do tex init` to the agent, right where it is working. The paper can be in any
    folder, one you have or one you ask the agent to make. It finds the main `.tex` file
