@@ -30,16 +30,19 @@ until mkdir -p "$dir" 2>/dev/null && rm -f "$dir/$session.command" && echo $$ > 
 done
 child=
 current=
+below() {
+  # Every process under $1, each before the ones it started.
+  for kid in $(pgrep -P "$1"); do
+    echo "$kid"
+    below "$kid"
+  done
+}
 stop_child() {
-  # The waiter first: a shell acts on the signal only once its read of the page's answer
-  # returns, so the signal has to be waiting by then, or the waiter asks the page again.
-  # Then what holds that read open, the request under the waiter's subshell, then the subshell.
-  [ -n "$child" ] && {
-    kids=$(pgrep -P "$child")
-    kill -TERM "$child" 2>/dev/null
-    for kid in $kids; do pkill -TERM -P "$kid" 2>/dev/null; done
-    pkill -TERM -P "$child" 2>/dev/null
-  }
+  # The waiter and all it started, the waiter first: a shell acts on the signal only once
+  # its read of the page's answer returns, so the signal has to be waiting by then, or the
+  # waiter asks the page again. The request under its subshell holds that read open.
+  # A shell that runs the command without becoming it stands above the waiter, and goes too.
+  [ -n "$child" ] && kill -TERM "$child" $(below "$child") 2>/dev/null
   child=
 }
 trap 'stop_child; rm -f "$dir/$session.monitor" "$dir/$session.command"' EXIT

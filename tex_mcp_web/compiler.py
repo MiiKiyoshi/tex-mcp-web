@@ -381,21 +381,6 @@ async def compile_tex(
     if compiler == "auto":
         resolved_compiler = _detect_compiler(main_file)
 
-    # Check if compiler exists
-    cmd_name = resolved_compiler.split()[0] if " " in resolved_compiler else resolved_compiler
-    if shutil.which(cmd_name) is None:
-        return CompileResult(
-            success=False,
-            errors=[
-                CompileMessage(
-                    file=str(main_file),
-                    line=None,
-                    message=f"Compiler '{resolved_compiler}' not found in PATH",
-                    type="error",
-                )
-            ],
-        )
-
     start_time = datetime.now(timezone.utc)
     is_pandoc = resolved_compiler == "pandoc"
     pdf_path = work_dir / (main_file.stem + ".pdf")
@@ -420,6 +405,22 @@ async def compile_tex(
                     file=str(main_file),
                     line=None,
                     message=str(exc),
+                    type="error",
+                )
+            ],
+        )
+
+    # Check if compiler exists, once the file's name is known to be no flag: that
+    # check does not depend on what is installed.
+    cmd_name = resolved_compiler.split()[0] if " " in resolved_compiler else resolved_compiler
+    if shutil.which(cmd_name) is None:
+        return CompileResult(
+            success=False,
+            errors=[
+                CompileMessage(
+                    file=str(main_file),
+                    line=None,
+                    message=f"Compiler '{resolved_compiler}' not found in PATH",
                     type="error",
                 )
             ],

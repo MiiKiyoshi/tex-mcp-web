@@ -3864,3 +3864,25 @@ async def test_the_cursor_moves_past_one_written_in_another_zone(bound_project, 
     assert read_cursor(project) == "2026-11-16T15:08:09+00:00"
     store.resolve(asked.id, "")
     assert (await new())["comments"] == []
+
+
+def test_a_waiter_script_in_use_is_left_and_the_new_one_gets_its_own_name(tmp_path, monkeypatch):
+    """Windows does not replace a file a running waiter has open. An unchanged script is
+    not written again, and a changed one is written beside the one in use."""
+    from tex_mcp_web import mcp_server
+
+    first = mcp_server._write_waiter(tmp_path, 8765)
+    stamp = first.stat().st_mtime_ns
+    assert mcp_server._write_waiter(tmp_path, 8765) == first and first.stat().st_mtime_ns == stamp
+
+    replace = Path.replace
+
+    def in_use(self, target):
+        if Path(target).name == "wait-review.sh":
+            raise PermissionError(5, "Access is denied")
+        return replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", in_use)
+    second = mcp_server._write_waiter(tmp_path, 8766)
+    assert second != first and second.parent == first.parent and second.suffix == ".sh"
+    assert ":8766/" in second.read_text(encoding="utf-8") and ":8765/" in first.read_text(encoding="utf-8")

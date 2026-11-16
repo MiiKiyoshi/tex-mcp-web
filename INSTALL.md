@@ -58,7 +58,9 @@ Remove a registration the user agreed to replace (`claude mcp remove --scope use
 
 On Windows the PATH is joined with `;` and holds Windows folders: the two above, then
 `C:\Windows\System32` and `C:\Windows`, the folder of `git`, which syncing with Overleaf by git
-runs, and the folder of `perl` when latexmk needs one.
+runs, and the folder of `perl`. MiKTeX's latexmk needs a perl and has none of its own: Git for
+Windows has one in its `usr\bin`. latexmk run from Git Bash finds that perl by itself, so run
+it once with the PATH above alone to see that the server will find it too.
 
 For Claude Code, also install the plugin from the checkout. It refuses tex-mcp's tools other
 than `guide()` and `setup_info()` until that context has read the files `guide()` lists, again

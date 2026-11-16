@@ -682,11 +682,22 @@ def _write_waiter(watch_dir: Path, port: int) -> Path:
     directory = watch_dir / ".tex-mcp-web"
     directory.mkdir(parents=True, exist_ok=True)
     target = directory / "wait-review.sh"
+    try:
+        if target.read_bytes() == script.encode("utf-8"):
+            return target
+    except OSError:
+        pass
     staging = directory / "wait-review.sh.new"
     # A shell reads the line ends it is given: Windows would write its own.
     staging.write_text(script, encoding="utf-8", newline="\n")
     staging.chmod(0o755)
-    staging.replace(target)
+    try:
+        staging.replace(target)
+    except PermissionError:
+        # Windows keeps a file a running waiter has open from being replaced: the new
+        # script gets a name of its own, and the old one is left to its waiter.
+        target = directory / f"wait-review-{secrets.token_hex(4)}.sh"
+        staging.replace(target)
     return target
 
 

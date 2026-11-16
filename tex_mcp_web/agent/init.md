@@ -20,19 +20,21 @@ connection has been verified.
   selected path and values. If the config serves the intended project, reuse it and edit only
   the settings the request requires. If a parent config serves another project, leave it
   unchanged and propose a new config in the startup directory. If a config already exists in
-  the startup directory, edit that file rather than replacing it with init. A missing main
+  the startup directory, edit that file rather than replacing it with init, unless it serves
+  another paper, which the next point is for. A missing main
   file alone does not establish that a config belongs to another project.
 - A folder reviews one paper at a time. When the config in the startup directory serves
   another paper than the one the user names, say so in one line and offer both ways: start
-  the agent in a folder of the new paper's own, which reviews both side by side and is the
+  the agent in another folder, the new paper's or any that gets a config of its own, which
+  reviews both side by side and is the
   one to propose when the first paper has open threads, or move this folder to the new paper
   with `config dir`. Moved, the first paper's comments stay with it and come back when the
   folder is moved back. A session keeps the paper it started with: `setup_info()`'s
-  `bound_dir` names it, and the move holds once the agent starts again.
+  `bound_dir` names it, and the move holds once tex-mcp reconnects (`/mcp` in Claude Code) or the agent starts again.
 - Main file: `grep -l '\\documentclass' *.tex` in the paper's folder. One hit is the proposal.
   Several are asked. No hit in the startup directory: ask where the paper is, and that folder
   becomes `dir`.
-- Port: the first free one from 8765 (`ss -ltn`, or `lsof -iTCP -sTCP:LISTEN -P -n` on macOS), also skipping the port in a
+- Port: the first free one from 8765 (`ss -ltn`, `lsof -iTCP -sTCP:LISTEN -P -n` on macOS, `netstat -ano -p tcp` on Windows), also skipping the port in a
   `.html-mcp-web.yaml` in this folder, since both tools default to 8765.
 - Compiler: `command -v latexmk`. Missing: tell the user, and do not install a TeX distribution.
 - References: a folder the user names that holds the papers theirs builds on, converted to
