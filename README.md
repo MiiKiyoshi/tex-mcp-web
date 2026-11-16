@@ -7,7 +7,9 @@
 [![release](https://img.shields.io/github/v/release/MiiKiyoshi/tex-mcp-web)](https://github.com/MiiKiyoshi/tex-mcp-web/releases/latest)
 [![python](https://img.shields.io/python/required-version-toml?tomlFilePath=https://raw.githubusercontent.com/MiiKiyoshi/tex-mcp-web/main/pyproject.toml)](pyproject.toml)
 
-Write a LaTeX paper in the session that did the work, and review it from its rendered PDF, on a desktop, tablet, or phone, while Claude Code or Codex edits the source.
+**Your coding agent already did the research. Let it write, review and fix the paper in the same session.**
+
+You comment on the rendered PDF, on a desktop, tablet, or phone, and Claude Code or Codex edits the LaTeX source.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/from-work-dark.webp">
@@ -68,6 +70,14 @@ apply or reject. The keys at the bottom right are the ones pressed.
 For a figure, a table or a page's layout, take the box tool beside pan and pointer in the PDF's
 toolbar, draw a box over it, and say what is wrong. The agent works from the box as from any
 comment.
+
+## Fit the page limit
+
+The **Problems** tab lists, under the build's errors and warnings, where the body ends, its
+page and column and how many more lines fit under it, and each paragraph, list item or
+caption whose last line is a word or two. A click marks the line in the PDF. The agent's
+`compile()` reports the same list, so `we are four lines over, pull up the short lines`
+is a request it can carry out and check by itself.
 
 ## Answer your co-authors' Overleaf comments, with the agent
 
