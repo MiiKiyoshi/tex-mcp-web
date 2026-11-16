@@ -36,7 +36,7 @@ The **Problems** tab lists what the last build said, errors first and then warni
 under them where the paper stands against a page limit. **BODY END** is the last line before
 the bibliography: its page and column, and how many more lines fit under it in that column,
 once the paper has full columns to measure by. Each **SHORT LINE** is a paragraph whose last line is narrower than
-a quarter of its column, with the words on it: a slightly shorter paragraph pulls such a
+a quarter of its column, in a centered caption too, with the words on it: a slightly shorter paragraph pulls such a
 line up and gives the line back. A click on either marks the line in the
 Preview, where the layout is, and in Split also moves the editor to its source line, which
 for a paragraph is the line where it ends. The number on the tab counts the errors, the warnings

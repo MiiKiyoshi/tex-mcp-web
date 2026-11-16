@@ -2561,6 +2561,8 @@ def test_the_comment_list_goes_by_keys(tmp_path: Path) -> None:
         wait_until(lambda: status(source) == "resolved" and status(third) == "resolved")
         assert status(fourth) == "open"
         wait_until(lambda: picked() == [fourth])
+        # The list shows the two gone, the ring handed to the one left, before the next key.
+        wait_until(lambda: ringed() == fourth)
         press("x")
         assert picked() == []
         # With no comment ringed in a view, v holds the range from the first.

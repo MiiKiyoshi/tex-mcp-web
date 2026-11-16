@@ -111,3 +111,23 @@ def test_the_body_of_a_typeset_paper_ends_before_its_bibliography(tmp_path: Path
         printed = doc[0].search_for("Tides")
     assert any(all(abs(got - want) < 3 for got, want in zip(short[0]["bbox"], hit)) for hit in printed)
     assert len(end["bbox"]) == 4
+
+
+@pytest.mark.skipif(shutil.which("latexmk") is None or shutil.which("synctex") is None,
+                    reason="latexmk and synctex are required")
+def test_a_centered_caption_ending_in_a_word_is_a_short_line_and_an_equation_is_not(tmp_path: Path) -> None:
+    """Centered text, as a table's caption, ends short too: its last line sits in the middle
+    of the column under a wider centered one. A displayed equation under a full line does not."""
+    filler = "The harbour keeps a ledger of every tide that the keeper has seen since the lamp was lit. "
+    (tmp_path / "paper.tex").write_text(
+        "\\documentclass{article}\n\\begin{document}\n"
+        "\\begin{center}Heights of the tides the keeper wrote in the ledger by the\\\\lamp.\\end{center}\n"
+        + (filler * 4).strip() + "\n\\[ z = b \\]\n"
+        + (filler * 4).strip() + "\n"
+        "\\end{document}\n", encoding="utf-8")
+    built = subprocess.run(["latexmk", "-pdf", "-synctex=1", "-interaction=nonstopmode", "paper.tex"],
+                           cwd=tmp_path, capture_output=True, text=True, timeout=120)
+    assert built.returncode == 0, built.stdout[-2000:]
+
+    short = layout.check(tmp_path / "paper.pdf", tmp_path).get("short_lines", [])
+    assert [(line["text"], line["source"]) for line in short] == [("lamp.", "paper.tex:3")]
