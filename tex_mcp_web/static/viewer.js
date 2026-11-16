@@ -3597,6 +3597,8 @@ function renderActiveForm(comment) {
       } catch (error) {
         alert(`Saved, but comments could not be refreshed: ${error.message}`);
       }
+      // The box is gone with what was typed in it: the keys go back to the list.
+      $("#comments-list").focus({ preventScroll: true });
       return;
     }
     submitting = false;

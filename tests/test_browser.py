@@ -1970,8 +1970,9 @@ def test_each_comment_tab_opens_on_what_waits_for_the_reviewer(tmp_path: Path) -
         turned = post_suggested(base, shared, {"anchor": anchor(12), "text": "Shorten it."}, "Sentence 10 ", "Line 10 ")
         show_view(browser, "todo")
         wait_until(lambda: listed() == [turned["id"]])
-        assert script('return [...document.querySelectorAll("#comments-list .sugg-actions button")].map((b) => b.textContent)') \
-            == ["Reject", "Apply suggestion"]
+        # The card is listed a moment before its suggestion is drawn on it.
+        wait_until(lambda: script('return [...document.querySelectorAll("#comments-list .sugg-actions button")].map((b) => b.textContent)')
+                   == ["Reject", "Apply suggestion"])
         # nn presses Reject on the ringed card, as aa presses Apply suggestion.
         script(f'document.querySelector(\'[data-comment-id="{turned["id"]}"] .cmt-head\')'
                '.dispatchEvent(new MouseEvent("mousedown", {bubbles: true}))')
@@ -3980,6 +3981,10 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
         click(".cmt-form-submit")
         wait_until(lambda: browser.execute_script('return document.body.textContent.includes("Stays here.")'), timeout=15)
         assert fake.written == []
+        # The box is gone once its reply is sent, and the keys are the list's again.
+        wait_until(lambda: browser.execute_script(
+            'return document.querySelector(".cmt-form-input:not(.overleaf-reply-input)") === null'
+            ' && document.activeElement.id === "comments-list"'))
         assert "private" in text("[data-comment-id] .cmt-thread .entry-overleaf.here")
         # The reviewer edits the draft and sends it, to everyone in the project. Sending and
         # syncing take a moment, here made longer, and their buttons show the work under way
