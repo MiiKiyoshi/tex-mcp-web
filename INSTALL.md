@@ -4,13 +4,19 @@ This file is for the agent the user asked to install tex-mcp-web. Fetch it with
 `curl -fsSL`, since a summarizing fetch drops the commands. Inspect first, show one summary,
 install after the user agrees. On a machine that already has it, the same steps update it.
 
+The commands are written for a POSIX shell. On another system, Windows included, run what
+they do in that system's own terms: its shell, its home folder, and the virtual
+environment's `Scripts` folder where the commands say `bin`.
+
 ## 1. Inspect (change nothing)
 
 - Python 3.10 or newer (the `mcp` package has no release for older ones): `python3 --version`.
   When older, `command -v python3.13 python3.12 python3.11 python3.10`. None: stop and tell
   the user. Use the one found as `python3` below.
-- LaTeX: `command -v latexmk`, and record its directory. Missing: tell the user a TeX
-  distribution is needed and stop. Do not install one.
+- LaTeX: `command -v latexmk`, and record its directory. Missing: name the TeX distribution
+  that fits this system and the command that installs it, as TeX Live on Linux, MacTeX on
+  macOS, MiKTeX or TeX Live on Windows, and install it only when the user says to. Go on
+  once `latexmk` is found.
 - Install directory: `$HOME/.local/share/tex-mcp-web`, unless the user named another.
   Note whether it already holds a checkout.
 - Agents: `command -v claude` and `command -v codex`. Register with each one found.
