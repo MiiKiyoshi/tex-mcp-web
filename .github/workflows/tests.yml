@@ -22,14 +22,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends latexmk texlive-latex-base
       - name: Python packages
-        run: pip install -e ".[dev]" marionette_driver
+        run: pip install -e ".[dev]"
       - name: Tests
         run: |
-          firefox --version
+          google-chrome --version
           python -m pytest -o addopts="" -q
 
-  # The page's users are on Windows and macOS too. The browser tests and the ones that
-  # build a paper stay on Linux, where Firefox and LaTeX are installed above.
+  # The page's users are on Windows and macOS too. The tests that build a paper stay on
+  # Linux, where LaTeX is installed above.
   other-systems:
     runs-on: ${{ matrix.os }}
     strategy:
@@ -44,4 +44,4 @@ jobs:
       - name: Python packages
         run: pip install -e ".[dev]"
       - name: Tests
-        run: python -m pytest -o addopts="" -q --ignore=tests/test_browser.py
+        run: python -m pytest -o addopts="" -q
