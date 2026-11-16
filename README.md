@@ -180,15 +180,9 @@ office, [Tailscale](https://tailscale.com/docs/how-to/connect-to-devices) is the
 installed on the server and on your computer, it gives the server a name that reaches it
 from anywhere. Put that name in `HostName`, and the steps above stay the same.
 
-From a phone, forward the port the same way, with Termux on Android or Termius on iOS, then
-open `http://localhost:<port>` in the phone's browser:
-
-```
-ssh -L <port>:localhost:<port> <the machine the agent runs on>
-```
-
-In Termius the same forward is a Local rule in its Port Forwarding screen. With the page token
-on, open the link `tex-mcp-web link` prints on that machine instead, once.
+A phone takes the same two steps. Termux on Android reads the same `~/.ssh/config`, and in
+Termius on iOS the forward is a Local rule in its Port Forwarding screen. With the page token
+on, open the link `tex-mcp-web link` prints on the server instead, once.
 
 ## Writes by your rules, in your field's terms
 
