@@ -740,6 +740,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         until: Annotated[str | None, Field(description="A time this server printed; a search looks only at what came up to that minute.")] = None,
         find: Annotated[str | None, Field(description="Words a search looks for, case ignored, in what was said in a thread and in its draft for Overleaf.")] = None,
         on_overleaf: Annotated[bool | None, Field(description="true: only threads from Overleaf or started for it. false: only the page's own, private throughout. Left out: both. For a listing or a search.")] = None,
+        file: Annotated[str | None, Field(description="A source file's name or path, like 'intro.tex' or 'tex/intro.tex'; only the threads on it. For a listing or a search.")] = None,
         limit: Annotated[int, Field(ge=1, le=200)] = 50,
         save: bool = False,
     ) -> str:
@@ -779,7 +780,8 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         first few as a count in ``more_matches``: ask for the thread by id to read it whole.
         Each bound and the words may be left out, and status="all" searches closed threads
         too. ``on_overleaf`` keeps a listing or a search to Overleaf's threads or to the
-        page's own, which are private throughout. Times read and are written back as ``MM-DD HH:MM`` on this server's
+        page's own, which are private throughout. ``file`` keeps either to the threads on one
+        source file, each with the lines it is on in ``source``. Times read and are written back as ``MM-DD HH:MM`` on this server's
         clock.
         ``save`` needs ids; edit only the draft's Reply and Edit blocks.
         """
@@ -792,6 +794,9 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             return _err(str(error))
         if (find is not None or until is not None) and (new or ids is not None or save):
             return _err("find and until search on their own; they take no new, ids or save")
+
+        if file is not None and (new or ids is not None or save):
+            return _err("file narrows a listing or a search; it takes no new, ids or save")
 
         if new:
             if ids is not None or save:
@@ -876,6 +881,10 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             """Whether the comment is on the side asked for: Overleaf's threads and those
             started or drafted for it, as the page's leaf tab lists them, or the page's own."""
             there = comment.id in brought or comment.for_overleaf or comment.overleaf_draft is not None
+            source = comment.resolved_source
+            # A bare name finds the file in whatever folder it is.
+            if file is not None and (source is None or not f"/{source.file}".endswith(f"/{file.lstrip('./')}")):
+                return False
             return on_overleaf is None or on_overleaf == there
 
         if find is not None or until is not None:
@@ -949,6 +958,8 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                 "request": request[:REQUEST_PREVIEW] + "…" if len(request) > REQUEST_PREVIEW else request,
                 "thread_entries": len(comment.thread),
                 "last_human_at": short_time(human.at) if human is not None else None,
+                **({"source": f"{comment.resolved_source.file}:{comment.resolved_source.line_start}-"
+                              f"{comment.resolved_source.line_end}"} if file is not None else {}),
             })
         # The newest threads, still in the order the paper reads in: a cap that dropped
         # them would hide exactly the requests the reviewer has just written.
