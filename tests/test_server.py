@@ -3749,3 +3749,70 @@ async def test_completions_list_what_the_paper_defines(client, project):
     assert data["bib_files"] == ["refs.bib"]
     assert data["graphics"] == ["fig/flow.pdf"]
 
+
+
+@pytest.mark.asyncio
+async def test_the_monitor_ends_a_replaced_waiter_and_the_request_it_waits_on(tmp_path):
+    """A waiter sits in a read of its request's answer, where a shell does not act on a
+    signal, and the request under its subshell holds that read open: the monitor ends all
+    three, so that no waiter of an earlier listen() is left asking the page."""
+    import os
+    import subprocess
+
+    # Lengths no other run sleeps for: one left over from a run that failed is not this one's.
+    first, second = f"61.{os.getpid()}", f"62.{os.getpid()}"
+    cache = tmp_path / "cache"
+    directory = cache / "tex-mcp-web" / "monitor"
+    session = await asyncio.create_subprocess_exec("sleep", "60")
+    monitor = await asyncio.create_subprocess_exec(
+        "sh", str(Path(__file__).parents[1] / "plugin" / "monitors" / "review.sh"), str(session.pid),
+        stdout=asyncio.subprocess.PIPE, env={**os.environ, "XDG_CACHE_HOME": str(cache)})
+
+    def sleeping(seconds: str) -> bool:
+        rows = subprocess.run(["ps", "-eo", "args="], capture_output=True, text=True).stdout.splitlines()
+        return f"sleep {seconds}" in [row.strip() for row in rows]
+
+    def alive(pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        return True
+
+    async def hand(name: str, seconds: str) -> int:
+        """Run a waiter shaped as the real one is, a loop whose answer comes through a
+        pipeline in $(...), and return its pid."""
+        script = tmp_path / f"{name}.sh"
+        script.write_text(f"#!/bin/sh\necho $$ > {tmp_path / name}.pid\n"
+                          f"while :; do out=$(printf x | sleep {seconds}); done\n")
+        script.chmod(0o755)
+        (directory / f"{session.pid}.command.new").write_text(f"{name}\n{script}\n")
+        (directory / f"{session.pid}.command.new").replace(directory / f"{session.pid}.command")
+        for _ in range(50):
+            if sleeping(seconds):
+                return int((tmp_path / f"{name}.pid").read_text())
+            await asyncio.sleep(0.1)
+        raise AssertionError(f"{name} did not start")
+
+    try:
+        for _ in range(50):
+            if (directory / f"{session.pid}.monitor").exists():
+                break
+            await asyncio.sleep(0.1)
+        old = await hand("first", first)
+        new = await hand("second", second)
+        for _ in range(30):
+            if not alive(old) and not sleeping(first):
+                break
+            await asyncio.sleep(0.1)
+        assert not alive(old) and not sleeping(first)
+        assert alive(new) and sleeping(second)
+    finally:
+        session.kill()
+        await session.wait()
+        await asyncio.wait_for(monitor.wait(), 10)
+    for _ in range(30):
+        if not alive(new) and not sleeping(second):
+            break
+        await asyncio.sleep(0.1)
+    assert not alive(new) and not sleeping(second)

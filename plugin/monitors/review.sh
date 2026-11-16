@@ -31,8 +31,15 @@ done
 child=
 current=
 stop_child() {
-  # The waiter's own children first, as they lose their parent once it ends.
-  [ -n "$child" ] && { pkill -TERM -P "$child" 2>/dev/null; kill -TERM "$child" 2>/dev/null; }
+  # The waiter first: a shell acts on the signal only once its read of the page's answer
+  # returns, so the signal has to be waiting by then, or the waiter asks the page again.
+  # Then what holds that read open, the request under the waiter's subshell, then the subshell.
+  [ -n "$child" ] && {
+    kids=$(pgrep -P "$child")
+    kill -TERM "$child" 2>/dev/null
+    for kid in $kids; do pkill -TERM -P "$kid" 2>/dev/null; done
+    pkill -TERM -P "$child" 2>/dev/null
+  }
   child=
 }
 trap 'stop_child; rm -f "$dir/$session.monitor" "$dir/$session.command"' EXIT
