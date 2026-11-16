@@ -5,7 +5,7 @@ place of the one it ran before, and passes on what the waiter prints. It ends wi
 session's Claude Code process, and at once where none is above it, since nothing can then
 hand it a waiter.
 
-Run as ``python -m tex_mcp_web.monitor [session pid]``.
+Run as ``python -m tex_mcp_web.monitor [session pid | --from pid]``.
 """
 
 from __future__ import annotations
@@ -44,7 +44,11 @@ def _end(child: subprocess.Popen | None) -> None:
 
 def main(argv: list[str] | None = None) -> None:
     args = sys.argv[1:] if argv is None else argv
-    session = int(args[0]) if args else plugin_monitor.claude_pid()
+    if args[:1] == ["--from"]:
+        # The process to look up from, where this one's own parents do not lead there.
+        session = plugin_monitor.session_of(int(args[1]))
+    else:
+        session = int(args[0]) if args else plugin_monitor.claude_pid()
     if session is None:
         return
     directory = plugin_monitor.DIRECTORY

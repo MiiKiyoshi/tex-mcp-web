@@ -30,7 +30,9 @@ def _parent_and_name(pid: int) -> tuple[int, str] | None:
 
 def claude_pid() -> int | None:
     """The nearest process above this one named claude, unless a codex comes first."""
-    return session_of(os.getppid())
+    # From this process, not its parent: on Windows an environment's Python runs the real
+    # one under it, and the walk passes over both.
+    return session_of(os.getpid())
 
 
 def session_of(pid: int) -> int | None:

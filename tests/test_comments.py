@@ -1074,3 +1074,14 @@ def test_a_process_that_is_gone_has_no_session_above_it() -> None:
     ended = subprocess.Popen([sys.executable, "-c", "pass"], stdin=subprocess.DEVNULL)
     ended.wait()
     assert plugin_monitor.session_of(ended.pid) is None
+
+
+def test_the_monitor_looks_for_its_session_from_the_process_it_is_told(monkeypatch) -> None:
+    """Where a monitor's own parents do not lead to Claude Code, its launcher names a process
+    that does, and with no session above that one the monitor ends at once."""
+    from tex_mcp_web import monitor, plugin_monitor
+
+    asked = []
+    monkeypatch.setattr(plugin_monitor, "session_of", lambda pid: asked.append(pid))
+    monitor.main(["--from", "4242"])
+    assert asked == [4242]
