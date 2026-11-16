@@ -153,9 +153,33 @@ the ringed comment's buttons show their letters. Every key, and the editor's Vim
   <img alt="The review page at a tablet's width and at a phone's, each on the same comment: the PDF above, zoomed to the commented sentence, and the thread with the agent's proposal below." src="docs/images/mobile.png">
 </picture>
 
-The page is served where the agent runs. From a phone, forward its port over SSH from that
-machine, with Termux on Android or Termius on iOS, then open `http://localhost:<port>` in the
-phone's browser:
+The page is served where the agent runs. When that is a server you reach over SSH, forward
+the page's port to your own computer. On Windows, macOS and Linux alike, name the server once
+in `~/.ssh/config` (on Windows `C:\Users\<you>\.ssh\config`), with the port `do tex init`
+wrote into `.tex-mcp-web.yaml`:
+
+```
+Host paper-server
+    HostName server.example.org
+    User you
+    LocalForward 8765 127.0.0.1:8765
+```
+
+Then, each time you work:
+
+1. Run `ssh paper-server` in a terminal. The forward is up for as long as that connection
+   stays open.
+2. Open `http://localhost:8765` in your computer's browser.
+
+A paper on another port takes another `LocalForward` line.
+
+When the server sits behind a network you cannot reach from outside, as at home or in an
+office, [Tailscale](https://tailscale.com/docs/how-to/connect-to-devices) is the easy way in:
+installed on the server and on your computer, it gives the server a name that reaches it
+from anywhere. Put that name in `HostName`, and the steps above stay the same.
+
+From a phone, forward the port the same way, with Termux on Android or Termius on iOS, then
+open `http://localhost:<port>` in the phone's browser:
 
 ```
 ssh -L <port>:localhost:<port> <the machine the agent runs on>

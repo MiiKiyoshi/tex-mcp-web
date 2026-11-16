@@ -814,10 +814,10 @@ function openCompose(anchor, label, heading = null, forOverleaf = false) {
   state.pendingSourceRevision = anchor.kind === "source_range" ? state.sourceRevision : null;
   state.pendingHeading = heading;
   state.pendingForOverleaf = forOverleaf;
-  $("#compose-title").textContent = forOverleaf ? "New thread on Overleaf" : "New comment";
+  $("#compose-title").textContent = forOverleaf ? "New public thread on Overleaf" : "New private comment";
   $("#compose-text").placeholder = forOverleaf
-    ? "tell the agent what to say on Overleaf; it drafts the message, and you send it…"
-    : "leave a comment for the coding agent…";
+    ? "a private note: tell the agent what to say on Overleaf; it drafts the public message, and you send it…"
+    : "leave a private comment for the coding agent…";
   $("#compose-anchor").textContent = label;
   $("#compose-text").value = "";
   $("#compose-dialog").showModal();
@@ -3271,7 +3271,7 @@ function renderOverleafReply(comment) {
   const draft = comment.overleaf_draft;
   const textarea = h("textarea", {
     class: "cmt-form-input overleaf-reply-input", rows: 3,
-    placeholder: draftedThread(comment) ? "The thread's first message on Overleaf, for everyone in the project…"
+    placeholder: draftedThread(comment) ? "The thread's first public message on Overleaf, for everyone in the project…"
       : "Public reply on Overleaf, for everyone in the project…",
   });
   textarea.value = overleafReplyText(comment);
@@ -3499,7 +3499,7 @@ function actionButtons(comment) {
     ];
   }
   if (comment.status !== "resolved") {
-    buttons.push(actionButton("cmt-reply", "Reply", () => setActiveForm(comment.id, "reply")));
+    buttons.push(actionButton("cmt-reply", "Reply privately", () => setActiveForm(comment.id, "reply")));
   }
   if (comment.status !== "open") {
     buttons.push(actionButton("cmt-reopen", "Reopen", () => mutateAndRefresh(comment.id, "reopen", {})));
@@ -3541,7 +3541,7 @@ async function closeComment(commentId, action, key) {
 }
 
 const FORM_CONFIG = {
-  reply: { placeholder: "Reply…", key: "text", label: "Post reply" },
+  reply: { placeholder: "Private reply, for you and the agent…", key: "text", label: "Post reply" },
 };
 
 function renderActiveForm(comment) {
@@ -4519,7 +4519,7 @@ const COMMENT_KEYS = [
       + "K there, Ctrl+Alt+K without Vim keys, comes back", run: () => enterSource() },
   ]],
   ["Write", [
-    { keys: ["r"], does: "Reply here, where the agent reads it and Overleaf does not", button: ["cmt-reply"],
+    { keys: ["r"], does: "Reply privately, where the agent reads it and Overleaf does not", button: ["cmt-reply"],
       run: () => pressCard(".cmt-reply") },
     { keys: ["i"], does: "Write its reply for Overleaf", marks: ".cmt-overleaf", run: () => writeForOverleaf() },
     { keys: ["e"], does: "Edit the last thing you wrote in it, here or on Overleaf", marks: ".cmt-edit", run: () => pressCard(".cmt-edit") },

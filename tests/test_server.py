@@ -1431,6 +1431,17 @@ async def test_mcp_drafts_an_overleaf_reply_only_on_a_thread_from_overleaf(bound
     store.reply(own.id, text="And this?", author="human")
     assert [c["id"] for c in (await call("read_comments", new=True))["comments"]] == [own.id]
     assert store.get(brought.id).overleaf_draft.text == "Fixed it better."
+    # An entry is public when it carries name, written on Overleaf, or overleaf, sent there,
+    # with or without a commit to name. Every other entry is private, the agent's own too.
+    store.sent_to_overleaf(brought.id, "Sent with no commit.", "")
+    whole = (await call("read_comments", ids=[brought.id]))["comments"][0]
+    public = lambda entry: "name" in entry or "overleaf" in entry
+    assert (whole["on_overleaf"], whole["comment"]) == (True, "Which words?")
+    assert [(entry["text"], public(entry)) for entry in whole["replies"]] == [
+        ("Explain it to me, not in the draft.", False), ("It names the cited words.", False),
+        ("Sent with no commit.", True)]
+    mine = (await call("read_comments", ids=[own.id]))["comments"][0]
+    assert "on_overleaf" not in mine and not any(public(entry) for entry in mine.get("replies", []))
 
 
 @pytest.mark.asyncio

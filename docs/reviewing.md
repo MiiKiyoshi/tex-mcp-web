@@ -66,12 +66,12 @@ last line of the PDF. Running heads and page numbers are left out.
   away.
 - What you wrote in a thread carries **Edit** and **Delete**. **Delete** on a thread's first
   message deletes the thread.
-- **Resolve** a thread whose edit satisfies you, or **Reply** in it when it does not.
+- **Resolve** a thread whose edit satisfies you, or **Reply privately** in it when it does not.
   **Archive** sets a thread aside, and it still takes replies.
 - A proposed edit shows as the source lines the agent would change, as a −/+ pair, and the
   Source tab marks the same text in red. **Apply suggestion** writes the change into the
   file. **Reject** takes the proposal off the card, leaves the file as it is, and notes in
-  the thread what was turned down. Say why in a **Reply**. Your next **Call agent** tells
+  the thread what was turned down. Say why in a private reply. Your next **Call agent** tells
   the agent once which of the two you did. Proposing again replaces the proposal.
 - A comment on source text follows the file's edits as a comment on Overleaf does: text
   inserted before it moves it, inside it widens it, words written over its words take it,
@@ -98,7 +98,7 @@ typing.
 | Space | Open or close the card, and show where the comment is in the PDF or the source, its line a third of the way down the editor |
 | Shift+Space | Open or close every card |
 | `K`, Ctrl+Alt+K | Go into the source at the comment's words, the keys going with the cursor. `K` in the editor, or Ctrl+Alt+K without Vim keys, comes back |
-| `r` | Reply here, where the agent reads it and Overleaf does not |
+| `r` | Reply privately, where the agent reads it and Overleaf does not |
 | `i` | Write the thread's reply for Overleaf |
 | `e` | Edit the last thing you wrote in the thread, here or on Overleaf |
 | `c` | Add a paper note |

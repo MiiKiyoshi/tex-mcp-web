@@ -702,8 +702,8 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             "without an edit, on a thread from Overleaf too. "
             "What is said in a thread is private or public. A private entry stays on the review "
             "page, for the reviewer and you: your replies, your suggestions and what the reviewer "
-            "writes here. A public entry is on Overleaf, for everyone in the project. Nothing you "
-            "write is public: write_comments with action=\"overleaf\" drafts what should be, and "
+            "writes here. A public entry is on Overleaf, for everyone in the project. You send "
+            "nothing public: write_comments with action=\"overleaf\" drafts what should be, and "
             "only the reviewer sends it. "
             "After replying, write in chat only what no thread carries, such as a failed tool or a choice left to the user, not the replies or the edits they report. Call listen() when the user asks to listen and follow "
             "how. Do not poll or duplicate it. Unacknowledged presses stay queued. "
@@ -762,8 +762,9 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         A thread from Overleaf comes marked on_overleaf, and one the reviewer started for
         Overleaf and not yet sent there new_thread, with the draft for Overleaf when there is one.
         An entry is public, on Overleaf for everyone in the project, when it carries ``name``,
-        written there, or ``overleaf``, sent there from the page. Every other entry is
-        private, for the reviewer and you, and so is every entry of a thread not on Overleaf.
+        written there, or ``overleaf``, sent there from the page, and so is ``comment``, the
+        first message, of a thread marked on_overleaf. Every other entry is private, for the
+        reviewer and you, and so is everything in a thread not on Overleaf.
 
         ``ids`` gives those threads whole, which is what to ask for when the conversation
         is no longer in mind; with ``since`` it gives only the entries after that time.
@@ -1068,7 +1069,9 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         entry: str | None = None,
         rev: str | None = None,
     ) -> str:
-        """Write to a comment thread.
+        """Write to a comment thread. What you write is private, on the review page for the
+        reviewer and you. overleaf drafts what becomes public, on Overleaf for everyone in the
+        project, once the reviewer sends it.
 
         add: text, anchor, and changes, quoted as for suggest, when the reviewer has asked
         for proposals left as comments: the thread opens carrying that proposal. reply: id,
@@ -1080,18 +1083,18 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         opening your own beside it. withdraw: id, text, rev. overleaf: id, text, rev, and
         edits naming the source ranges the reply
         describes, as their lines are now: later edits move them as they move a comment, so
-        a draft is not written again when lines shift. On a thread that came from Overleaf (on_overleaf), it puts the reply the
+        a draft is not written again when lines shift. On a thread that came from Overleaf (on_overleaf), it drafts the public reply the
         reviewer may send there: a thread holds one draft, which this replaces, and only
         the reviewer sends it, asked first when a file those ranges are in is not the same
         here as on Overleaf. The draft is public once sent, so it is worded for the people on
         Overleaf. What the reviewer asks you in the thread is answered with reply, which is
         private. With anchor, a source_range, instead of id and rev, overleaf drafts a
-        new thread for Overleaf on those lines, text being its first message: a thread with
+        new public thread for Overleaf on those lines, text being its first message: a thread with
         that draft and not on Overleaf, which id and rev then redraft and only the reviewer
         sends, once what those ranges now hold is on Overleaf. The reviewer may talk the draft
         over with you in the thread before sending it, and those entries are private. A thread
         the reviewer started for Overleaf (new_thread) waits for its first message there: what
-        they wrote is for you, and overleaf with id and rev drafts the message they asked for,
+        they wrote is private, for you, and overleaf with id and rev drafts the message they asked for,
         in their words' meaning and the register they asked for. edit: id,
         entry, text, rev, rewriting an entry you wrote. delete: id,
         refused once the reviewer has written in the thread.

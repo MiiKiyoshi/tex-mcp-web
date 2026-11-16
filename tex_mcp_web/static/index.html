@@ -101,7 +101,7 @@
           <!-- Pressed, a comment on the selected source text starts a thread for Overleaf: what is
                written is for the agent, which drafts the thread's first message there. Shown
                once the paper names its Overleaf project. -->
-          <button id="source-leaf-btn" type="button" hidden aria-pressed="false" title="Comments from here start a thread on Overleaf" aria-label="Comments from here start a thread on Overleaf"><svg class="leaf-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 13C3 7 7 3 13 3c0 6-4 10-10 10z"/><path d="M3 13l6-6"/></svg></button>
+          <button id="source-leaf-btn" type="button" hidden aria-pressed="false" title="Comments from here start a public thread on Overleaf" aria-label="Comments from here start a public thread on Overleaf"><svg class="leaf-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 13C3 7 7 3 13 3c0 6-4 10-10 10z"/><path d="M3 13l6-6"/></svg></button>
           <button id="source-pdf-btn" type="button" disabled title="Select source text to show it in the Preview (Ctrl+Alt+P, gs with Vim keys)" aria-label="Select source text to show it in the Preview (Ctrl+Alt+P, gs with Vim keys)"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button>
           <button id="source-reload-btn" type="button" disabled title="Reload the file from disk" aria-label="Reload the file from disk"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 2.6-6.4L3 8"/><path d="M3 3v5h5"/></svg></button>
           <button id="source-save-btn" type="button" disabled title="Save (Ctrl+S)" aria-label="Save (Ctrl+S)"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg></button>
@@ -171,7 +171,7 @@
           </button>
           <!-- Shown in the leaf Comments tab: each picked thread sends what its reply box holds
                to its own thread on Overleaf. -->
-          <button id="send-picked-btn" class="icon-btn" type="button" hidden disabled aria-label="Send to Overleaf" title="Send the picked replies to Overleaf">
+          <button id="send-picked-btn" class="icon-btn" type="button" hidden disabled aria-label="Send to Overleaf" title="Send the picked public replies to Overleaf">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2L7 9"/><path d="M14 2l-4.5 12L7 9 2 6.5z"/></svg>
             <svg class="leaf-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 13C3 7 7 3 13 3c0 6-4 10-10 10z"/><path d="M3 13l6-6"/></svg>
             <span class="count"></span>
@@ -333,9 +333,9 @@
 
 <dialog id="compose-dialog">
   <form method="dialog" id="compose-form">
-    <h3 id="compose-title">New comment</h3>
+    <h3 id="compose-title">New private comment</h3>
     <p id="compose-anchor" class="compose-anchor"></p>
-    <textarea id="compose-text" rows="4" required placeholder="leave a comment for the coding agent…"></textarea>
+    <textarea id="compose-text" rows="4" required placeholder="leave a private comment for the coding agent…"></textarea>
     <div class="dialog-actions">
       <button type="button" id="compose-cancel">Cancel</button>
       <button type="submit" id="compose-submit">Post</button>

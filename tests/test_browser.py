@@ -2694,12 +2694,12 @@ def test_archived_threads_have_their_own_view_and_picked_archive_action(tmp_path
               return buttons.length ? [card.querySelector(".cmt-status").textContent, buttons] : false;
             '''))
 
-        assert expanded_actions(kept) == ["[archived]", ["Reply", "Reopen", "Resolve", "Delete"]]
+        assert expanded_actions(kept) == ["[archived]", ["Reply privately", "Reopen", "Resolve", "Delete"]]
 
         # An open card calls the action Archive, and the archive-box button moves only the
         # picked thread while leaving the other open thread alone.
         assert shown("open", [working, untouched]) == [working, untouched]
-        assert expanded_actions(working) == ["[open]", ["Reply", "Resolve", "Archive", "Delete"]]
+        assert expanded_actions(working) == ["[open]", ["Reply privately", "Resolve", "Archive", "Delete"]]
         browser.execute_script(f'''
           document.querySelector("[data-comment-id='{working}'] .comment-pick").click();
         ''')
@@ -3156,6 +3156,24 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
             ' return [s.textDecorationLine, s.borderTopWidth, s.backgroundColor, s.fontSize]; };'
             f' return [".cmt-edit", ".entry-delete"].map((name) => look({mine}.querySelector(name)));') \
             == [["underline", "0px", "rgba(0, 0, 0, 0)", "10.5px"]] * 2
+        # Each entry says who reads it: public on Overleaf, written there or sent there, and
+        # private in a comment written here, where the line still fits a narrow panel with
+        # its Edit and Delete.
+        marks = lambda card: browser.execute_script(
+            f'return [...{card}.querySelectorAll(".thread-meta .entry-overleaf")].map((mark) => mark.textContent)')
+        assert marks(mine) == ["public", "public"]
+        browser.execute_script('document.querySelector(\'.tab-btn[data-tab="comments"]\').click()')
+        show_view(browser, "open")
+        here = 'document.querySelector("#comments-list .cmt")'
+        wait_until(lambda: browser.execute_script(f'return {here} !== null'))
+        browser.execute_script(f'if (!{here}.querySelector(".thread-meta")) {here}.querySelector(".cmt-head").click()')
+        wait_until(lambda: browser.execute_script(f'return {here}?.querySelector(".thread-meta .entry-delete") != null'))
+        assert set(marks(here)) == {"private"}
+        browser.execute_script('document.querySelector(".layout").style.setProperty("--tex-mcp-sidebar-width", "240px")')
+        assert browser.execute_script(
+            f'const card = {here}.getBoundingClientRect();'
+            f' return [...{here}.querySelectorAll(".thread-meta")].every((meta) => [...meta.children].every((part) =>'
+            ' part.getBoundingClientRect().right <= card.right + 0.5 && part.getBoundingClientRect().left >= card.left));') is True
     finally:
         if browser is not None:
             try:
@@ -4214,7 +4232,7 @@ def test_the_leaf_beside_comment_starts_a_thread_for_overleaf(tmp_path: Path, mo
         script('document.querySelector("#source-comment-btn").click()')
         wait_until(lambda: script('return document.querySelector("#compose-dialog").open'))
         assert script('return [document.querySelector("#compose-title").textContent,'
-                      ' document.querySelectorAll("#compose-form textarea").length]') == ["New thread on Overleaf", 1]
+                      ' document.querySelectorAll("#compose-form textarea").length]') == ["New public thread on Overleaf", 1]
         script('const box = document.querySelector("#compose-text"); box.value = "ask if hello is too short, politely";'
                ' box.dispatchEvent(new Event("input", {bubbles: true}));'
                ' document.querySelector("#compose-form").requestSubmit();')
