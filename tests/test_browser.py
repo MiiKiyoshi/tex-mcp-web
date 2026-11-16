@@ -46,6 +46,8 @@ def type_keys(browser, keys):
             actions.key_down("\ue007").key_up("\ue007")
         else:
             actions.key_down(key).key_up(key)
+        # Keys come one after the other as a hand presses them, not all in one instant.
+        actions.pause(15)
     actions.perform()
 
 def show_view(browser, view: str) -> None:
@@ -1359,6 +1361,10 @@ def test_browser_source_selection_and_split_resize(tmp_path: Path) -> None:
         # gc comments on what a motion covers: gcc the line the cursor is on, gcj that line
         # and the next. The editor has the keys back once the comment is dropped.
         for keys, label in (("ggjgcc", "Source: paper.tex:2-2"), ("gggcj", "Source: paper.tex:1-2")):
+            # The keys are the editor's once the line that took :w has closed.
+            wait_until(lambda: browser.execute_script(
+                'return document.activeElement === (window.ace.edit("source-editor").textInput.getElement())'
+                ' && !document.querySelector("#source-editor .ace_dialog, #source-editor .cm-vim-message")'))
             type_keys(browser, [*keys])
             wait_until(lambda: browser.execute_script('return document.querySelector("#compose-dialog").open'))
             assert browser.execute_script('return document.querySelector("#compose-anchor").textContent') == label
