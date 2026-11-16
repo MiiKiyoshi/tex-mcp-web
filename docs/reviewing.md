@@ -45,7 +45,7 @@ agent look at one list.
 
 The bibliography is known by its `.bbl` file, through SyncTeX, at the paper's end. A paper
 that sets its references otherwise, or puts an appendix after them, has its body end at the
-last line of the PDF. Running heads and page numbers are left out.
+last line of the PDF. Running heads, page numbers and the words inside an included picture are left out.
 
 ## Threads
 

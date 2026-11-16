@@ -9,6 +9,7 @@ places in a ``.bbl`` file. A paragraph's last line is a line that starts at its 
 or set in from it as a list item's is, under a line reaching the column's right edge, and it is short when narrower than ``SHORT_LINE`` of the column.
 In centered text, as a table's caption, it is a line centered in its column under a wider
 centered line that takes at least ``CENTERED_ABOVE`` of the column and stops short of both edges.
+The words inside an included picture are left out.
 """
 
 from __future__ import annotations
@@ -209,6 +210,15 @@ def check(pdf_path: Path, watch_dir: Path) -> dict[str, Any]:
         placed = selection_to_source_range(pdf_path, line.page, [line.rect], watch_dir)
         return f"{placed[0]}:{placed[1]}" if placed is not None else None
 
+    def pictured(line: Line) -> bool:
+        """Whether the line is a picture's own words: SyncTeX places it at the source line
+        that includes the picture."""
+        file, _, number = (source(line) or "").rpartition(":")
+        try:
+            return "\\includegraphics" in (watch_dir / file).read_text(encoding="utf-8", errors="replace").splitlines()[int(number) - 1]
+        except (OSError, ValueError, IndexError):
+            return False
+
     report: dict[str, Any] = {}
     start = _bibliography_start(lines, lambda line: (source(line) or "").rpartition(":")[0].endswith(".bbl"))
     body = lines if start is None else lines[:start]
@@ -239,13 +249,13 @@ def check(pdf_path: Path, watch_dir: Path) -> dict[str, Any]:
                         and (above.x1 - above.x0) / (right - left) >= CENTERED_ABOVE)
             if not (((full and line.x0 <= left + INDENT * line.size) or centered) and share < SHORT_LINE):
                 continue
-            # A bibliography's entries are set in as a list's items are, and are not the body's
+            # A picture's labels are not the paper's text. A bibliography's entries are set in as a list's items are, and are not the body's
             # to shorten, wherever in the paper the bibliography is: lines SyncTeX places in a
             # .bbl file, or set in under a line that starts with a number in brackets.
             head = at - 1
             while head > 0 and abs(column[head].x0 - line.x0) <= EDGE:
                 head -= 1
-            if ((source(line) or "").rpartition(":")[0].endswith(".bbl")
+            if (pictured(line) or (source(line) or "").rpartition(":")[0].endswith(".bbl")
                     or (line.x0 > left + EDGE and re.match(r"\[\d+\]", column[head].text))):
                 continue
             short.append((line, share))

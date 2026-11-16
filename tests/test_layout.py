@@ -134,3 +134,24 @@ def test_a_centered_caption_and_a_list_item_end_short_and_an_equation_and_a_refe
     short = layout.check(tmp_path / "paper.pdf", tmp_path).get("short_lines", [])
     # A list item's last line counts as a paragraph's does, and a bibliography entry's does not.
     assert [(line["text"], line["source"]) for line in short] == [("lamp.", "paper.tex:3"), ("Item.", "paper.tex:7")]
+
+
+def test_the_words_inside_an_included_picture_are_not_a_short_line(tmp_path: Path) -> None:
+    """A picture's labels can sit one under the other in the middle of the column, as a
+    centered caption's lines do, and are not the paper's to shorten."""
+    with pymupdf.open() as picture:
+        page = picture.new_page(width=300, height=40)
+        for words, base in (("wire delay and the load slew of every net", 15), ("load", 27)):
+            page.insert_text(((300 - pymupdf.get_text_length(words, fontsize=10)) / 2, base), words, fontsize=10)
+        picture.save(tmp_path / "picture.pdf")
+    filler = "The harbour keeps a ledger of every tide that the keeper has seen since the lamp was lit. "
+    (tmp_path / "paper.tex").write_text(
+        "\\documentclass{article}\n\\usepackage{graphicx}\n\\begin{document}\n"
+        + (filler * 4).strip() + "\n\n"
+        "\\noindent\\includegraphics[width=\\linewidth]{picture.pdf}\n\n"
+        + (filler * 4).strip() + "\n\\end{document}\n", encoding="utf-8")
+    built = subprocess.run(["latexmk", "-pdf", "-synctex=1", "-interaction=nonstopmode", "paper.tex"],
+                           cwd=tmp_path, capture_output=True, text=True, timeout=120)
+    assert built.returncode == 0, built.stdout[-2000:]
+
+    assert "short_lines" not in layout.check(tmp_path / "paper.pdf", tmp_path)
