@@ -53,12 +53,10 @@ apply or reject. The keys at the bottom right are the ones pressed.
    folder, one you have or one you ask the agent to make. It finds the main `.tex` file
    and a free port, shows you the settings, and writes `.tex-mcp-web.yaml` once you agree.
 
-3. Open `http://localhost:<port>`. On a machine other people log in to, say yes to the page
-   token at `do tex init`, and open the link `tex-mcp-web link` prints once in each browser.
-   The agent acts when you press **Call agent**. With the plugin the install adds, a Claude
-   Code session started in that folder waits for that press by itself. In Codex, or in
-   an older Claude Code that does not support plugin monitors, say `do tex listen` first, and
-   again after the agent restarts.
+3. Open the address the agent gives you, comment on the PDF, and press **Call agent**.
+
+On a later day, a Claude Code session started in that folder waits for **Call agent** by
+itself. In Codex, say `do tex listen` after the agent starts.
 
 ## Point at what words cannot
 

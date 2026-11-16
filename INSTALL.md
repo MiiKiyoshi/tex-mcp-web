@@ -26,10 +26,10 @@ environment's `Scripts` folder where the commands say `bin`.
 
 ## 2. Confirm
 
-Show one summary, in the user's language: install directory (new or update), Python,
-latexmk's directory, the agents to register with, and any existing registration that will
-be replaced. Registration is user-level, available in every folder. Do not ask about
-scope. Ask once.
+Ask once, in the user's language and in a line or two: where it installs (new or update)
+and the agents it registers with. Name Python and latexmk only when something is wrong with
+them, and an existing registration only when it will be replaced. Registration is
+user-level, available in every folder. Do not ask about scope.
 
 ## 3. Install
 
@@ -62,7 +62,7 @@ idle. It loads from the checkout in place, so an update of the checkout updates 
 
 ## 5. Tell the user
 
-The server loads when an agent session starts, so this session cannot use it yet. Start
-the agent again where the user works, then say "do tex init" once per paper and
-"do tex listen" to open the review page. With the plugin, Claude Code started in a folder
-already set up listens on its own.
+The server loads when an agent session starts, so this session cannot use it yet. Tell the
+user the one thing left to do: start the agent again, with the command that keeps this
+conversation (`claude --continue`, `codex resume --last`), and say "do tex init". Say nothing
+else: that step sets the paper up, opens the review page and listens.

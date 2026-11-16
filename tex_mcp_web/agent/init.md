@@ -37,21 +37,17 @@ connection has been verified.
 
 ## 2. Confirm
 
-Show one summary, in the user's language, like:
+Decide what you can yourself, and show the user only what is theirs to decide, in their
+language, as short as this:
 
-    config   : <startup directory>/.tex-mcp-web.yaml
-    dir      : paper2  (the paper's folder, relative to the config)
-    main     : main.tex  (in dir, the only file with \documentclass)
-    port     : 8765
-    watch    : *.tex *.bib -> 9 files (main.tex, sections/*.tex, refs.bib)
-    ignore   : *_backup.tex
-    compiler : auto (latexmk)
-    references : ../related  (the reference papers in Markdown, relative to the config)
-    guideline : my-field  (writing rules the agent reads before editing)
+    paper      : paper2/main.tex
+    page       : http://localhost:8765
     page token : off  (on: the page opens only from its link, for a machine others log in to)
 
-Leave out `dir` when the paper is in the startup directory, `references` when the user named
-no folder, and `guideline` when the user has none. Under guideline, list the user's
+Add a line only for what the user named or has to choose: `references` when they named a
+folder, `guideline` when they have any, and whatever you could not settle, as which of
+several main files. The rest, config path, watch, ignore and compiler, takes its default
+unsaid. Under guideline, list the user's
 guidelines and none, each with one line on what it is for, read from its first lines, with
 none as the default. Under page token, ask whether other people can log in to this machine:
 on, the page opens only from a link with a token only this account can read, once per
@@ -93,12 +89,11 @@ verified. Otherwise report what was prepared and what remains unverified.
 
 ## 5. Tell the user
 
-Report setup as ready only after the current MCP connection passes the check. If restarting
-the MCP process remains necessary, say that the files are prepared but this session is not
-ready yet, and state the remaining action. Saying "do tex listen" starts the review page. With
-the page token on, give the user the link `tex-mcp-web link` prints in the paper's folder, to
-open once in each browser.
+Once the current MCP connection passes the check, call `listen()` and follow its how, so
+that the user's first Call agent reaches you with nothing more said. Then tell the user one
+thing: the page's address to open, or with the page token on the link `tex-mcp-web link`
+prints in the paper's folder, to open once in each browser. Leave the checks you ran unsaid.
+If restarting the MCP process remains necessary, say that one action and what it is for.
 To follow an Overleaf project, the user presses Connect Overleaf in the page's top bar (in
 the ⋯ menu on a phone) and follows what it asks. Tell them so in one line.
-With the plugin, Claude Code started in the folder later listens on its own. Start listening
-only when the user asks for it.
+With the plugin, Claude Code started in the folder later listens on its own.
