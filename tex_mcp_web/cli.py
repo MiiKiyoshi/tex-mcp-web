@@ -278,6 +278,7 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("-v", "--verbose", action="store_true", help="DEBUG logging")
+    parser.add_argument("--version", action="version", version=f"tex-mcp-web {__version__}")
     parser.add_argument("--port", type=int, help="HTTP port (default: from config)")
 
     sub = parser.add_subparsers(dest="cmd")
@@ -334,7 +335,7 @@ def _split_root_args(argv: list[str]) -> tuple[list[str], list[str]]:
     i = 0
     while i < len(argv):
         a = argv[i]
-        if a in ("-v", "--verbose") or a.startswith("--port="):
+        if a in ("-v", "--verbose", "--version") or a.startswith("--port="):
             root.append(a)
         elif a == "--port":
             root.extend(argv[i : i + 2])

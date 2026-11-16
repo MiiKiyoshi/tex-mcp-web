@@ -1330,6 +1330,7 @@ async def test_setup_info_reports_paths_without_connecting(tmp_path, monkeypatch
             "startup_dir": str(child.resolve()),
             "discovered_config_path": str(config.resolve()),
             "bound_config_path": None,
+            "bound_dir": None,
             "cli": str(Path(sys.executable).parent / "tex-mcp-web"),
         }
         # A report only: no server, no binding, no file.
@@ -1337,7 +1338,8 @@ async def test_setup_info_reports_paths_without_connecting(tmp_path, monkeypatch
         assert not any(thread.name == "tex-mcp-web" for thread in threading.enumerate())
         assert sorted(tmp_path.rglob("*")) == files
         binding.require_shared()
-        assert (await setup_info())["bound_config_path"] == str(config.resolve())
+        told = await setup_info()
+        assert told["bound_config_path"] == str(config.resolve()) and told["bound_dir"] == str(parent.resolve())
     finally:
         binding.stop()
 
@@ -3816,3 +3818,29 @@ async def test_the_monitor_ends_a_replaced_waiter_and_the_request_it_waits_on(tm
             break
         await asyncio.sleep(0.1)
     assert not alive(new) and not sleeping(second)
+
+
+@pytest.mark.asyncio
+async def test_the_cursor_moves_past_one_written_in_another_zone(bound_project, project, monkeypatch):
+    """A cursor spelled with one offset and an entry spelled with another are compared as
+    moments: as text the later entry sorted before the cursor, which then never moved, and
+    what was told once was told at every call after it."""
+    pytest.importorskip("mcp")
+    from tex_mcp_web.comments import CommentStore, PaperAnchor
+    from tex_mcp_web.mcp_server import create_server, read_cursor, write_cursor
+
+    mcp = create_server(bound_project)
+    store = CommentStore(project / ".tex-mcp-web" / "comments.json")
+
+    async def new():
+        return json.loads((await mcp.call_tool("read_comments", {"new": True}))[0].text)
+
+    # 23:31 at +09:00 is 14:31 UTC, before the entry at 15:08 UTC, and sorts after it as text.
+    write_cursor(project, "2026-11-16T23:31:16+09:00")
+    monkeypatch.setattr("tex_mcp_web.comments._now", lambda: "2026-11-16T15:08:09+00:00")
+    asked = store.add(PaperAnchor(), "a request made after the cursor")
+    first = await new()
+    assert [c["id"] for c in first["comments"]] == [asked.id]
+    assert read_cursor(project) == "2026-11-16T15:08:09+00:00"
+    store.resolve(asked.id, "")
+    assert (await new())["comments"] == []

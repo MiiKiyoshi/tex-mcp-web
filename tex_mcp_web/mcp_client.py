@@ -207,6 +207,11 @@ class ProjectBinding:
         with self._lock:
             return None if self._shared is None else self._shared.config_path
 
+    def bound_dir(self) -> Path | None:
+        """The paper's folder a successful connection serves, or None, without connecting."""
+        with self._lock:
+            return None if self._shared is None else self._shared.watch_dir
+
     def connect(self) -> SharedProjectServer | None:
         with self._lock:
             if self._shared is not None:

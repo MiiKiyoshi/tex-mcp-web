@@ -1,0 +1,2 @@
+# Shell scripts keep their line ends where git would turn them into the system's.
+*.sh text eol=lf

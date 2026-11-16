@@ -225,6 +225,11 @@ def cursor_moment(watch_dir: Path) -> datetime | None:
     return edge if edge.tzinfo else edge.replace(tzinfo=timezone.utc)
 
 
+def _moment(at: str) -> datetime:
+    when = datetime.fromisoformat(at)
+    return when if when.tzinfo else when.replace(tzinfo=timezone.utc)
+
+
 def write_cursor(watch_dir: Path, at: str) -> None:
     path = _cursor_path(watch_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -678,7 +683,8 @@ def _write_waiter(watch_dir: Path, port: int) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     target = directory / "wait-review.sh"
     staging = directory / "wait-review.sh.new"
-    staging.write_text(script, encoding="utf-8")
+    # A shell reads the line ends it is given: Windows would write its own.
+    staging.write_text(script, encoding="utf-8", newline="\n")
     staging.chmod(0o755)
     staging.replace(target)
     return target
@@ -836,11 +842,12 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                 if quote is not None:
                     told["quote"] = quote
                 fresh.append(told)
-                newest = max(entry.at for entry in said)
-                latest = newest if latest is None or newest > latest else latest
+                newest = max((entry.at for entry in said), key=_moment)
+                # Moments, not their spelling: one written with another offset sorts wrong as text.
+                latest = newest if latest is None or _moment(newest) > _moment(latest) else latest
             if latest is None:
                 # A quiet first call still fixes where the next one starts.
-                latest = datetime.now().astimezone().isoformat()
+                latest = datetime.now(timezone.utc).isoformat()
             if latest != previous:
                 write_cursor(watch_dir, latest)
             answer: dict[str, Any] = {"comments": fresh}
@@ -1033,8 +1040,6 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         """
         import httpx
 
-        from .config import get_main_file
-
         try:
             base = binding.base_url()
             async with httpx.AsyncClient(timeout=300.0, headers=page_token.headers()) as client:
@@ -1046,7 +1051,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                 f"compile failed with HTTP {response.status_code}: {response.text}"
             )
         result = response.json()
-        cfg, _, _ = _load_project(binding)
+        cfg, watch_dir, _ = _load_project(binding)
         # The log is a file on disk and the source lines around an error are readable
         # with any file tool, so neither is copied into the answer. Warnings are a
         # count: a paper writes a paragraph per line, and five lines of context around
@@ -1055,7 +1060,8 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             "success": result["success"],
             "pages_changed": result["pages_changed"],
             "warnings": len(result["warnings"]),
-            "log": str(get_main_file(cfg).with_suffix(".log")),
+            # Beside the paper the server built, which a changed dir in the config is not yet.
+            "log": str((watch_dir / cfg.main).with_suffix(".log")),
         }
         # Where each line is printed on its page is for the review page, which points at it.
         placed = lambda at: {key: value for key, value in at.items() if key != "bbox"}
@@ -1329,8 +1335,9 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
 
     @mcp.tool(structured_output=False)
     async def setup_info() -> str:
-        """Report setup paths, the existing binding, the guidelines to choose from and the
-        path of the tex-mcp-web command, without connecting or changing files."""
+        """Report setup paths, the existing binding with the paper's folder it serves, the
+        guidelines to choose from and the path of the tex-mcp-web command, without connecting
+        or changing files."""
         from .config import find_config, list_guidelines
         from .mcp_client import CLI
 
@@ -1340,6 +1347,9 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             "startup_dir": str(binding.start_dir),
             "discovered_config_path": None if discovered is None else str(discovered.resolve()),
             "bound_config_path": None if bound is None else str(bound),
+            # The paper's folder this session serves, which stays the one it started with
+            # while the config's dir changes under it.
+            "bound_dir": None if bound is None else str(binding.bound_dir()),
             "guidelines": list_guidelines(),
             # The shell an agent runs commands in need not have this on its PATH.
             "cli": str(CLI),

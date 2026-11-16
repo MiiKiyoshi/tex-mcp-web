@@ -22,6 +22,13 @@ connection has been verified.
   unchanged and propose a new config in the startup directory. If a config already exists in
   the startup directory, edit that file rather than replacing it with init. A missing main
   file alone does not establish that a config belongs to another project.
+- A folder reviews one paper at a time. When the config in the startup directory serves
+  another paper than the one the user names, say so in one line and offer both ways: start
+  the agent in a folder of the new paper's own, which reviews both side by side and is the
+  one to propose when the first paper has open threads, or move this folder to the new paper
+  with `config dir`. Moved, the first paper's comments stay with it and come back when the
+  folder is moved back. A session keeps the paper it started with: `setup_info()`'s
+  `bound_dir` names it, and the move holds once the agent starts again.
 - Main file: `grep -l '\\documentclass' *.tex` in the paper's folder. One hit is the proposal.
   Several are asked. No hit in the startup directory: ask where the paper is, and that folder
   becomes `dir`.
@@ -80,8 +87,8 @@ Before reporting completion, confirm that configuration discovery selects the in
 
 Then check the current connection without a build. Call `guide()`, which connects this session
 to its project, read every file in its read list in full, and then call `setup_info()`. Its
-`bound_config_path` must be the intended config. A review server is shared only by the same config file, so this is the config the
-review page serves. If it is bound to another config, restart the MCP server process through
+`bound_config_path` must be the intended config and `bound_dir` the paper's folder. A review server is shared only by the same config file, so this is the config the
+review page serves. If it is bound to another config or folder, restart the MCP server process through
 the client and check again. A successful init or CLI config check alone does not establish
 this.
 
