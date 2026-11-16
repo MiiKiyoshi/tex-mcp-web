@@ -1046,7 +1046,11 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             "warnings": len(result["warnings"]),
             "log": str(get_main_file(cfg).with_suffix(".log")),
         }
-        report.update(result.get("layout") or {})
+        # Where each line is printed on its page is for the review page, which points at it.
+        placed = lambda at: {key: value for key, value in at.items() if key != "bbox"}
+        report.update({key: placed(value) if key == "body_end"
+                       else [placed(line) for line in value] if key == "short_lines" else value
+                       for key, value in (result.get("layout") or {}).items()})
         if not result["success"]:
             report["errors"] = [
                 {"at": f"{error['file']}:{error['line']}" if error["line"] else error["file"],

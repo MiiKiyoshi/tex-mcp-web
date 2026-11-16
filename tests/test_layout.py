@@ -106,3 +106,8 @@ def test_the_body_of_a_typeset_paper_ends_before_its_bibliography(tmp_path: Path
     short = report["short_lines"]
     # SyncTeX places a paragraph's lines where the paragraph ends in the source.
     assert [(line["text"], line["source"]) for line in short] == [("Tides", "paper.tex:4")]
+    # Each is placed on its page, for the review page to point at.
+    with pymupdf.open(tmp_path / "paper.pdf") as doc:
+        printed = doc[0].search_for("Tides")
+    assert any(all(abs(got - want) < 3 for got, want in zip(short[0]["bbox"], hit)) for hit in printed)
+    assert len(end["bbox"]) == 4

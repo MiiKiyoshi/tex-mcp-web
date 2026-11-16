@@ -934,13 +934,26 @@ def test_source_beside_comment_opens_the_selected_words_in_the_editor(tmp_path: 
         # A paper of one short column has no full column to measure the room by.
         assert shown[2] == "The body ends on page 1, column 1." and "room_lines" not in end
         # The paragraph's last line is under a quarter of the column: a short line, which
-        # the tab counts, and a click on it opens its source line.
+        # the tab counts, and a click on it marks the line where the Preview prints it,
+        # with the view left as it is.
         (short,) = get_json(f"{base}/paper")["last_compile"]["layout"]["short_lines"]
         assert (short["text"], short["source"]) == ("A last line follows.", "paper.tex:5")
         assert browser.execute_script('return document.querySelector("#compile-tab-count").textContent') == "1"
         assert browser.execute_script(
             'return document.querySelector("#error-banner .err-item.err-warning .err-msg").textContent') \
             == f"A paragraph on page 1, column 1 ends in a line {short['width']} of the column wide: “A last line follows.”"
+        browser.execute_script('document.querySelector("#error-banner .err-item.err-warning").click()')
+        pointed = wait_until(lambda: browser.execute_script('''
+          const root = document.querySelector("embedpdf-container").shadowRoot;
+          const image = root.querySelector("img").getBoundingClientRect();
+          const mark = Array.from(root.querySelectorAll("div"))
+            .find((node) => node.style.opacity === "0.55" && node.getBoundingClientRect().width > 0);
+          if (!mark) return false;
+          const rect = mark.getBoundingClientRect();
+          return [rect.left - image.left, rect.top - image.top, rect.right - image.left, rect.bottom - image.top];
+        '''))
+        assert all(abs(got / page[2] - want) < 3 for got, want in zip(pointed, short["bbox"])), (pointed, short["bbox"])
+        assert browser.execute_script('return document.querySelector(".layout").classList.contains("view-pdf")')
         # Pressed in the Preview alone, Source turns the view to Split and selects the words.
         select_words()
         wait_until(lambda: menu_button("Source"))

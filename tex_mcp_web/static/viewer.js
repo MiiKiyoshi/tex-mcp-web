@@ -3815,8 +3815,9 @@ function syncCommentAnnotations() {
 }
 
 // The Problems tab: what the build said, then where the paper stands against a page limit,
-// which the agent's compile() reports in the same words. A line that names its source opens
-// it there.
+// which the agent's compile() reports in the same words. A line of the layout is a place on
+// a printed page, so a click points at it in the Preview, and moves the editor's cursor to
+// its source only where the editor already shows.
 function renderErrorBanner() {
   const banner = $("#error-banner");
   clear(banner);
@@ -3842,18 +3843,38 @@ function renderErrorBanner() {
   }
   const place = (at) => `page ${at.page}, column ${at.column}`;
   const item = (level, word, at, message) => {
-    const node = h("div", { class: `err-item err-${level}${at.source ? " err-goes" : ""}` },
+    const node = h("div", { class: `err-item err-${level}${at.bbox ? " err-goes" : ""}` },
       h("div", { class: "err-loc" },
         h("span", { class: `err-level err-level-${level}`, text: word }),
         h("span", { text: at.source ?? "" })),
       h("div", { class: "err-msg", text: message }));
-    if (at.source) {
-      const [, file, line] = /^(.*):(\d+)$/.exec(at.source);
+    if (at.bbox) {
       node.addEventListener("click", async () => {
-        if (state.view === "pdf") await setWorkspaceView("split");
-        await openSource(file, Number(line));
+        if (state.view === "source") {
+          await setWorkspaceView("split");
+          // The Preview takes its new width before it is scrolled.
+          await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        }
+        // At the zoom the Preview is read at, the line in the middle and marked.
+        const [x1, y1, x2, y2] = at.bbox;
+        state.scroll?.scrollToPage({
+          pageNumber: at.page, pageCoordinates: { x: (x1 + x2) / 2, y: (y1 + y2) / 2 },
+          behavior: "instant", alignX: 50, alignY: 50,
+        });
+        if (state.annotationsReady && state.annotations) {
+          clearGotoHighlight();
+          state.annotations.createAnnotation(at.page - 1, {
+            id: GOTO_ANNOTATION_ID, pageIndex: at.page - 1, type: PdfAnnotationSubtype.HIGHLIGHT,
+            rect: bboxToRect(at.bbox), segmentRects: [bboxToRect(at.bbox)],
+            opacity: 0.55, strokeColor: "#fbdc00", contents: "",
+          });
+        }
+        if (state.view === "split" && at.source) {
+          const [, file, line] = /^(.*):(\d+)$/.exec(at.source);
+          await openSource(file, Number(line));
+        }
       });
-      node.title = "Show in the source";
+      node.title = "Show in the Preview";
     }
     banner.appendChild(node);
   };

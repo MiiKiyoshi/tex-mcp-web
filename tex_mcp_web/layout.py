@@ -212,6 +212,7 @@ def check(pdf_path: Path, watch_dir: Path) -> dict[str, Any]:
             "columns": max(column for page, column in edges if page == last.page),
             **({"room_pt": round(room), "room_lines": int(room / pitch + 0.2)} if room is not None else {}),
             **({"source": at} if (at := source(last)) is not None else {}),
+            "bbox": [round(edge, 1) for edge in last.rect],
         }
     inside = {id(line) for line in body}
     short = []
@@ -230,7 +231,8 @@ def check(pdf_path: Path, watch_dir: Path) -> dict[str, Any]:
     if short:
         report["short_lines"] = [
             {"page": line.page, "column": line.column, "text": line.text, "width": f"{int(100 * share)}%",
-             **({"source": at} if (at := source(line)) is not None else {})}
+             **({"source": at} if (at := source(line)) is not None else {}),
+             "bbox": [round(edge, 1) for edge in line.rect]}
             for line, share in short[:SHORT_LIMIT]]
         if len(short) > SHORT_LIMIT:
             report["more_short_lines"] = len(short) - SHORT_LIMIT
