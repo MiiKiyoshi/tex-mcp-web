@@ -2,6 +2,7 @@
 
 import json
 import multiprocessing
+import os
 import re
 from pathlib import Path
 
@@ -26,7 +27,7 @@ def test_entries_written_before_ids_get_them_once(tmp_path):
         "id": "c-00000001", "anchor": {"kind": "paper"}, "status": "open",
         "created": "2026-01-01T00:00:00+00:00", "updated": "2026-01-01T00:00:00+00:00",         "thread": [{"author": "human", "at": "2026-01-01T00:00:00+00:00", "text": "q"},
                    {"author": "agent", "at": "2026-01-01T00:01:00+00:00", "text": "a", "edits": ["x.tex:1"]}],
-    }]}), encoding="utf-8")
+    }]}), encoding="utf-8", newline="")
     ids = [entry.id for entry in CommentStore(path).get("c-00000001").thread]
     assert all(re.fullmatch(r"e-[0-9a-f]{8}", value) for value in ids) and len(set(ids)) == 2
     assert [entry.id for entry in CommentStore(path).get("c-00000001").thread] == ids   # persisted
@@ -92,7 +93,7 @@ def test_concurrent_edits_of_one_entry_let_exactly_one_through(store):
     comment = add(store)
     entry = store.reply(comment.id, "answer", "agent").thread[1]
     stamps = {comment.id: store.get(comment.id).updated}
-    ctx = multiprocessing.get_context("fork")
+    ctx = multiprocessing.get_context("fork" if hasattr(os, "fork") else "spawn")
     ready, results, start = ctx.Queue(), ctx.Queue(), ctx.Event()
     processes = [ctx.Process(target=_edit, args=(str(store.path), comment.id, entry.id, stamps, ready, start, results))
                  for _ in range(2)]
@@ -118,7 +119,7 @@ def _fill(path, replies=(), edits=()):
     for entry_id, text in edits:
         body = re.sub(rf"(<!-- edit:[0-9a-f]+:{entry_id} -->\n).*?(\n<!-- /edit:)",
                       lambda m: m[1] + text + m[2], body, flags=re.DOTALL)
-    Path(path).write_text(body, encoding="utf-8")
+    Path(path).write_text(body, encoding="utf-8", newline="")
 
 
 def test_a_draft_carries_edit_blocks_for_agent_entries(store):
@@ -149,7 +150,7 @@ def test_a_draft_carries_edit_blocks_for_agent_entries(store):
         store.reply_file(again["path"])
     assert store.path.read_bytes() == before
     text = Path(again["path"]).read_text(encoding="utf-8").replace("<!-- /edit:", "<!-- /edit-")
-    Path(again["path"]).write_text(text, encoding="utf-8")
+    Path(again["path"]).write_text(text, encoding="utf-8", newline="")
     with pytest.raises(ValueError, match="malformed"):
         store.reply_file(again["path"])
     assert store.path.read_bytes() == before

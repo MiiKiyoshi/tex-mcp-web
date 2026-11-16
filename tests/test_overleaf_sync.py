@@ -298,8 +298,8 @@ def paper(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config-home"))
     monkeypatch.delenv(overleaf.COOKIE_ENV, raising=False)
     (tmp_path / "tex").mkdir()
-    (tmp_path / "main.tex").write_text(MAIN, encoding="utf-8")
-    (tmp_path / "tex" / "body.tex").write_text(BODY, encoding="utf-8")
+    (tmp_path / "main.tex").write_text(MAIN, encoding="utf-8", newline="")
+    (tmp_path / "tex" / "body.tex").write_text(BODY, encoding="utf-8", newline="")
     (tmp_path / "fig").mkdir()
     (tmp_path / "fig" / "plot.png").write_bytes(FIGURE)
     return tmp_path
@@ -313,7 +313,7 @@ class Review:
 
     async def open(self) -> "Review":
         config = f"main: main.tex\noverleaf: {self.link}\n" + ("overleaf_sync: true\n" if self.sync else "")
-        (self.folder / ".tex-mcp-web.yaml").write_text(config)
+        (self.folder / ".tex-mcp-web.yaml").write_text(config, encoding="utf-8", newline="")
         self.server = TexMcpWebServer(load_config(self.folder / ".tex-mcp-web.yaml"))
         self.server.OVERLEAF_LIVE_GRACE = 0
         self.server.OVERLEAF_COMMENT_SETTLE = 0.01
@@ -335,7 +335,7 @@ class Review:
         return (self.folder / path).read_text(encoding="utf-8")
 
     def write(self, path: str, text: str) -> None:
-        (self.folder / path).write_text(text, encoding="utf-8")
+        (self.folder / path).write_text(text, encoding="utf-8", newline="")
 
     async def settled(self) -> None:
         """Both sides hold the same text, and nothing is on its way."""
@@ -469,7 +469,7 @@ async def test_an_edit_that_deletes_an_open_comments_every_word_waits_for_the_re
     await review.settled()
     assert review.read("main.tex") == MAIN
     kept = list((review.folder / ".tex-mcp-web" / "overleaf-sync" / "kept").glob("main.tex.here.*"))
-    assert kept and kept[0].read_text() == MAIN.replace("The placer is fast.", "The placer.")
+    assert kept and kept[0].read_text(encoding="utf-8") == MAIN.replace("The placer is fast.", "The placer.")
 
     review.write("main.tex", MAIN.replace("The placer is fast.", "The placer."))
     await wait_for(lambda: review.files()["main.tex"] == "held")
@@ -502,7 +502,7 @@ async def test_words_written_over_commented_words_take_the_comment_on_overleaf(r
 
 async def test_files_that_differ_at_the_start_wait_and_neither_is_overwritten(paper, overleaf_site) -> None:
     fake, link = overleaf_site
-    (paper / "main.tex").write_text(MAIN + "\n% only here")
+    (paper / "main.tex").write_text(MAIN + "\n% only here", encoding="utf-8", newline="")
     fake.comment("d-main", "t1", "fast")
     opened = await Review(paper, fake, link).open()
     try:
@@ -530,7 +530,7 @@ async def test_a_new_thread_comes_in_by_itself_once_every_file_is_in_step(paper,
     written on Overleaf is counted while a file waits for a choice, and comes in on its
     words, by itself, once every file is the same as on Overleaf."""
     fake, link = overleaf_site
-    (paper / "main.tex").write_text(MAIN + "\n% only here")
+    (paper / "main.tex").write_text(MAIN + "\n% only here", encoding="utf-8", newline="")
     opened = await Review(paper, fake, link).open()
     try:
         await wait_for(lambda: opened.files().get("main.tex") == "differs")
@@ -587,7 +587,7 @@ async def test_live_files_and_git_go_on_together_in_a_git_clone(paper, overleaf_
         """Overleaf's git server, read: a commit of the project as it is now."""
         git(bridge, "pull", "-q", "--ff-only", "origin", "main")
         for doc in fake.docs.values():
-            (bridge / ("tex/" if doc["name"] == "body.tex" else "") / doc["name"]).write_text(doc["text"], encoding="utf-8")
+            (bridge / ("tex/" if doc["name"] == "body.tex" else "") / doc["name"]).write_text(doc["text"], encoding="utf-8", newline="")
         git(bridge, "commit", "-q", "-am", "Update on Overleaf.")
         git(bridge, "push", "-q", "origin", "HEAD:main")
 
@@ -652,7 +652,7 @@ async def test_in_a_git_clone_an_edit_on_overleaf_waits_to_come_in_only_until_th
         """Overleaf's git server, read: a commit of the project as it is now."""
         git(bridge, "pull", "-q", "--ff-only", "origin", "main")
         for doc in fake.docs.values():
-            (bridge / ("tex/" if doc["name"] == "body.tex" else "") / doc["name"]).write_text(doc["text"], encoding="utf-8")
+            (bridge / ("tex/" if doc["name"] == "body.tex" else "") / doc["name"]).write_text(doc["text"], encoding="utf-8", newline="")
         git(bridge, "commit", "-q", "-am", "Update on Overleaf.")
         git(bridge, "push", "-q", "origin", "HEAD:main")
 
@@ -854,7 +854,7 @@ async def test_a_file_overleaf_keeps_in_its_newer_kind_is_left_alone(paper, over
 async def test_choosing_overleafs_text_for_a_file_that_differs_writes_it_and_keeps_this_one(
         paper, overleaf_site) -> None:
     fake, link = overleaf_site
-    (paper / "main.tex").write_text(MAIN + "\n% only here")
+    (paper / "main.tex").write_text(MAIN + "\n% only here", encoding="utf-8", newline="")
     opened = await Review(paper, fake, link).open()
     try:
         await wait_for(lambda: opened.files().get("main.tex") == "differs")
@@ -863,7 +863,7 @@ async def test_choosing_overleafs_text_for_a_file_that_differs_writes_it_and_kee
         await opened.settled()
         assert opened.read("main.tex") == MAIN and fake.docs["d-main"]["text"] == MAIN
         kept = list((paper / ".tex-mcp-web" / "overleaf-sync" / "kept").glob("main.tex.here.*"))
-        assert kept and kept[0].read_text() == MAIN + "\n% only here"
+        assert kept and kept[0].read_text(encoding="utf-8") == MAIN + "\n% only here"
     finally:
         await opened.close()
 
@@ -875,7 +875,7 @@ async def test_the_page_connects_a_project_and_turns_each_switch_in_the_config(p
 
     fake, link = overleaf_site
     config = paper / ".tex-mcp-web.yaml"
-    config.write_text("main: main.tex\n# the reviewer's note stays\n", encoding="utf-8")
+    config.write_text("main: main.tex\n# the reviewer's note stays\n", encoding="utf-8", newline="")
     server = TexMcpWebServer(load_config(config))
     server.OVERLEAF_LIVE_GRACE = 0
     client = TestClient(TestServer(server.app))
@@ -895,17 +895,17 @@ async def test_the_page_connects_a_project_and_turns_each_switch_in_the_config(p
         response = await client.post("/overleaf/connect", json={"project": link})
         assert response.status == 200
         assert (await response.json())["project"] == link
-        assert config.read_text() == f"main: main.tex\n# the reviewer's note stays\noverleaf: {link}\n"
+        assert config.read_text(encoding="utf-8") == f"main: main.tex\n# the reviewer's note stays\noverleaf: {link}\n"
         await wait_for(lambda: fake.sockets)            # the open page now sits in the project
         assert server.overleaf_sync is None
 
         status = await (await client.post("/overleaf/connect", json={"sync": True})).json()
-        assert status["sync"] is True and status["live"] is True and "overleaf_sync: true\n" in config.read_text()
+        assert status["sync"] is True and status["live"] is True and "overleaf_sync: true\n" in config.read_text(encoding="utf-8")
         await wait_for(lambda: server.overleaf_sync is not None and len(server.overleaf_sync.docs) == 2)
 
         status = await (await client.post("/overleaf/connect", json={"project": None})).json()
         assert status["project"] is None and status["sync"] is False and status["live"] is False
-        assert config.read_text() == "main: main.tex\n# the reviewer's note stays\n"
+        assert config.read_text(encoding="utf-8") == "main: main.tex\n# the reviewer's note stays\n"
         await wait_for(lambda: server.overleaf_sync is None)
     finally:
         await page.close()
@@ -934,7 +934,7 @@ async def test_a_thread_drafted_for_overleaf_opens_there_on_its_lines_when_sent(
             SourceRangeAnchor(file="tex/body.tex", line_start=2, line_end=2), OverleafDraft("Enough?"),
             ResolvedSource(file="tex/body.tex", line_start=2, line_end=2),
             capture_source_selector(paper / "tex" / "body.tex", 2, 2),
-            {"tex/body.tex": (paper / "tex" / "body.tex").read_text()})
+            {"tex/body.tex": (paper / "tex" / "body.tex").read_text(encoding="utf-8")})
         assert drafted.thread == [] and fake.threads == {}
         response = await opened.client.post(f"/comments/{drafted.id}/reply",
                                             json={"text": "Is this enough?", "overleaf": True})
@@ -971,7 +971,7 @@ async def test_what_was_said_about_a_drafted_thread_stays_here_when_it_opens_on_
             SourceRangeAnchor(file="tex/body.tex", line_start=2, line_end=2), OverleafDraft("Enough?"),
             ResolvedSource(file="tex/body.tex", line_start=2, line_end=2),
             capture_source_selector(paper / "tex" / "body.tex", 2, 2),
-            {"tex/body.tex": (paper / "tex" / "body.tex").read_text()})
+            {"tex/body.tex": (paper / "tex" / "body.tex").read_text(encoding="utf-8")})
         response = await opened.client.post(f"/comments/{drafted.id}/reply", json={"text": "Make it a question."})
         assert response.status == 200, await response.text()
         store.reply(drafted.id, "Drafted it as one.", author="agent")
@@ -1029,7 +1029,7 @@ async def test_a_drafted_thread_whose_lines_overleaf_lacks_is_not_opened_at_all(
             SourceRangeAnchor(file="tex/body.tex", line_start=4, line_end=4), OverleafDraft("New?"),
             ResolvedSource(file="tex/body.tex", line_start=4, line_end=4),
             capture_source_selector(paper / "tex" / "body.tex", 4, 4),
-            {"tex/body.tex": (paper / "tex" / "body.tex").read_text()})
+            {"tex/body.tex": (paper / "tex" / "body.tex").read_text(encoding="utf-8")})
         response = await opened.client.post(f"/comments/{drafted.id}/reply", json={"text": "New?", "overleaf": True})
         assert response.status == 409
         assert "not in tex/body.tex on Overleaf yet" in (await response.json())["error"]
@@ -1045,7 +1045,7 @@ async def test_a_drafted_thread_whose_lines_overleaf_lacks_is_not_opened_at_all(
                                                    capture_source_selector(paper / "tex" / "body.tex", 1, 1))]),
             ResolvedSource(file="tex/body.tex", line_start=1, line_end=1),
             capture_source_selector(paper / "tex" / "body.tex", 1, 1),
-            {"tex/body.tex": (paper / "tex" / "body.tex").read_text()})
+            {"tex/body.tex": (paper / "tex" / "body.tex").read_text(encoding="utf-8")})
         response = await opened.client.post(f"/comments/{stale.id}/reply", json={"text": "Reworded.", "overleaf": True})
         assert response.status == 409 and (await response.json())["error"] == (
             "The lines of tex/body.tex this reply describes changed after it was drafted. Ask the agent to draft it again.")
@@ -1261,11 +1261,11 @@ async def test_by_hand_send_adds_new_files_of_the_paper_and_leaves_others(paper,
     opened = await Review(paper, fake, link, sync=False).open()
     try:
         await hand_ready(opened)
-        (paper / "tex" / "intro.tex").write_text("\\section{Intro}\nNew.\n", encoding="utf-8")
+        (paper / "tex" / "intro.tex").write_text("\\section{Intro}\nNew.\n", encoding="utf-8", newline="")
         (paper / "fig" / "more").mkdir()
         (paper / "fig" / "more" / "arch.png").write_bytes(b"\x89PNG new figure")
         (paper / "main.pdf").write_bytes(b"%PDF compiled")
-        (paper / "main.aux").write_text("aux", encoding="utf-8")
+        (paper / "main.aux").write_text("aux", encoding="utf-8", newline="")
         now = await (await opened.client.post("/overleaf/files/read")).json()
         assert now["send"] == ["fig/more/arch.png", "tex/intro.tex"]
         now = await (await opened.client.post("/overleaf/files/send")).json()
@@ -1344,7 +1344,7 @@ async def test_live_a_new_file_of_the_paper_goes_up_by_itself(review) -> None:
     fake = review.fake
     await review.settled()
     (review.folder / "fig" / "new.png").write_bytes(b"\x89PNG a new figure")
-    (review.folder / "main.log").write_text("log", encoding="utf-8")
+    (review.folder / "main.log").write_text("log", encoding="utf-8", newline="")
     await wait_for(lambda: fake.uploads.get("fig/new.png", {}).get("data") == b"\x89PNG a new figure", timeout=15)
     await asyncio.sleep(0.3)
     assert "main.log" not in fake.uploads and len([path for path in fake.uploads if path == "fig/new.png"]) == 1

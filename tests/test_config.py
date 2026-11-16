@@ -96,7 +96,7 @@ class TestFindConfig:
     def test_find_in_current_dir(self, tmp_path):
         """Test finding config in current directory."""
         config_path = tmp_path / ".tex-mcp-web.yaml"
-        config_path.write_text("main: test.tex\n")
+        config_path.write_text("main: test.tex\n", encoding="utf-8", newline="")
 
         result = find_config(tmp_path)
         assert result == config_path
@@ -104,7 +104,7 @@ class TestFindConfig:
     def test_find_in_parent_dir(self, tmp_path):
         """Test finding config in parent directory."""
         config_path = tmp_path / ".tex-mcp-web.yaml"
-        config_path.write_text("main: test.tex\n")
+        config_path.write_text("main: test.tex\n", encoding="utf-8", newline="")
 
         subdir = tmp_path / "subdir"
         subdir.mkdir()
@@ -132,7 +132,7 @@ class TestLoadConfig:
                     "port": 9999,
                 }
             )
-        )
+        , encoding="utf-8", newline="")
 
         config = load_config(config_path)
         assert config.main == "thesis.tex"
@@ -143,7 +143,7 @@ class TestLoadConfig:
     def test_load_with_cli_override(self, tmp_path):
         """Test CLI argument overrides config file."""
         config_path = tmp_path / ".tex-mcp-web.yaml"
-        config_path.write_text(yaml.dump({"main": "config.tex"}))
+        config_path.write_text(yaml.dump({"main": "config.tex"}), encoding="utf-8", newline="")
 
         config = load_config(config_path, main_file="cli.tex")
         assert config.main == "cli.tex"
@@ -265,16 +265,16 @@ class TestGuidelines:
         monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "home"))
         base = tmp_path / "home" / "tex-mcp-web" / "guidelines" / "plain-writing"
         base.mkdir(parents=True)
-        (base / "GUIDELINE.md").write_text("# Plain writing\n")
+        (base / "GUIDELINE.md").write_text("# Plain writing\n", encoding="utf-8", newline="")
         mine = base.parent / "my-field"
         mine.mkdir()
-        (mine / "GUIDELINE.md").write_text("---\nextends: plain-writing\n---\n# My field\n")
+        (mine / "GUIDELINE.md").write_text("---\nextends: plain-writing\n---\n# My field\n", encoding="utf-8", newline="")
         (mine.parent / "empty").mkdir()
         files = get_guideline_files(Config(main="main.tex", guideline="my-field"))
         assert [path.parent.name for path in files] == ["plain-writing", "my-field"]
         listed = list_guidelines()
         assert listed["entries"] == ["empty", "my-field", "plain-writing"] and listed["incomplete"] == ["empty"]
-        (mine / "GUIDELINE.md").write_text("---\nextends: my-field\n---\n")
+        (mine / "GUIDELINE.md").write_text("---\nextends: my-field\n---\n", encoding="utf-8", newline="")
         with pytest.raises(ValueError, match="extends itself"):
             get_guideline_files(Config(main="main.tex", guideline="my-field"))
         with pytest.raises(FileNotFoundError):
@@ -282,8 +282,8 @@ class TestGuidelines:
 
     def test_a_guideline_name_is_a_folder_name(self, tmp_path):
         config = tmp_path / ".tex-mcp-web.yaml"
-        config.write_text("main: main.tex\nguideline: ../elsewhere\n")
+        config.write_text("main: main.tex\nguideline: ../elsewhere\n", encoding="utf-8", newline="")
         with pytest.raises(ValueError, match="guideline must name a folder"):
             load_config(config)
-        config.write_text("main: main.tex\nguideline: my-field\n")
+        config.write_text("main: main.tex\nguideline: my-field\n", encoding="utf-8", newline="")
         assert load_config(config).to_dict()["guideline"] == "my-field"

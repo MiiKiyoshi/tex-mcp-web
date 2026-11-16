@@ -121,7 +121,7 @@ class TestParseSynctex:
     def test_parse_uncompressed(self, tmp_path):
         """Test parsing uncompressed synctex file."""
         synctex_path = tmp_path / "main.synctex"
-        synctex_path.write_text(SAMPLE_SYNCTEX)
+        synctex_path.write_text(SAMPLE_SYNCTEX, encoding="utf-8", newline="")
 
         data = parse_synctex(synctex_path)
         assert data is not None
@@ -146,7 +146,7 @@ class TestParseSynctexNoColumn:
     def test_parse_no_column_format(self, tmp_path):
         """Test parsing SyncTeX records without column field."""
         synctex_path = tmp_path / "main.synctex"
-        synctex_path.write_text(SAMPLE_SYNCTEX_NO_COLUMN)
+        synctex_path.write_text(SAMPLE_SYNCTEX_NO_COLUMN, encoding="utf-8", newline="")
 
         data = parse_synctex(synctex_path)
         assert data is not None
@@ -156,7 +156,7 @@ class TestParseSynctexNoColumn:
     def test_no_column_source_to_pdf_entries(self, tmp_path):
         """Test that records without column produce correct source_to_pdf keys."""
         synctex_path = tmp_path / "main.synctex"
-        synctex_path.write_text(SAMPLE_SYNCTEX_NO_COLUMN)
+        synctex_path.write_text(SAMPLE_SYNCTEX_NO_COLUMN, encoding="utf-8", newline="")
 
         data = parse_synctex(synctex_path)
         assert data is not None
@@ -168,7 +168,7 @@ class TestParseSynctexNoColumn:
     def test_no_column_visible_lines(self, tmp_path):
         """No-column records remain available for page visibility."""
         synctex_path = tmp_path / "main.synctex"
-        synctex_path.write_text(SAMPLE_SYNCTEX_NO_COLUMN)
+        synctex_path.write_text(SAMPLE_SYNCTEX_NO_COLUMN, encoding="utf-8", newline="")
 
         data = parse_synctex(synctex_path)
         assert data is not None
@@ -179,7 +179,7 @@ class TestParseSynctexNoColumn:
     def test_no_column_hbox_records(self, tmp_path):
         """Test that ( and ) hbox records are parsed."""
         synctex_path = tmp_path / "main.synctex"
-        synctex_path.write_text(SAMPLE_SYNCTEX_NO_COLUMN)
+        synctex_path.write_text(SAMPLE_SYNCTEX_NO_COLUMN, encoding="utf-8", newline="")
 
         data = parse_synctex(synctex_path)
         assert data is not None
@@ -190,7 +190,7 @@ class TestParseSynctexNoColumn:
     def test_no_column_glue_and_kern_records(self, tmp_path):
         """Test that g and k records without column are parsed."""
         synctex_path = tmp_path / "main.synctex"
-        synctex_path.write_text(SAMPLE_SYNCTEX_NO_COLUMN)
+        synctex_path.write_text(SAMPLE_SYNCTEX_NO_COLUMN, encoding="utf-8", newline="")
 
         data = parse_synctex(synctex_path)
         assert data is not None
@@ -248,7 +248,7 @@ def test_selection_to_source_range_requires_one_project_file(tmp_path, monkeypat
     pdf.touch()
     source = tmp_path / "tex" / "intro.tex"
     source.parent.mkdir()
-    source.write_text("one\ntwo\nthree\n")
+    source.write_text("one\ntwo\nthree\n", encoding="utf-8", newline="")
     outputs = iter([
         f"SyncTeX result begin\nInput:{source}\nLine:2\nColumn:-1\nSyncTeX result end\n",
         f"SyncTeX result begin\nInput:{source}\nLine:3\nColumn:-1\nSyncTeX result end\n",
@@ -276,8 +276,8 @@ def test_selection_to_source_range_rejects_mixed_files(tmp_path, monkeypatch):
     pdf.touch()
     first = tmp_path / "first.tex"
     second = tmp_path / "second.tex"
-    first.write_text("first\n")
-    second.write_text("second\n")
+    first.write_text("first\n", encoding="utf-8", newline="")
+    second.write_text("second\n", encoding="utf-8", newline="")
     outputs = iter([
         f"Input:{first}\nLine:1\n",
         f"Input:{second}\nLine:1\n",
@@ -413,7 +413,7 @@ class TestNormalizePath:
     def test_parse_synctex_normalizes_dot_slash(self, tmp_path):
         """Test that parse_synctex strips ./ from input file paths."""
         synctex_path = tmp_path / "main.synctex"
-        synctex_path.write_text(SAMPLE_SYNCTEX)
+        synctex_path.write_text(SAMPLE_SYNCTEX, encoding="utf-8", newline="")
         data = parse_synctex(synctex_path)
         assert data is not None
         # SAMPLE_SYNCTEX has "Input:1:./main.tex" — should be normalized

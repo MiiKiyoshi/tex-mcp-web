@@ -33,6 +33,21 @@ from tex_mcp_web.compiler import CompileResult
 from tex_mcp_web.server import TexMcpWebServer
 
 
+def _symlink(link, target, **kwargs):
+    """Make a symlink; on Windows without the privilege to, skip the test."""
+    try:
+        link.symlink_to(target, **kwargs)
+    except OSError as error:
+        if os.name == "nt":
+            pytest.skip(f"symlinks need a privilege on Windows: {error}")
+        raise
+
+
+# The plugin's monitor finds its session with POSIX ps and signals; on Windows there is
+# none, and the agent runs the waiter itself.
+needs_posix_monitor = pytest.mark.skipif(os.name == "nt", reason="the plugin monitor needs POSIX ps and signals")
+
+
 @pytest.fixture
 def project(tmp_path: Path) -> Path:
     main = tmp_path / "paper.tex"
@@ -46,10 +61,10 @@ def project(tmp_path: Path) -> Path:
         "\\label{sec:methods}\n"
         "Some methods.\n"
         "\\end{document}\n"
-    )
+    , encoding="utf-8", newline="")
     (tmp_path / ".tex-mcp-web.yaml").write_text(
         "main: paper.tex\n"
-    )
+    , encoding="utf-8", newline="")
     return tmp_path
 
 
@@ -162,7 +177,7 @@ async def test_config_edit_applies_without_restart(project):
     server.do_compile = AsyncMock()
     server.broadcast = AsyncMock()
 
-    config_path.write_text("main: paper.tex\nwatch:\n- '*.tex'\n- 'notes/*.md'\n")
+    config_path.write_text("main: paper.tex\nwatch:\n- '*.tex'\n- 'notes/*.md'\n", encoding="utf-8", newline="")
     await server.on_file_change(str(config_path))
 
     assert server.config.watch == ["*.tex", "notes/*.md"]
@@ -178,8 +193,8 @@ async def test_config_edit_to_main_compiles_the_new_paper(project):
     server.do_compile = AsyncMock()
     server.broadcast = AsyncMock()
 
-    (project / "other.tex").write_text("\\documentclass{article}\n\\begin{document}x\\end{document}\n")
-    config_path.write_text("main: other.tex\n")
+    (project / "other.tex").write_text("\\documentclass{article}\n\\begin{document}x\\end{document}\n", encoding="utf-8", newline="")
+    config_path.write_text("main: other.tex\n", encoding="utf-8", newline="")
     await server.on_file_change(str(config_path))
 
     assert server.main_file == project / "other.tex"
@@ -195,7 +210,7 @@ async def test_config_edit_the_server_cannot_take_is_reported(project, text):
     server.do_compile = AsyncMock()
     server.broadcast = AsyncMock()
 
-    config_path.write_text(text)
+    config_path.write_text(text, encoding="utf-8", newline="")
     await server.on_file_change(str(config_path))
 
     assert server.broadcast.await_args.args[0]["type"] == "config_error"
@@ -234,9 +249,9 @@ async def test_root_serves_the_viewer(client):
 @pytest.mark.asyncio
 async def test_source_api_lists_and_reads_watched_files(client, project):
     tc, server = client
-    (project / "references.bib").write_text("@book{x}\n", encoding="utf-8")
-    (project / "notes.tmp").write_text("not watched\n", encoding="utf-8")
-    (project / "ignored.tex").write_text("private draft\n", encoding="utf-8")
+    (project / "references.bib").write_text("@book{x}\n", encoding="utf-8", newline="")
+    (project / "notes.tmp").write_text("not watched\n", encoding="utf-8", newline="")
+    (project / "ignored.tex").write_text("private draft\n", encoding="utf-8", newline="")
     server.config.ignore = ["ignored.tex"]
 
     listed = await (await tc.get("/sources")).json()
@@ -268,9 +283,9 @@ async def test_source_save_requires_current_revision(client, project):
     saved = await response.json()
     assert path.read_text(encoding="utf-8") == edited
     assert saved["revision"] != opened["revision"]
-    assert path.stat().st_mode & 0o777 == 0o640
+    assert os.name == "nt" or path.stat().st_mode & 0o777 == 0o640  # Windows keeps no mode bits
 
-    path.write_text("external edit\n", encoding="utf-8")
+    path.write_text("external edit\n", encoding="utf-8", newline="")
     stale = await tc.put(
         "/source",
         params={"path": "paper.tex"},
@@ -285,9 +300,9 @@ async def test_source_save_requires_current_revision(client, project):
 async def test_source_api_rejects_outside_ignored_and_non_utf8_files(client, project):
     tc, server = client
     outside = project.parent / "outside.tex"
-    outside.write_text("outside\n", encoding="utf-8")
-    (project / "outside-link.tex").symlink_to(outside)
-    (project / "ignored.tex").write_text("ignored\n", encoding="utf-8")
+    outside.write_text("outside\n", encoding="utf-8", newline="")
+    _symlink(project / "outside-link.tex", outside)
+    (project / "ignored.tex").write_text("ignored\n", encoding="utf-8", newline="")
     (project / "binary.tex").write_bytes(b"\xff")
     server.config.ignore = ["ignored.tex"]
 
@@ -333,7 +348,7 @@ async def test_a_section_comment_keeps_to_the_heading_it_was_made_on(client_with
     tc, server = client_with_pdf
     body = ("\\section{Methods}\n\\subsection{Setup}\nFirst.\n"
             "\\section{Experiments}\n\\subsection{Setup}\nSecond.\n")
-    (project / "paper.tex").write_text(body)
+    (project / "paper.tex").write_text(body, encoding="utf-8", newline="")
     server.structure = parse_structure(project)
 
     def where(comment):
@@ -345,7 +360,7 @@ async def test_a_section_comment_keeps_to_the_heading_it_was_made_on(client_with
     made = await resp.json()
     assert where(made) == {"file": "paper.tex", "line_start": 5, "line_end": 6}
 
-    (project / "paper.tex").write_text("% one\n% two\n" + body)
+    (project / "paper.tex").write_text("% one\n% two\n" + body, encoding="utf-8", newline="")
     server.structure = parse_structure(project)
     server.comments.refresh_anchors(
         project, server.last_result.output_file,
@@ -436,7 +451,7 @@ async def test_apply_source_suggestion_replaces_only_anchor_and_keeps_comment_op
     assert path.read_text(encoding="utf-8") == before.replace(
         "Some prose with \\cite{ref1}.", "Clear prose with \\cite{ref1}.", 1
     )
-    assert path.stat().st_mode & 0o777 == 0o640
+    assert os.name == "nt" or path.stat().st_mode & 0o777 == 0o640  # Windows keeps no mode bits
     assert applied["status"] == "open"
     # Applying takes the proposal off the thread: it is in the file now, and the entry
     # it leaves says where.
@@ -482,7 +497,7 @@ async def test_apply_source_suggestion_rechecks_changed_source(client, project):
     path = project / "paper.tex"
     comment = await _source_suggestion(tc, server, project)
     changed = path.read_text(encoding="utf-8").replace("Some prose", "Other prose", 1)
-    path.write_text(changed, encoding="utf-8")
+    path.write_text(changed, encoding="utf-8", newline="")
 
     response = await tc.post(
         f"/comments/{comment['id']}/apply-suggestion",
@@ -524,7 +539,7 @@ async def test_apply_source_suggestion_refuses_an_ambiguous_piece(client, projec
     comment = await _source_suggestion(tc, server, project, old="Some prose with \\cite{ref1}.",
                                        new="Replacement.")
     path.write_text(path.read_text(encoding="utf-8") + "Some prose with \\cite{ref1}.\n",
-                    encoding="utf-8")
+                    encoding="utf-8", newline="")
     before = path.read_text(encoding="utf-8")
 
     response = await tc.post(
@@ -637,7 +652,7 @@ async def test_a_thread_whose_anchor_came_loose_can_still_be_proposed_on(client,
     shutil.rmtree(project / ".tex-mcp-web" / "anchor-texts")
     (project / "paper.tex").write_text(
         (project / "paper.tex").read_text(encoding="utf-8").replace("Some prose with", "Rewritten using"),
-        encoding="utf-8")
+        encoding="utf-8", newline="")
     server.comments.refresh_source_anchors(project)
     loose = server.comments.get(pointed["id"])
     # The words after the selection changed too, so no unchanged text around it
@@ -689,9 +704,9 @@ async def test_apply_source_suggestion_rejects_source_outside_project(
 ):
     tc, server = client
     outside = project.parent / "outside.tex"
-    outside.write_text("outside text\n", encoding="utf-8")
+    outside.write_text("outside text\n", encoding="utf-8", newline="")
     if outside_path == "outside-link.tex":
-        (project / outside_path).symlink_to(outside)
+        _symlink(project / outside_path, outside)
     comment = server.comments.add(
         SourceRangeAnchor(file=outside_path, line_start=1, line_end=1),
         "Do not escape the project.",
@@ -759,7 +774,7 @@ async def test_apply_source_suggestion_preserves_unicode_multiline_range(client,
         "뒤 문장.\n"
         "\\end{document}\n"
     )
-    path.write_text(text, encoding="utf-8")
+    path.write_text(text, encoding="utf-8", newline="")
     old = "첫 줄 😀 α\n둘째 줄 β"
     new = "새 첫 줄 😀 γ\n새 둘째 줄 δ"
     comment = await _source_suggestion(
@@ -1245,7 +1260,7 @@ def bound_project(project: Path, monkeypatch):
 
     (project / ".tex-mcp-web.yaml").write_text(
         f"main: paper.tex\nport: {_free_port()}\n"
-    )
+    , encoding="utf-8", newline="")
     monkeypatch.chdir(project)
     binding = ProjectBinding(project)
     yield binding
@@ -1268,7 +1283,7 @@ async def test_compile_tells_the_agent_where_the_body_ends(bound_project, projec
         "\\documentclass{article}\n\\begin{document}\n"
         + "The keeper wrote the height of every tide in the ledger by the lamp. " * 3 + "\\linebreak Tides\n\n"
         "The last body sentence closes the paper.\n"
-        "\\end{document}\n", encoding="utf-8")
+        "\\end{document}\n", encoding="utf-8", newline="")
     mcp = create_server(bound_project)
     told = json.loads((await mcp.call_tool("compile", {}))[0].text)
     assert told["success"] is True
@@ -1284,13 +1299,13 @@ def test_tools_keep_the_bound_project_when_a_closer_config_appears(tmp_path, mon
     parent = tmp_path / "parent"
     child = parent / "child"
     child.mkdir(parents=True)
-    (parent / "paper.tex").write_text(_TINY_PAPER)
-    (parent / ".tex-mcp-web.yaml").write_text(f"main: paper.tex\nport: {_free_port()}\n")
+    (parent / "paper.tex").write_text(_TINY_PAPER, encoding="utf-8", newline="")
+    (parent / ".tex-mcp-web.yaml").write_text(f"main: paper.tex\nport: {_free_port()}\n", encoding="utf-8", newline="")
     monkeypatch.chdir(child)
     binding = ProjectBinding(child)
     try:
         bound = binding.require_shared()
-        (child / ".tex-mcp-web.yaml").write_text(f"main: other.tex\nport: {_free_port()}\n")
+        (child / ".tex-mcp-web.yaml").write_text(f"main: other.tex\nport: {_free_port()}\n", encoding="utf-8", newline="")
         # Comments, image and the compile log come from here, so they must stay with the
         # project the review page serves, not the config that appeared later.
         cfg, watch_dir, store = _load_project(binding)
@@ -1313,9 +1328,9 @@ async def test_setup_info_reports_paths_without_connecting(tmp_path, monkeypatch
     parent = tmp_path / "parent"
     child = parent / "child"
     child.mkdir(parents=True)
-    (parent / "paper.tex").write_text(_TINY_PAPER)
+    (parent / "paper.tex").write_text(_TINY_PAPER, encoding="utf-8", newline="")
     config = parent / ".tex-mcp-web.yaml"
-    config.write_text(f"main: paper.tex\nport: {_free_port()}\n")
+    config.write_text(f"main: paper.tex\nport: {_free_port()}\n", encoding="utf-8", newline="")
     binding = ProjectBinding(child)
     mcp = create_server(binding)
 
@@ -1350,11 +1365,11 @@ def test_a_server_started_for_another_config_file_is_not_shared(tmp_path):
     root = tmp_path / "root"
     paper = root / "paper"
     paper.mkdir(parents=True)
-    (paper / "paper.tex").write_text(_TINY_PAPER)
+    (paper / "paper.tex").write_text(_TINY_PAPER, encoding="utf-8", newline="")
     port = _free_port()
     # Two config files that serve the same folder on the same port.
-    (root / ".tex-mcp-web.yaml").write_text(f"main: paper.tex\ndir: paper\nport: {port}\n")
-    (paper / ".tex-mcp-web.yaml").write_text(f"main: paper.tex\nport: {port}\n")
+    (root / ".tex-mcp-web.yaml").write_text(f"main: paper.tex\ndir: paper\nport: {port}\n", encoding="utf-8", newline="")
+    (paper / ".tex-mcp-web.yaml").write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8", newline="")
     first, second = ProjectBinding(root), ProjectBinding(paper)
     try:
         first.require_shared()
@@ -1394,7 +1409,7 @@ async def test_mcp_drafts_an_overleaf_reply_only_on_a_thread_from_overleaf(bound
     store = CommentStore(project / ".tex-mcp-web" / "comments.json")
     brought = store.add(PaperAnchor(), "Which words?", name="Ann")
     own = store.add(PaperAnchor(), "A note of mine.")
-    overleaf.ledger_path(project).write_text(json.dumps({"t1": {"comment": brought.id, "messages": 1}}))
+    overleaf.ledger_path(project).write_text(json.dumps({"t1": {"comment": brought.id, "messages": 1}}), encoding="utf-8", newline="")
 
     refused = await call("write_comments", action="overleaf", id=own.id, text="Fixed.", rev=revision_of(own.updated))
     assert "did not come from Overleaf" in refused["error"]
@@ -1418,7 +1433,7 @@ async def test_mcp_drafts_an_overleaf_reply_only_on_a_thread_from_overleaf(bound
     # and a suggestion on it says why it has to wait.
     overleaf.ledger_path(project).write_text(json.dumps({"t1": {
         "comment": brought.id, "messages": 1,
-        "place": {"pathname": "/paper.tex", "line": 3, "anchored_text": "words written on Overleaf"}}}))
+        "place": {"pathname": "/paper.tex", "line": 3, "anchored_text": "words written on Overleaf"}}}), encoding="utf-8", newline="")
     told = (await call("read_comments", ids=[brought.id]))["comments"][0]
     assert told["overleaf_place"] == "paper.tex:3, not found here"
     refused = await call("write_comments", action="suggest", id=brought.id, text="Shorter.",
@@ -1457,10 +1472,10 @@ async def test_guide_lists_the_papers_guideline_base_first(bound_project, projec
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "home"))
     base = tmp_path / "home" / "tex-mcp-web" / "guidelines" / "plain-writing"
     base.mkdir(parents=True)
-    (base / "GUIDELINE.md").write_text("# Plain writing\n")
+    (base / "GUIDELINE.md").write_text("# Plain writing\n", encoding="utf-8", newline="")
     mine = base.parent / "my-field"
     mine.mkdir()
-    (mine / "GUIDELINE.md").write_text("---\nextends: plain-writing\n---\n# My field\n")
+    (mine / "GUIDELINE.md").write_text("---\nextends: plain-writing\n---\n# My field\n", encoding="utf-8", newline="")
     mcp = create_server(bound_project)
 
     async def guide():
@@ -1468,10 +1483,10 @@ async def test_guide_lists_the_papers_guideline_base_first(bound_project, projec
 
     config = project / ".tex-mcp-web.yaml"
     assert (await guide())["read"] == []
-    config.write_text(config.read_text() + "guideline: my-field\n")
+    config.write_text(config.read_text(encoding="utf-8") + "guideline: my-field\n", encoding="utf-8", newline="")
     read = (await guide())["read"]
     assert [Path(path).parent.name for path in read] == ["plain-writing", "my-field"]
-    config.write_text(config.read_text().replace("my-field", "nowhere"))
+    config.write_text(config.read_text(encoding="utf-8").replace("my-field", "nowhere"), encoding="utf-8", newline="")
     assert "guideline not found" in (await guide())["error"]
 
 
@@ -1602,7 +1617,7 @@ async def test_a_search_finds_threads_by_what_was_said_in_them_and_when(bound_pr
     assert whole["replies"][0]["text"] == long
     # on_overleaf keeps a search or a listing to Overleaf's threads or to the page's own.
     from tex_mcp_web import overleaf as overleaf_module
-    overleaf_module.ledger_path(project).write_text(json.dumps({"t1": {"comment": old.id, "entries": {}}}))
+    overleaf_module.ledger_path(project).write_text(json.dumps({"t1": {"comment": old.id, "entries": {}}}), encoding="utf-8", newline="")
     there = (await call("read_comments", find="table", status="all", on_overleaf=True))["comments"]
     here = (await call("read_comments", find="table", status="all", on_overleaf=False))["comments"]
     # The other thread holds a draft for Overleaf, which puts it on Overleaf's side, as the
@@ -1660,14 +1675,14 @@ async def test_the_reviewer_starts_a_thread_for_overleaf_and_the_agent_drafts_it
     lines = {"kind": "source_range", "file": "paper.tex", "line_start": 5, "line_end": 5,
              "column_start": 0, "column_end": 10}
     config = project / ".tex-mcp-web.yaml"
-    config.write_text(f"main: paper.tex\nport: {_free_port()}\n")
+    config.write_text(f"main: paper.tex\nport: {_free_port()}\n", encoding="utf-8", newline="")
     server = TexMcpWebServer(load_config(config))
     client = TestClient(TestServer(server.app))
     await client.start_server()
     try:
         refused = await client.post("/comments", json={"anchor": lines, "text": "Ask her nicely.", "overleaf": True})
         assert refused.status == 400 and "Overleaf project" in (await refused.json())["error"]
-        config.write_text(config.read_text() + "overleaf: https://www.overleaf.com/project/0123456789abcdef01234567\n")
+        config.write_text(config.read_text(encoding="utf-8") + "overleaf: https://www.overleaf.com/project/0123456789abcdef01234567\n", encoding="utf-8", newline="")
         server.config = load_config(config)
         refused = await client.post("/comments", json={"anchor": {"kind": "paper"}, "text": "Everywhere.", "overleaf": True})
         assert refused.status == 400
@@ -1841,7 +1856,7 @@ async def test_the_agent_names_a_heading_others_share_the_title_of_by_its_label(
 
     (project / "paper.tex").write_text(
         "\\section{Methods}\n\\subsection{Setup}\nFirst.\n"
-        "\\section{Experiments}\n\\subsection{Setup}\\label{sec:exp-setup}\nSecond.\n")
+        "\\section{Experiments}\n\\subsection{Setup}\\label{sec:exp-setup}\nSecond.\n", encoding="utf-8", newline="")
     mcp = create_server(bound_project)
 
     async def add(anchor):
@@ -1871,7 +1886,7 @@ async def test_mcp_comment_and_section_runtime_contract(bound_project, project):
         },
     )
     comment = json.loads(added[0].text)
-    stored = json.loads((project / ".tex-mcp-web" / "comments.json").read_text())
+    stored = json.loads((project / ".tex-mcp-web" / "comments.json").read_text(encoding="utf-8"))
     assert stored["version"] == STORE_VERSION
     assert stored["comments"][0]["thread"][0]["author"] == "agent"
     assert set(comment) == {"id", "status", "rev"}
@@ -1974,7 +1989,7 @@ async def test_an_added_thread_opens_with_its_proposal(client, bound_project, pr
         return json.loads((await mcp.call_tool("write_comments", payload))[0].text)
 
     def stored():
-        return json.loads((project / ".tex-mcp-web" / "comments.json").read_text())["comments"]
+        return json.loads((project / ".tex-mcp-web" / "comments.json").read_text(encoding="utf-8"))["comments"]
 
     line = {"kind": "source_range", "file": "paper.tex", "start": 5, "end": 5}
     added = await call_comment(action="add", text="Plainer here.", anchor=line,
@@ -2341,7 +2356,7 @@ def test_resolve_section_to_source_handles_eof(project):
     assert rs.file == "paper.tex"
     assert rs.line_start == 6  # \section{Methods}
     # End line should be the last line of the file (computed from EOF).
-    total_lines = len((project / "paper.tex").read_text().splitlines())
+    total_lines = len((project / "paper.tex").read_text(encoding="utf-8").splitlines())
     assert rs.line_end == total_lines
 
 
@@ -2463,7 +2478,7 @@ async def test_a_suggestion_or_a_draft_rejected_is_told_to_the_agent_once(bound_
         here = store.add(PaperAnchor(), "Tighten it.")
         brought = store.add(PaperAnchor(), "Could this be shorter?", name="Ann")
         opened = store.add(PaperAnchor(), "Ask her about the units.", for_overleaf=True)
-        overleaf.ledger_path(project).write_text(json.dumps({"t1": {"comment": brought.id, "messages": 1}}))
+        overleaf.ledger_path(project).write_text(json.dumps({"t1": {"comment": brought.id, "messages": 1}}), encoding="utf-8", newline="")
         assert len(await read(new=True)) == 3
         store.suggest(here.id, store.get(here.id).updated, "Shorter.",
                       lambda current: SuggestedEdit("paper.tex", [("Some prose", "Prose")]))
@@ -2543,7 +2558,7 @@ async def test_a_suggestion_applied_on_a_thread_from_overleaf_waits_while_it_has
     brought = store.add(PaperAnchor(), "Could this be shorter?", name="Ann")
     drafted = store.add(PaperAnchor(), "And this one?", name="Ann")
     overleaf.ledger_path(project).write_text(json.dumps({"t1": {"comment": brought.id, "messages": 1},
-                                                         "t2": {"comment": drafted.id, "messages": 1}}))
+                                                         "t2": {"comment": drafted.id, "messages": 1}}), encoding="utf-8", newline="")
     for asked in (here, brought, drafted):
         proposed = store.suggest(asked.id, asked.updated, "Shorter.",
                                  lambda current: SuggestedEdit("paper.tex", [("Some prose", "Prose")]))
@@ -2763,7 +2778,7 @@ async def test_listen(bound_project, project, monkeypatch, codex):
     script, listener = shlex.split(result["command"])
     script = Path(script)
     assert script == project / ".tex-mcp-web" / "wait-review.sh"
-    assert script.stat().st_mode & 0o111
+    assert os.name == "nt" or script.stat().st_mode & 0o111  # Windows keeps no mode bits
     # Claude Code's Monitor takes command, description and timeout_ms (at most 30 minutes).
     assert "Monitor" in result["how"] and "persistent" not in result["how"]
     assert 'description="' in result["how"] and "timeout_ms=1800000" in result["how"]
@@ -2792,7 +2807,7 @@ async def test_listen(bound_project, project, monkeypatch, codex):
         stub.write_text("#!/bin/sh\n"
                         '[ "$1" = queue ] && [ "$2" = --thread ] && [ "$3" = test-thread ] && [ "$4" = --message ] || exit 2\n'
                         '[ -f "$0.ready" ] || { touch "$0.failed"; exit 1; }\n'
-                        'printf "%s\\n" "$5" | tail -n +2\n')
+                        'printf "%s\\n" "$5" | tail -n +2\n', encoding="utf-8", newline="")
         stub.chmod(0o755)
         monkeypatch.setenv("PATH", f"{project}:{os.environ['PATH']}")
         args = ["--codex", "test-thread"]
@@ -2806,21 +2821,22 @@ async def test_listen(bound_project, project, monkeypatch, codex):
                 await asyncio.sleep(0.02)
             assert (project / "codex.failed").exists()
             state_path = project / ".tex-mcp-web" / "review-state.json"
-            assert json.loads(state_path.read_text())["consumed"] == 0
+            assert json.loads(state_path.read_text(encoding="utf-8"))["consumed"] == 0
             (project / "codex.ready").touch()
         line = waiter.stdout.readline()
         assert line.startswith("[review] reviewer called (press #1)")
         state_path = project / ".tex-mcp-web" / "review-state.json"
         for _ in range(100):
-            if json.loads(state_path.read_text()) == {"calls": 1, "consumed": 1}:
+            if json.loads(state_path.read_text(encoding="utf-8")) == {"calls": 1, "consumed": 1}:
                 break
             time.sleep(0.05)
-        assert json.loads(state_path.read_text()) == {"calls": 1, "consumed": 1}
+        assert json.loads(state_path.read_text(encoding="utf-8")) == {"calls": 1, "consumed": 1}
     finally:
         waiter.kill()
         waiter.wait()
 
 
+@needs_posix_monitor
 @pytest.mark.asyncio
 async def test_listen_hands_the_waiter_to_the_plugin_monitor(bound_project, project, monkeypatch, tmp_path):
     """In a session the plugin's monitor serves, listen() hands it the waiter and tells the
@@ -2847,7 +2863,7 @@ async def test_listen_hands_the_waiter_to_the_plugin_monitor(bound_project, proj
             if record.exists():
                 break
             await asyncio.sleep(0.1)
-        assert int(record.read_text()) == monitor.pid
+        assert int(record.read_text(encoding="utf-8")) == monitor.pid
         mcp = create_server(bound_project)
         context = SimpleNamespace(session=SimpleNamespace(client_params=SimpleNamespace(
             clientInfo=SimpleNamespace(name="claude-code"))))
@@ -2855,7 +2871,7 @@ async def test_listen_hands_the_waiter_to_the_plugin_monitor(bound_project, proj
         result = json.loads((await mcp.call_tool("listen", {}))[0].text)
         assert "plugin's monitor now runs the command" in result["how"]
         assert "Monitor(" not in result["how"] and "On [review]" in result["how"]
-        handed = (plugin_monitor.DIRECTORY / f"{session.pid}.command").read_text().splitlines()
+        handed = (plugin_monitor.DIRECTORY / f"{session.pid}.command").read_text(encoding="utf-8").splitlines()
         assert handed[1] == result["command"]
         async with aiohttp.ClientSession() as client:
             async with client.post(f"{bound_project.base_url()}/review-request") as response:
@@ -2873,6 +2889,7 @@ async def test_listen_hands_the_waiter_to_the_plugin_monitor(bound_project, proj
                 await process.wait()
 
 
+@needs_posix_monitor
 @pytest.mark.asyncio
 async def test_a_session_with_the_plugin_listens_from_its_start(bound_project, project, monkeypatch, tmp_path):
     """Where the plugin's monitor runs for the session, the server starts listening with
@@ -2902,7 +2919,7 @@ async def test_a_session_with_the_plugin_listens_from_its_start(bound_project, p
             # The other session never started its waiter: this one listens in its place.
             shared.server.LISTENER_START = 0
             await asyncio.to_thread(_listen_from_start, shared)
-            script, _ = shlex.split(handed.read_text().splitlines()[1])
+            script, _ = shlex.split(handed.read_text(encoding="utf-8").splitlines()[1])
             assert script == str(project / ".tex-mcp-web" / "wait-review.sh")
             async with client.post(f"{base}/review-request") as response:
                 assert (await response.json())["calls"] == 1
@@ -2929,6 +2946,7 @@ async def test_a_session_with_the_plugin_listens_from_its_start(bound_project, p
                 await process.wait()
 
 
+@needs_posix_monitor
 @pytest.mark.asyncio
 async def test_a_session_that_starts_the_server_again_listens_again(bound_project, project, monkeypatch, tmp_path):
     """A session that came to a paper another session served and listened to leaves it
@@ -2967,7 +2985,7 @@ async def test_a_session_that_starts_the_server_again_listens_again(bound_projec
         stdout=asyncio.subprocess.PIPE, env={**os.environ, "PYTHONPATH": str(Path(__file__).parents[1])})
     binding = ProjectBinding(project, on_serve=_listen_in_background)
     try:
-        assert await asyncio.wait_for(other.stdout.readline(), 30) == b"serving\n"
+        assert (await asyncio.wait_for(other.stdout.readline(), 30)).rstrip(b"\r\n") == b"serving"
         record = plugin_monitor.DIRECTORY / f"{session.pid}.monitor"
         for _ in range(50):
             if record.exists():
@@ -3000,6 +3018,7 @@ async def test_a_session_that_starts_the_server_again_listens_again(bound_projec
                 await process.wait()
 
 
+@needs_posix_monitor
 @pytest.mark.asyncio
 async def test_a_monitor_killed_outright_leaves_nothing_a_later_session_takes(monkeypatch, tmp_path):
     """A monitor killed outright leaves its record and the last command. A pid in that record
@@ -3015,8 +3034,8 @@ async def test_a_monitor_killed_outright_leaves_nothing_a_later_session_takes(mo
     monkeypatch.setattr(plugin_monitor, "claude_pid", lambda: session.pid)
     record = plugin_monitor.DIRECTORY / f"{session.pid}.monitor"
     handed = plugin_monitor.DIRECTORY / f"{session.pid}.command"
-    record.write_text(f"{other.pid}\n")
-    handed.write_text("1\necho left over\n")
+    record.write_text(f"{other.pid}\n", encoding="utf-8", newline="")
+    handed.write_text("1\necho left over\n", encoding="utf-8", newline="")
     monitor = None
     try:
         assert plugin_monitor.monitored_session() is None
@@ -3024,7 +3043,7 @@ async def test_a_monitor_killed_outright_leaves_nothing_a_later_session_takes(mo
             "sh", str(Path(__file__).parents[1] / "plugin" / "monitors" / "review.sh"), str(session.pid),
             stdout=asyncio.subprocess.PIPE, env={**os.environ, "XDG_CACHE_HOME": str(cache)})
         for _ in range(50):
-            if record.read_text().strip() == str(monitor.pid):
+            if record.read_text(encoding="utf-8").strip() == str(monitor.pid):
                 break
             await asyncio.sleep(0.1)
         assert plugin_monitor.monitored_session() == session.pid
@@ -3061,7 +3080,7 @@ async def test_exact_source_selection_revision_and_save(client, project):
     assert response.status == 409
     # File watcher updates source anchors without a PDF or a compile. Words written over the
     # commented words take the comment, as on Overleaf, and it says its words were edited.
-    (project / "paper.tex").write_text(changed.replace("prose", "replacement"))
+    (project / "paper.tex").write_text(changed.replace("prose", "replacement"), encoding="utf-8", newline="")
     await server.on_file_change(str(project / "paper.tex"))
     moved = server.comments.get(comment["id"])
     assert not moved.stale and moved.reanchored and moved.source_selector.exact == "replacement"
@@ -3090,7 +3109,7 @@ async def test_stdio_source_and_reply_use_explicit_detail_reads(project):
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
         port = listener.getsockname()[1]
-    (project / ".tex-mcp-web.yaml").write_text(f"main: paper.tex\nport: {port}\n")
+    (project / ".tex-mcp-web.yaml").write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8", newline="")
     params = StdioServerParameters(command=sys.executable,
         args=["-c", "from tex_mcp_web.cli import main_mcp; raise SystemExit(main_mcp())"],
         cwd=project, env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1]),
@@ -3137,7 +3156,7 @@ async def test_a_discovered_paper_gets_its_review_page_without_a_tool_call(proje
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
         port = listener.getsockname()[1]
-    (project / ".tex-mcp-web.yaml").write_text(f"main: paper.tex\nport: {port}\n")
+    (project / ".tex-mcp-web.yaml").write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8", newline="")
     params = StdioServerParameters(command=sys.executable,
         args=["-c", "from tex_mcp_web.cli import main_mcp; raise SystemExit(main_mcp())"],
         cwd=project, env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1]),
@@ -3436,8 +3455,8 @@ def _translation_project(project, server, runner):
 
     (project / "body.tex").write_text(
         "% a plan kept in a comment\nFirst paragraph of the body text.\n\nSecond paragraph of the body text.\n\n"
-        "Third paragraph on another page.\n")
-    (project / "abs.tex").write_text("Abstract words are here.\n")
+        "Third paragraph on another page.\n", encoding="utf-8", newline="")
+    (project / "abs.tex").write_text("Abstract words are here.\n", encoding="utf-8", newline="")
     server.synctex_data = SyncTeXData(
         pdf_to_source={1: [(10.0, SourcePosition("abs.tex", 1)), (80.0, SourcePosition("body.tex", 2)),
                            (100.0, SourcePosition("body.tex", 4))],
@@ -3522,7 +3541,7 @@ async def test_each_language_keeps_its_own_translations(client, project):
     translator = server._translator("Japanese")
     assert translator.language == "Japanese"
     assert translator.store.path.name == "translations-japanese.json"
-    assert translator.missing(split_paragraphs((project / "body.tex").read_text(), "body.tex"))
+    assert translator.missing(split_paragraphs((project / "body.tex").read_text(encoding="utf-8"), "body.tex"))
     assert server._translator("Japanese") is translator
 
 
@@ -3571,7 +3590,7 @@ async def test_overleaf_threads_become_comments_on_their_words(client) -> None:
 
     # The words reach the file, by a pull or by hand, and the comment moves onto them.
     paper = server.watch_dir / "paper.tex"
-    paper.write_text(paper.read_text().replace("Some methods.", "Some methods, not in the paper before."))
+    paper.write_text(paper.read_text(encoding="utf-8").replace("Some methods.", "Some methods, not in the paper before."), encoding="utf-8", newline="")
     await server.on_file_change(str(paper))
     moved = server.comments.get(unplaced.id)
     assert moved.anchor.kind == "source_range" and moved.anchor.file == "paper.tex"
@@ -3588,7 +3607,7 @@ async def test_overleaf_threads_are_kept_as_overleaf_has_them(client) -> None:
 
     _, server = client
     paper = server.watch_dir / "paper.tex"
-    text = paper.read_text()
+    text = paper.read_text(encoding="utf-8")
     sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
 
     def message(key, name, content):
@@ -3615,11 +3634,11 @@ async def test_overleaf_threads_are_kept_as_overleaf_has_them(client) -> None:
     moved = server.comments.get(one.id).anchor
     assert (moved.line_start, moved.column_start, moved.column_end) == (3, 9, 21)
     # The file edited here: Overleaf's text is no longer this one, and it stays on its words.
-    paper.write_text("% a line here\n" + text)
+    paper.write_text("% a line here\n" + text, encoding="utf-8", newline="")
     export["comments"][0].update(anchored_text="prose", offset=text.index("prose"))
     await server._bring_in_overleaf(export, new=False)
     assert server.comments.get(one.id).anchor.to_dict() == moved.to_dict()
-    paper.write_text(text)
+    paper.write_text(text, encoding="utf-8", newline="")
 
     # A reply reworded and one deleted on Overleaf.
     export["threads"]["t1"]["messages"][1]["content"] = "The introduction."
@@ -3663,7 +3682,7 @@ async def test_a_message_from_overleaf_goes_by_its_writers_name_and_is_answered_
     oldest = server.comments.add(PaperAnchor(), "[Overleaf · A. Reviewer] And this?")
     overleaf.ledger_path(server.watch_dir).write_text(json.dumps({
         "t1": {"comment": older.id, "entries": {"m1": older.thread[0].id}},
-        "t2": {"comment": oldest.id, "messages": 1}}))
+        "t2": {"comment": oldest.id, "messages": 1}}), encoding="utf-8", newline="")
     export = {"threads": {"t1": {"messages": [message("m1", "Which prose?")]},
                           "t2": {"messages": [message("m2", "And this?")]}},
               "comments": [{"thread_id": "t1", "pathname": "/paper.tex", "line": 1, "anchored_text": "Some"},
@@ -3690,10 +3709,10 @@ async def test_overleafs_threads_are_listed_in_the_order_the_paper_reads_them(cl
     (server.watch_dir / "tex").mkdir()
     (server.watch_dir / "paper.tex").write_text(
         "\\documentclass{article}\n\\begin{document}\nOpening words.\n\\input{tex/a}\n"
-        "Between.  \\input{tex/b}\nClosing words.\n\\end{document}\n")
-    (server.watch_dir / "tex" / "a.tex").write_text("First of a.\nSecond.\nThird.\n")
-    (server.watch_dir / "tex" / "b.tex").write_text("First of b.\nSecond.\n")
-    (server.watch_dir / "notes.tex").write_text("Not in the build.\n")
+        "Between.  \\input{tex/b}\nClosing words.\n\\end{document}\n", encoding="utf-8", newline="")
+    (server.watch_dir / "tex" / "a.tex").write_text("First of a.\nSecond.\nThird.\n", encoding="utf-8", newline="")
+    (server.watch_dir / "tex" / "b.tex").write_text("First of b.\nSecond.\n", encoding="utf-8", newline="")
+    (server.watch_dir / "notes.tex").write_text("Not in the build.\n", encoding="utf-8", newline="")
 
     def on(file: str, line: int, column: int = 0):
         return {"anchor": SourceRangeAnchor(file=file, line_start=line, line_end=line, column_start=column,
@@ -3708,7 +3727,7 @@ async def test_overleafs_threads_are_listed_in_the_order_the_paper_reads_them(cl
         ("main 3", on("paper.tex", 3)), ("a 1", on("tex/a.tex", 1)))}
     brought["paper"] = server.comments.add(PaperAnchor(), "paper")
     overleaf.ledger_path(server.watch_dir).write_text(json.dumps(
-        {f"t{index}": {"comment": comment.id} for index, comment in enumerate(brought.values())}))
+        {f"t{index}": {"comment": comment.id} for index, comment in enumerate(brought.values())}), encoding="utf-8", newline="")
     mine_later = server.comments.add(PaperAnchor(), "Written here after.")
 
     listed = [c["thread"][0]["text"] for c in (await (await http.get("/comments")).json())["comments"]]
@@ -3724,13 +3743,13 @@ async def test_completions_list_what_the_paper_defines(client, project):
     (project / "sec").mkdir()
     (project / "sec" / "a.tex").write_text(
         "\\label{fig:a} % \\label{fig:hidden}\n\\newcommand{\\cpp}[1]{#1 CPP}\n"
-        "\\newenvironment{sketch}{}{}\n")
+        "\\newenvironment{sketch}{}{}\n", encoding="utf-8", newline="")
     (project / "refs.bib").write_text(
         "@IEEEtranBSTCTL{BSTcontrol, CTLuse_forced_etal = \"yes\"}\n"
-        "@article{kim23, title = {Fusion Cells}, author = {Kim, A. and Lee, B.}, year = 2023}\n")
+        "@article{kim23, title = {Fusion Cells}, author = {Kim, A. and Lee, B.}, year = 2023}\n", encoding="utf-8", newline="")
     (project / "fig").mkdir()
     (project / "fig" / "flow.pdf").write_bytes(b"%PDF")
-    (project / "fig" / "notes.txt").write_text("not a picture")
+    (project / "fig" / "notes.txt").write_text("not a picture", encoding="utf-8", newline="")
     (project / ".tex-mcp-web").mkdir(exist_ok=True)
     (project / ".tex-mcp-web" / "cached.png").write_bytes(b"x")
     server.config.ignore = ["*.pre-*"]
@@ -3753,6 +3772,7 @@ async def test_completions_list_what_the_paper_defines(client, project):
 
 
 
+@needs_posix_monitor
 @pytest.mark.asyncio
 async def test_the_monitor_ends_a_replaced_waiter_and_the_request_it_waits_on(tmp_path):
     """A waiter sits in a read of its request's answer, where a shell does not act on a
@@ -3786,13 +3806,13 @@ async def test_the_monitor_ends_a_replaced_waiter_and_the_request_it_waits_on(tm
         pipeline in $(...), and return its pid."""
         script = tmp_path / f"{name}.sh"
         script.write_text(f"#!/bin/sh\necho $$ > {tmp_path / name}.pid\n"
-                          f"while :; do out=$(printf x | sleep {seconds}); done\n")
+                          f"while :; do out=$(printf x | sleep {seconds}); done\n", encoding="utf-8", newline="")
         script.chmod(0o755)
-        (directory / f"{session.pid}.command.new").write_text(f"{name}\n{script}\n")
+        (directory / f"{session.pid}.command.new").write_text(f"{name}\n{script}\n", encoding="utf-8", newline="")
         (directory / f"{session.pid}.command.new").replace(directory / f"{session.pid}.command")
         for _ in range(50):
             if sleeping(seconds):
-                return int((tmp_path / f"{name}.pid").read_text())
+                return int((tmp_path / f"{name}.pid").read_text(encoding="utf-8"))
             await asyncio.sleep(0.1)
         raise AssertionError(f"{name} did not start")
 

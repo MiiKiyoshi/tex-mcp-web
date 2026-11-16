@@ -31,13 +31,13 @@ def references(root: Path) -> Path:
     for name, text in PAPERS.items():
         path = root / name
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8")
+        path.write_text(text, encoding="utf-8", newline="")
     # The same paper again under another name counts once.
-    (root / "c" / "c copy.md").write_text(PAPERS["c/c.md"], encoding="utf-8")
+    (root / "c" / "c copy.md").write_text(PAPERS["c/c.md"], encoding="utf-8", newline="")
     # A translation beside it is not another paper, though it keeps the terms in English.
     (root / "c" / "c el.md").write_text(
         "## Περίληψη\n\nΗ light curve και η radial velocity του αστέρα μετρώνται ξανά με νέα "
-        "όργανα και μεγαλύτερη ακρίβεια.\n", encoding="utf-8")
+        "όργανα και μεγαλύτερη ακρίβεια.\n", encoding="utf-8", newline="")
     return root
 
 
@@ -66,7 +66,7 @@ def test_the_list_holds_the_terms_several_papers_use(tmp_path: Path) -> None:
 def project(root: Path, refs: str | None) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     config = root / ".tex-mcp-web.yaml"
-    config.write_text("main: main.tex\n" + (f"references: {refs}\n" if refs else ""), encoding="utf-8")
+    config.write_text("main: main.tex\n" + (f"references: {refs}\n" if refs else ""), encoding="utf-8", newline="")
     return config
 
 
@@ -82,12 +82,12 @@ def test_the_list_is_rebuilt_only_when_the_papers_change(tmp_path: Path) -> None
     assert refresh(load_config(config)) == terms
     assert terms.stat().st_mtime_ns == before - 10**9
     # A changed paper rebuilds it.
-    (refs / "d" / "d.md").write_text(PAPERS["d/d.md"].replace("light curve", "lamp spectrum"), encoding="utf-8")
+    (refs / "d" / "d.md").write_text(PAPERS["d/d.md"].replace("light curve", "lamp spectrum"), encoding="utf-8", newline="")
     refresh(load_config(config))
     # As many papers now join the words as keep them apart, and the term keeps them apart.
     assert "- light curve (4), also lightcurve" in terms.read_text(encoding="utf-8").splitlines()
     # Without references the list goes.
-    config.write_text("main: main.tex\n", encoding="utf-8")
+    config.write_text("main: main.tex\n", encoding="utf-8", newline="")
     assert refresh(load_config(config)) is None
     assert not terms.exists()
 
@@ -114,9 +114,9 @@ async def test_guide_brings_the_list_up_to_date_and_names_it_to_read(tmp_path: P
     references(tmp_path / "refs")
     paper = tmp_path / "paper"
     paper.mkdir()
-    (paper / "main.tex").write_text("\\documentclass{article}\n\\begin{document}x\\end{document}\n")
+    (paper / "main.tex").write_text("\\documentclass{article}\n\\begin{document}x\\end{document}\n", encoding="utf-8", newline="")
     config = paper / ".tex-mcp-web.yaml"
-    config.write_text(f"main: main.tex\nport: {port}\nreferences: ../refs\n")
+    config.write_text(f"main: main.tex\nport: {port}\nreferences: ../refs\n", encoding="utf-8", newline="")
     binding = ProjectBinding(paper)
     mcp = create_server(binding)
 
@@ -130,7 +130,7 @@ async def test_guide_brings_the_list_up_to_date_and_names_it_to_read(tmp_path: P
         assert await guide() == {"read": [str(terms)]}
         assert "- light curve (5)" in terms.read_text(encoding="utf-8")
         # Without references there is nothing to read first.
-        config.write_text(f"main: main.tex\nport: {port}\n")
+        config.write_text(f"main: main.tex\nport: {port}\n", encoding="utf-8", newline="")
         assert await guide() == {"read": []}
     finally:
         binding.stop()

@@ -1,6 +1,7 @@
 """Tests for watcher module."""
 
 import asyncio
+import os
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -9,8 +10,12 @@ import pytest
 from tex_mcp_web.watcher import TexFileHandler, Watcher
 
 
+# An absolute folder on either system: "/project" has no drive on Windows.
+ROOT = "C:/project" if os.name == "nt" else "/project"
+
+
 def make_handler(**kwargs):
-    return TexFileHandler(watch_dir=Path("/project"), **kwargs)
+    return TexFileHandler(watch_dir=Path(f"{ROOT}"), **kwargs)
 
 
 class TestTexFileHandler:
@@ -29,7 +34,7 @@ class TestTexFileHandler:
         assert handler._matches_patterns("main.tex", ["*.tex"])
         assert handler._matches_patterns("chapter.tex", ["*.tex"])
         assert handler._matches_patterns(
-            "/project/chapters/intro.tex", ["*.tex"]
+            f"{ROOT}/chapters/intro.tex", ["*.tex"]
         )
         assert not handler._matches_patterns("main.pdf", ["*.tex"])
 
@@ -47,7 +52,7 @@ class TestTexFileHandler:
 
         assert handler._matches_patterns("sections/intro.tex", ["sections/*.tex"])
         assert handler._matches_patterns(
-            "/project/sections/intro.tex", ["sections/*.tex"]
+            f"{ROOT}/sections/intro.tex", ["sections/*.tex"]
         )
         assert not handler._matches_patterns("chapters/intro.tex", ["sections/*.tex"])
 
@@ -111,9 +116,9 @@ class TestTexFileHandler:
             loop=loop,
         )
 
-        assert not handler._should_process("/project/.tex-mcp-web.yaml")
-        assert not handler._should_process("/project/.tex-mcp-web/comments.json")
-        assert handler._should_process("/project/main.tex")
+        assert not handler._should_process(f"{ROOT}/.tex-mcp-web.yaml")
+        assert not handler._should_process(f"{ROOT}/.tex-mcp-web/comments.json")
+        assert handler._should_process(f"{ROOT}/main.tex")
 
         loop.close()
 
@@ -126,10 +131,10 @@ class TestTexFileHandler:
             loop=loop,
         )
 
-        assert handler._should_process("/project/sections/intro.tex")
-        assert not handler._should_process("/project/private/note.tex")
+        assert handler._should_process(f"{ROOT}/sections/intro.tex")
+        assert not handler._should_process(f"{ROOT}/private/note.tex")
         assert not handler._should_process(
-            "/project/private/experiments/result.tex"
+            f"{ROOT}/private/experiments/result.tex"
         )
 
         loop.close()
@@ -166,13 +171,13 @@ class TestTexFileHandler:
 
         event = MagicMock()
         event.is_directory = False
-        event.src_path = "/project/main.tex"
+        event.src_path = f"{ROOT}/main.tex"
 
         # Mock _schedule_callback to avoid blocking on event loop
         handler._schedule_callback = MagicMock()
         handler.on_modified(event)
 
-        handler._schedule_callback.assert_called_once_with("/project/main.tex")
+        handler._schedule_callback.assert_called_once_with(f"{ROOT}/main.tex")
         loop.close()
 
     def test_on_created_passes_src_path(self):
@@ -188,12 +193,12 @@ class TestTexFileHandler:
 
         event = MagicMock()
         event.is_directory = False
-        event.src_path = "/project/new_file.tex"
+        event.src_path = f"{ROOT}/new_file.tex"
 
         handler._schedule_callback = MagicMock()
         handler.on_created(event)
 
-        handler._schedule_callback.assert_called_once_with("/project/new_file.tex")
+        handler._schedule_callback.assert_called_once_with(f"{ROOT}/new_file.tex")
         loop.close()
 
     def test_matches_double_star_pattern(self):
@@ -318,9 +323,9 @@ class TestTexFileHandler:
         )
 
         event = MagicMock()
-        event.src_path = b"/project/main.tex"
+        event.src_path = os.fsencode(f"{ROOT}/main.tex")
 
-        assert handler._get_src_path(event) == "/project/main.tex"
+        assert handler._get_src_path(event) == f"{ROOT}/main.tex"
         loop.close()
 
     def test_get_src_path_string(self):
@@ -334,9 +339,9 @@ class TestTexFileHandler:
         )
 
         event = MagicMock()
-        event.src_path = "/project/main.tex"
+        event.src_path = f"{ROOT}/main.tex"
 
-        assert handler._get_src_path(event) == "/project/main.tex"
+        assert handler._get_src_path(event) == f"{ROOT}/main.tex"
         loop.close()
 
     def test_on_modified_directory_skipped(self):
@@ -351,7 +356,7 @@ class TestTexFileHandler:
 
         event = MagicMock()
         event.is_directory = True
-        event.src_path = "/project/chapters"
+        event.src_path = f"{ROOT}/chapters"
 
         handler._schedule_callback = MagicMock()
         handler.on_modified(event)
@@ -371,7 +376,7 @@ class TestTexFileHandler:
 
         event = MagicMock()
         event.is_directory = False
-        event.src_path = "/project/main.aux"
+        event.src_path = f"{ROOT}/main.aux"
 
         handler._schedule_callback = MagicMock()
         handler.on_modified(event)
@@ -391,7 +396,7 @@ class TestTexFileHandler:
 
         event = MagicMock()
         event.is_directory = True
-        event.src_path = "/project/new_dir"
+        event.src_path = f"{ROOT}/new_dir"
 
         handler._schedule_callback = MagicMock()
         handler.on_created(event)

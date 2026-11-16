@@ -199,7 +199,7 @@ async def test_missing_or_corrupt_pdf_forces_latexmk_rebuild(
     tmp_path, monkeypatch, existing
 ):
     main_file = tmp_path / "main.tex"
-    main_file.write_text("source", encoding="utf-8")
+    main_file.write_text("source", encoding="utf-8", newline="")
     pdf_path = tmp_path / "main.pdf"
     if existing == "corrupt":
         pdf_path.write_bytes(b"not a pdf")
@@ -228,7 +228,7 @@ async def test_missing_or_corrupt_pdf_forces_latexmk_rebuild(
 @pytest.mark.asyncio
 async def test_zero_return_with_corrupt_pdf_is_not_success(tmp_path, monkeypatch):
     main_file = tmp_path / "main.tex"
-    main_file.write_text("source", encoding="utf-8")
+    main_file.write_text("source", encoding="utf-8", newline="")
     pdf_path = tmp_path / "main.pdf"
     pdf_path.write_bytes(b"not a pdf")
 
@@ -250,7 +250,7 @@ async def test_zero_return_with_corrupt_pdf_is_not_success(tmp_path, monkeypatch
 @pytest.mark.asyncio
 async def test_nonzero_return_without_parsed_error_reports_raw_tail(tmp_path, monkeypatch):
     main_file = tmp_path / "main.tex"
-    main_file.write_text("source", encoding="utf-8")
+    main_file.write_text("source", encoding="utf-8", newline="")
     _write_one_page_pdf(tmp_path / "main.pdf")
 
     async def fake_exec(*args, **kwargs):
@@ -398,7 +398,7 @@ class TestEnrichErrorContext:
         """Create a tex file with numbered lines."""
         lines = [f"Line {i + 1} content" for i in range(num_lines)]
         path = tmp_path / filename
-        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="")
         return path
 
     def test_basic_context_extraction(self, tmp_path):
@@ -489,7 +489,7 @@ class TestEnrichErrorContext:
     def test_single_line_file(self, tmp_path):
         """Test context for a single-line file."""
         path = tmp_path / "single.tex"
-        path.write_text("Only line\n", encoding="utf-8")
+        path.write_text("Only line\n", encoding="utf-8", newline="")
         msg = CompileMessage(file="single.tex", line=1, message="Error", type="error")
         enrich_error_context([msg], tmp_path)
 
@@ -504,7 +504,7 @@ async def test_compile_rebuilds_a_pdf_built_outside_without_synctex(tmp_path):
     """latexmk calls such a PDF up to date, so a plain run would never add the record."""
     main_file = tmp_path / "main.tex"
     main_file.write_text(
-        "\\documentclass{article}\n\\begin{document}\nHello.\n\\end{document}\n", encoding="utf-8")
+        "\\documentclass{article}\n\\begin{document}\nHello.\n\\end{document}\n", encoding="utf-8", newline="")
     subprocess.run(["latexmk", "-norc", "-pdf", "-interaction=nonstopmode", "main.tex"],
                    cwd=tmp_path, check=True, capture_output=True)
     assert not (tmp_path / "main.synctex.gz").exists()
@@ -523,12 +523,12 @@ async def test_warnings_are_those_the_last_pass_leaves(tmp_path):
     main_file = tmp_path / "main.tex"
     main_file.write_text(
         "\\documentclass{article}\n\\begin{document}\nSee Section~\\ref{sec:end}.\n"
-        "\\section{End}\\label{sec:end}\nDone.\n\\end{document}\n", encoding="utf-8")
+        "\\section{End}\\label{sec:end}\nDone.\n\\end{document}\n", encoding="utf-8", newline="")
 
     settled = await compile_tex(main_file, work_dir=tmp_path)
 
     assert settled.success is True and settled.warnings == []
     main_file.write_text(main_file.read_text(encoding="utf-8").replace("sec:end}.", "sec:gone}."),
-                         encoding="utf-8")
+                         encoding="utf-8", newline="")
     standing = await compile_tex(main_file, work_dir=tmp_path)
     assert any("sec:gone" in warning.message for warning in standing.warnings)

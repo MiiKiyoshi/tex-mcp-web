@@ -27,7 +27,7 @@ def project_dir(tmp_path: Path, monkeypatch) -> Path:
         "\\section{Methods}\n"
         "More prose.\n"
         "\\end{document}\n"
-    )
+    , encoding="utf-8", newline="")
     return tmp_path
 
 
@@ -35,7 +35,7 @@ def test_init_creates_yaml(project_dir, capsys):
     rc = main(["init", "--main", "main.tex"])
     assert rc == 0
     assert (project_dir / ".tex-mcp-web.yaml").exists()
-    data = yaml.safe_load((project_dir / ".tex-mcp-web.yaml").read_text())
+    data = yaml.safe_load((project_dir / ".tex-mcp-web.yaml").read_text(encoding="utf-8"))
     assert data["main"] == "main.tex"
 
 
@@ -50,7 +50,7 @@ def test_init_refuses_to_overwrite_existing(project_dir, capsys):
 
 def test_init_under_a_parent_config_says_force_leaves_the_parent(project_dir, monkeypatch, capsys):
     main(["init", "--main", "main.tex"])
-    parent_config = (project_dir / ".tex-mcp-web.yaml").read_text()
+    parent_config = (project_dir / ".tex-mcp-web.yaml").read_text(encoding="utf-8")
     child = project_dir / "child"
     child.mkdir()
     monkeypatch.chdir(child)
@@ -61,7 +61,7 @@ def test_init_under_a_parent_config_says_force_leaves_the_parent(project_dir, mo
     assert "parent folder" in err and "overwrite" not in err
     assert main(["init", "--main", "child.tex", "--force"]) == 0
     assert (child / ".tex-mcp-web.yaml").exists()
-    assert (project_dir / ".tex-mcp-web.yaml").read_text() == parent_config
+    assert (project_dir / ".tex-mcp-web.yaml").read_text(encoding="utf-8") == parent_config
 
 
 def test_init_force_overwrites(project_dir):
@@ -82,7 +82,7 @@ def test_config_set_and_get(project_dir, capsys):
     capsys.readouterr()
     assert main(["config", "port"]) == 0
     assert capsys.readouterr().out.strip() == "9000"
-    data = yaml.safe_load((project_dir / ".tex-mcp-web.yaml").read_text())
+    data = yaml.safe_load((project_dir / ".tex-mcp-web.yaml").read_text(encoding="utf-8"))
     assert data["port"] == 9000
     assert data["main"] == "main.tex"  # other keys untouched
 
@@ -99,23 +99,23 @@ def test_config_list_value_roundtrip(project_dir, capsys):
 def test_config_sets_the_reference_papers(project_dir, capsys):
     main(["init", "--main", "main.tex"])
     assert main(["config", "references", "../related"]) == 0
-    assert yaml.safe_load((project_dir / ".tex-mcp-web.yaml").read_text())["references"] == "../related"
+    assert yaml.safe_load((project_dir / ".tex-mcp-web.yaml").read_text(encoding="utf-8"))["references"] == "../related"
 
 
 def test_init_chooses_no_guideline_and_config_takes_only_one_that_exists(project_dir, capsys, monkeypatch):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(project_dir / "home"))
     main(["init", "--main", "main.tex"])
     config = project_dir / ".tex-mcp-web.yaml"
-    assert "guideline" not in yaml.safe_load(config.read_text())
+    assert "guideline" not in yaml.safe_load(config.read_text(encoding="utf-8"))
     assert main(["config", "guideline", "nowhere"]) == 1
     assert "guideline not found" in capsys.readouterr().err
     assert main(["config", "guideline", "../elsewhere"]) == 1
     assert "must name a folder" in capsys.readouterr().err
     mine = project_dir / "home" / "tex-mcp-web" / "guidelines" / "my-field"
     mine.mkdir(parents=True)
-    (mine / "GUIDELINE.md").write_text("# My field\n")
+    (mine / "GUIDELINE.md").write_text("# My field\n", encoding="utf-8", newline="")
     assert main(["config", "guideline", "my-field"]) == 0
-    assert yaml.safe_load(config.read_text())["guideline"] == "my-field"
+    assert yaml.safe_load(config.read_text(encoding="utf-8"))["guideline"] == "my-field"
 
 
 def test_config_rejects_unknown_key_and_compiler(project_dir, capsys):
@@ -197,7 +197,7 @@ def test_compile_rejects_main_starting_with_dash(project_dir, capsys):
     from tex_mcp_web.compiler import compile_tex
 
     bad = project_dir / "-evil.tex"
-    bad.write_text("\\documentclass{article}\\begin{document}x\\end{document}\n")
+    bad.write_text("\\documentclass{article}\\begin{document}x\\end{document}\n", encoding="utf-8", newline="")
     result = asyncio.run(compile_tex(bad, work_dir=project_dir))
     assert result.success is False
     assert any("'-'" in e.message or "may not start" in e.message for e in result.errors)

@@ -39,8 +39,9 @@ def test_the_cookie_is_kept_in_the_reviewers_config_folder_readable_by_them_alon
     overleaf.save_cookie("overleaf_session2=s%3Aabc.def")
     path = config_home / "tex-mcp-web" / "overleaf-cookie"
     assert overleaf.cookie_path() == path
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600
-    assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
+    if os.name != "nt":  # Windows keeps no mode bits; the profile folder's ACL guards the file
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+        assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
     assert overleaf.read_cookie() == ("overleaf_session2", "s%3Aabc.def")
     overleaf.forget_cookie()
     assert overleaf.read_cookie() is None and not path.exists()
@@ -79,10 +80,10 @@ def test_a_project_link_names_the_server_and_the_project() -> None:
 
 def test_the_config_names_the_overleaf_project(tmp_path: Path) -> None:
     config = tmp_path / ".tex-mcp-web.yaml"
-    config.write_text(f"main: paper.tex\noverleaf: https://www.overleaf.com/project/{PROJECT_ID}\n")
+    config.write_text(f"main: paper.tex\noverleaf: https://www.overleaf.com/project/{PROJECT_ID}\n", encoding="utf-8", newline="")
     assert load_config(config).overleaf == f"https://www.overleaf.com/project/{PROJECT_ID}"
     assert load_config(config).to_dict()["overleaf"] == f"https://www.overleaf.com/project/{PROJECT_ID}"
-    config.write_text("main: paper.tex\noverleaf: https://www.overleaf.com/\n")
+    config.write_text("main: paper.tex\noverleaf: https://www.overleaf.com/\n", encoding="utf-8", newline="")
     with pytest.raises(ValueError):
         load_config(config)
 
@@ -230,9 +231,9 @@ async def review(tmp_path: Path, config_home: Path, fake_overleaf):
     fake, link = fake_overleaf
     project = tmp_path / "paper"
     (project / "tex").mkdir(parents=True)
-    (project / "paper.tex").write_text(PAPER)
-    (project / "tex" / "body.tex").write_text(BODY)
-    (project / ".tex-mcp-web.yaml").write_text(f"main: paper.tex\noverleaf: {link}\n")
+    (project / "paper.tex").write_text(PAPER, encoding="utf-8", newline="")
+    (project / "tex" / "body.tex").write_text(BODY, encoding="utf-8", newline="")
+    (project / ".tex-mcp-web.yaml").write_text(f"main: paper.tex\noverleaf: {link}\n", encoding="utf-8", newline="")
     server = TexMcpWebServer(load_config(project / ".tex-mcp-web.yaml"))
     client = TestClient(TestServer(server.app))
     await client.start_server()
@@ -279,7 +280,7 @@ async def test_the_page_brings_in_overleaf_comments_with_the_reviewers_cookie(re
 
 
 async def test_without_a_project_in_the_config_the_page_says_where_to_name_it(tmp_path: Path, config_home: Path) -> None:
-    (tmp_path / "paper.tex").write_text(PAPER)
+    (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8", newline="")
     server = TexMcpWebServer(Config(main="paper.tex", config_path=tmp_path / ".tex-mcp-web.yaml"))
     client = TestClient(TestServer(server.app))
     await client.start_server()
@@ -301,4 +302,4 @@ def test_the_cookie_file_is_not_world_readable_even_with_a_loose_umask(config_ho
         overleaf.save_cookie("s%3Aloose")
     finally:
         os.umask(old)
-    assert stat.S_IMODE(overleaf.cookie_path().stat().st_mode) == 0o600
+    assert os.name == "nt" or stat.S_IMODE(overleaf.cookie_path().stat().st_mode) == 0o600

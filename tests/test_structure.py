@@ -123,14 +123,14 @@ class TestParseStructure:
             "Some prose with \\cite{ref1, ref2}.\n"
             "\\input{chapters/methods}\n"
             "\\end{document}\n"
-        )
+        , encoding="utf-8", newline="")
         chapters = tmp_path / "chapters"
         chapters.mkdir()
         (chapters / "methods.tex").write_text(
             "\\section*{Methods}\n"
             "See \\cite{ref3}.\n"
             "\\label{sec:methods}\n"
-        )
+        , encoding="utf-8", newline="")
         return main
 
     def test_parses_all_sections(self, tmp_path):
@@ -150,7 +150,7 @@ class TestParseStructure:
             "\\section{Experiments}\n"
             "\\subsection{Setup}\\label{sec:setup}\n"
             "Text.\n"
-        )
+        , encoding="utf-8", newline="")
         ds = parse_structure(tmp_path, tmp_path / "main.tex")
         assert [(s.title, s.label) for s in ds.sections] == [("Experiments", None), ("Setup", "sec:setup")]
         assert find_section(ds, label="sec:setup") == ("main.tex", 2, -1)
@@ -176,11 +176,11 @@ class TestParseStructureMainFile:
         """main -> chap1 -> sub1 should pick up sections from all three."""
         (tmp_path / "main.tex").write_text(
             "\\section{Top}\n\\input{chap1}\n"
-        )
+        , encoding="utf-8", newline="")
         (tmp_path / "chap1.tex").write_text(
             "\\section{Chap 1}\n\\input{sub1}\n"
-        )
-        (tmp_path / "sub1.tex").write_text("\\subsection{Sub 1}\n")
+        , encoding="utf-8", newline="")
+        (tmp_path / "sub1.tex").write_text("\\subsection{Sub 1}\n", encoding="utf-8", newline="")
         ds = parse_structure(tmp_path, tmp_path / "main.tex")
         titles = {s.title for s in ds.sections}
         assert titles == {"Top", "Chap 1", "Sub 1"}
@@ -192,10 +192,10 @@ class TestParseStructureMainFile:
         paper.tex; rglob walked both; sections from the unbuilt variant
         leaked into the agent's view.
         """
-        (tmp_path / "paper.tex").write_text("\\section{Real}\n")
+        (tmp_path / "paper.tex").write_text("\\section{Real}\n", encoding="utf-8", newline="")
         (tmp_path / "paper-variant.tex").write_text(
             "\\section{Should Not Appear}\n"
-        )
+        , encoding="utf-8", newline="")
         ds = parse_structure(tmp_path, tmp_path / "paper.tex")
         files = {s.file for s in ds.sections}
         assert files == {"paper.tex"}
@@ -205,9 +205,9 @@ class TestParseStructureMainFile:
         """Sections come out in \\input order, not stack-pop (reverse) order."""
         (tmp_path / "main.tex").write_text(
             "\\input{a}\n\\input{b}\n\\input{c}\n"
-        )
+        , encoding="utf-8", newline="")
         for name, title in (("a", "First"), ("b", "Second"), ("c", "Third")):
-            (tmp_path / f"{name}.tex").write_text(f"\\section{{{title}}}\n")
+            (tmp_path / f"{name}.tex").write_text(f"\\section{{{title}}}\n", encoding="utf-8", newline="")
         ds = parse_structure(tmp_path, tmp_path / "main.tex")
         assert [s.title for s in ds.sections] == ["First", "Second", "Third"]
 
@@ -220,7 +220,7 @@ class TestParseStructureMainFile:
             "\\section*{Unnumbered}\n"
             "\\section{B}\n"
             "\\subsection{B1}\n"
-        )
+        , encoding="utf-8", newline="")
         ds = parse_structure(tmp_path, tmp_path / "main.tex")
         assert [(s.title, s.number) for s in ds.sections] == [
             ("A", "1"),
@@ -234,8 +234,8 @@ class TestParseStructureMainFile:
 
     def test_cycle_terminates(self, tmp_path: Path):
         """a \\input{b}, b \\input{a} must not infinite-loop."""
-        (tmp_path / "a.tex").write_text("\\section{A}\n\\input{b}\n")
-        (tmp_path / "b.tex").write_text("\\section{B}\n\\input{a}\n")
+        (tmp_path / "a.tex").write_text("\\section{A}\n\\input{b}\n", encoding="utf-8", newline="")
+        (tmp_path / "b.tex").write_text("\\section{B}\n\\input{a}\n", encoding="utf-8", newline="")
         ds = parse_structure(tmp_path, tmp_path / "a.tex")
         titles = {s.title for s in ds.sections}
         assert titles == {"A", "B"}
@@ -243,17 +243,17 @@ class TestParseStructureMainFile:
     def test_missing_input_does_not_crash(self, tmp_path: Path):
         (tmp_path / "main.tex").write_text(
             "\\section{Real}\n\\input{nonexistent}\n"
-        )
+        , encoding="utf-8", newline="")
         ds = parse_structure(tmp_path, tmp_path / "main.tex")
         assert {s.title for s in ds.sections} == {"Real"}
 
     def test_input_in_subdir(self, tmp_path: Path):
         (tmp_path / "main.tex").write_text(
             "\\section{Top}\n\\input{chapters/intro}\n"
-        )
+        , encoding="utf-8", newline="")
         chapters = tmp_path / "chapters"
         chapters.mkdir()
-        (chapters / "intro.tex").write_text("\\section{Introduction}\n")
+        (chapters / "intro.tex").write_text("\\section{Introduction}\n", encoding="utf-8", newline="")
         ds = parse_structure(tmp_path, tmp_path / "main.tex")
         assert {s.title for s in ds.sections} == {"Top", "Introduction"}
         files = {s.file for s in ds.sections}
@@ -262,8 +262,8 @@ class TestParseStructureMainFile:
     def test_explicit_extension(self, tmp_path: Path):
         (tmp_path / "main.tex").write_text(
             "\\section{Top}\n\\input{intro.tex}\n"
-        )
-        (tmp_path / "intro.tex").write_text("\\section{Intro}\n")
+        , encoding="utf-8", newline="")
+        (tmp_path / "intro.tex").write_text("\\section{Intro}\n", encoding="utf-8", newline="")
         ds = parse_structure(tmp_path, tmp_path / "main.tex")
         assert {s.title for s in ds.sections} == {"Top", "Intro"}
 
@@ -271,15 +271,15 @@ class TestParseStructureMainFile:
         """\\input inside a comment line must not be followed."""
         (tmp_path / "main.tex").write_text(
             "\\section{Top}\n% \\input{would-be-evil}\n"
-        )
-        (tmp_path / "would-be-evil.tex").write_text("\\section{Evil}\n")
+        , encoding="utf-8", newline="")
+        (tmp_path / "would-be-evil.tex").write_text("\\section{Evil}\n", encoding="utf-8", newline="")
         ds = parse_structure(tmp_path, tmp_path / "main.tex")
         assert {s.title for s in ds.sections} == {"Top"}
 
     def test_missing_main_file_falls_back_to_glob(self, tmp_path: Path):
         """When main_file doesn't exist on disk, fall back to the legacy
         rglob walk rather than returning nothing."""
-        (tmp_path / "a.tex").write_text("\\section{A}\n")
+        (tmp_path / "a.tex").write_text("\\section{A}\n", encoding="utf-8", newline="")
         ds = parse_structure(tmp_path, tmp_path / "missing.tex")
         assert {s.title for s in ds.sections} == {"A"}
 

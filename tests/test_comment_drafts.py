@@ -1,12 +1,23 @@
 import hashlib
 import json
 import multiprocessing
+import os
 from pathlib import Path
 import re
 
 import pytest
 
 from tex_mcp_web.comments import CommentStore, PaperAnchor
+
+
+def _symlink(link, target, **kwargs):
+    """Make a symlink; on Windows without the privilege to, skip the test."""
+    try:
+        link.symlink_to(target, **kwargs)
+    except OSError as error:
+        if os.name == "nt":
+            pytest.skip(f"symlinks need a privilege on Windows: {error}")
+        raise
 
 
 @pytest.fixture
@@ -24,7 +35,7 @@ def fill(path, texts):
     replies = iter(texts)
     body = re.sub(r"(<!-- reply:[^\n]+ -->\n)\n(<!-- /reply:)",
                   lambda m: m[1] + next(replies) + "\n" + m[2], body)
-    path.write_text(body, encoding="utf-8")
+    path.write_text(body, encoding="utf-8", newline="")
 
 
 def test_round_trip(store):
@@ -35,7 +46,7 @@ def test_round_trip(store):
     text = "답변: αβ\n\n```python\nx = 1\n```\n# Heading\n<!-- ordinary comment -->"
     # Existing research prose is copied locally into the server-owned Reply block.
     prose = store.path.parent / "research.md"
-    prose.write_text(text, encoding="utf-8")
+    prose.write_text(text, encoding="utf-8", newline="")
     fill(result["path"], [prose.read_text(encoding="utf-8"), "두 번째 답변"])
     updated = store.reply_file(result["path"], edits=["source:1-3"])
     assert [c.id for c in updated] == result["comment_ids"]
@@ -81,7 +92,7 @@ def test_malformed_draft_does_not_write(store, damage):
         # rewriting them is refused like any other tampering.
         text = {"header": "wrong" + text, "request": text.replace("질문", "다른 질문"),
                 "truncated": text[:-10]}[damage]
-        path.write_text(text, encoding="utf-8")
+        path.write_text(text, encoding="utf-8", newline="")
     before = store.path.read_bytes()
     with pytest.raises(ValueError):
         store.reply_file(str(path))
@@ -108,11 +119,11 @@ def test_path_confinement(store, tmp_path, attack):
         if attack == "hardlink":
             target.hardlink_to(outside)
         else:
-            target.symlink_to(outside)
+            _symlink(target, outside)
     else:
         moved = path.parent.with_name("moved")
         path.parent.rename(moved)
-        path.parent.symlink_to(moved, target_is_directory=True)
+        _symlink(path.parent, moved, target_is_directory=True)
     before = store.path.read_bytes()
     with pytest.raises(ValueError):
         store.reply_file(str(path))
@@ -134,7 +145,7 @@ def test_concurrent_import_checks_snapshot_under_lock(store):
     comments = [add(store), add(store)]
     result = store.export_comments([c.id for c in comments])
     fill(result["path"], ["one", "two"])
-    ctx = multiprocessing.get_context("fork")
+    ctx = multiprocessing.get_context("fork" if hasattr(os, "fork") else "spawn")
     ready, results, start = ctx.Queue(), ctx.Queue(), ctx.Event()
     processes = [ctx.Process(target=_import, args=(str(store.path), result["path"], ready, start, results)) for _ in range(2)]
     try:
@@ -164,9 +175,9 @@ def test_version_and_selection_validation(store):
             store.export_comments(ids)
     result = store.export_comments([comment.id])
     fill(result["path"], ["reply"])
-    data = json.loads(store.path.read_text())
+    data = json.loads(store.path.read_text(encoding="utf-8"))
     data["version"] = -1
-    store.path.write_text(json.dumps(data))
+    store.path.write_text(json.dumps(data), encoding="utf-8", newline="")
     before = store.path.read_bytes()
     with pytest.raises(ValueError, match="version"):
         store.reply_file(result["path"])

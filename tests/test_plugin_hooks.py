@@ -28,10 +28,10 @@ def run(tmp_path: Path):
 
 def paper(root: Path) -> tuple[Path, Path]:
     root.mkdir(parents=True)
-    (root / ".tex-mcp-web.yaml").write_text("main: main.tex\nreferences: refs\n", encoding="utf-8")
+    (root / ".tex-mcp-web.yaml").write_text("main: main.tex\nreferences: refs\n", encoding="utf-8", newline="")
     (root / ".tex-mcp-web").mkdir()
     terms = root / ".tex-mcp-web" / "terms.md"
-    terms.write_text("# Terms the reference papers use\n\n- light curve (4)\n- radial velocity (3)\n", encoding="utf-8")
+    terms.write_text("# Terms the reference papers use\n\n- light curve (4)\n- radial velocity (3)\n", encoding="utf-8", newline="")
     return root, terms
 
 

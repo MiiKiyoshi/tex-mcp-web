@@ -90,11 +90,11 @@ def test_the_body_of_a_typeset_paper_ends_before_its_bibliography(tmp_path: Path
         + (filler * 4).strip() + "\\linebreak Tides\n\n"
         + (filler * 40).strip() + "\n\n"
         "The last body sentence.\n"
-        "\\input{paper.bbl}\n\\end{document}\n", encoding="utf-8")
+        "\\input{paper.bbl}\n\\end{document}\n", encoding="utf-8", newline="")
     (tmp_path / "paper.bbl").write_text(
         "\\begin{thebibliography}{1}\n"
         + "".join(f"\\bibitem{{k{n}}} A. Keeper, ``Ledger {n} of the tides,'' Harbour Notes, 19{n:02d}.\n" for n in range(8))
-        + "\\end{thebibliography}\n", encoding="utf-8")
+        + "\\end{thebibliography}\n", encoding="utf-8", newline="")
     built = subprocess.run(["latexmk", "-pdf", "-bibtex-", "-synctex=1", "-interaction=nonstopmode", "paper.tex"],
                            cwd=tmp_path, capture_output=True, text=True, timeout=120)
     assert built.returncode == 0, built.stdout[-2000:]
@@ -126,7 +126,7 @@ def test_a_centered_caption_and_a_list_item_end_short_and_an_equation_and_a_refe
         + (filler * 4).strip() + "\n"
         "\\begin{itemize}\\item " + (filler * 2).strip() + "\\linebreak Item.\\end{itemize}\n"
         "\\begin{thebibliography}{1}\\bibitem{k} " + (filler * 2).strip() + "\\linebreak 1901.\\end{thebibliography}\n"
-        "\\end{document}\n", encoding="utf-8")
+        "\\end{document}\n", encoding="utf-8", newline="")
     built = subprocess.run(["latexmk", "-pdf", "-synctex=1", "-interaction=nonstopmode", "paper.tex"],
                            cwd=tmp_path, capture_output=True, text=True, timeout=120)
     assert built.returncode == 0, built.stdout[-2000:]
@@ -149,7 +149,7 @@ def test_the_words_inside_an_included_picture_are_not_a_short_line(tmp_path: Pat
         "\\documentclass{article}\n\\usepackage{graphicx}\n\\begin{document}\n"
         + (filler * 4).strip() + "\n\n"
         "\\noindent\\includegraphics[width=\\linewidth]{picture.pdf}\n\n"
-        + (filler * 4).strip() + "\n\\end{document}\n", encoding="utf-8")
+        + (filler * 4).strip() + "\n\\end{document}\n", encoding="utf-8", newline="")
     built = subprocess.run(["latexmk", "-pdf", "-synctex=1", "-interaction=nonstopmode", "paper.tex"],
                            cwd=tmp_path, capture_output=True, text=True, timeout=120)
     assert built.returncode == 0, built.stdout[-2000:]
@@ -168,7 +168,7 @@ def test_a_short_line_names_the_source_line_that_holds_its_words(tmp_path: Path)
         "\\begin{itemize}\n"
         "\\item " + (filler * 2).strip() + "\\linebreak Dawn.\n"
         "\\end{itemize}\n"
-        "\\end{document}\n", encoding="utf-8")
+        "\\end{document}\n", encoding="utf-8", newline="")
     built = subprocess.run(["latexmk", "-pdf", "-synctex=1", "-interaction=nonstopmode", "paper.tex"],
                            cwd=tmp_path, capture_output=True, text=True, timeout=120)
     assert built.returncode == 0, built.stdout[-2000:]

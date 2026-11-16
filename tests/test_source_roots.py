@@ -2,7 +2,6 @@
 times out or fails cleans up after itself."""
 
 import asyncio
-import fcntl
 import socket
 import threading
 import time
@@ -12,6 +11,7 @@ from unittest.mock import AsyncMock
 import pytest
 import yaml
 
+from tex_mcp_web import filelock
 from tex_mcp_web.compiler import source_dependencies
 from tex_mcp_web.config import load_config
 from tex_mcp_web.mcp_client import SharedProjectServer
@@ -42,7 +42,7 @@ FDB = '''# Fdb version 4
 
 
 def test_fdb_sources_are_project_local_and_not_generated(tmp_path: Path) -> None:
-    (tmp_path / "main.fdb_latexmk").write_text(FDB, encoding="utf-8")
+    (tmp_path / "main.fdb_latexmk").write_text(FDB, encoding="utf-8", newline="")
     found = source_dependencies(tmp_path / "main.tex", tmp_path)
     assert [path.relative_to(tmp_path).as_posix() for path in found] == [
         "bib/refs.bib", "fig/a.png", 'fig/with "quote" and space.png', "main.tex", "sec/intro.tex",
@@ -85,13 +85,13 @@ def _project(tmp_path: Path, main: str = "main.tex") -> Path:
     (tmp_path / "fig").mkdir(exist_ok=True)
     (tmp_path / "private" / "dump").mkdir(parents=True, exist_ok=True)
     (tmp_path / main).write_text("\\documentclass{article}\\begin{document}\\input{tex/body}\\end{document}",
-                                 encoding="utf-8")
-    (tmp_path / "tex" / "body.tex").write_text("Body.", encoding="utf-8")
+                                 encoding="utf-8", newline="")
+    (tmp_path / "tex" / "body.tex").write_text("Body.", encoding="utf-8", newline="")
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
         port = int(listener.getsockname()[1])
     path = tmp_path / ".tex-mcp-web.yaml"
-    path.write_text(yaml.safe_dump({"main": main, "port": port}), encoding="utf-8")
+    path.write_text(yaml.safe_dump({"main": main, "port": port}), encoding="utf-8", newline="")
     return path
 
 
@@ -102,7 +102,7 @@ def test_server_roots_come_from_reachable_tex_and_the_last_run_record(tmp_path: 
     assert Watcher(tmp_path, [], [], AsyncMock(), roots=server.source_roots()).roots == [tmp_path / "tex"]
     (tmp_path / "main.fdb_latexmk").write_text(
         '["pdflatex"] 1 "main.tex" "main.pdf" "main" 1 0\n'
-        '  "fig/a.png" 1 1 a ""\n  "main.tex" 1 1 a ""\n  "tex/body.tex" 1 1 a ""\n', encoding="utf-8")
+        '  "fig/a.png" 1 1 a ""\n  "main.tex" 1 1 a ""\n  "tex/body.tex" 1 1 a ""\n', encoding="utf-8", newline="")
     assert Watcher(tmp_path, [], [], AsyncMock(), roots=server.source_roots()).roots == [
         tmp_path / "fig", tmp_path / "tex"]
 
@@ -114,10 +114,10 @@ def _server_threads() -> int:
 def _lock_is_free(watch_dir: Path) -> bool:
     with (watch_dir / ".tex-mcp-web" / "server.lock").open("a+") as handle:
         try:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            filelock.lock(handle, wait=False)
         except BlockingIOError:
             return False
-        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        filelock.unlock(handle)
         return True
 
 

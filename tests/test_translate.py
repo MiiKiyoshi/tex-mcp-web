@@ -108,7 +108,7 @@ def test_build_request_and_parse_reply_round_trip():
 
 def test_load_glossary_reads_term_names(tmp_path: Path):
     terms = tmp_path / "terms.md"
-    terms.write_text("# Terms\n\n- standard cell (16)\n- runtime (15), also run time\n- diffusion break (6)\n")
+    terms.write_text("# Terms\n\n- standard cell (16)\n- runtime (15), also run time\n- diffusion break (6)\n", encoding="utf-8", newline="")
     assert load_glossary(terms) == ["standard cell", "runtime", "diffusion break"]
     assert load_glossary(tmp_path / "missing.md") == []
 

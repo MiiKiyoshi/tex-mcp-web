@@ -11,7 +11,7 @@ def test_versions_compare_as_numbers_and_the_one_on_disk_is_read_from_the_file(t
     assert update.numbers("0.10.0") > update.numbers("0.9.1") > update.numbers("0.9")
     assert update.on_disk() == __version__
     # An update rewrites the file, and the running process keeps the version it loaded.
-    (tmp_path / "__init__.py").write_text('"""A package."""\n\n__version__ = "9.9.9"\n', encoding="utf-8")
+    (tmp_path / "__init__.py").write_text('"""A package."""\n\n__version__ = "9.9.9"\n', encoding="utf-8", newline="")
     monkeypatch.setattr(update, "PACKAGE", tmp_path)
     assert update.on_disk() == "9.9.9" and __version__ != "9.9.9"
 

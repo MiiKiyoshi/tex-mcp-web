@@ -122,7 +122,7 @@ def test_unknown_anchor_fails():
 
 def test_capture_source_selector_keeps_context_outside_selection(tmp_path: Path):
     source = tmp_path / "paper.tex"
-    source.write_text("before 1\nbefore 2\nselected 1\nselected 2\nafter 1\nafter 2\n")
+    source.write_text("before 1\nbefore 2\nselected 1\nselected 2\nafter 1\nafter 2\n", encoding="utf-8", newline="")
     selector = capture_source_selector(source, 3, 4, context=2)
     assert selector == SourceSelector(
         exact="selected 1\nselected 2",
@@ -133,29 +133,29 @@ def test_capture_source_selector_keeps_context_outside_selection(tmp_path: Path)
 
 def test_capture_source_selector_rejects_invalid_range(tmp_path: Path):
     source = tmp_path / "paper.tex"
-    source.write_text("one\n")
+    source.write_text("one\n", encoding="utf-8", newline="")
     assert capture_source_selector(source, 0, 1) is None
     assert capture_source_selector(source, 1, 2) is None
 
 
 def test_source_selector_follows_insertion_without_widening(tmp_path: Path):
     source = tmp_path / "paper.tex"
-    source.write_text("before\nselected 1\nselected 2\nafter\n")
+    source.write_text("before\nselected 1\nselected 2\nafter\n", encoding="utf-8", newline="")
     selector = capture_source_selector(source, 2, 3, context=1)
-    source.write_text("new 1\nnew 2\nbefore\nselected 1\nselected 2\nafter\n")
+    source.write_text("new 1\nnew 2\nbefore\nselected 1\nselected 2\nafter\n", encoding="utf-8", newline="")
     assert find_source_selector(selector, source) == (4, 5)
 
 
 def test_source_selector_uses_context_to_disambiguate(tmp_path: Path):
     source = tmp_path / "paper.tex"
-    source.write_text("first\nsame\nafter first\nsecond\nsame\nafter second\n")
+    source.write_text("first\nsame\nafter first\nsecond\nsame\nafter second\n", encoding="utf-8", newline="")
     selector = SourceSelector(exact="same", prefix="second", suffix="after second")
     assert find_source_selector(selector, source) == (5, 5)
 
 
 def test_source_selector_rejects_ambiguous_duplicate(tmp_path: Path):
     source = tmp_path / "paper.tex"
-    source.write_text("same\nother\nsame\n")
+    source.write_text("same\nother\nsame\n", encoding="utf-8", newline="")
     selector = SourceSelector(exact="same", prefix="", suffix="")
     assert find_source_selector(selector, source) is None
 
@@ -410,7 +410,7 @@ def test_store_closes_without_a_thread_entry_when_no_message_is_given(
 
 def test_store_rejects_old_schema(tmp_path: Path):
     path = tmp_path / "comments.json"
-    path.write_text(json.dumps({"version": 2, "comments": []}))
+    path.write_text(json.dumps({"version": 2, "comments": []}), encoding="utf-8", newline="")
     store = CommentStore(path)
     with pytest.raises(ValueError, match="unsupported comment store version"):
         store.list()
@@ -418,7 +418,7 @@ def test_store_rejects_old_schema(tmp_path: Path):
 
 def test_source_range_refresh_follows_exact_lines(store: CommentStore, tmp_path: Path):
     source = tmp_path / "paper.tex"
-    source.write_text("before\nselected one\nselected two\nafter\n")
+    source.write_text("before\nselected one\nselected two\nafter\n", encoding="utf-8", newline="")
     selector = capture_source_selector(source, 2, 3, context=1)
     comment = store.add(
         SourceRangeAnchor(file="paper.tex", line_start=2, line_end=3),
@@ -426,7 +426,7 @@ def test_source_range_refresh_follows_exact_lines(store: CommentStore, tmp_path:
         resolved_source=ResolvedSource("paper.tex", 2, 3),
         source_selector=selector,
     )
-    source.write_text("new\nbefore\nselected one\nselected two\nafter\n")
+    source.write_text("new\nbefore\nselected one\nselected two\nafter\n", encoding="utf-8", newline="")
     pdf = tmp_path / "paper.pdf"
     make_pdf(pdf, "unrelated")
     store.refresh_anchors(tmp_path, pdf)
@@ -517,7 +517,7 @@ def test_text_anchor_captures_and_follows_resolved_source(
     store: CommentStore, tmp_path: Path
 ):
     source = tmp_path / "paper.tex"
-    source.write_text("before\nselected source\nafter\n")
+    source.write_text("before\nselected source\nafter\n", encoding="utf-8", newline="")
     pdf = tmp_path / "paper.pdf"
     make_pdf(pdf, "rendered selection")
     selection = locate_pdf_quote(pdf, "rendered selection")
@@ -539,7 +539,7 @@ def test_text_anchor_captures_and_follows_resolved_source(
     assert attached.resolved_source == ResolvedSource("paper.tex", 2, 2)
     assert attached.source_selector.exact == "selected source"
 
-    source.write_text("new\nbefore\nselected source\nafter\n")
+    source.write_text("new\nbefore\nselected source\nafter\n", encoding="utf-8", newline="")
     store.refresh_anchors(
         tmp_path,
         pdf,
@@ -555,11 +555,11 @@ def test_text_anchor_captures_and_follows_resolved_source(
 def test_character_selector_utf16_and_newlines(tmp_path, start, end, expected):
     from tex_mcp_web.comments import capture_source_selector, find_source_characters, ResolvedSource
     path = tmp_path / "paper.tex"
-    path.write_text("a😀b cd\nnext\n", encoding="utf-8")
+    path.write_text("a😀b cd\nnext\n", encoding="utf-8", newline="")
     selector = capture_source_selector(path, start[0], end[0], column_start=start[1], column_end=end[1])
     assert selector.exact == expected
     assert find_source_characters(selector, path, path.name) == ResolvedSource(path.name, start[0], end[0], start[1], end[1])
-    path.write_text("inserted\n" + path.read_text(), encoding="utf-8")
+    path.write_text("inserted\n" + path.read_text(encoding="utf-8"), encoding="utf-8", newline="")
     found = find_source_characters(selector, path, path.name)
     assert (found.line_start, found.column_start, found.line_end, found.column_end) == (start[0] + 1, start[1], end[0] + 1, end[1])
 
@@ -567,18 +567,18 @@ def test_character_selector_utf16_and_newlines(tmp_path, start, end, expected):
 def test_character_selector_does_not_guess_changed_or_ambiguous_text(tmp_path):
     from tex_mcp_web.comments import capture_source_selector, find_source_characters
     path = tmp_path / "paper.tex"
-    path.write_text("before exact words after")
+    path.write_text("before exact words after", encoding="utf-8", newline="")
     selector = capture_source_selector(path, 1, 1, column_start=7, column_end=18)
-    path.write_text("before exact  words after")
+    path.write_text("before exact  words after", encoding="utf-8", newline="")
     assert find_source_characters(selector, path, path.name) is None
-    path.write_text("before exact words after\nbefore exact words after")
+    path.write_text("before exact words after\nbefore exact words after", encoding="utf-8", newline="")
     assert find_source_characters(selector, path, path.name) is None
 
 
 def test_character_selector_rejects_half_surrogate(tmp_path):
     from tex_mcp_web.comments import capture_source_selector
     path = tmp_path / "paper.tex"
-    path.write_text("a😀b")
+    path.write_text("a😀b", encoding="utf-8", newline="")
     assert capture_source_selector(path, 1, 1, column_start=2, column_end=3) is None
 
 
@@ -636,7 +636,7 @@ def test_a_version_6_store_loses_its_before_and_after_proposals(tmp_path: Path):
          "thread": [{"id": "e-1", "author": "human", "at": "2026-01-01T00:00:00+00:00",
                      "text": "tighten this"}],
          "created": "2026-01-01T00:00:00+00:00", "updated": "2026-01-01T00:00:00+00:00"},
-    ]}), encoding="utf-8")
+    ]}), encoding="utf-8", newline="")
 
     store = CommentStore(path)
     assert json.loads(path.read_text(encoding="utf-8"))["version"] == STORE_VERSION
@@ -656,7 +656,7 @@ def test_a_version_5_store_is_raised_and_its_reference_threads_become_archived(t
         {"id": "c-2", "anchor": {"kind": "paper"}, "status": "open",
          "thread": [{"id": "e-2", "author": "human", "at": "2026-01-01T00:00:00+00:00", "text": "still open"}],
          "created": "2026-01-01T00:00:00+00:00", "updated": "2026-01-01T00:00:00+00:00"},
-    ]}), encoding="utf-8")
+    ]}), encoding="utf-8", newline="")
 
     store = CommentStore(path)
     assert json.loads(path.read_text(encoding="utf-8"))["version"] == STORE_VERSION
@@ -677,7 +677,7 @@ def test_a_file_written_during_a_refresh_is_read_again_before_its_ranges_move(tm
 
     source = tmp_path / "a.tex"
     first = "one\ntwo\nthree\nfour\n"
-    source.write_text(first)
+    source.write_text(first, encoding="utf-8", newline="")
     store = CommentStore(tmp_path / "comments.json")
     # The comment is carried from the text it was made in, and the draft, with no text
     # known, is found by its words.
@@ -689,7 +689,7 @@ def test_a_file_written_during_a_refresh_is_read_again_before_its_ranges_move(tm
         "three", ResolvedSource("a.tex", 3, 3), SourceSelector("three", "one\ntwo", "four"))]), {})
 
     def where() -> list[tuple[int, str]]:
-        lines = source.read_text().split("\n")
+        lines = source.read_text(encoding="utf-8").split("\n")
         held = [store.get(noted.id).resolved_source.line_start,
                 store.get(asked.id).overleaf_draft.ranges[0].source.line_start]
         return [(line, lines[line - 1]) for line in held]
@@ -699,10 +699,10 @@ def test_a_file_written_during_a_refresh_is_read_again_before_its_ranges_move(tm
 
     def written_meanwhile(self, comments, texts):
         moved = follow(self, comments, texts)
-        source.write_text(next(writes, source.read_text()))
+        source.write_text(next(writes, source.read_text(encoding="utf-8")), encoding="utf-8", newline="")
         return moved
 
-    source.write_text("start\n" + first)
+    source.write_text("start\n" + first, encoding="utf-8", newline="")
     monkeypatch.setattr(CommentStore, "_follow_edits", written_meanwhile)
     store.refresh_source_anchors(tmp_path)
     assert where() == [(5, "three"), (5, "three")]
@@ -710,10 +710,10 @@ def test_a_file_written_during_a_refresh_is_read_again_before_its_ranges_move(tm
     assert where() == [(5, "three"), (5, "three")]
 
     # Written during every pass: the store stays as it was, for the next refresh.
-    before = store.path.read_text()
+    before = store.path.read_text(encoding="utf-8")
     writes = iter(["a\n" * n + "top\nstart\n" + first for n in range(1, 4)])
     store.refresh_source_anchors(tmp_path)
-    assert store.path.read_text() == before
+    assert store.path.read_text(encoding="utf-8") == before
     monkeypatch.setattr(CommentStore, "_follow_edits", follow)
     store.refresh_source_anchors(tmp_path)
     assert where() == [(8, "three"), (8, "three")]
@@ -723,7 +723,7 @@ def test_a_version_7_store_keeps_its_drafts_ranges_found_again_by_their_words(tm
     """Version 7 named the lines an Overleaf draft describes by fixed strings, and those
     lines may have moved since. Each range starts stale on them, shown with no line, until
     a refresh finds it by the words it held when drafted, and from then on edits carry it."""
-    (tmp_path / "a.tex").write_text("New first line.\nOpening words.\nMiddle words.\n\nClosing words here.\n")
+    (tmp_path / "a.tex").write_text("New first line.\nOpening words.\nMiddle words.\n\nClosing words here.\n", encoding="utf-8", newline="")
     path = tmp_path / "comments.json"
     path.write_text(json.dumps({"version": 7, "comments": [
         {"id": "c-1", "anchor": {"kind": "paper"}, "status": "open",
@@ -731,7 +731,7 @@ def test_a_version_7_store_keeps_its_drafts_ranges_found_again_by_their_words(tm
          "overleaf_draft": {"text": "These.", "edits": ["a.tex:1-2", "a.tex:3", "a.tex:4-4"],
                             "checks": [{"file": "a.tex", "text": "Opening words.\nMiddle words."}]},
          "created": "2026-01-01T00:00:00+00:00", "updated": "2026-01-01T00:00:00+00:00"},
-    ]}), encoding="utf-8")
+    ]}), encoding="utf-8", newline="")
 
     store = CommentStore(path)
     assert json.loads(path.read_text(encoding="utf-8"))["version"] == STORE_VERSION
@@ -743,7 +743,7 @@ def test_a_version_7_store_keeps_its_drafts_ranges_found_again_by_their_words(tm
     store.refresh_source_anchors(tmp_path)
     ranges = store.get("c-1").overleaf_draft.ranges
     assert [(r.label, r.stale) for r in ranges] == [("a.tex:2-3", False), ("a.tex:3-3", True), ("a.tex:4-4", True)]
-    (tmp_path / "a.tex").write_text("\\top\nNew first line.\nOpening words.\nMiddle words.\n\nClosing words here.\n")
+    (tmp_path / "a.tex").write_text("\\top\nNew first line.\nOpening words.\nMiddle words.\n\nClosing words here.\n", encoding="utf-8", newline="")
     store.refresh_source_anchors(tmp_path)
     assert store.get("c-1").overleaf_draft.ranges[0].label == "a.tex:3-4"
 
@@ -771,7 +771,7 @@ def test_a_version_8_store_dates_its_drafts_and_marks_suggestions_applied(tmp_pa
                     entry("e-6", "human", "2026-01-01T00:04:00+00:00", "and when?", name="Ann")],
          "overleaf_draft": {"text": "Here.", "ranges": []},
          "created": "2026-01-01T00:00:00+00:00", "updated": "2026-01-01T00:04:00+00:00"},
-    ]}), encoding="utf-8")
+    ]}), encoding="utf-8", newline="")
 
     store = CommentStore(path)
     assert json.loads(path.read_text(encoding="utf-8"))["version"] == STORE_VERSION
@@ -818,9 +818,9 @@ def _source_comment(store, source, start, end):
 
 def test_edited_selection_reattaches_between_unchanged_context(store: CommentStore, tmp_path: Path):
     source = tmp_path / "paper.tex"
-    source.write_text(_CTX_BEFORE + "This sentence shortens a cell." + _CTX_AFTER)
+    source.write_text(_CTX_BEFORE + "This sentence shortens a cell." + _CTX_AFTER, encoding="utf-8", newline="")
     comment = _source_comment(store, source, (2, 0), (2, 30))
-    source.write_text(_CTX_BEFORE + "This sentence reduces the cell width,\nand it adds a line." + _CTX_AFTER)
+    source.write_text(_CTX_BEFORE + "This sentence reduces the cell width,\nand it adds a line." + _CTX_AFTER, encoding="utf-8", newline="")
     store.refresh_source_anchors(tmp_path)
     refreshed = store.get(comment.id)
     assert not refreshed.stale
@@ -828,16 +828,16 @@ def test_edited_selection_reattaches_between_unchanged_context(store: CommentSto
     assert refreshed.resolved_source == ResolvedSource("paper.tex", 2, 3, 0, 19)
     assert refreshed.source_selector.exact == "This sentence reduces the cell width,\nand it adds a line."
     # the new text is what the next edit is tracked from
-    source.write_text("new first line\n" + source.read_text())
+    source.write_text("new first line\n" + source.read_text(encoding="utf-8"), encoding="utf-8", newline="")
     store.refresh_source_anchors(tmp_path)
     assert store.get(comment.id).resolved_source == ResolvedSource("paper.tex", 3, 4, 0, 19)
 
 
 def test_deleted_selection_reattaches_as_empty_range(store: CommentStore, tmp_path: Path):
     source = tmp_path / "paper.tex"
-    source.write_text(_CTX_BEFORE + "Delete me." + _CTX_AFTER)
+    source.write_text(_CTX_BEFORE + "Delete me." + _CTX_AFTER, encoding="utf-8", newline="")
     comment = _source_comment(store, source, (2, 0), (2, 10))
-    source.write_text(_CTX_BEFORE + _CTX_AFTER)
+    source.write_text(_CTX_BEFORE + _CTX_AFTER, encoding="utf-8", newline="")
     store.refresh_source_anchors(tmp_path)
     refreshed = store.get(comment.id)
     assert not refreshed.stale
@@ -847,28 +847,28 @@ def test_deleted_selection_reattaches_as_empty_range(store: CommentStore, tmp_pa
 
 def test_changed_context_still_goes_stale(store: CommentStore, tmp_path: Path):
     source = tmp_path / "paper.tex"
-    source.write_text(_CTX_BEFORE + "Edit me." + _CTX_AFTER)
+    source.write_text(_CTX_BEFORE + "Edit me." + _CTX_AFTER, encoding="utf-8", newline="")
     comment = _source_comment(store, source, (2, 0), (2, 8))
-    source.write_text("Something totally different now.\nEdited.\nAnd a different ending too.\n")
+    source.write_text("Something totally different now.\nEdited.\nAnd a different ending too.\n", encoding="utf-8", newline="")
     store.refresh_source_anchors(tmp_path)
     assert store.get(comment.id).stale
 
 
 def test_ambiguous_context_still_goes_stale(store: CommentStore, tmp_path: Path):
     source = tmp_path / "paper.tex"
-    source.write_text(_CTX_BEFORE + "Edit me." + _CTX_AFTER)
+    source.write_text(_CTX_BEFORE + "Edit me." + _CTX_AFTER, encoding="utf-8", newline="")
     comment = _source_comment(store, source, (2, 0), (2, 8))
     block = _CTX_BEFORE + "Edited." + _CTX_AFTER
-    source.write_text(block + block)
+    source.write_text(block + block, encoding="utf-8", newline="")
     store.refresh_source_anchors(tmp_path)
     assert store.get(comment.id).stale
 
 
 def test_exact_match_does_not_mark_reanchored(store: CommentStore, tmp_path: Path):
     source = tmp_path / "paper.tex"
-    source.write_text(_CTX_BEFORE + "Keep me." + _CTX_AFTER)
+    source.write_text(_CTX_BEFORE + "Keep me." + _CTX_AFTER, encoding="utf-8", newline="")
     comment = _source_comment(store, source, (2, 0), (2, 8))
-    source.write_text("inserted\n" + source.read_text())
+    source.write_text("inserted\n" + source.read_text(encoding="utf-8"), encoding="utf-8", newline="")
     store.refresh_source_anchors(tmp_path)
     refreshed = store.get(comment.id)
     assert not refreshed.stale and not refreshed.reanchored
@@ -877,11 +877,11 @@ def test_exact_match_does_not_mark_reanchored(store: CommentStore, tmp_path: Pat
 
 def test_edited_line_selection_reattaches_between_context_lines(store: CommentStore, tmp_path: Path):
     source = tmp_path / "paper.tex"
-    source.write_text("alpha context line\nbeta context line\nold one\nold two\ngamma context line\ndelta context line\n")
+    source.write_text("alpha context line\nbeta context line\nold one\nold two\ngamma context line\ndelta context line\n", encoding="utf-8", newline="")
     selector = capture_source_selector(source, 3, 4, context=2)
     comment = store.add(SourceRangeAnchor(file="paper.tex", line_start=3, line_end=4), "review",
                         resolved_source=ResolvedSource("paper.tex", 3, 4), source_selector=selector)
-    source.write_text("alpha context line\nbeta context line\nnew one\nnew two\nnew three\ngamma context line\ndelta context line\n")
+    source.write_text("alpha context line\nbeta context line\nnew one\nnew two\nnew three\ngamma context line\ndelta context line\n", encoding="utf-8", newline="")
     store.refresh_source_anchors(tmp_path)
     refreshed = store.get(comment.id)
     assert not refreshed.stale and refreshed.reanchored
@@ -890,9 +890,9 @@ def test_edited_line_selection_reattaches_between_context_lines(store: CommentSt
 
 def test_reanchored_flag_round_trips(store: CommentStore, tmp_path: Path):
     source = tmp_path / "paper.tex"
-    source.write_text(_CTX_BEFORE + "Old words." + _CTX_AFTER)
+    source.write_text(_CTX_BEFORE + "Old words." + _CTX_AFTER, encoding="utf-8", newline="")
     comment = _source_comment(store, source, (2, 0), (2, 10))
-    source.write_text(_CTX_BEFORE + "New words." + _CTX_AFTER)
+    source.write_text(_CTX_BEFORE + "New words." + _CTX_AFTER, encoding="utf-8", newline="")
     store.refresh_source_anchors(tmp_path)
     assert CommentStore(store.path).get(comment.id).reanchored
 
@@ -901,7 +901,7 @@ def test_reanchored_flag_round_trips(store: CommentStore, tmp_path: Path):
 
 def _followed(store, source, text, start, end):
     """A comment on characters of *text*, whose base text the store has recorded."""
-    source.write_text(text)
+    source.write_text(text, encoding="utf-8", newline="")
     comment = _source_comment(store, source, start, end)
     store.refresh_source_anchors(source.parent)
     assert store.get(comment.id).base is not None
@@ -909,7 +909,7 @@ def _followed(store, source, text, start, end):
 
 
 def _after(store, source, text, comment):
-    source.write_text(text)
+    source.write_text(text, encoding="utf-8", newline="")
     store.refresh_source_anchors(source.parent)
     moved = store.get(comment.id)
     return moved, moved.source_selector.exact
@@ -956,7 +956,7 @@ def test_edits_made_while_no_server_ran_are_followed_from_the_kept_text(store, t
     block = _CTX_BEFORE + "Edit me." + _CTX_AFTER
     comment = _followed(store, source, block, (2, 0), (2, 8))
     # The same context twice: words alone cannot say which, the kept text can.
-    source.write_text(block + _CTX_BEFORE + "Edited." + _CTX_AFTER)
+    source.write_text(block + _CTX_BEFORE + "Edited." + _CTX_AFTER, encoding="utf-8", newline="")
     again = CommentStore(store.path)
     again.refresh_source_anchors(tmp_path)
     moved = again.get(comment.id)
@@ -965,15 +965,15 @@ def test_edits_made_while_no_server_ran_are_followed_from_the_kept_text(store, t
 
 def test_a_line_comment_follows_its_lines(store, tmp_path):
     source = tmp_path / "paper.tex"
-    source.write_text("one\ntwo\nthree\nfour\n")
+    source.write_text("one\ntwo\nthree\nfour\n", encoding="utf-8", newline="")
     comment = store.add(SourceRangeAnchor(file="paper.tex", line_start=2, line_end=3), "review",
                         resolved_source=ResolvedSource("paper.tex", 2, 3),
                         source_selector=capture_source_selector(source, 2, 3, context=2))
     store.refresh_source_anchors(tmp_path)
-    source.write_text("zero\none\ntwo\nthree\nfour\n")
+    source.write_text("zero\none\ntwo\nthree\nfour\n", encoding="utf-8", newline="")
     store.refresh_source_anchors(tmp_path)
     assert store.get(comment.id).resolved_source == ResolvedSource("paper.tex", 3, 4)
-    source.write_text("zero\none\nfour\n")
+    source.write_text("zero\none\nfour\n", encoding="utf-8", newline="")
     store.refresh_source_anchors(tmp_path)
     gone = store.get(comment.id)
     assert (gone.resolved_source, gone.stale) == (ResolvedSource("paper.tex", 3, 3), False)
@@ -994,7 +994,7 @@ def test_a_comment_placed_anew_follows_edits_from_the_text_it_was_placed_on(stor
     source = tmp_path / "paper.tex"
     comment = _followed(store, source, "AAAAA BBBBB CCCCC DDDDD.\n", (1, 6), (1, 11))
     placed = "CCCCC DDDDD AAAAA ZZZZZ.\n"
-    source.write_text(placed)
+    source.write_text(placed, encoding="utf-8", newline="")
     at = placed.index("ZZZZZ")
     store.place(comment.id, store.get(comment.id).anchor, ResolvedSource("paper.tex", 1, 1, at, at + 5),
                 capture_source_selector(source, 1, 1, column_start=at, column_end=at + 5), placed)

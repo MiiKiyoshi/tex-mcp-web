@@ -366,11 +366,11 @@ async def review(tmp_path: Path, monkeypatch, realtime):
     fake, link = realtime
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config-home"))
     monkeypatch.delenv(overleaf.COOKIE_ENV, raising=False)
-    (tmp_path / "main.tex").write_text(MAIN)
+    (tmp_path / "main.tex").write_text(MAIN, encoding="utf-8", newline="")
     (tmp_path / "tex").mkdir()
-    (tmp_path / "tex" / "body.tex").write_text(BODY)
+    (tmp_path / "tex" / "body.tex").write_text(BODY, encoding="utf-8", newline="")
     (tmp_path / "a.png").write_bytes(FIGURE)
-    (tmp_path / ".tex-mcp-web.yaml").write_text(f"main: main.tex\noverleaf: {link}\n")
+    (tmp_path / ".tex-mcp-web.yaml").write_text(f"main: main.tex\noverleaf: {link}\n", encoding="utf-8", newline="")
     server = TexMcpWebServer(load_config(tmp_path / ".tex-mcp-web.yaml"))
     server.OVERLEAF_LIVE_GRACE = 0
     server.OVERLEAF_COMMENT_SETTLE = 0.01
@@ -813,9 +813,9 @@ async def test_a_reply_whose_files_are_not_the_same_on_overleaf_goes_only_when_s
     send = lambda text, **more: client.post(f"/comments/{comment.id}/reply", json={"text": text, "overleaf": True, **more})
     draft = lambda text: server.comments.draft_overleaf(comment.id, server.comments.get(comment.id).updated, OverleafDraft(
         text, [DraftRange("Hello there.", ResolvedSource("main.tex", 3, 3), capture_source_selector(tmp_path / "main.tex", 3, 3))]),
-        {"main.tex": (tmp_path / "main.tex").read_text()})
+        {"main.tex": (tmp_path / "main.tex").read_text(encoding="utf-8")})
 
-    (tmp_path / "main.tex").write_text(MAIN.replace("Hi there.", "Hello there."))
+    (tmp_path / "main.tex").write_text(MAIN.replace("Hi there.", "Hello there."), encoding="utf-8", newline="")
     draft("Reworded it.")
     for then in (("commit", "-q", "-am", "reworded"), ("push", "-q", "overleaf", "main")):
         response = await send("Reworded it, see L3.")
@@ -835,7 +835,7 @@ async def test_a_reply_whose_files_are_not_the_same_on_overleaf_goes_only_when_s
     # The lines changed again after the draft, in a way that keeps the reply true: it goes
     # when sent anyway.
     draft("Thanks!")
-    (tmp_path / "main.tex").write_text(MAIN.replace("Hi there.", "\\red{Hello there.}"))
+    (tmp_path / "main.tex").write_text(MAIN.replace("Hi there.", "\\red{Hello there.}"), encoding="utf-8", newline="")
     assert (await send("Thanks!")).status == 409
     response = await send("Thanks!", anyway=True)
     assert response.status == 200 and fake.written[-1] == ("reply", "t1", "Thanks!")
@@ -850,10 +850,10 @@ async def test_by_hand_a_reply_is_held_for_files_overleaf_has_otherwise_until_se
     client, server, fake = review
     page, comment = await on_overleaf(client, server, fake)
     main = server.watch_dir / "main.tex"
-    main.write_text(MAIN.replace("Hi there.", "Hello there."))
+    main.write_text(MAIN.replace("Hi there.", "Hello there."), encoding="utf-8", newline="")
     server.comments.draft_overleaf(comment.id, server.comments.get(comment.id).updated, OverleafDraft(
         "Reworded it.", [DraftRange("Hello there.", ResolvedSource("main.tex", 3, 3), capture_source_selector(main, 3, 3))]),
-        {"main.tex": main.read_text()})
+        {"main.tex": main.read_text(encoding="utf-8")})
     response = await client.post(f"/comments/{comment.id}/reply", json={"text": "Reworded it.", "overleaf": True})
     assert response.status == 409 and (await response.json())["apart"] == ["main.tex"]
     assert fake.written == [] and server.comments.get(comment.id).overleaf_draft is not None
@@ -888,21 +888,21 @@ async def test_a_draft_names_the_lines_it_describes_where_they_are_now(review) -
 
     draft("Opened it.", "main.tex:2-2")
     assert await shown() == [{"range": "main.tex:2-2"}]
-    main.write_text(MAIN.replace("\\begin", "\\usepackage{a}\n\\usepackage{b}\n\\begin"))
+    main.write_text(MAIN.replace("\\begin", "\\usepackage{a}\n\\usepackage{b}\n\\begin"), encoding="utf-8", newline="")
     server.comments.refresh_source_anchors(folder)
     assert await shown() == [{"range": "main.tex:4-4"}]
-    main.write_text(MAIN.replace("\\begin", "\\usepackage{a}\n\\usepackage{b}\n\\usepackage{c}\n\\begin"))
+    main.write_text(MAIN.replace("\\begin", "\\usepackage{a}\n\\usepackage{b}\n\\usepackage{c}\n\\begin"), encoding="utf-8", newline="")
     assert (await client.post(f"/comments/{comment.id}/reply",
                               json={"text": "Opened it.", "overleaf": True, "anyway": True})).status == 200
     assert fake.written[-1] == ("reply", "t1", "Opened it.")
     assert server.comments.get(comment.id).thread[-1].edits == ["main.tex:5-5"]
 
     draft("Greeted.", "main.tex:6-6")
-    main.write_text(main.read_text().replace("Hi there.", "Hello there."))
+    main.write_text(main.read_text(encoding="utf-8").replace("Hi there.", "Hello there."), encoding="utf-8", newline="")
     server.comments.refresh_source_anchors(folder)
     assert await shown() == [{"range": "main.tex:6-6", "edited": True}]
 
-    (folder / "extra.tex").write_text("An extra line.\n")
+    (folder / "extra.tex").write_text("An extra line.\n", encoding="utf-8", newline="")
     draft("Added a line.", "extra.tex:1-1")
     (folder / "extra.tex").unlink()
     server.comments.refresh_source_anchors(folder)
@@ -921,7 +921,7 @@ async def test_a_ledger_from_before_messages_had_ids_adds_nothing_again(review) 
     page, comment = await on_overleaf(client, server, fake)
     ledger = server.watch_dir / ".tex-mcp-web" / "overleaf-imported.json"
     await wait_for(lambda: ledger.exists())
-    ledger.write_text(json.dumps({"t1": {"comment": comment.id, "messages": 1, "resolved": False}}))
+    ledger.write_text(json.dumps({"t1": {"comment": comment.id, "messages": 1, "resolved": False}}), encoding="utf-8", newline="")
     read = fake.ranges_read
     await fake.push(event("new-comment", "t1", {}))
     await wait_for(lambda: fake.ranges_read >= read + 2)
@@ -981,12 +981,12 @@ async def test_suggested_edits_show_where_they_are_and_go_when_accepted_or_rejec
 async def test_a_suggested_edit_is_placed_only_where_the_file_holds_the_text_around_it(review) -> None:
     client, server, fake = review
     fake.changes["d-main"] = suggested_change()
-    (Path(server.watch_dir) / "main.tex").write_text("% a line added here\n" + MAIN)
+    (Path(server.watch_dir) / "main.tex").write_text("% a line added here\n" + MAIN, encoding="utf-8", newline="")
     page = await opened(client, fake)
     await wait_for(lambda: server._overleaf_tracked)
     (edit,) = await suggested(client)
     assert edit["here"]["line_start"] == edit["line"] + 1
-    (Path(server.watch_dir) / "main.tex").write_text(MAIN.replace("there", "folks"))
+    (Path(server.watch_dir) / "main.tex").write_text(MAIN.replace("there", "folks"), encoding="utf-8", newline="")
     (edit,) = await suggested(client)
     assert edit["here"] is None
     await page.close()
@@ -998,7 +998,7 @@ async def test_edits_sent_by_hand_go_as_suggestions_while_overleaf_tracks_the_re
     page = await opened(client, fake)
     await wait_for(lambda: server.overleaf_live.tracking() is True)
     assert (await (await client.get("/overleaf/live")).json())["tracking"] is True
-    (Path(server.watch_dir) / "main.tex").write_text(MAIN.replace("Hi", "Hello"))
+    (Path(server.watch_dir) / "main.tex").write_text(MAIN.replace("Hi", "Hello"), encoding="utf-8", newline="")
     response = await client.post("/overleaf/files/send")
     assert response.status == 200, await response.text()
     assert re.fullmatch(r"[0-9a-f]{18}", fake.updates[-1]["meta"]["tc"])
@@ -1036,10 +1036,10 @@ async def test_suggested_edits_in_a_git_repository_of_its_own_leave_the_reposito
     monkeypatch.delenv(overleaf.COOKIE_ENV, raising=False)
     paper = tmp_path / "paper"
     (paper / "tex").mkdir(parents=True)
-    (paper / "main.tex").write_text(MAIN)
-    (paper / "tex" / "body.tex").write_text(BODY)
+    (paper / "main.tex").write_text(MAIN, encoding="utf-8", newline="")
+    (paper / "tex" / "body.tex").write_text(BODY, encoding="utf-8", newline="")
     (paper / "a.png").write_bytes(FIGURE)
-    (paper / ".tex-mcp-web.yaml").write_text(f"main: main.tex\noverleaf: {link}\n")
+    (paper / ".tex-mcp-web.yaml").write_text(f"main: main.tex\noverleaf: {link}\n", encoding="utf-8", newline="")
     git = lambda *args: subprocess.run(["git", "-C", str(paper), *args], check=True, capture_output=True,
                                        text=True).stdout
     git("init", "-q")
@@ -1064,7 +1064,7 @@ async def test_suggested_edits_in_a_git_repository_of_its_own_leave_the_reposito
         await wait_for(lambda: server.overleaf_hand.state()["get"] == ["main.tex"])
         assert git("status", "--porcelain") == ""
         assert (await client.post("/overleaf/files/get")).status == 200
-        assert (paper / "main.tex").read_text() == MAIN.replace("there", "folks")
+        assert (paper / "main.tex").read_text(encoding="utf-8") == MAIN.replace("there", "folks")
         assert git("status", "--porcelain") == " M main.tex\n"
         await page.close()
     finally:

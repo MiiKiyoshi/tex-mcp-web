@@ -27,7 +27,7 @@ def config_home(tmp_path: Path, monkeypatch) -> Path:
 
 @pytest.fixture
 async def locked(tmp_path: Path, config_home: Path):
-    (tmp_path / "paper.tex").write_text(PAPER)
+    (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8", newline="")
     server = TexMcpWebServer(Config(main="paper.tex", page_token=True, config_path=tmp_path / ".tex-mcp-web.yaml"))
     client = TestClient(TestServer(server.app))
     await client.start_server()
@@ -45,7 +45,7 @@ def test_the_token_is_the_reviewers_own_and_readable_by_them_alone(config_home: 
     finally:
         os.umask(old)
     path = config_home / "tex-mcp-web" / "page-token"
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600 and stat.S_IMODE(path.parent.stat().st_mode) == 0o700
+    assert os.name == "nt" or stat.S_IMODE(path.stat().st_mode) == 0o600 and stat.S_IMODE(path.parent.stat().st_mode) == 0o700
     assert page_token.ensure_token() == token and len(token) >= 40
     assert page_token.headers() == {page_token.HEADER: token}
     assert page_token.link(8765, True) == f"http://127.0.0.1:8765/?token={token}"
@@ -84,7 +84,7 @@ async def test_the_agents_tools_and_the_waiter_send_the_token(locked, tmp_path: 
     listen = await client.post("/wait-review/listen?listener=one", headers=page_token.headers())
     assert listen.status == 200
     waiter = _write_waiter(tmp_path, port)
-    assert token not in waiter.read_text()
+    assert token not in waiter.read_text(encoding="utf-8")
     run = await asyncio.create_subprocess_exec("sh", str(waiter), "one", stdout=asyncio.subprocess.PIPE,
                                                env={**os.environ, "XDG_CONFIG_HOME": os.environ["XDG_CONFIG_HOME"]})
     try:
@@ -97,7 +97,7 @@ async def test_the_agents_tools_and_the_waiter_send_the_token(locked, tmp_path: 
 
 
 def test_the_cli_sets_the_switch_and_prints_the_link(tmp_path: Path, config_home: Path) -> None:
-    (tmp_path / "paper.tex").write_text(PAPER)
+    (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8", newline="")
     command = [sys.executable, "-m", "tex_mcp_web.cli"]
     env = {**os.environ, "XDG_CONFIG_HOME": str(config_home)}
     run = lambda *args: subprocess.run([*command, *args], cwd=tmp_path, env=env, capture_output=True, text=True)

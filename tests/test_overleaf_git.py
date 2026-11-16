@@ -12,11 +12,11 @@ PROJECT = "0123456789abcdef01234567"
 
 
 def git(folder: Path, *args: str) -> str:
-    return subprocess.run(["git", "-C", str(folder), *args], check=True, capture_output=True, text=True).stdout
+    return subprocess.run(["git", "-C", str(folder), *args], check=True, capture_output=True, text=True, encoding="utf-8").stdout
 
 
 def commit(folder: Path, name: str, text: str, message: str) -> None:
-    (folder / name).write_text(text, encoding="utf-8")
+    (folder / name).write_text(text, encoding="utf-8", newline="")
     git(folder, "add", name)
     git(folder, "commit", "-q", "-m", message)
 
@@ -58,7 +58,7 @@ async def test_the_state_counts_commits_each_side_lacks_and_names_uncommitted_fi
     assert now["here"] == now["there"] and now["branch"] == "overleaf/main"
 
     commit(paper, "paper.tex", "one\ntwo\nthree!\n", "here")
-    (paper / "paper.tex").write_text("one\ntwo\nthree!!\n", encoding="utf-8")
+    (paper / "paper.tex").write_text("one\ntwo\nthree!!\n", encoding="utf-8", newline="")
     now = await overleaf_git.state(link)
     assert (now["state"], now["ahead"], now["uncommitted"]) == ("ahead", 1, ["paper.tex"])
 
@@ -78,15 +78,15 @@ async def test_pull_fast_forwards_and_refuses_to_write_over_an_uncommitted_chang
         await overleaf_git.pull(link)
     commit(coauthor, "paper.tex", "ONE\ntwo\nthree\n", "there")
     git(coauthor, "push", "-q", "origin", "HEAD:main")
-    (paper / "paper.tex").write_text("one\ntwo\nthree, edited here\n", encoding="utf-8")
+    (paper / "paper.tex").write_text("one\ntwo\nthree, edited here\n", encoding="utf-8", newline="")
     with pytest.raises(overleaf_git.GitError, match="paper.tex"):
         await overleaf_git.pull(link)
-    assert (paper / "paper.tex").read_text() == "one\ntwo\nthree, edited here\n"
+    assert (paper / "paper.tex").read_text(encoding="utf-8") == "one\ntwo\nthree, edited here\n"
     git(paper, "commit", "-q", "-am", "here")
     # Both sides now have a commit, apart in the file: git merges them.
     now = await overleaf_git.pull(link)
     assert (now["state"], now["ahead"]) == ("ahead", 2)
-    assert (paper / "paper.tex").read_text() == "ONE\ntwo\nthree, edited here\n"
+    assert (paper / "paper.tex").read_text(encoding="utf-8") == "ONE\ntwo\nthree, edited here\n"
 
 
 async def test_pull_leaves_a_conflict_to_be_merged_by_hand_and_changes_nothing(sides) -> None:
@@ -99,7 +99,7 @@ async def test_pull_leaves_a_conflict_to_be_merged_by_hand_and_changes_nothing(s
     with pytest.raises(overleaf_git.GitError, match="same lines in paper.tex"):
         await overleaf_git.pull(link)
     assert git(paper, "rev-parse", "HEAD") == before
-    assert (paper / "paper.tex").read_text() == "one\nTWO here\nthree\n"
+    assert (paper / "paper.tex").read_text(encoding="utf-8") == "one\nTWO here\nthree\n"
     assert not (paper / ".git" / "MERGE_HEAD").exists()
 
 
@@ -109,7 +109,7 @@ async def test_push_sends_commits_only_when_overleaf_has_nothing_this_lacks(side
     with pytest.raises(overleaf_git.GitError, match="no commit Overleaf lacks"):
         await overleaf_git.push(link)
     commit(paper, "paper.tex", "one\ntwo\nthree!\n", "here")
-    (paper / "paper.tex").write_text("one\ntwo\nnot committed\n", encoding="utf-8")
+    (paper / "paper.tex").write_text("one\ntwo\nnot committed\n", encoding="utf-8", newline="")
     now = await overleaf_git.push(link)
     assert (now["state"], now["uncommitted"]) == ("same", ["paper.tex"])
     assert await overleaf_git.holds(link, now["branch"], "paper.tex", "three!")
@@ -118,7 +118,7 @@ async def test_push_sends_commits_only_when_overleaf_has_nothing_this_lacks(side
     git(coauthor, "pull", "-q", "origin", "main")
     commit(coauthor, "paper.tex", "one\ntwo\nthree!?\n", "there")
     git(coauthor, "push", "-q", "origin", "HEAD:main")
-    (paper / "paper.tex").write_text("one\ntwo\nthree!\n", encoding="utf-8")
+    (paper / "paper.tex").write_text("one\ntwo\nthree!\n", encoding="utf-8", newline="")
     commit(paper, "notes.tex", "here\n", "here again")
     with pytest.raises(overleaf_git.GitError, match="git pull first"):
         await overleaf_git.push(link)
@@ -150,7 +150,7 @@ async def test_with_files_followed_a_pull_stages_overleafs_text_and_brings_the_r
     commit(coauthor, "paper.tex", "ONE\ntwo\nthree\n", "there")
     figure(coauthor, "fig.png", b"\x89PNG figure", "figure")
     git(coauthor, "push", "-q", "origin", "HEAD:main")
-    (paper / "paper.tex").write_text("ONE\ntwo\nthree\n", encoding="utf-8")
+    (paper / "paper.tex").write_text("ONE\ntwo\nthree\n", encoding="utf-8", newline="")
     with pytest.raises(overleaf_git.GitError):
         await overleaf_git.pull(link)
     now = await overleaf_git.pull(link, ["paper.tex"])
@@ -164,7 +164,7 @@ async def test_a_followed_file_edited_since_overleafs_commit_stops_the_pull(side
     link = await overleaf_git.link_of(paper, PROJECT)
     commit(coauthor, "paper.tex", "ONE\ntwo\nthree\n", "there")
     git(coauthor, "push", "-q", "origin", "HEAD:main")
-    (paper / "paper.tex").write_text("ONE\ntwo\nthree\nfour\n", encoding="utf-8")
+    (paper / "paper.tex").write_text("ONE\ntwo\nthree\nfour\n", encoding="utf-8", newline="")
     head = git(paper, "rev-parse", "HEAD")
     with pytest.raises(overleaf_git.GitError, match="changed after Overleaf's commit was read"):
         await overleaf_git.pull(link, ["paper.tex"])
@@ -177,7 +177,7 @@ async def test_a_file_new_on_overleaf_and_written_here_live_is_taken_as_it_is(si
     link = await overleaf_git.link_of(paper, PROJECT)
     commit(coauthor, "new.tex", "new\n", "new on Overleaf")
     git(coauthor, "push", "-q", "origin", "HEAD:main")
-    (paper / "new.tex").write_text("new\n", encoding="utf-8")
+    (paper / "new.tex").write_text("new\n", encoding="utf-8", newline="")
     now = await overleaf_git.pull(link, ["paper.tex", "new.tex"])
     assert now["state"] == "same" and git(paper, "status", "--porcelain") == ""
 
@@ -193,7 +193,7 @@ async def test_with_files_followed_push_sends_overleafs_text_and_this_folders_fi
     figure(paper, "fig.png", b"figure", "figure")
     commit(coauthor, "paper.tex", "one\nTWO, said again\nthree\n", "there")
     git(coauthor, "push", "-q", "origin", "HEAD:main")
-    (paper / "paper.tex").write_text("one\nTWO, said again\nthree\n", encoding="utf-8")
+    (paper / "paper.tex").write_text("one\nTWO, said again\nthree\n", encoding="utf-8", newline="")
     now = await overleaf_git.push(link, ["paper.tex"])
     assert now["state"] == "same" and git(paper, "status", "--porcelain") == ""
     assert len(git(paper, "log", "-1", "--format=%P").split()) == 2
@@ -219,7 +219,7 @@ async def test_following_takes_overleafs_commits_in_only_when_it_moves_forward(s
     link = await overleaf_git.link_of(paper, PROJECT)
     figure(coauthor, "fig.png", b"figure", "figure")
     git(coauthor, "push", "-q", "origin", "HEAD:main")
-    (paper / "paper.tex").write_text("one\ntwo\nthree\nlive\n", encoding="utf-8")
+    (paper / "paper.tex").write_text("one\ntwo\nthree\nlive\n", encoding="utf-8", newline="")
     now = await overleaf_git.follow(link, ["paper.tex"])
     assert now["state"] == "same" and (paper / "fig.png").exists()
     # Changed here live, the file is on Overleaf as it is here, so it is not named.
@@ -240,7 +240,7 @@ async def test_files_named_in_korean_are_kept_through_the_merge(sides) -> None:
     figure(paper, "그림.png", b"figure", "figure")
     commit(coauthor, "본문.tex", "본문\n", "there")
     git(coauthor, "push", "-q", "origin", "HEAD:main")
-    (paper / "본문.tex").write_text("본문\n", encoding="utf-8")
+    (paper / "본문.tex").write_text("본문\n", encoding="utf-8", newline="")
     now = await overleaf_git.pull(link, ["paper.tex", "본문.tex"])
     assert now["state"] == "ahead" and (paper / "그림.png").read_bytes() == b"figure"
     assert "그림.png" in git(paper, "ls-tree", "--name-only", "-z", "HEAD").split("\0")
@@ -256,8 +256,8 @@ async def test_a_refused_pull_leaves_the_index_as_it_was(sides) -> None:
     commit(coauthor, "paper.tex", "ONE\ntwo\nthree\n", "there")
     commit(coauthor, "notes.txt", "notes, there\n", "there too")
     git(coauthor, "push", "-q", "origin", "HEAD:main")
-    (paper / "paper.tex").write_text("ONE\ntwo\nthree\n", encoding="utf-8")
-    (paper / "notes.txt").write_text("notes, here\n", encoding="utf-8")
+    (paper / "paper.tex").write_text("ONE\ntwo\nthree\n", encoding="utf-8", newline="")
+    (paper / "notes.txt").write_text("notes, here\n", encoding="utf-8", newline="")
     with pytest.raises(overleaf_git.GitError):
         await overleaf_git.pull(link, ["paper.tex"])
     assert git(paper, "diff", "--cached", "--name-only") == ""
@@ -268,10 +268,10 @@ async def test_a_refused_pull_leaves_the_index_as_it_was(sides) -> None:
 async def test_a_followed_file_this_folder_ignores_is_taken_all_the_same(sides) -> None:
     paper, coauthor = sides
     link = await overleaf_git.link_of(paper, PROJECT)
-    (paper / ".git" / "info" / "exclude").write_text("*.bbl\n", encoding="utf-8")
+    (paper / ".git" / "info" / "exclude").write_text("*.bbl\n", encoding="utf-8", newline="")
     commit(coauthor, "main.bbl", "bibliography\n", "there")
     git(coauthor, "push", "-q", "origin", "HEAD:main")
-    (paper / "main.bbl").write_text("bibliography\n", encoding="utf-8")
+    (paper / "main.bbl").write_text("bibliography\n", encoding="utf-8", newline="")
     now = await overleaf_git.pull(link, ["paper.tex", "main.bbl"])
     assert now["state"] == "same"
 
@@ -279,7 +279,7 @@ async def test_a_followed_file_this_folder_ignores_is_taken_all_the_same(sides) 
 async def test_following_leaves_a_file_git_does_not_track_for_pull(sides) -> None:
     paper, coauthor = sides
     link = await overleaf_git.link_of(paper, PROJECT)
-    (paper / ".git" / "info" / "exclude").write_text("*.pdf\n", encoding="utf-8")
+    (paper / ".git" / "info" / "exclude").write_text("*.pdf\n", encoding="utf-8", newline="")
     (paper / "plot.pdf").write_bytes(b"mine")
     figure(coauthor, "plot.pdf", b"theirs", "plot")
     git(coauthor, "push", "-q", "origin", "HEAD:main")
@@ -293,7 +293,7 @@ async def test_a_commit_with_text_overleaf_has_moved_past_is_not_pushed(sides) -
     paper, coauthor = sides
     link = await overleaf_git.link_of(paper, PROJECT)
     commit(paper, "paper.tex", "one\nolder\nthree\n", "here")
-    (paper / "paper.tex").write_text("one\nnow\nthree\n", encoding="utf-8")
+    (paper / "paper.tex").write_text("one\nnow\nthree\n", encoding="utf-8", newline="")
     on_overleaf = git(coauthor, "ls-remote", "origin", "main")
     with pytest.raises(overleaf_git.GitError, match="not Overleaf's now"):
         await overleaf_git.push(link, ["paper.tex"])
@@ -321,7 +321,7 @@ async def test_a_merge_left_unfinished_stops_the_pull_and_keeps_its_conflicts(si
     subprocess.run(["git", "-C", str(paper), "merge", "-q", "overleaf/main"], capture_output=True)
     conflicts = git(paper, "ls-files", "-u")
     assert conflicts
-    (paper / "paper.tex").write_text("one\nTWO there\nthree\n", encoding="utf-8")
+    (paper / "paper.tex").write_text("one\nTWO there\nthree\n", encoding="utf-8", newline="")
     with pytest.raises(overleaf_git.GitError, match="not finished"):
         await overleaf_git.pull(link, ["paper.tex"])
     assert git(paper, "ls-files", "-u") == conflicts
@@ -338,9 +338,9 @@ async def test_live_is_refused_in_a_folder_inside_a_git_clone(sides, monkeypatch
     monkeypatch.setenv(overleaf.COOKIE_ENV, "s%3Asigned-in")
     inner = paper / "sub"
     inner.mkdir()
-    (inner / "paper.tex").write_text("inner\n", encoding="utf-8")
+    (inner / "paper.tex").write_text("inner\n", encoding="utf-8", newline="")
     (inner / ".tex-mcp-web.yaml").write_text(
-        f"main: paper.tex\noverleaf: http://127.0.0.1:9/project/{PROJECT}\n", encoding="utf-8")
+        f"main: paper.tex\noverleaf: http://127.0.0.1:9/project/{PROJECT}\n", encoding="utf-8", newline="")
     server = TexMcpWebServer(load_config(inner / ".tex-mcp-web.yaml"))
     client = TestClient(TestServer(server.app))
     await client.start_server()
@@ -362,7 +362,7 @@ async def test_the_page_pulls_pushes_and_downloads_comments_only_with_every_over
     paper, coauthor = sides
     monkeypatch.setenv(overleaf.COOKIE_ENV, "s%3Asigned-in")
     (paper / ".tex-mcp-web.yaml").write_text(
-        f"main: paper.tex\noverleaf: http://127.0.0.1:9/project/{PROJECT}\n", encoding="utf-8")
+        f"main: paper.tex\noverleaf: http://127.0.0.1:9/project/{PROJECT}\n", encoding="utf-8", newline="")
     server = TexMcpWebServer(load_config(paper / ".tex-mcp-web.yaml"))
     client = TestClient(TestServer(server.app))
     await client.start_server()
@@ -380,7 +380,7 @@ async def test_the_page_pulls_pushes_and_downloads_comments_only_with_every_over
         refused = await client.post("/overleaf/git/push")
         assert refused.status == 409 and "git pull first" in (await refused.json())["error"]
         now = await (await client.post("/overleaf/git/pull")).json()
-        assert now["state"] == "same" and (paper / "paper.tex").read_text() == "ONE\ntwo\nthree\n"
+        assert now["state"] == "same" and (paper / "paper.tex").read_text(encoding="utf-8") == "ONE\ntwo\nthree\n"
         assert await (await client.post("/overleaf/upstream")).json() == {"by": "git", "git": True}
         # Past the gate, the comments are read from Overleaf, which is not there in this test.
         assert (await client.post("/overleaf/comments")).status == 502
@@ -404,14 +404,14 @@ async def test_commit_and_push_commits_the_files_shown_then_sends_them(sides) ->
     commit(paper, "notes.tex", "a note\n", "notes")
     git(paper, "push", "-q", "overleaf", "HEAD:main")
     (paper / ".tex-mcp-web.yaml").write_text(
-        f"main: paper.tex\noverleaf: http://127.0.0.1:9/project/{PROJECT}\n", encoding="utf-8")
+        f"main: paper.tex\noverleaf: http://127.0.0.1:9/project/{PROJECT}\n", encoding="utf-8", newline="")
     server = TexMcpWebServer(load_config(paper / ".tex-mcp-web.yaml"))
     client = TestClient(TestServer(server.app))
     await client.start_server()
     try:
-        (paper / "paper.tex").write_text("one\nTWO\nthree\n", encoding="utf-8")
-        (paper / "notes.tex").write_text("a longer note\n", encoding="utf-8")
-        (paper / "new.tex").write_text("not tracked\n", encoding="utf-8")
+        (paper / "paper.tex").write_text("one\nTWO\nthree\n", encoding="utf-8", newline="")
+        (paper / "notes.tex").write_text("a longer note\n", encoding="utf-8", newline="")
+        (paper / "new.tex").write_text("not tracked\n", encoding="utf-8", newline="")
         now = await (await client.post("/overleaf/git/state")).json()
         assert (now["state"], now["uncommitted"]) == ("same", ["notes.tex", "paper.tex"])
 
@@ -445,7 +445,7 @@ async def test_a_push_holding_the_review_pages_records_is_refused(sides) -> None
     exclude = paper / ".git" / "info" / "exclude"
     assert exclude.read_text(encoding="utf-8").splitlines().count(".tex-mcp-web/") == 1
     (paper / ".tex-mcp-web").mkdir()
-    (paper / ".tex-mcp-web" / "comments.json").write_text("{}", encoding="utf-8")
+    (paper / ".tex-mcp-web" / "comments.json").write_text("{}", encoding="utf-8", newline="")
     git(paper, "add", "-A")
     assert ".tex-mcp-web/" not in git(paper, "status", "--porcelain")
     git(paper, "add", "-f", ".tex-mcp-web/comments.json")
@@ -470,9 +470,9 @@ async def test_the_review_pages_records_stay_out_of_any_git_the_paper_is_in(tmp_
     git(backup, "remote", "add", "origin", "https://example.com/someone/papers.git")
     paper = backup / "paper"
     paper.mkdir()
-    (paper / "paper.tex").write_text("\\documentclass{article}\\begin{document}Hi.\\end{document}\n", encoding="utf-8")
+    (paper / "paper.tex").write_text("\\documentclass{article}\\begin{document}Hi.\\end{document}\n", encoding="utf-8", newline="")
     (paper / ".tex-mcp-web.yaml").write_text(
-        f"main: paper.tex\noverleaf: http://127.0.0.1:9/project/{PROJECT}\n", encoding="utf-8")
+        f"main: paper.tex\noverleaf: http://127.0.0.1:9/project/{PROJECT}\n", encoding="utf-8", newline="")
     server = TexMcpWebServer(load_config(paper / ".tex-mcp-web.yaml"))
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
