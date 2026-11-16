@@ -208,7 +208,19 @@ def check(pdf_path: Path, watch_dir: Path) -> dict[str, Any]:
 
     def source(line: Line) -> str | None:
         placed = selection_to_source_range(pdf_path, line.page, [line.rect], watch_dir)
-        return f"{placed[0]}:{placed[1]}" if placed is not None else None
+        if placed is None:
+            return None
+        file, number = placed[0], placed[1]
+        # SyncTeX names the line that ends the paragraph, which is the blank line or the
+        # \end after its words: the line to edit is the last one before it that holds words.
+        try:
+            written = (watch_dir / file).read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            written = []
+        while 1 < number <= len(written) and (
+                not written[number - 1].strip() or re.fullmatch(r"\s*\\end\{[^}]*\}\s*", written[number - 1])):
+            number -= 1
+        return f"{file}:{number}"
 
     def pictured(line: Line) -> bool:
         """Whether the line is a picture's own words: SyncTeX places it at the source line

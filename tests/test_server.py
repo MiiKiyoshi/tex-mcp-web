@@ -1274,7 +1274,7 @@ async def test_compile_tells_the_agent_where_the_body_ends(bound_project, projec
     assert told["success"] is True
     assert told["body_end"] == {"page": 1, "column": 1, "columns": 1, "source": "paper.tex:5"}
     (short,) = told["short_lines"]
-    assert (short["page"], short["column"], short["text"], short["source"]) == (1, 1, "Tides", "paper.tex:4")
+    assert (short["page"], short["column"], short["text"], short["source"]) == (1, 1, "Tides", "paper.tex:3")
 
 
 def test_tools_keep_the_bound_project_when_a_closer_config_appears(tmp_path, monkeypatch):

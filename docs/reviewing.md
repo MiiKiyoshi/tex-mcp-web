@@ -39,7 +39,7 @@ once the paper has full columns to measure by. Each **SHORT LINE** is a paragrap
 a quarter of its column, in a list item or a centered caption too, with the words on it: a slightly shorter paragraph pulls such a
 line up and gives the line back. A click on either marks the line in the
 Preview, where the layout is, and in Split also moves the editor to its source line, which
-for a paragraph is the line where it ends. The number on the tab counts the errors, the warnings
+for a paragraph is the line that holds its last words. The number on the tab counts the errors, the warnings
 and the short lines. The agent's `compile()` reports the same two things, so you and the
 agent look at one list.
 

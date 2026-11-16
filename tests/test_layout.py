@@ -104,8 +104,8 @@ def test_the_body_of_a_typeset_paper_ends_before_its_bibliography(tmp_path: Path
     assert (end["page"], end["column"], end["columns"]) == (1, 2, 2)
     assert end["source"] == "paper.tex:7" and end["room_lines"] > 5
     short = report["short_lines"]
-    # SyncTeX places a paragraph's lines where the paragraph ends in the source.
-    assert [(line["text"], line["source"]) for line in short] == [("Tides", "paper.tex:4")]
+    # The source line that holds the paragraph's last words, not the blank line after it.
+    assert [(line["text"], line["source"]) for line in short] == [("Tides", "paper.tex:3")]
     # Each is placed on its page, for the review page to point at.
     with pymupdf.open(tmp_path / "paper.pdf") as doc:
         printed = doc[0].search_for("Tides")
@@ -155,3 +155,23 @@ def test_the_words_inside_an_included_picture_are_not_a_short_line(tmp_path: Pat
     assert built.returncode == 0, built.stdout[-2000:]
 
     assert "short_lines" not in layout.check(tmp_path / "paper.pdf", tmp_path)
+
+
+def test_a_short_line_names_the_source_line_that_holds_its_words(tmp_path: Path) -> None:
+    """SyncTeX places a paragraph's last line at the line that ends the paragraph, the blank
+    line or the \\end after it. The line named is the one before it that holds the words."""
+    filler = "The harbour keeps a ledger of every tide that the keeper has seen since the lamp was lit. "
+    (tmp_path / "paper.tex").write_text(
+        "\\documentclass{article}\n\\begin{document}\n"
+        + (filler * 2).strip() + "\\linebreak Dusk.\n"
+        "\n"
+        "\\begin{itemize}\n"
+        "\\item " + (filler * 2).strip() + "\\linebreak Dawn.\n"
+        "\\end{itemize}\n"
+        "\\end{document}\n", encoding="utf-8")
+    built = subprocess.run(["latexmk", "-pdf", "-synctex=1", "-interaction=nonstopmode", "paper.tex"],
+                           cwd=tmp_path, capture_output=True, text=True, timeout=120)
+    assert built.returncode == 0, built.stdout[-2000:]
+
+    short = layout.check(tmp_path / "paper.pdf", tmp_path)["short_lines"]
+    assert [(line["text"], line["source"]) for line in short] == [("Dusk.", "paper.tex:3"), ("Dawn.", "paper.tex:6")]
