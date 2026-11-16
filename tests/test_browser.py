@@ -3237,6 +3237,8 @@ def test_the_more_menu_updates_the_install_and_says_what_is_left(tmp_path: Path,
         wait_until(lambda: script('return document.querySelector("#version-line").textContent')
                    == f"tex-mcp-web v{__version__}")
         assert not shown("#update-btn") and not shown("#update-alert")
+        drawn = lambda selector: script(f'return getComputedStyle(document.querySelector("{selector}")).display')
+        assert drawn("#update-btn") == "none" and drawn("#update-alert") == "none"
         # A release as new as the one running, or older, is no update either.
         newest["version"] = __version__
         asked_again()
@@ -3246,10 +3248,26 @@ def test_the_more_menu_updates_the_install_and_says_what_is_left(tmp_path: Path,
         asked_again()
         wait_until(lambda: shown("#update-btn"), timeout=10)
         assert script('return document.querySelector("#update-btn").textContent') == "Update to v99.0.0"
+        assert drawn("#update-btn") != "none"
         # An install that cannot update itself runs nothing and says who can.
         script('document.querySelector("#update-btn").click()')
         wait_until(lambda: said() == "v99.0.0 is out. Ask your agent to update tex-mcp-web.")
         assert ran == [] and shown("#update-alert-how")
+        # An update that ran and brought nothing newer says so, and does not go on saying
+        # that it is updating.
+        async def nothing_newer():
+            ran.append(False)
+            return __version__
+
+        monkeypatch.setattr(update, "way", lambda: "checkout")
+        monkeypatch.setattr(update, "run", nothing_newer)
+        asked_again()
+        wait_until(lambda: script('return document.querySelector("#update-btn").dataset.selfUpdate') == "true", timeout=10)
+        script('document.querySelector("#update-btn").click()')
+        wait_until(lambda: said() == f"This install is still v{__version__} after the update."
+                                     " Ask your agent to update tex-mcp-web.")
+        assert ran.pop() is False and shown("#update-btn") and drawn("#update-alert") != "none"
+        monkeypatch.setattr(update, "run", run)
         # One that can is updated by the click. The server keeps its code, so the band asks
         # for the agent to connect again, and the menu offers no second update.
         monkeypatch.setattr(update, "way", lambda: "checkout")

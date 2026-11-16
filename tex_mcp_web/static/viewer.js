@@ -1657,7 +1657,8 @@ function renderOverleafLive(snapshot) {
   overleafLive.snapshot = snapshot;
   if ((snapshot.me ?? "") !== state.overleafMe) {
     state.overleafMe = snapshot.me ?? "";
-    if (["unanswered", "answered"].includes($("#comment-filter").value)) refreshComments().catch((error) => console.error(error));
+    // Which threads wait for the reviewer's answer, in to do and in the tab's number too.
+    refreshComments().catch((error) => console.error(error));
   }
   if (snapshot.by_hand) renderOverleafFiles(snapshot.by_hand);
   else if (state.overleafFiles) {
@@ -4276,7 +4277,7 @@ function sayUpdate(text, { how = false, reload = false } = {}) {
 
 async function readUpdate() {
   const response = await fetch("/update");
-  if (!response.ok) return;
+  if (!response.ok) return null;
   const told = await response.json();
   state.pageVersion ??= told.version;
   const newer = (version) => {
@@ -4294,6 +4295,7 @@ async function readUpdate() {
   } else if (told.on_disk !== told.version) {
     sayUpdate(`Updated to v${told.on_disk}. Reconnect tex-mcp in your agent to start using it.`, { how: true });
   }
+  return told;
 }
 
 async function runUpdate() {
@@ -4307,7 +4309,11 @@ async function runUpdate() {
   try {
     const response = await fetch("/update", { method: "POST" });
     if (!response.ok) throw new Error(await responseError(response));
-    await readUpdate();
+    const told = await readUpdate();
+    // The commands ran and brought nothing newer, as in a clone that follows another branch.
+    if (told && told.on_disk === told.version) {
+      sayUpdate(`This install is still v${told.version} after the update. Ask your agent to update tex-mcp-web.`, { how: true });
+    }
   } catch (error) {
     sayUpdate(`The update did not go through.\n${error.message}`, { how: true });
   } finally {

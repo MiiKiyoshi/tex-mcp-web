@@ -204,9 +204,11 @@ textarea {
 .more-menu #settings-menu-btn { display: none; }
 .topbar .more-menu #update-btn { color: var(--accent); font-weight: 600; }
 .more-menu .version-line { margin: 0.2rem 0 0; padding: 0.3rem 0.6rem 0.1rem; border-top: 1px solid var(--border); color: var(--fg-dim); font-size: 0.8rem; white-space: nowrap; }
+.more-menu .version-line:empty { display: none; }
 /* An update on disk the running server does not use yet, across the top until it does. */
 .update-alert { display: flex; align-items: center; gap: 0.7rem; padding: 0.45rem 0.8rem; border-bottom: 1px solid var(--border); border-left: 4px solid var(--accent); background: var(--accent-soft); color: var(--fg); font-size: 0.88rem; white-space: pre-line; }
 .update-alert[hidden] { display: none; }
+.update-alert a { color: var(--accent); }
 .update-alert button { padding: 0.15rem 0.6rem; border: 1px solid var(--border); border-radius: 3px; background: var(--bg-elev); color: var(--fg); }
 .update-alert button[hidden], .update-alert a[hidden] { display: none; }
 #settings-dialog { max-width: 30rem; }
