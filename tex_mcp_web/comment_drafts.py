@@ -11,12 +11,26 @@ import stat
 import uuid
 
 
+def _is_link(path: Path) -> bool:
+    return path.is_symlink() or getattr(os.path, "isjunction", lambda _: False)(path)
+
+
 @contextlib.contextmanager
 def _directory(root: Path, create: bool = False):
+    """The draft directory, as a descriptor, or on Windows, which opens no file relative to
+    one, as its path."""
     # Walk directory descriptors, never following a symlink, including ancestors.
     root = root.absolute()
     if ".." in root.parts:
         raise ValueError("invalid draft directory")
+    if os.name == "nt":
+        if create:
+            root.mkdir(parents=True, exist_ok=True)
+        # No part of the way there is a link, the folder itself included.
+        if not root.is_dir() or any(_is_link(part) for part in (root, *root.parents)):
+            raise OSError("the draft directory is not a plain folder")
+        yield root
+        return
     fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY)
     try:
         for part in root.parts[1:]:
@@ -33,8 +47,20 @@ def _directory(root: Path, create: bool = False):
         os.close(fd)
 
 
-def _read(fd: int, name: str) -> str:
-    source = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
+def _create(fd, name: str) -> int:
+    """A new file of that name in the directory, for this account alone, for writing."""
+    if os.name == "nt":
+        return os.open(fd / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_BINARY, 0o600)
+    return os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=fd)
+
+
+def _read(fd, name: str) -> str:
+    if os.name == "nt":
+        if _is_link(fd / name):
+            raise ValueError("draft must be a regular, unlinked file")
+        source = os.open(fd / name, os.O_RDONLY | os.O_BINARY)
+    else:
+        source = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
     with os.fdopen(source, "r", encoding="utf-8", newline="") as stream:
         info = os.fstat(stream.fileno())
         if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
@@ -85,7 +111,7 @@ def export(root: Path, comments: list[dict]) -> dict:
     root = root.absolute()
     with _directory(root, create=True) as fd:
         for suffix, text in ((".snapshot", json.dumps(snapshot, ensure_ascii=False)), (".md", body)):
-            target = os.open(key + suffix, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=fd)
+            target = _create(fd, key + suffix)
             with os.fdopen(target, "w", encoding="utf-8", newline="") as stream:
                 stream.write(text)
     return {"path": str(root / (key + ".md")), "sha256": hashlib.sha256(body.encode("utf-8")).hexdigest(), "comment_ids": ids}

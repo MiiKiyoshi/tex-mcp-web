@@ -57,7 +57,8 @@ Remove a registration the user agreed to replace (`claude mcp remove --scope use
     codex mcp add tex-mcp --env PATH="$P" -- "$BIN/tex-mcp"
 
 On Windows the PATH is joined with `;` and holds Windows folders: the two above, then
-`C:\Windows\System32` and `C:\Windows`, and the folder of `perl` when latexmk needs one.
+`C:\Windows\System32` and `C:\Windows`, the folder of `git`, which syncing with Overleaf by git
+runs, and the folder of `perl` when latexmk needs one.
 
 For Claude Code, also install the plugin from the checkout. It refuses tex-mcp's tools other
 than `guide()` and `setup_info()` until that context has read the files `guide()` lists, again

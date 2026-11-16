@@ -26,7 +26,6 @@ script needs only the standard library, since it runs outside the server's envir
 from __future__ import annotations
 
 import contextlib
-import fcntl
 import json
 import os
 import sys
@@ -80,7 +79,15 @@ def held(event: dict):
     record = record_of(event)
     record.parent.mkdir(parents=True, exist_ok=True)
     with open(record.with_name(record.name + ".lock"), "w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        if os.name == "nt":
+            import msvcrt
+
+            # Waits for the lock, a second at a time, and gives up after ten.
+            msvcrt.locking(lock.fileno(), msvcrt.LK_LOCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(lock, fcntl.LOCK_EX)
         yield
 
 

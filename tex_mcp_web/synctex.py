@@ -78,10 +78,10 @@ def _normalize_path(path: str, base_dir: Path) -> str:
     p = Path(path)
     if p.is_absolute():
         try:
-            return str(p.relative_to(base_dir))
+            return p.relative_to(base_dir).as_posix()
         except ValueError:
-            return str(p)
-    normalized = str(p)
+            return p.as_posix()
+    normalized = p.as_posix()
     if normalized.startswith("./"):
         normalized = normalized[2:]
     return normalized
@@ -280,7 +280,7 @@ def selection_to_source_range(
             except ValueError:
                 continue
             if source_path.is_file():
-                candidates.add((str(relative), int(raw_line)))
+                candidates.add((relative.as_posix(), int(raw_line)))
         if len(candidates) != 1:
             return None
         resolved_positions.append(candidates.pop())

@@ -83,7 +83,8 @@ async def link_of(folder: Path, project_id: str) -> Link | None:
         return None
     for line in out.splitlines():
         key, _, url = line.partition(" ")
-        if url.strip().rstrip("/").removesuffix(".git").rsplit("/", 1)[-1] == project_id:
+        # A remote on this machine is a path, which Windows writes with backslashes.
+        if re.split(r"[/\\]", url.strip().rstrip("/\\").removesuffix(".git"))[-1] == project_id:
             return Link(folder, key.removeprefix("remote.").removesuffix(".url"))
     return None
 

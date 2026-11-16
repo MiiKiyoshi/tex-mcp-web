@@ -114,7 +114,7 @@ def cmd_config(args: argparse.Namespace) -> int:
         print(f"No {DEFAULT_CONFIG_NAME} found. `tex-mcp-web init` writes one here, "
               "and `tex-mcp-web config dir <folder>` then names the paper's folder anywhere.", file=sys.stderr)
         return 1
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
 
     if args.key is None:
@@ -162,7 +162,7 @@ def cmd_config(args: argparse.Namespace) -> int:
             )
             return 1
     data[args.key] = value
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
     print(f"{args.key} = {value}  ({path})", file=sys.stderr)
     return 0

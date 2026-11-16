@@ -221,7 +221,7 @@ def load_config(path: Path | None = None, main_file: str | None = None) -> Confi
         config_path = find_config()
 
     if config_path and config_path.exists():
-        with open(config_path) as f:
+        with open(config_path, encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
 
     # CLI argument overrides config file
@@ -267,7 +267,7 @@ def create_config(
         "port": port,
     }
 
-    with open(output_path, "w") as f:
+    with open(output_path, "w", encoding="utf-8") as f:
         yaml.dump(config_data, f, default_flow_style=False, sort_keys=False)
 
     return output_path

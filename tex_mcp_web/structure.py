@@ -110,7 +110,7 @@ def _strip_comment(line: str) -> str:
 
 def _relative(path: Path, watch_dir: Path) -> str:
     try:
-        return str(path.relative_to(watch_dir))
+        return path.relative_to(watch_dir).as_posix()
     except ValueError:
         return str(path)
 
