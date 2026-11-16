@@ -3173,6 +3173,133 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
 
 
 @pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
+def test_the_more_menu_updates_the_install_and_says_what_is_left(tmp_path: Path, monkeypatch) -> None:
+    """The ⋯ menu names the version that runs and offers Update only when a newer release is
+    out. A click installs it, and a band stays across the page: first to reconnect the
+    agent, since the server keeps its code, and once a new version's server answers, to
+    reload the page. An install that cannot update itself says to ask the agent."""
+    import asyncio
+
+    import pymupdf
+
+    from tex_mcp_web import __version__, server as server_module, update
+
+    (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
+    with pymupdf.open() as pdf:
+        pdf.new_page().insert_text((72, 72), "Hello world.")
+        pdf.save(tmp_path / "paper.pdf")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    profile = tempfile.mkdtemp(prefix="tex_mcp_update_")
+    marionette_port = available_port()
+    (Path(profile) / "user.js").write_text(f'user_pref("marionette.port", {marionette_port});\n', encoding="utf-8")
+    newest = {"version": None}
+    ran = []
+
+    async def latest():
+        return newest["version"]
+
+    async def run():
+        ran.append(True)
+        monkeypatch.setattr(update, "on_disk", lambda: "99.0.0")
+        return "99.0.0"
+
+    monkeypatch.setattr(update, "latest", latest)
+    monkeypatch.setattr(update, "run", run)
+    monkeypatch.setattr(update, "way", lambda: None)
+    browser_process = None
+    browser = None
+    script = lambda code: browser.execute_script(code)
+    shown = lambda selector: script(f'return !document.querySelector("{selector}").hidden')
+    said = lambda: script('return document.querySelector("#update-alert-text").textContent')
+
+    def asked_again():
+        """The page's socket is closed, as when the agent connects again, and the page asks
+        the server that answers which version runs."""
+        async def close():
+            for socket in list(shared.server.websockets):
+                await socket.close()
+        asyncio.run_coroutine_threadsafe(close(), shared.loop).result(5)
+
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: get_json(f"{base}/paper")["pdf_digest"])
+        browser_process = subprocess.Popen(
+            ["firefox", "-marionette", "-headless", "-no-remote", "-profile", profile, "about:blank"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        browser = marionette.Marionette(host="127.0.0.1", port=marionette_port, startup_timeout=30)
+        browser.start_session()
+        browser.navigate(base)
+        # With no newer release the menu names the version and offers no update.
+        wait_until(lambda: script('return document.querySelector("#version-line").textContent')
+                   == f"tex-mcp-web v{__version__}")
+        assert not shown("#update-btn") and not shown("#update-alert")
+        # A release as new as the one running, or older, is no update either.
+        newest["version"] = __version__
+        asked_again()
+        wait_until(lambda: len(shared.server.websockets) == 1, timeout=10)
+        assert not shown("#update-btn")
+        newest["version"] = "99.0.0"
+        asked_again()
+        wait_until(lambda: shown("#update-btn"), timeout=10)
+        assert script('return document.querySelector("#update-btn").textContent') == "Update to v99.0.0"
+        # An install that cannot update itself runs nothing and says who can.
+        script('document.querySelector("#update-btn").click()')
+        wait_until(lambda: said() == "v99.0.0 is out. Ask your agent to update tex-mcp-web.")
+        assert ran == [] and shown("#update-alert-how")
+        # One that can is updated by the click. The server keeps its code, so the band asks
+        # for the agent to connect again, and the menu offers no second update.
+        monkeypatch.setattr(update, "way", lambda: "checkout")
+        asked_again()
+        wait_until(lambda: script('return document.querySelector("#update-btn").dataset.selfUpdate') == "true", timeout=10)
+        script('document.querySelector("#update-btn").click()')
+        wait_until(lambda: said() == "Updated to v99.0.0. Reconnect tex-mcp in your agent to start using it.")
+        assert ran == [True] and not shown("#update-btn") and not shown("#update-reload-btn")
+        assert script('return document.querySelector("#update-alert-how").href').endswith("docs/reviewing.md#updating")
+        # The server that answers after the agent connected again runs the new version: the
+        # page, loaded from the old one, asks to be reloaded.
+        monkeypatch.setattr(server_module, "__version__", "99.0.0")
+        asked_again()
+        wait_until(lambda: said() == "tex-mcp-web v99.0.0 runs now. Reload this page to use it.", timeout=10)
+        assert shown("#update-reload-btn") and not shown("#update-alert-how")
+        script('document.querySelector("#update-reload-btn").click()')
+        wait_until(lambda: script('return document.querySelector("#update-alert")?.hidden === true'
+                                  ' && document.querySelector("#version-line").textContent') == "tex-mcp-web v99.0.0",
+                   timeout=10)
+        assert not shown("#update-btn")
+        # A failed update says why, and the button stays for another try.
+        monkeypatch.setattr(server_module, "__version__", __version__)
+        monkeypatch.setattr(update, "on_disk", lambda: __version__)
+
+        async def failed():
+            raise update.UpdateError("fatal: Not possible to fast-forward")
+
+        monkeypatch.setattr(update, "run", failed)
+        browser.navigate(base)
+        wait_until(lambda: shown("#update-btn"), timeout=10)
+        script('document.querySelector("#update-btn").click()')
+        wait_until(lambda: said() == "The update did not go through.\nfatal: Not possible to fast-forward")
+        assert shown("#update-btn") and script('return document.querySelector("#update-btn").disabled') is False
+    finally:
+        if browser is not None:
+            try:
+                browser.delete_session()
+            except Exception:
+                pass
+        if browser_process is not None:
+            browser_process.terminate()
+            try:
+                browser_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                browser_process.kill()
+        shutil.rmtree(profile, ignore_errors=True)
+        shared.stop()
+
+
+@pytest.mark.skipif(shutil.which("firefox") is None, reason="Firefox is required")
 def test_the_more_menu_downloads_the_pdf_and_a_section_comment_keeps_its_heading(tmp_path: Path) -> None:
     """Download PDF in the more menu saves the PDF, under its own name while no Overleaf
     project is named. + comment in the Sections tab lands on the heading it was pressed

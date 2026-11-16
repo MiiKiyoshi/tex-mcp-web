@@ -83,6 +83,8 @@ from . import overleaf
 from . import overleaf_git
 from . import page_token
 from . import plugin_monitor
+from . import update
+from . import __version__
 from . import overleaf_ot
 from .overleaf_live import TRACKED, LivePresence
 from .overleaf_sync import HandSync, NotConnected, ProjectSync, Uploads
@@ -568,6 +570,7 @@ class TexMcpWebServer:
         self._overleaf_tracked_read: asyncio.TimerHandle | None = None
         self.watcher: Watcher | None = None
         self._runner: web.AppRunner | None = None
+        self._updating = asyncio.Lock()
         self._store_watch: asyncio.Task[None] | None = None
         self._initial_compile: asyncio.Task[CompileResult] | None = None
 
@@ -633,6 +636,8 @@ class TexMcpWebServer:
         app.router.add_get("/translations", self._handle_translations)
         app.router.add_get("/completions", self._handle_completions)
         app.router.add_post("/goto", self._handle_goto)
+        app.router.add_get("/update", self._handle_update_state)
+        app.router.add_post("/update", self._handle_update)
         app.router.add_get("/image", self._handle_image)
         app.router.add_get("/reference-preview", self._handle_reference_preview)
         app.router.add_post("/review-request", self._handle_review_request)
@@ -2064,6 +2069,28 @@ class TexMcpWebServer:
             "Content-Disposition": f"attachment; filename=\"{plain}\"; filename*=UTF-8''{quote(name, safe='')}"})
 
     # ----- API: paper / compile -----
+
+    async def _handle_update_state(self, request: web.Request) -> web.Response:
+        """What the page's menu offers: the version running, the one on disk, which differs
+        once an update is installed and until the agent connects again, the newest release,
+        unless the config says not to ask for it, and whether this install updates itself."""
+        return web.json_response({
+            "version": __version__,
+            "on_disk": update.on_disk(),
+            "latest": await update.latest() if self.config.update_check else None,
+            "self_update": update.way() is not None,
+        })
+
+    async def _handle_update(self, request: web.Request) -> web.Response:
+        """Update this install to the newest release. The running server keeps its code, so
+        the page then asks the reviewer to have the agent connect again."""
+        if self._updating.locked():
+            return web.json_response({"error": "An update is already running."}, status=409)
+        async with self._updating:
+            try:
+                return web.json_response({"on_disk": await update.run()})
+            except update.UpdateError as error:
+                return web.json_response({"error": str(error)}, status=500)
 
     async def _handle_paper(self, request: web.Request) -> web.Response:
         if self.structure is None:

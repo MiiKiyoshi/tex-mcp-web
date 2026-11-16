@@ -4263,9 +4263,63 @@ async function callAgent() {
   }
 }
 
+// The ⋯ menu's Update. The server runs inside the agent's process, so an update changes the
+// files on disk and the server keeps the code it runs until the agent connects again. The
+// band across the top says which step is left: the agent's, while the version on disk is
+// not the one running, and then the page's own, to load what the new server serves.
+function sayUpdate(text, { how = false, reload = false } = {}) {
+  $("#update-alert-text").textContent = text ?? "";
+  $("#update-alert-how").hidden = !how;
+  $("#update-reload-btn").hidden = !reload;
+  $("#update-alert").hidden = !text;
+}
+
+async function readUpdate() {
+  const response = await fetch("/update");
+  if (!response.ok) return;
+  const told = await response.json();
+  state.pageVersion ??= told.version;
+  const newer = (version) => {
+    const [a, b] = [version, told.version].map((each) => each.split(".").map(Number));
+    const at = a.findIndex((part, index) => part !== (b[index] ?? 0));
+    return at !== -1 && a[at] > (b[at] ?? 0);
+  };
+  $("#version-line").textContent = `tex-mcp-web v${told.version}`;
+  const button = $("#update-btn");
+  button.hidden = !(told.latest && newer(told.latest)) || told.on_disk !== told.version;
+  button.textContent = `Update to v${told.latest}`;
+  button.dataset.selfUpdate = String(told.self_update);
+  if (told.version !== state.pageVersion) {
+    sayUpdate(`tex-mcp-web v${told.version} runs now. Reload this page to use it.`, { reload: true });
+  } else if (told.on_disk !== told.version) {
+    sayUpdate(`Updated to v${told.on_disk}. Reconnect tex-mcp in your agent to start using it.`, { how: true });
+  }
+}
+
+async function runUpdate() {
+  const button = $("#update-btn");
+  if (button.dataset.selfUpdate !== "true") {
+    sayUpdate(`${button.textContent.replace("Update to ", "")} is out. Ask your agent to update tex-mcp-web.`, { how: true });
+    return;
+  }
+  button.disabled = true;
+  sayUpdate("Updating tex-mcp-web…");
+  try {
+    const response = await fetch("/update", { method: "POST" });
+    if (!response.ok) throw new Error(await responseError(response));
+    await readUpdate();
+  } catch (error) {
+    sayUpdate(`The update did not go through.\n${error.message}`, { how: true });
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function connectWebSocket() {
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
   const socket = new WebSocket(`${protocol}//${location.host}/ws`);
+  // A server that comes back may be a new version's: the page asks which runs now.
+  socket.onopen = () => readUpdate().catch((error) => console.error(error));
   socket.onmessage = (event) => {
     const message = JSON.parse(event.data);
     handleWebSocketMessage(message).catch((error) => console.error(error));
@@ -4842,6 +4896,8 @@ function attachSidebarToggle() {
   $("#settings-btn").addEventListener("click", () => showSettings());
   $("#settings-menu-btn").addEventListener("click", () => showSettings());
   $("#download-pdf-btn").addEventListener("click", () => h("a", { href: "/pdf/download", download: "" }).click());
+  $("#update-btn").addEventListener("click", () => runUpdate());
+  $("#update-reload-btn").addEventListener("click", () => location.reload());
   $("#overleaf-connect-btn").addEventListener("click", async () => {
     const link = $("#overleaf-link").value.trim();
     if (!link) return;

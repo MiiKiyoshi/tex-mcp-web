@@ -60,6 +60,8 @@ class Config:
             brings in with the reviewer's own session cookie. Unset means none.
         overleaf_add: Glob patterns for the files only here that Send adds to the project,
             in a folder that follows it without git.
+        update_check: The page asks the package index for the newest release, to offer
+            Update in its menu.
         page_token: The page answers only a browser that opened its link with the
             reviewer's token, for a machine other people log in to.
         config_path: Path to .tex-mcp-web.yaml file (used to resolve watch_dir).
@@ -79,6 +81,7 @@ class Config:
     overleaf_sync: bool = False
     overleaf_add: list[str] = field(default_factory=lambda: list(DEFAULT_OVERLEAF_ADD))
     page_token: bool = False
+    update_check: bool = True
     config_path: Path | None = None
 
     @classmethod
@@ -99,6 +102,7 @@ class Config:
             overleaf_sync=_overleaf_flag(data, "overleaf_sync"),
             overleaf_add=_patterns(data, "overleaf_add", DEFAULT_OVERLEAF_ADD),
             page_token=_switch(data, "page_token"),
+            update_check=_switch(data, "update_check", True),
             config_path=config_path,
         )
 
@@ -129,6 +133,8 @@ class Config:
             d["overleaf_add"] = self.overleaf_add
         if self.page_token:
             d["page_token"] = True
+        if not self.update_check:
+            d["update_check"] = False
         return d
 
 
@@ -289,9 +295,9 @@ def get_main_file(config: Config) -> Path:
     return watch_dir / config.main
 
 
-def _switch(data: dict[str, Any], key: str) -> bool:
-    """A switch: off unless it says true."""
-    raw = data.get(key, False)
+def _switch(data: dict[str, Any], key: str, unset: bool = False) -> bool:
+    """A switch: *unset* unless it says true or false."""
+    raw = data.get(key, unset)
     if not isinstance(raw, bool):
         raise ValueError(f"{key} must be true or false, not {raw!r}")
     return raw

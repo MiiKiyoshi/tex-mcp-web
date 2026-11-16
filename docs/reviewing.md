@@ -169,6 +169,17 @@ extension off for the review page's address.
 
 The page remembers each choice. Edits in the Source tab are saved when you press **Save**.
 
+## Updating
+
+When a newer release is out, the ⋯ menu atop the page offers **Update to v…**, above the
+version that runs. A click installs it. The page's server runs inside the agent, which keeps
+the code it started with, so a band across the page then asks you to reconnect tex-mcp in
+your agent: Claude Code does from `/mcp`, and any agent does when it starts again. The page
+then asks to be reloaded. An install that cannot update itself, one made by another tool
+than [INSTALL.md](../INSTALL.md)'s steps or `pip` in a virtual environment, says to ask your
+agent to update tex-mcp-web. `update_check: false` in the [configuration](configuration.md)
+stops the page asking for the newest release.
+
 ## Translation
 
 With `translation` set, the language's button shows the source translated under the Preview

@@ -232,6 +232,14 @@ class TestHelperFunctions:
         config = Config(main="test.tex")
         assert get_watch_dir(config) == Path.cwd()
 
+    def test_the_update_check_is_on_unless_the_config_turns_it_off(self):
+        assert Config.from_dict({"main": "main.tex"}).update_check is True
+        assert "update_check" not in Config.from_dict({"main": "main.tex"}).to_dict()
+        off = Config.from_dict({"main": "main.tex", "update_check": False})
+        assert off.update_check is False and off.to_dict()["update_check"] is False
+        with pytest.raises(ValueError, match="update_check must be true or false"):
+            Config.from_dict({"main": "main.tex", "update_check": "no"})
+
     def test_get_main_file(self, tmp_path):
         """Test get_main_file returns absolute path."""
         config = Config(main="document.tex", config_path=tmp_path / ".tex-mcp-web.yaml")
