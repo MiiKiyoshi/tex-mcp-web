@@ -1,3 +1,3 @@
 """tex-mcp-web — agentic-first review tool for LaTeX papers."""
 
-__version__ = "0.9.6"
+__version__ = "0.9.7"

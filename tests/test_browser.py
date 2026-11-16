@@ -2196,6 +2196,20 @@ def test_the_editor_holds_the_cursor_line_a_third_down_when_chosen(tmp_path: Pat
         type_keys(browser, ["j"] * 5)
         wait_until(lambda: browser.execute_script(place)[0] == 49)
         assert browser.execute_script(scroll) == before
+        # 1/2 down holds the cursor's line in the middle of the editor, and is kept for next time.
+        browser.execute_script(f"{choice('half')}.click()")
+        assert [browser.execute_script(f'return {choice(name)}.getAttribute("aria-checked")')
+                for name in ("free", "third", "half")] == ["false", "false", "true"]
+        browser.execute_script(f"{editor} editor.focus();")
+        type_keys(browser, ["j"] * 5)
+        middle = place.replace("clientHeight / 3", "clientHeight / 2")
+        wait_until(lambda: (lambda r: r[0] == 54 and abs(r[1] - r[2]) <= 1)(browser.execute_script(middle)))
+        browser.navigate(base)
+        assert wait_until(lambda: browser.execute_script(
+            f'return {choice("half")}.getAttribute("aria-checked")')) == "true"
+        assert browser.execute_script(
+            'return [...document.querySelectorAll("[data-cursor-choice]")].map((button) => button.textContent)') \
+            == ["Anywhere", "1/3 down", "1/2 down"]
     finally:
         if browser is not None:
             try:

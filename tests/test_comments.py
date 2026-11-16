@@ -1030,3 +1030,19 @@ def test_a_reply_sent_from_a_draft_answers_only_what_came_before_the_draft(store
     clock["now"] = "2026-01-01T00:05:00+00:00"
     store.sent_to_overleaf(other.id, "Here.", "")
     assert store.get(other.id).waiting(on_overleaf=True) == []
+
+
+def test_canonicalize_pdf_selection_finds_a_letter_whose_accent_the_browser_reads_after_it(
+    tmp_path: Path,
+):
+    """An accent over a letter, as a bar or a hat in math, is a mark of its own in the PDF's
+    text: PyMuPDF reads it before the letter and the browser's reader after it, with a space
+    before the subscript."""
+    pdf = tmp_path / "hat.pdf"
+    make_pdf(pdf, "the height \u00afTi and the drift \u00afPi of each tide")
+    whole = PageSelection(page=1, bbox=(72.0, 72.0, 400.0, 192.0), rects=[(72.0, 72.0, 400.0, 192.0)])
+
+    canonical = canonicalize_pdf_selection(pdf, "T\u00af i and the drift P\u00af i of each", whole)
+
+    assert canonical is not None
+    assert canonical[0] == "\u00afTi and the drift \u00afPi of each"

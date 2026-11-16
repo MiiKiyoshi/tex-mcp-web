@@ -115,7 +115,7 @@ def test_the_body_of_a_typeset_paper_ends_before_its_bibliography(tmp_path: Path
 
 @pytest.mark.skipif(shutil.which("latexmk") is None or shutil.which("synctex") is None,
                     reason="latexmk and synctex are required")
-def test_a_centered_caption_ending_in_a_word_is_a_short_line_and_an_equation_is_not(tmp_path: Path) -> None:
+def test_a_centered_caption_and_a_list_item_end_short_and_an_equation_and_a_reference_do_not(tmp_path: Path) -> None:
     """Centered text, as a table's caption, ends short too: its last line sits in the middle
     of the column under a wider centered one. A displayed equation under a full line does not."""
     filler = "The harbour keeps a ledger of every tide that the keeper has seen since the lamp was lit. "
@@ -124,10 +124,13 @@ def test_a_centered_caption_ending_in_a_word_is_a_short_line_and_an_equation_is_
         "\\begin{center}Heights of the tides the keeper wrote in the ledger by the\\\\lamp.\\end{center}\n"
         + (filler * 4).strip() + "\n\\[ z = b \\]\n"
         + (filler * 4).strip() + "\n"
+        "\\begin{itemize}\\item " + (filler * 2).strip() + "\\linebreak Item.\\end{itemize}\n"
+        "\\begin{thebibliography}{1}\\bibitem{k} " + (filler * 2).strip() + "\\linebreak 1901.\\end{thebibliography}\n"
         "\\end{document}\n", encoding="utf-8")
     built = subprocess.run(["latexmk", "-pdf", "-synctex=1", "-interaction=nonstopmode", "paper.tex"],
                            cwd=tmp_path, capture_output=True, text=True, timeout=120)
     assert built.returncode == 0, built.stdout[-2000:]
 
     short = layout.check(tmp_path / "paper.pdf", tmp_path).get("short_lines", [])
-    assert [(line["text"], line["source"]) for line in short] == [("lamp.", "paper.tex:3")]
+    # A list item's last line counts as a paragraph's does, and a bibliography entry's does not.
+    assert [(line["text"], line["source"]) for line in short] == [("lamp.", "paper.tex:3"), ("Item.", "paper.tex:7")]

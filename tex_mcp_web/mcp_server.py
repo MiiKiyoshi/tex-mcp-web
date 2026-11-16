@@ -1016,7 +1016,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         bibliography: its page, its column of how many, the room under it to the end of
         the text block in points and in lines, once the paper has full columns to measure
         by, and its source. ``short_lines`` are the paragraphs whose last line is narrower than a
-        quarter of its column, in centered text as a table's caption too, each with its page, column, words, width and source: a
+        quarter of its column, in a list item or centered text as a table's caption too, each with its page, column, words, width and source: a
         shorter paragraph pulls such a line up. A source is the line SyncTeX gives, which
         for a paragraph is where it ends.
         """

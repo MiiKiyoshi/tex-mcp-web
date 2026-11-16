@@ -5,14 +5,15 @@ ends, and which paragraphs end in a line of a word or two, which a shorter sente
 pull up. Both are read from the PDF's text lines and named by source line through SyncTeX.
 
 The body is what comes before the bibliography at the paper's end, whose lines SyncTeX
-places in a ``.bbl`` file. A paragraph's last line is a line that starts at its column's left edge under a line
-filling the column's width, and it is short when narrower than ``SHORT_LINE`` of the column.
+places in a ``.bbl`` file. A paragraph's last line is a line that starts at its column's left edge,
+or set in from it as a list item's is, under a line reaching the column's right edge, and it is short when narrower than ``SHORT_LINE`` of the column.
 In centered text, as a table's caption, it is a line centered in its column under a wider
 centered line that takes at least ``CENTERED_ABOVE`` of the column and stops short of both edges.
 """
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,6 +27,9 @@ from .synctex import selection_to_source_range
 SHORT_LINE = 0.25
 # A centered line above a short one is at least this share of its column wide.
 CENTERED_ABOVE = 0.5
+# A paragraph's line starts within this many times its size of its column's left edge:
+# a first line's indent, or a list item's.
+INDENT = 4
 # How far, in points, a line's edge may be from its column's and still be at it.
 EDGE = 2.0
 # At most this many short lines are named, the first ones in reading order.
@@ -222,18 +226,29 @@ def check(pdf_path: Path, watch_dir: Path) -> dict[str, Any]:
     short = []
     for column in by_column.values():
         left, right = edges[(column[0].page, column[0].column)]
-        for above, line in zip(column, column[1:]):
+        for at, (above, line) in enumerate(zip(column, column[1:]), 1):
             # Set in one size, give or take the tenths a font is scaled by, one line under the other.
             if not (id(line) in inside and abs(line.size - above.size) < 0.5
                     and 0 < line.base - above.base < 1.6 * pitch):
                 continue
-            full = above.x1 >= right - EDGE and above.x0 <= left + 2 * line.size
+            # A list's item is set in from the column's left edge, under its label.
+            full = above.x1 >= right - EDGE and above.x0 <= left + INDENT * line.size
             share = (line.x1 - line.x0) / (right - left)
             middle = lambda each: abs((each.x0 + each.x1) - (left + right)) / 2 <= EDGE
             centered = (middle(line) and middle(above) and above.x0 > left + EDGE and above.x1 < right - EDGE
                         and (above.x1 - above.x0) / (right - left) >= CENTERED_ABOVE)
-            if ((full and line.x0 <= left + EDGE) or centered) and share < SHORT_LINE:
-                short.append((line, share))
+            if not (((full and line.x0 <= left + INDENT * line.size) or centered) and share < SHORT_LINE):
+                continue
+            # A bibliography's entries are set in as a list's items are, and are not the body's
+            # to shorten, wherever in the paper the bibliography is: lines SyncTeX places in a
+            # .bbl file, or set in under a line that starts with a number in brackets.
+            head = at - 1
+            while head > 0 and abs(column[head].x0 - line.x0) <= EDGE:
+                head -= 1
+            if ((source(line) or "").rpartition(":")[0].endswith(".bbl")
+                    or (line.x0 > left + EDGE and re.match(r"\[\d+\]", column[head].text))):
+                continue
+            short.append((line, share))
     short.sort(key=lambda item: (item[0].page, item[0].column, item[0].base))
     if short:
         report["short_lines"] = [

@@ -266,34 +266,35 @@
       <p id="overleaf-git-state" role="status"></p>
       <p id="overleaf-git-uncommitted" class="overleaf-unset" hidden></p>
     </section>
-    <h4>Look</h4>
+    <h4>Theme</h4>
     <div class="theme-choice" role="radiogroup" aria-label="Theme">
       <button type="button" role="radio" data-theme-choice="system" aria-checked="false">System</button>
       <button type="button" role="radio" data-theme-choice="light" aria-checked="false">Light</button>
       <button type="button" role="radio" data-theme-choice="dark" aria-checked="false">Dark</button>
       <button type="button" role="radio" data-theme-choice="warm" aria-checked="false">Warm</button>
     </div>
-    <h4>Text size</h4>
+    <h4>Text size of the top bar and panels</h4>
     <div class="theme-choice" role="radiogroup" aria-label="Size of the top bar's and the panels' text">
       <button type="button" role="radio" data-text-choice="90" aria-checked="false">90%</button>
       <button type="button" role="radio" data-text-choice="100" aria-checked="true">100%</button>
       <button type="button" role="radio" data-text-choice="115" aria-checked="false">115%</button>
       <button type="button" role="radio" data-text-choice="130" aria-checked="false">130%</button>
     </div>
-    <h4>Send with</h4>
+    <h4>Send a comment with</h4>
     <div class="theme-choice" role="radiogroup" aria-label="Key that sends a comment">
       <button type="button" role="radio" data-send-choice="shift" aria-checked="true">Shift+Enter</button>
       <button type="button" role="radio" data-send-choice="enter" aria-checked="false">Enter</button>
     </div>
-    <h4>Key letters</h4>
+    <h4>Shortcut letters on a comment's buttons</h4>
     <div class="theme-choice" role="radiogroup" aria-label="Key letters on the ringed comment's buttons while the keys move through the comments">
       <button type="button" role="radio" data-letters-choice="on" aria-checked="true">On</button>
       <button type="button" role="radio" data-letters-choice="off" aria-checked="false">Off</button>
     </div>
-    <h4>Editor cursor</h4>
-    <div class="theme-choice" role="radiogroup" aria-label="Where the source editor keeps the cursor's line as the keys move it">
-      <button type="button" role="radio" data-cursor-choice="free" aria-checked="true">Anywhere</button>
-      <button type="button" role="radio" data-cursor-choice="third" aria-checked="false">A third down</button>
+    <h4>Editor cursor position</h4>
+    <div class="theme-choice" role="radiogroup" aria-label="How far down the source editor keeps the cursor's line as the keys move it">
+      <button type="button" role="radio" data-cursor-choice="free" aria-checked="true" title="The cursor moves over the text, which scrolls only at the editor's edges">Anywhere</button>
+      <button type="button" role="radio" data-cursor-choice="third" aria-checked="false" title="The cursor's line stays 1/3 of the way down the editor, and the text moves under it">1/3 down</button>
+      <button type="button" role="radio" data-cursor-choice="half" aria-checked="false" title="The cursor's line stays in the middle of the editor, and the text moves under it">1/2 down</button>
     </div>
     <p id="overleaf-status" class="overleaf-status" role="status"></p>
     <div class="dialog-actions">

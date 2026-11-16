@@ -36,7 +36,7 @@ The **Problems** tab lists what the last build said, errors first and then warni
 under them where the paper stands against a page limit. **BODY END** is the last line before
 the bibliography: its page and column, and how many more lines fit under it in that column,
 once the paper has full columns to measure by. Each **SHORT LINE** is a paragraph whose last line is narrower than
-a quarter of its column, in a centered caption too, with the words on it: a slightly shorter paragraph pulls such a
+a quarter of its column, in a list item or a centered caption too, with the words on it: a slightly shorter paragraph pulls such a
 line up and gives the line back. A click on either marks the line in the
 Preview, where the layout is, and in Split also moves the editor to its source line, which
 for a paragraph is the line where it ends. The number on the tab counts the errors, the warnings
@@ -158,17 +158,18 @@ extension off for the review page's address.
 
 ## Settings and the ⋯ menu
 
-- **Look** picks **System**, where the page starts, which follows the system's light or dark
+- **Theme** picks **System**, where the page starts, which follows the system's light or dark
   as it changes, or **Light**, **Dark**, or **Warm**, a softer paper tone for long writing.
   The PDF's pages stay as compiled in each.
-- **Text size** sets the top bar's and the panels' text from 90% to 130%, and leaves the
+- **Text size of the top bar and panels** sets their text from 90% to 130%, and leaves the
   editor, the translation, the PDF, the panel's tabs and the dialogs as they are.
-- **Send with** chooses whether Enter or Shift+Enter sends a comment being written.
-- **Key letters** shows or hides the keys' letters on the ringed comment's buttons.
-- **Editor cursor** at **A third down** keeps the cursor's line a third of the way down the
-  editor as the keys move it, Vim keys or not, so the text moves and the eyes stay. The first
-  lines stay at the top and the last ones at the bottom, and a click leaves the text where it
-  is. **Anywhere** lets the cursor move over the text as usual.
+- **Send a comment with** chooses whether Enter or Shift+Enter sends a comment being written.
+- **Shortcut letters on a comment's buttons** shows or hides the keys' letters on the ringed
+  comment's buttons.
+- **Editor cursor position** at **1/3 down** or **1/2 down** keeps the cursor's line that far
+  down the editor as the keys move it, Vim keys or not, so the text moves and the eyes stay.
+  The first lines stay at the top and the last ones at the bottom, and a click leaves the
+  text where it is. **Anywhere** lets the cursor move over the text as usual.
 - **Download PDF** in the ⋯ menu saves the PDF. As on Overleaf, the file is named after the
   Overleaf project, with each character other than a letter or a digit turned to `_`. A
   paper with no Overleaf project keeps the PDF's own name, such as `paper.pdf`.

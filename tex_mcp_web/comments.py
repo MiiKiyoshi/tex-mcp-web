@@ -29,6 +29,7 @@ quote is found again in the new PDF and its rectangles are regenerated.
 
 from __future__ import annotations
 
+import unicodedata
 import contextlib
 import difflib
 import hashlib
@@ -1101,6 +1102,19 @@ def _compact_pdf_text(text: str) -> tuple[str, list[int]]:
     return "".join(characters), compact_raw_indexes
 
 
+def _is_accent(character: str) -> bool:
+    """An accent set over a letter, as a hat in math: a mark of its own in the PDF's text."""
+    return unicodedata.category(character) in ("Mn", "Sk") or "\u02b0" <= character <= "\u02ff"
+
+
+def _plain_pdf_text(text: str) -> tuple[str, list[int]]:
+    """Compact text with its accents left out too: one reader puts a letter's accent before
+    the letter and another after it."""
+    compact, raw_indexes = _compact_pdf_text(text)
+    kept = [index for index, character in enumerate(compact) if not _is_accent(character)]
+    return "".join(compact[index] for index in kept), [raw_indexes[index] for index in kept]
+
+
 # A quote is searched for as get_text reads it, with a word broken at a line's end still
 # hyphenated there. PyMuPDF 2 takes such hyphens out of the text it searches unless told
 # not to, and would find none of these quotes.
@@ -1203,28 +1217,37 @@ def canonicalize_pdf_selection(
     """Verify a browser selection and return text PyMuPDF can find again.
 
     The browser's reader and PyMuPDF space the same glyphs differently, around a subscript
-    or an operator for one. A quote that is not on the page as written is looked for there
-    with spaces left out, where the selection lies, and returned as PyMuPDF reads it."""
+    or an operator for one, and put a letter's accent, as a hat in math, on different sides
+    of the letter. A quote that is not on the page as written is looked for there with spaces
+    left out, and then with accents left out too, where the selection lies, and returned as
+    PyMuPDF reads it."""
     index = PdfTextIndex(pdf_path)
     try:
         located = index.locate(quote, hint=hint)
         if located is not None:
             return quote, located
-        compact_quote, _ = _compact_pdf_text(quote)
-        if not compact_quote or not 1 <= hint.page <= len(index.pages):
+        if not 1 <= hint.page <= len(index.pages):
             return None
         raw_page = index.pages[hint.page - 1][0]
-        compact_page, raw_indexes = _compact_pdf_text(raw_page)
         x1, y1, x2, y2 = hint.bbox
-        for start in _all_occurrences(compact_page, compact_quote):
-            raw_end = raw_indexes[start + len(compact_quote) - 1] + 1
-            canonical_quote = raw_page[raw_indexes[start]:raw_end].strip()
-            located = index.locate(canonical_quote, hint=hint)
-            if located is not None and located.page == hint.page and (
-                located.bbox[2] >= x1 and located.bbox[0] <= x2
-                and located.bbox[3] >= y1 and located.bbox[1] <= y2
-            ):
-                return canonical_quote, located
+        for reduce in (_compact_pdf_text, _plain_pdf_text):
+            reduced_quote, _ = reduce(quote)
+            if not reduced_quote:
+                return None
+            reduced_page, raw_indexes = reduce(raw_page)
+            for start in _all_occurrences(reduced_page, reduced_quote):
+                raw_start = raw_indexes[start]
+                # An accent PyMuPDF reads before the first letter belongs to it.
+                while raw_start > 0 and _is_accent(raw_page[raw_start - 1]):
+                    raw_start -= 1
+                raw_end = raw_indexes[start + len(reduced_quote) - 1] + 1
+                canonical_quote = raw_page[raw_start:raw_end].strip()
+                located = index.locate(canonical_quote, hint=hint)
+                if located is not None and located.page == hint.page and (
+                    located.bbox[2] >= x1 and located.bbox[0] <= x2
+                    and located.bbox[3] >= y1 and located.bbox[1] <= y2
+                ):
+                    return canonical_quote, located
         return None
     finally:
         index.close()

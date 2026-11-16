@@ -1826,29 +1826,39 @@ function applySourceLeaf() {
   updateSourceCommentButton();
 }
 
-// The cursor's line held a third of the way down the editor, as the comment keys hold the
-// ringed card in the list, when the viewer chose it in Settings: the keys move the text under
-// the cursor and the eyes stay where they are. A click or a drag leaves the text where it is.
-// The first lines stay at the top and the last ones at the bottom, with no room made above
-// or below the text to hold them a third down.
-function cursorHeld() {
-  try { return localStorage.getItem("texMcpCursorHeld") === "1"; } catch { return false; }
+// The cursor's line held a third or a half of the way down the editor, as the comment keys
+// hold the ringed card in the list, when the viewer chose it in Settings: the keys move the
+// text under the cursor and the eyes stay where they are. A click or a drag leaves the text
+// where it is. The first lines stay at the top and the last ones at the bottom, with no room
+// made above or below the text to hold them there.
+const CURSOR_AT = { third: 1 / 3, half: 1 / 2 };
+// What the choice is kept as, the third as it was kept when it was the only one.
+const CURSOR_KEPT = { free: "0", third: "1", half: "half" };
+
+function cursorChoice() {
+  try {
+    const kept = localStorage.getItem("texMcpCursorHeld");
+    return Object.keys(CURSOR_KEPT).find((choice) => CURSOR_KEPT[choice] === kept) ?? "free";
+  } catch {
+    return "free";
+  }
 }
 
 function applyCursorHeld() {
-  const held = cursorHeld();
+  const choice = cursorChoice();
   for (const button of document.querySelectorAll("[data-cursor-choice]")) {
-    button.setAttribute("aria-checked", String((button.dataset.cursorChoice === "third") === held));
+    button.setAttribute("aria-checked", String(button.dataset.cursorChoice === choice));
   }
   holdCursorLine();
 }
 
 function holdCursorLine() {
   const editor = state.editor;
-  if (!editor || !cursorHeld() || state.editorPointing) return;
+  const at = CURSOR_AT[cursorChoice()];
+  if (!editor || at === undefined || state.editorPointing) return;
   const { row, column } = editor.getCursorPosition();
   const top = editor.session.documentToScreenRow(row, column) * editor.renderer.lineHeight;
-  editor.session.setScrollTop(Math.max(0, top - editor.renderer.scroller.clientHeight * RING_AT));
+  editor.session.setScrollTop(Math.max(0, top - editor.renderer.scroller.clientHeight * at));
 }
 
 function applyVimKeys() {
@@ -4899,7 +4909,7 @@ function attachCommentKeys() {
   });
   for (const button of document.querySelectorAll("[data-cursor-choice]")) {
     button.addEventListener("click", () => {
-      try { localStorage.setItem("texMcpCursorHeld", button.dataset.cursorChoice === "third" ? "1" : "0"); } catch { /* the choice lasts this visit */ }
+      try { localStorage.setItem("texMcpCursorHeld", CURSOR_KEPT[button.dataset.cursorChoice]); } catch { /* the choice lasts this visit */ }
       applyCursorHeld();
     });
   }
