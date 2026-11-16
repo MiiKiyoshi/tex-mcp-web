@@ -2283,6 +2283,20 @@ def test_the_ring_holds_a_third_of_the_way_down_and_an_opened_card_shows_its_end
         assert browser.execute_script(opened) == 12
         shift_space()
         assert browser.execute_script(opened) == 0
+        # A ringed card that leaves the view hands the ring to the next, in the ring's place,
+        # wherever the list was scrolled.
+        type_keys(browser, ["g", "g"] + ["j"] * 5)
+        browser.execute_script('document.querySelector("#comments-list").scrollTop = 0;')
+        browser.execute_script("(window.wrappedJSObject || window).confirm = () => true;", sandbox=None)
+        for keys, then in ((["R"], ids[6]), (["A"], ids[7]), (["d", "d"], ids[8])):
+            type_keys(browser, keys)
+            wait_until(lambda: browser.execute_script(place)["id"] == then)
+            handed = browser.execute_script(place)
+            # The list's end holds the ring back where it cannot scroll further.
+            ended = browser.execute_script('const list = document.querySelector("#comments-list");'
+                                           ' return list.scrollTop + list.clientHeight >= list.scrollHeight - 1')
+            assert handed["scroll"] > 0 and (abs(handed["middle"] - handed["third"]) <= 2 or ended), (keys, handed)
+            browser.execute_script('document.querySelector("#comments-list").scrollTop = 0;')
     finally:
         if browser is not None:
             browser.delete_session()

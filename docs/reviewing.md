@@ -94,7 +94,7 @@ typing.
 
 | Keys | Do |
 |---|---|
-| `j` `k`, ↓ ↑ | Next and previous comment. The ringed card stays a third of the way down the list. |
+| `j` `k`, ↓ ↑ | Next and previous comment. The ringed card stays a third of the way down the list, and one that leaves the view, resolved, archived, deleted, applied or sent, hands the ring to the next in that same place. |
 | `gg` `G`, Home End | First and last comment |
 | Space | Open or close the card, and show where the comment is in the PDF or the source, its line a third of the way down the editor |
 | Shift+Space | Open or close every card |

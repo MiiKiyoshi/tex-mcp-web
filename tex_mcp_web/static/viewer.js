@@ -2671,16 +2671,17 @@ async function readComments() {
     state.searchMore = state.comments.length - SEARCH_SHOWN;
     state.comments = state.comments.slice(0, SEARCH_SHOWN);
   }
-  // A focused comment that leaves the view, as one resolved in the open view does, hands the
-  // focus to the comment now in its place, so the keys go on from there.
+  // A focused comment that leaves the view, as one resolved in the open view or one whose
+  // reply is sent in the to do does, hands the focus to the comment now in its place, ringed
+  // where the keys keep the ring, so the keys go on from there as after j.
   const view = `${state.commentTab} ${status}`;
   const at = before.findIndex((comment) => comment.id === state.focusedCommentId);
-  if (view === state.commentsView && at !== -1 && state.comments.length > 0
-      && !state.comments.some((comment) => comment.id === state.focusedCommentId)) {
-    state.focusedCommentId = state.comments[Math.min(at, state.comments.length - 1)].id;
-  }
+  const handed = view === state.commentsView && at !== -1 && state.comments.length > 0
+      && !state.comments.some((comment) => comment.id === state.focusedCommentId);
+  if (handed) state.focusedCommentId = state.comments[Math.min(at, state.comments.length - 1)].id;
   state.commentsView = view;
   renderComments();
+  if (handed) placeRing();
   syncCommentAnnotations();
   syncSourceCommentMarkers();
 }
@@ -4682,7 +4683,12 @@ function moveFocus(to) {
   const comment = state.comments[to(state.comments.findIndex((item) => item.id === state.focusedCommentId), last)];
   state.focusedCommentId = comment.id;
   renderComments();
-  const card = $(`#comments-list [data-comment-id="${CSS.escape(comment.id)}"]`);
+  placeRing();
+}
+
+// The list scrolled to put the ringed card in its place.
+function placeRing() {
+  const card = $(`#comments-list [data-comment-id="${CSS.escape(state.focusedCommentId ?? "")}"]`);
   const list = $("#comments-list");
   if (!card) return;
   const box = list.getBoundingClientRect();
