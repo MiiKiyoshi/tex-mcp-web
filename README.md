@@ -49,9 +49,14 @@ apply or reject. The keys at the bottom right are the ones pressed.
    The agent checks for Python 3.10 or newer and `latexmk`, shows where it will install and
    which agents it will register with, and installs once you agree.
 
-2. Start the agent in the paper's folder, or stay where the work is with the paper in a
-   folder of its own, and say `do tex init`. It finds the main `.tex` file and a free port,
-   shows you the settings, and writes `.tex-mcp-web.yaml` once you agree.
+2. Say `do tex init` to the agent. The agent can be running in either place:
+
+   - in the paper's folder, or
+   - in the folder where the analysis or the code is, with the paper kept in a folder of
+     its own, such as `paper/`. The agent then keeps what it knows from the work.
+
+   It finds the main `.tex` file and a free port, shows you the settings, and writes
+   `.tex-mcp-web.yaml` once you agree.
 
 3. Open `http://localhost:<port>`. On a machine other people log in to, say yes to the page
    token at `do tex init`, and open the link `tex-mcp-web link` prints once in each browser.
