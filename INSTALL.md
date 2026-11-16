@@ -57,6 +57,6 @@ idle. It loads from the checkout in place, so an update of the checkout updates 
 ## 5. Tell the user
 
 The server loads when an agent session starts, so this session cannot use it yet. Start
-the agent again in the paper's folder, then say "do tex init" once per paper and
+the agent again where the user works, then say "do tex init" once per paper and
 "do tex listen" to open the review page. With the plugin, Claude Code started in a folder
 already set up listens on its own.
