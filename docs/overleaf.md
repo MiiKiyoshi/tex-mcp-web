@@ -61,22 +61,24 @@ address, so on the shared machine's own browser, open no page another account se
 
 ## Replying
 
-- **Reply** on a thread stays here: it is where you talk the draft over with the agent,
-  which answers in the same thread and redrafts the reply for Overleaf as you go. That talk
-  never reaches Overleaf, and it sits in the thread in time order with the messages from
-  Overleaf and the replies you sent, each entry marked as written on Overleaf, sent there,
-  or here only, so the thread reads whole. An entry Overleaf holds goes by the name
+- **Reply privately** on a thread is private: it is where you talk the draft over with
+  the agent, which answers in the same thread and redrafts the public reply as you go. That
+  talk never reaches Overleaf, and it sits in the thread in time order with the messages
+  from Overleaf and the replies you sent, each entry marked **public**, with the leaf, when
+  it was written on Overleaf or sent there, and **private** otherwise, so the thread reads
+  whole. An entry Overleaf holds goes by the name
   Overleaf gives its writer. Someone else's is answered rather than edited. Your own, sent
   from here or written on Overleaf, carries **Edit** and **Delete** as an entry written
   here does, and they reword or delete the message on Overleaf, for everyone in the
   project, and then here. **Delete** on a thread's first message deletes the thread with
   its replies, as on Overleaf.
-- The box under the thread is the reply on Overleaf, which everyone in the project reads.
+- The box under the thread is the public reply on Overleaf, which everyone in the project
+  reads.
   The agent puts its draft there (`write_comments` with `action="overleaf"`), one per
   thread, and you edit it and send it with **Send to** and the leaf. **Reject draft** takes
   the draft off the card, with what you typed over it, and notes in the thread what was
   turned down. Nothing goes to Overleaf, and your next **Call agent** tells the agent once.
-  Say why in a **Reply**, and the agent drafts again. The send button atop
+  Say why in a private reply, and the agent drafts again. The send button atop
   the tab sends the reply of every picked thread, one after another, and a refused one
   keeps its words and says why on its card while the rest go. While a reply is on its way,
   and while the sync button brings threads in, the button stays pressed in and dimmed with
@@ -91,11 +93,11 @@ address, so on the shared machine's own browser, open no page another account se
   editor's bar pressed, a comment on the selected source text starts one, since Overleaf puts
   a thread on source words: what you write is for the agent, say a rough note to be put
   politely, and it drafts the thread's first message. You edit that and send it, or write
-  the message yourself and send it with no draft. What you told the agent stays here.
+  the message yourself and send it with no draft. What you told the agent is private.
 - The agent can also draft a new thread on source lines (`write_comments` with
   `action="overleaf"` and an `anchor` instead of an `id`). It waits in the tab as a card
-  whose draft is its first message on Overleaf. **Reply** talks the draft over with the
-  agent, which redrafts it, and that talk stays here, as on any thread. You edit the draft
+  whose draft is its first message on Overleaf. **Reply privately** talks the draft over with the
+  agent, which redrafts it, and that talk is private, as on any thread. You edit the draft
   and send it the same way, alone or with the picked threads, reject the draft, which
   leaves the card for another draft, or delete the card. Sent, it
   opens on Overleaf as Overleaf's editor opens a thread: the lines are looked for in

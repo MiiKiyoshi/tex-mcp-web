@@ -700,6 +700,11 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             "opening another comment. Respect read-only or discussion-only requests. "
             "Answer a question or a request to explain with a reply in its thread, with or "
             "without an edit, on a thread from Overleaf too. "
+            "What is said in a thread is private or public. A private entry stays on the review "
+            "page, for the reviewer and you: your replies, your suggestions and what the reviewer "
+            "writes here. A public entry is on Overleaf, for everyone in the project. Nothing you "
+            "write is public: write_comments with action=\"overleaf\" drafts what should be, and "
+            "only the reviewer sends it. "
             "After replying, write in chat only what no thread carries, such as a failed tool or a choice left to the user, not the replies or the edits they report. Call listen() when the user asks to listen and follow "
             "how. Do not poll or duplicate it. Unacknowledged presses stay queued. "
             "The config sits in the startup directory, and its dir can name the paper's folder anywhere. "
@@ -734,7 +739,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         since: Annotated[str | None, Field(description="A time this server printed, like '09-19 00:52'; only what came after it.")] = None,
         until: Annotated[str | None, Field(description="A time this server printed; a search looks only at what came up to that minute.")] = None,
         find: Annotated[str | None, Field(description="Words a search looks for, case ignored, in what was said in a thread and in its draft for Overleaf.")] = None,
-        on_overleaf: Annotated[bool | None, Field(description="true: only threads from Overleaf or started for it. false: only the page's own. Left out: both. For a listing or a search.")] = None,
+        on_overleaf: Annotated[bool | None, Field(description="true: only threads from Overleaf or started for it. false: only the page's own, private throughout. Left out: both. For a listing or a search.")] = None,
         limit: Annotated[int, Field(ge=1, le=200)] = 50,
         save: bool = False,
     ) -> str:
@@ -743,8 +748,8 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         ``new`` answers a Call agent in one step: on open threads, what the reviewer has
         written that this has neither carried before nor already taken up, thread by
         thread, each with the rev a write quotes back. A thread's last answer takes up
-        what came before it: your reply, your Overleaf draft, or a reply the reviewer sent
-        to Overleaf, which is for the people there. A suggestion the reviewer applied comes
+        what came before it: your reply, your Overleaf draft, or a public reply the reviewer
+        sent to Overleaf. A suggestion the reviewer applied comes
         once, as an entry marked applied with the lines it changed: your wording is in the
         file, and it asks for no reply, but on a thread from Overleaf with no draft it asks
         for the reply the change calls for. A suggestion or an Overleaf draft the reviewer
@@ -756,6 +761,9 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         with since=<from>; to see again what was already answered, ask for the thread by id.
         A thread from Overleaf comes marked on_overleaf, and one the reviewer started for
         Overleaf and not yet sent there new_thread, with the draft for Overleaf when there is one.
+        An entry is public, on Overleaf for everyone in the project, when it carries ``name``,
+        written there, or ``overleaf``, sent there from the page. Every other entry is
+        private, for the reviewer and you, and so is every entry of a thread not on Overleaf.
 
         ``ids`` gives those threads whole, which is what to ask for when the conversation
         is no longer in mind; with ``since`` it gives only the entries after that time.
@@ -764,13 +772,13 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         threads with the rest counted in ``older``, narrowed by status, unanswered or
         since. With ``find`` or ``until`` it is a search, entry by entry: a thread is listed
         when something said in it between ``since`` and ``until`` holds ``find``'s words, the
-        reviewer's, yours, a reply sent to Overleaf, which carries ``overleaf``, or its draft
-        for Overleaf, and it comes with those entries and where it is. A long entry comes
+        reviewer's, yours, a public reply sent to Overleaf, which carries ``overleaf``, or its
+        draft for Overleaf, and it comes with those entries and where it is. A long entry comes
         as the words around what was found, marked ``cut``, and a thread's entries past the
         first few as a count in ``more_matches``: ask for the thread by id to read it whole.
         Each bound and the words may be left out, and status="all" searches closed threads
         too. ``on_overleaf`` keeps a listing or a search to Overleaf's threads or to the
-        page's own. Times read and are written back as ``MM-DD HH:MM`` on this server's
+        page's own, which are private throughout. Times read and are written back as ``MM-DD HH:MM`` on this server's
         clock.
         ``save`` needs ids; edit only the draft's Reply and Edit blocks.
         """
@@ -1075,12 +1083,13 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         a draft is not written again when lines shift. On a thread that came from Overleaf (on_overleaf), it puts the reply the
         reviewer may send there: a thread holds one draft, which this replaces, and only
         the reviewer sends it, asked first when a file those ranges are in is not the same
-        here as on Overleaf. The draft is for the people on Overleaf. What the reviewer asks
-        you in the thread is answered with reply. With anchor, a source_range, instead of id and rev, overleaf drafts a
+        here as on Overleaf. The draft is public once sent, so it is worded for the people on
+        Overleaf. What the reviewer asks you in the thread is answered with reply, which is
+        private. With anchor, a source_range, instead of id and rev, overleaf drafts a
         new thread for Overleaf on those lines, text being its first message: a thread with
         that draft and not on Overleaf, which id and rev then redraft and only the reviewer
         sends, once what those ranges now hold is on Overleaf. The reviewer may talk the draft
-        over with you in the thread before sending it, and those entries stay here. A thread
+        over with you in the thread before sending it, and those entries are private. A thread
         the reviewer started for Overleaf (new_thread) waits for its first message there: what
         they wrote is for you, and overleaf with id and rev drafts the message they asked for,
         in their words' meaning and the register they asked for. edit: id,

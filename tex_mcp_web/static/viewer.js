@@ -2881,7 +2881,7 @@ function renderPickedActions() {
   send.classList.toggle("busy", state.sending.size > 0);
   send.querySelector(".count").textContent = sendable.length > 0 ? String(sendable.length) : "";
   send.setAttribute("aria-label", sendable.length > 0 ? `Send ${replies(sendable.length)} to Overleaf` : "Send to Overleaf");
-  send.title = state.overleafSignedIn ? "Send the picked replies to Overleaf, for everyone in the project"
+  send.title = state.overleafSignedIn ? "Send the picked public replies to Overleaf, for everyone in the project"
     : "Save your Overleaf cookie first";
   send.dataset.ids = sendable.join(" ");
   // A view of suggested edits accepts or rejects the picked ones: the suggested edits view, in
@@ -3272,7 +3272,7 @@ function renderOverleafReply(comment) {
   const textarea = h("textarea", {
     class: "cmt-form-input overleaf-reply-input", rows: 3,
     placeholder: draftedThread(comment) ? "The thread's first message on Overleaf, for everyone in the project…"
-      : "Reply on Overleaf, for everyone in the project…",
+      : "Public reply on Overleaf, for everyone in the project…",
   });
   textarea.value = overleafReplyText(comment);
   const kept = state.overleafReplies.get(comment.id);
@@ -3291,7 +3291,7 @@ function renderOverleafReply(comment) {
   const note = h("div", { class: "overleaf-reply-note", role: "status", text: sending ? "Sending…" : kept?.error ?? "" });
   const send = h("button", {
     class: `overleaf-send${sending ? " busy" : ""}`, type: "button",
-    title: state.overleafSignedIn ? `Send to Overleaf, for everyone in the project${keyHint("overleaf-send")}`
+    title: state.overleafSignedIn ? `Send to Overleaf as public, for everyone in the project${keyHint("overleaf-send")}`
       : "Save your Overleaf cookie first",
   }, "Send to ", leafIcon());
   send.disabled = !state.overleafSignedIn || sending;
@@ -3335,8 +3335,8 @@ function renderOverleafReply(comment) {
   }
   return h("div", { class: "cmt-overleaf" },
     h("div", { class: "cmt-overleaf-head" }, leafIcon(),
-      h("span", { text: draftedThread(comment) ? "New thread on Overleaf"
-        : draft ? "Draft for Overleaf" : "Reply on Overleaf" })),
+      h("span", { text: draftedThread(comment) ? "New public thread on Overleaf"
+        : draft ? "Draft of a public reply" : "Public reply on Overleaf" })),
     textarea,
     draft?.ranges?.length
       ? h("div", { class: "thread-edits" }, ...draft.ranges.map(draftRange))
@@ -3366,17 +3366,21 @@ function ownEntry(entry, onOverleaf) {
   return onOverleaf && (entry.overleaf !== undefined || entry.name === state.overleafMe);
 }
 
-// On a thread from Overleaf, each entry says whether Overleaf has it: one written there, one
-// sent there, or one that stays on this page.
-function overleafMark(entry) {
+// Each entry says who reads it. A public one is on Overleaf, written there or sent there,
+// for everyone in the project. A private one stays on this page, for the reviewer and the
+// agent, as everything in a comment written here does.
+function reachMark(entry) {
   if (entry.overleaf !== undefined) {
     return h("span", {
       class: "entry-overleaf sent",
-      title: entry.overleaf ? `Sent to Overleaf at commit ${entry.overleaf}` : "Sent to Overleaf",
-    }, leafIcon(), "sent");
+      title: `Sent to Overleaf${entry.overleaf ? ` at commit ${entry.overleaf}` : ""}, for everyone in the project`,
+    }, leafIcon(), "public");
   }
-  if (entry.name !== undefined) return h("span", { class: "entry-overleaf", title: "Written on Overleaf" }, leafIcon());
-  return h("span", { class: "entry-overleaf here", text: "here only", title: "Not sent to Overleaf" });
+  if (entry.name !== undefined) {
+    return h("span", { class: "entry-overleaf", title: "Written on Overleaf, for everyone in the project" },
+      leafIcon(), "public");
+  }
+  return h("span", { class: "entry-overleaf here", text: "private", title: "Stays here, for you and the agent" });
 }
 
 function renderThreadEntry(entry, commentId, index, onOverleaf) {
@@ -3385,7 +3389,7 @@ function renderThreadEntry(entry, commentId, index, onOverleaf) {
   const children = [
     h("div", { class: "thread-meta" },
       h("span", { text: `${writer(entry)} · ${entry.when}` }),
-      onOverleaf ? overleafMark(entry) : null,
+      reachMark(entry),
       // What the reviewer wrote carries Edit and Delete, here or on Overleaf alike. One on
       // Overleaf, sent from here or written there, is reworded or deleted there, for
       // everyone in the project, and others' messages there are answered. A thread's first
@@ -3482,13 +3486,13 @@ function actionButtons(comment) {
   // A thread drafted for Overleaf takes replies here, about its draft, and is sent, or deleted
   // here: it is not on Overleaf to resolve.
   if (draftedThread(comment)) {
-    return [actionButton("cmt-reply", "Reply", () => setActiveForm(comment.id, "reply")), deleteButton];
+    return [actionButton("cmt-reply", "Reply privately", () => setActiveForm(comment.id, "reply")), deleteButton];
   }
   // A thread from Overleaf resolves and reopens there, at once: Overleaf takes no summary,
   // has no archive, and deletes a thread only there.
   if (state.overleafImported.has(comment.id)) {
     return [
-      actionButton("cmt-reply", "Reply", () => setActiveForm(comment.id, "reply")),
+      actionButton("cmt-reply", "Reply privately", () => setActiveForm(comment.id, "reply")),
       comment.status === "open"
         ? actionButton("cmt-resolve", "Resolve", () => mutateAndRefresh(comment.id, "resolve", { summary: "" }))
         : actionButton("cmt-reopen", "Reopen", () => mutateAndRefresh(comment.id, "reopen", {})),
@@ -4538,7 +4542,7 @@ const COMMENT_KEYS = [
         const card = focusedCard();
         (card?.querySelector(".sugg-reject") ?? card?.querySelector(".overleaf-reject"))?.click();
       } },
-    { keys: ["ss"], does: "Send its reply to Overleaf, for everyone in the project", button: ["overleaf-send"], picked: true,
+    { keys: ["ss"], does: "Send its public reply to Overleaf, for everyone in the project", button: ["overleaf-send"], picked: true,
       run: () => pressPickedOr(["#send-picked-btn"], ".overleaf-send"),
       range: () => pressForRange(["#send-picked-btn"]) },
     { keys: ["dd"], does: "Delete it, once you say yes, or reject a suggested edit on Overleaf",

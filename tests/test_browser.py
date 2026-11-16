@@ -3029,7 +3029,7 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
           const [who, when] = meta.firstChild.textContent.split(" · ");
           return [who, /^\\d\\d-\\d\\d \\d\\d:\\d\\d$/.test(when), meta.querySelector(".entry-overleaf").title,
                   meta.querySelector(".cmt-edit") === null];
-        ''') == ["A. Reviewer", True, "Written on Overleaf", True]
+        ''') == ["A. Reviewer", True, "Written on Overleaf, for everyone in the project", True]
         assert browser.execute_script('return document.querySelector("#tab-comments").classList.contains("active")')
         # Overleaf has no archive, so the tab offers none, and its filter has no archived view,
         # not even a hidden one, which Safari would still list.
@@ -3048,13 +3048,13 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
         assert browser.execute_script(label) == "paper.tex:3-3"
         (tmp_path / "paper.tex").write_text(PAPER.replace("\\section", "\\relax\n\\relax\n\\section"), encoding="utf-8")
         wait_until(lambda: browser.execute_script(label) == "paper.tex:5-5", timeout=15)
-        assert "New thread on Overleaf" in browser.execute_script(f'return document.querySelector("{card}").textContent')
+        assert "New public thread on Overleaf" in browser.execute_script(f'return document.querySelector("{card}").textContent')
         # The tab counts it with the thread that waits for an answer.
         assert count("#overleaf-tab-count") == "2"
         browser.execute_script(f'document.querySelector("{card} .cmt-head").click()')
         wait_until(lambda: browser.execute_script(f'return document.querySelector("{card} .cmt-actions") !== null'))
         assert browser.execute_script(
-            f'return [...document.querySelectorAll("{card} .cmt-actions button")].map((b) => b.textContent)') == ["Reply", "Delete"]
+            f'return [...document.querySelectorAll("{card} .cmt-actions button")].map((b) => b.textContent)') == ["Reply privately", "Delete"]
         # i puts the cursor in the thread's box for Overleaf, and Escape leaves it with its words.
         browser.execute_script(
             f'document.querySelector("{card} .cmt-overleaf-head").dispatchEvent(new MouseEvent("mousedown", {{bubbles: true}}))')
@@ -3105,7 +3105,7 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
         assert browser.execute_script(
             'return [...document.querySelectorAll("[data-comment-id]")].map((c) => c.dataset.commentId);') \
             == [drafted.id, opened_here.id]
-        assert "New thread on Overleaf" in browser.execute_script(f"return {card}.textContent")
+        assert "New public thread on Overleaf" in browser.execute_script(f"return {card}.textContent")
         # Reject draft takes the draft, with what was typed over it, off the card. The thread
         # says what was turned down, in an entry with no Edit, and stays one for Overleaf.
         edits = f'return {card}.querySelectorAll(".cmt-edit").length'
@@ -3119,7 +3119,7 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
             f' && {card}.textContent.includes("Rejected draft for Overleaf.")'))
         assert browser.execute_script(
             f'return [{card}.querySelector(".overleaf-reply-input").value,'
-            f' {card}.textContent.includes("New thread on Overleaf"), {card}.textContent.includes("Feedback and answer.")]') \
+            f' {card}.textContent.includes("New public thread on Overleaf"), {card}.textContent.includes("Feedback and answer.")]') \
             == ["", True, True]
         assert browser.execute_script(edits) == before
         assert kept.get(drafted.id).overleaf_draft is None and kept.get(drafted.id).for_overleaf
@@ -3919,7 +3919,7 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
         click(".cmt-form-submit")
         wait_until(lambda: browser.execute_script('return document.body.textContent.includes("Stays here.")'), timeout=15)
         assert fake.written == []
-        assert "here only" in text("[data-comment-id] .cmt-thread")
+        assert "private" in text("[data-comment-id] .cmt-thread .entry-overleaf.here")
         # The reviewer edits the draft and sends it, to everyone in the project. Sending and
         # syncing take a moment, here made longer, and their buttons show the work under way
         # until the list shows what it did.
@@ -3937,7 +3937,7 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
             'return document.querySelector("#comments-list").textContent.includes("Came in when asked.")'), timeout=15)
         browser.execute_script('const f = document.querySelector("#comment-filter"); f.value = "open";'
                                ' f.dispatchEvent(new Event("change"));')
-        wait_until(lambda: "sent" in text("[data-comment-id] .cmt-thread .entry-overleaf.sent"), timeout=15)
+        wait_until(lambda: "public" in text("[data-comment-id] .cmt-thread .entry-overleaf.sent"), timeout=15)
         assert browser.execute_script('return document.querySelector(".overleaf-reply-input").value') == ""
 
         # Picked threads send their replies together. One whose file is not the same here as
@@ -4159,7 +4159,7 @@ def test_suggested_edits_from_overleaf_have_their_own_view_and_marks_in_the_edit
 def test_the_leaf_beside_comment_starts_a_thread_for_overleaf(tmp_path: Path, monkeypatch) -> None:
     """With the leaf pressed beside + Comment, a comment on source text starts a thread for
     Overleaf: the dialog says so and offers no rewrite, and the thread waits among the new
-    threads of the leaf tab, what was written marked as here only."""
+    threads of the leaf tab, what was written marked as private."""
     import asyncio
     import threading
     from aiohttp.test_utils import TestServer
@@ -4221,7 +4221,7 @@ def test_the_leaf_beside_comment_starts_a_thread_for_overleaf(tmp_path: Path, mo
         wait_until(lambda: script('return document.querySelector(".tab-btn.active")?.dataset.tab') == "overleaf-comments")
         wait_until(lambda: script('return document.querySelector("#comment-filter").value') == "new")
         card = 'document.querySelector("#comments-list .cmt")'
-        wait_until(lambda: script(f'return {card}?.textContent.includes("New thread on Overleaf") ?? false'))
+        wait_until(lambda: script(f'return {card}?.textContent.includes("New public thread on Overleaf") ?? false'))
         script(f'{card}.querySelector(".cmt-head").click()')
         wait_until(lambda: script(f'return {card}.querySelector(".entry-overleaf.here") !== null'))
         assert script(f'return {card}.querySelector(".thread-text").textContent') == "ask if hello is too short, politely"

@@ -48,6 +48,11 @@ last line of the PDF. Running heads and page numbers are left out.
 
 ## Threads
 
+- What is said in a thread is **private** or **public**, and each entry says which. A
+  private entry stays on this page, for you and the agent. A public entry is on Overleaf,
+  for everyone in the project. Everything in the Comments tab is private. A thread from
+  [Overleaf](overleaf.md) holds both: your co-authors' messages and the replies you sent
+  are public, and your talk with the agent between them is private.
 - The Comments tab opens on **to do**: the comments the agent has yet to answer, one you
   just wrote or replied in, and those whose suggestion waits for you to apply it. An answer
   with nothing to apply takes a comment out of it, and so does applying. The number on the
@@ -102,7 +107,7 @@ typing.
 | `A` | Archive |
 | `aa` | Apply the suggestion to the file, or accept a suggested edit on Overleaf |
 | `nn` | Reject the suggestion, or with none the draft for Overleaf |
-| `ss` | Send the reply to Overleaf, for everyone in the project |
+| `ss` | Send the public reply to Overleaf, for everyone in the project |
 | `dd` | Delete, once you say yes, or reject a suggested edit on Overleaf |
 | `D` | Delete the last thing you wrote in the thread, here or on Overleaf, once you say yes |
 | `x` | Pick the comment, or let it go |

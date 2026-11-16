@@ -83,12 +83,14 @@ to accept. The number on the tab counts them, and once it is gone, nothing is le
   <img alt="A co-author's thread from Overleaf, where the agent misread the request and drafted a gushing reply. A reply to the agent sets it right, and once called, the agent fixes the sentence, the PDF shows it, and the draft for Overleaf becomes one short line, sent with ss." src="docs/images/overleaf-thread.webp">
 </picture>
 
-Your talk with the agent stays on the page, in the thread between your co-authors' messages,
+What is said in a thread is **private** or **public**. A private entry stays on the page,
+for you and the agent. A public entry is on Overleaf, for everyone in the project. Your talk
+with the agent is private and sits in the thread between your co-authors' public messages,
 so the whole exchange reads in order. Overleaf gets only the replies you send.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/overleaf-thread-split-dark.png">
-  <img alt="The same thread twice. On the review page it holds the co-author's comment, the talk with the agent, each entry of it marked here only, and the reply sent. On Overleaf it holds the comment and the reply sent, and nothing else." src="docs/images/overleaf-thread-split.png">
+  <img alt="The same thread twice. On the review page it holds the co-author's comment, the talk with the agent, each entry of it marked private, and the reply sent, marked public. On Overleaf it holds the comment and the reply sent, and nothing else." src="docs/images/overleaf-thread-split.png">
 </picture>
 
 Keeping the paper's files in step with Overleaf, by git, by hand or live, is in
@@ -98,13 +100,13 @@ Keeping the paper's files in step with Overleaf, by git, by hand or live, is in
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/new-thread-dark.webp">
-  <img alt="With the leaf beside the comment button pressed, the room temperature is selected in the source with v and gc, and a rough note tells the agent what to ask the co-author. The note waits in the leaf Comments tab under new thread. Called, the agent drafts a polite question, sent with ss: it opens on Overleaf alone, and the note stays on the page, marked here only." src="docs/images/new-thread.webp">
+  <img alt="With the leaf beside the comment button pressed, the room temperature is selected in the source with v and gc, and a rough note tells the agent what to ask the co-author. The note waits in the leaf Comments tab under new thread. Called, the agent drafts a polite question, sent with ss: it opens on Overleaf alone, and the note stays on the page, marked private." src="docs/images/new-thread.webp">
 </picture>
 
 Press the leaf beside **+ Comment** in the editor's bar, select the words in the source, as
 Overleaf puts a thread on source words, and tell the agent what to say, as roughly as you
 like. It drafts the thread's first message, worded for your co-authors, and you send it. It
-opens on Overleaf on those words, and your note stays here. Asked in any thread, the agent
+opens on Overleaf on those words, public, and your note stays private. Asked in any thread, the agent
 drafts a new thread of its own the same way.
 
 ## Accept or reject your co-authors' suggested edits
