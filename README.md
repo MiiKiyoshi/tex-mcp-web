@@ -153,8 +153,10 @@ the ringed comment's buttons show their letters. Every key, and the editor's Vim
   <img alt="The review page at a tablet's width and at a phone's, each on the same comment: the PDF above, zoomed to the commented sentence, and the thread with the agent's proposal below." src="docs/images/mobile.png">
 </picture>
 
-The page is served where the agent runs. When that is a server you reach over SSH, forward
-the page's port to your own computer. On Windows, macOS and Linux alike, name the server once
+The page is served where the agent runs. On your own computer that is all: open
+`http://localhost:8765`, or the port `do tex init` chose, and skip the rest of this part.
+When the agent runs on a server you reach over SSH, forward the page's port to your own
+computer. On Windows, macOS and Linux alike, name the server once
 in `~/.ssh/config` (on Windows `C:\Users\<you>\.ssh\config`), with the port `do tex init`
 wrote into `.tex-mcp-web.yaml`:
 
