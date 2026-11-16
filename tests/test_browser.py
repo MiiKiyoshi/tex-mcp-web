@@ -2970,10 +2970,10 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
         show_view(browser, "open")
         wait_until(lambda: "Written here." in browser.execute_script(listed))
         assert "Say hello properly." not in browser.execute_script(listed)
-        # Each tab's number counts its to do: here the suggestion to apply, and nothing yet among
-        # the threads from Overleaf.
-        assert count("#comments-tab-count") == "1" and count("#overleaf-tab-count") == "0"
-        assert browser.execute_script('return document.querySelector("#overleaf-tab-count").classList.contains("hidden")')
+        # Each tab's number counts its to do: here the suggestion to apply, and among the
+        # threads from Overleaf the two whose last message there is someone else's, as far
+        # as the page knows before it hears who the reviewer is on Overleaf.
+        assert count("#comments-tab-count") == "1" and count("#overleaf-tab-count") == "2"
         # However narrow the panel, its four tabs and their counts show: the words give way.
         for width in (520, 240):
             assert browser.execute_script(f'''
@@ -2989,6 +2989,10 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
         browser.execute_script(f"document.querySelector('{leaf_tab}').click()")
         # The tab opens on what waits for the reviewer.
         wait_until(lambda: browser.execute_script('return document.querySelector("#comment-filter").value') == "todo")
+        # To do holds the threads that wait for the reviewer's answer on Overleaf, and not the
+        # one answered from here.
+        wait_until(lambda: "Say hello properly." in browser.execute_script(listed))
+        assert "Which words?" not in browser.execute_script(listed)
         # The unanswered view holds the threads whose last message on Overleaf is someone
         # else's. Who the reviewer is on Overleaf comes with the page's place in the project.
         show_view(browser, "unanswered")
@@ -3045,7 +3049,8 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
         (tmp_path / "paper.tex").write_text(PAPER.replace("\\section", "\\relax\n\\relax\n\\section"), encoding="utf-8")
         wait_until(lambda: browser.execute_script(label) == "paper.tex:5-5", timeout=15)
         assert "New thread on Overleaf" in browser.execute_script(f'return document.querySelector("{card}").textContent')
-        assert count("#overleaf-tab-count") == "1"
+        # The tab counts it with the thread that waits for an answer.
+        assert count("#overleaf-tab-count") == "2"
         browser.execute_script(f'document.querySelector("{card} .cmt-head").click()')
         wait_until(lambda: browser.execute_script(f'return document.querySelector("{card} .cmt-actions") !== null'))
         assert browser.execute_script(

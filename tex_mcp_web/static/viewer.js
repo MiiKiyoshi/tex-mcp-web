@@ -2754,12 +2754,13 @@ const COMMENT_VIEWS = {
 
 // What is not done yet, which each tab opens on: a suggestion to apply, and a comment the
 // agent has yet to answer, one just written or one replied to since its last answer. In the
-// leaf tab, whose threads the people on Overleaf answer, a draft to send there, a reply or a
-// new thread, and the suggested edits to accept or reject. Each leaves the view once done,
-// so an empty view is nothing left to do.
+// leaf tab, whose threads the people on Overleaf answer, a thread whose last message there
+// is someone else's, a draft to send there, a reply or a new thread, and the suggested edits
+// to accept or reject. Each leaves the view once done, so an empty view is nothing left to do.
 function inToDo(comment) {
   return comment.status === "open" && (Boolean(comment.suggestion)
-    || (forOverleaf(comment) ? Boolean(comment.overleaf_draft) : Boolean(comment.awaits_agent)));
+    || (forOverleaf(comment) ? Boolean(comment.overleaf_draft) || answeredByOthers(comment)
+      : Boolean(comment.awaits_agent)));
 }
 
 // The row above the list holds what the shown tab can do, from the moment the tab is chosen.

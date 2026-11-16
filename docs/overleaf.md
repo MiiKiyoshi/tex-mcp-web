@@ -33,8 +33,8 @@ address, so on the shared machine's own browser, open no page another account se
 - The threads come into the leaf **Comments** tab beside **Comments**, kept as Overleaf has
   them. The editor and the PDF mark the open comments of the tab shown. The tab lists the
   threads in the order the paper reads them and opens on **to do**, what waits for you
-  alone: a suggestion to apply, a draft to send, a reply or a new thread, and the suggested
-  edits to accept or reject. Each leaves it once done, so an empty to do is nothing left,
+  alone: a thread whose last message on Overleaf is someone else's, a suggestion to apply,
+  a draft to send, a reply or a new thread, and the suggested edits to accept or reject. Each leaves it once done, so an empty to do is nothing left,
   and the number on the tab counts what is in it.
   **unanswered** holds the open threads whose last message on Overleaf is someone else's,
   and a reply sent from here, or one written on Overleaf under your name, moves a thread to
