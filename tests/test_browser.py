@@ -3948,7 +3948,12 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
             f'return document.querySelector("{selector}")?.classList.contains("busy") ?? false')
         write(".overleaf-reply-input", "Drafted for Ann, and checked.")
         click(".overleaf-send")
-        assert busy(".overleaf-send") and text(".overleaf-reply-note") == "Sending…"
+        # The reviewer has decided: the thread leaves the unanswered ones at the press, before
+        # Overleaf has the reply, and the tab counts it no more.
+        wait_until(lambda: not browser.execute_script(
+            'return document.querySelector("#comments-list").textContent.includes("Came in when asked.")'), timeout=0.6)
+        assert fake.written == []
+        assert browser.execute_script('return document.querySelector("#overleaf-tab-count").classList.contains("hidden")')
         wait_until(lambda: fake.written == [("reply", "t1", "Drafted for Ann, and checked.")], timeout=15)
         # Answered, it leaves the unanswered threads, and stays among the open ones.
         wait_until(lambda: not browser.execute_script(
@@ -3957,6 +3962,26 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
                                ' f.dispatchEvent(new Event("change"));')
         wait_until(lambda: "public" in text("[data-comment-id] .cmt-thread .entry-overleaf.sent"), timeout=15)
         assert browser.execute_script('return document.querySelector(".overleaf-reply-input").value') == ""
+
+        # A reply Overleaf refuses brings its thread back to the to do, opened, with its words
+        # and the reason.
+        store.draft_overleaf(brought.id, store.get(brought.id).updated, OverleafDraft("Refused once."), {})
+        show_view(browser, "todo")
+        wait_until(lambda: browser.execute_script(
+            'return document.querySelector(".overleaf-reply-input")?.value || ""') == "Refused once.", timeout=15)
+        browser.execute_script("""window.before = window.fetch;
+          window.fetch = (url, init) => /\\/reply$/.test(String(url))
+            ? new Promise((resolve) => setTimeout(() => resolve(new Response(
+                JSON.stringify({error: "Overleaf said no."}), {status: 502})), 800))
+            : window.before(url, init);""", sandbox=None)
+        click(".overleaf-send")
+        wait_until(lambda: browser.execute_script(
+            'return document.querySelector(".overleaf-reply-input") === null'), timeout=0.6)
+        wait_until(lambda: text(".overleaf-reply-note") == "Overleaf said no.", timeout=15)
+        assert browser.execute_script('return document.querySelector(".overleaf-reply-input").value') == "Refused once."
+        assert text("#overleaf-tab-count") == "1" and len(fake.written) == 1
+        browser.execute_script("window.fetch = window.before;", sandbox=None)
+        show_view(browser, "open")
 
         # Picked threads send their replies together. One whose file is not the same here as
         # on Overleaf waits for a question at the end: answered no, it stays picked with the

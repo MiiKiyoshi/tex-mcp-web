@@ -2639,7 +2639,7 @@ async function readComments() {
   renderCommentTabs();
   data.comments = state.commentTab !== "overleaf-comments" ? (status === "todo" ? here.filter(inToDo) : here)
     : status === "todo" ? [...onOverleaf.filter(inToDo), ...state.overleafSuggested.map(suggestedItem)]
-    : status === "unanswered" ? onOverleaf.filter(answeredByOthers)
+    : status === "unanswered" ? onOverleaf.filter((comment) => answeredByOthers(comment) && !state.sending.has(comment.id))
     : status === "answered" ? onOverleaf.filter(answeredByMe)
     : status === "new" ? [...onOverleaf.filter(draftedThread), ...onOverleaf.filter(openedHere)]
     : status === "changes" ? state.overleafSuggested.map(suggestedItem)
@@ -2758,8 +2758,10 @@ const COMMENT_VIEWS = {
 // leaf tab, whose threads the people on Overleaf answer, a thread whose last message there
 // is someone else's, a draft to send there, a reply or a new thread, and the suggested edits
 // to accept or reject. Each leaves the view once done, so an empty view is nothing left to do.
+// A reply on its way to Overleaf is done for the reviewer, who decided it: its thread leaves
+// at the press, and comes back, opened and saying why, only when Overleaf refuses it.
 function inToDo(comment) {
-  return comment.status === "open" && (Boolean(comment.suggestion)
+  return comment.status === "open" && !state.sending.has(comment.id) && (Boolean(comment.suggestion)
     || (forOverleaf(comment) ? Boolean(comment.overleaf_draft) || answeredByOthers(comment)
       : Boolean(comment.awaits_agent)));
 }
@@ -3295,12 +3297,14 @@ function renderOverleafReply(comment) {
       : "Save your Overleaf cookie first",
   }, "Send to ", leafIcon());
   send.disabled = !state.overleafSignedIn || sending;
-  // The card shows the reply on its way until the list shows it sent, or why not.
+  // The thread leaves the to do and the unanswered views at the press, and elsewhere its
+  // card shows the reply on its way until the list shows it sent, or why not.
   send.addEventListener("click", async () => {
     const text = textarea.value.trim();
     if (!text) return;
     state.sending.add(comment.id);
     renderComments();
+    refreshComments().catch((error) => console.error(error));
     try {
       let answer = await sendOverleafReply(comment.id, text);
       if (answer?.apart.length && confirm(`${answer.error} Send it anyway?`)) {
@@ -3308,13 +3312,16 @@ function renderOverleafReply(comment) {
       }
       if (answer === null) {
         state.overleafReplies.delete(comment.id);
-        await refreshComments();
       } else {
         state.overleafReplies.set(comment.id, { text: textarea.value, from: draft?.text, error: answer.error });
+        state.expanded.add(comment.id);
       }
+    } catch (error) {
+      state.overleafReplies.set(comment.id, { text: textarea.value, from: draft?.text, error: `Could not send: ${error.message}` });
+      state.expanded.add(comment.id);
     } finally {
       state.sending.delete(comment.id);
-      renderComments();
+      await refreshComments();
     }
   });
   // The agent's draft, turned down: it leaves the card with what was typed over it, and
@@ -5533,13 +5540,14 @@ async function init() {
     if (ids.length === 0 || !confirm(`Send ${replies(ids.length)} to Overleaf, for everyone in the project?`)) return;
     for (const id of ids) state.sending.add(id);
     renderComments();
+    refreshComments().catch((error) => console.error(error));
     try {
       await sendPickedToOverleaf(ids);
     } catch (error) {
       alert(`Could not send: ${error.message}`);
     } finally {
       for (const id of ids) state.sending.delete(id);
-      renderComments();
+      await refreshComments();
     }
   });
   // The row is fitted again whenever it, or a button that is always in it, changes width.

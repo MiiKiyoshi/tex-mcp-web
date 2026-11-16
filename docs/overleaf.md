@@ -80,9 +80,11 @@ address, so on the shared machine's own browser, open no page another account se
   turned down. Nothing goes to Overleaf, and your next **Call agent** tells the agent once.
   Say why in a private reply, and the agent drafts again. The send button atop
   the tab sends the reply of every picked thread, one after another, and a refused one
-  keeps its words and says why on its card while the rest go. While a reply is on its way,
-  and while the sync button brings threads in, the button stays pressed in and dimmed with
-  an ellipsis until the list shows what it did.
+  keeps its words and says why on its card while the rest go. A thread leaves **to do** and
+  **unanswered** the moment you send its reply, so you go on to the next while the reply is
+  on its way, and comes back, opened and saying why, only when Overleaf refuses it. In the
+  other views, while a reply is on its way, and while the sync button brings threads in,
+  the button stays pressed in and dimmed with an ellipsis until the list shows what it did.
 - A draft naming source ranges in a file that is not the same here as on Overleaf may
   describe an edit Overleaf does not have yet, so the page asks first whether to send it
   anyway. In a git clone that is a change not committed, not pushed or not pulled, read
