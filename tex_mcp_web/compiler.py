@@ -430,6 +430,8 @@ async def compile_tex(
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 cwd=work_dir,
+                # Not the server's own input, which is the pipe the agent talks to it through.
+                stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -440,6 +442,8 @@ async def compile_tex(
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 cwd=work_dir,
+                # Not the server's own input, which is the pipe the agent talks to it through.
+                stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
             )

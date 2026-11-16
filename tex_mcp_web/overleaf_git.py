@@ -61,7 +61,7 @@ async def _git(folder: Path, *args: str, check: bool = True, env: dict[str, str]
     """Run git in *folder* with no prompt for credentials; its output, or GitError."""
     process = await asyncio.create_subprocess_exec(
         "git", "-C", str(folder), "-c", "core.quotepath=off", *args,
-        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
         env={**os.environ, "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C", **(env or {})})
     try:
         out, err = await asyncio.wait_for(process.communicate(), TIMEOUT)

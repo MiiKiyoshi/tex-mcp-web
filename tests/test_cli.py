@@ -231,3 +231,22 @@ def test_mcp_check_names_the_tools_without_a_paper(tmp_path: Path, monkeypatch, 
     assert said.startswith("tex-mcp: 8 tools ("), said
     for tool in ("guide", "read_comments", "write_comments", "compile", "listen", "setup_info", "overleaf"):
         assert tool in said
+
+
+def test_no_process_the_server_starts_is_given_the_servers_own_input() -> None:
+    """Under an agent the server's input is the pipe the agent talks to it through. A child
+    that inherits it holds it, and on Windows git and latexmk then never start: every
+    process the package starts names its own input."""
+    import ast
+
+    package = Path(__file__).parents[1] / "tex_mcp_web"
+    missing = []
+    for path in sorted(package.glob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+                continue
+            if node.func.attr in ("create_subprocess_exec", "Popen") or (
+                    node.func.attr == "run" and getattr(node.func.value, "id", "") == "subprocess"):
+                if not any(keyword.arg in ("stdin", "input") for keyword in node.keywords):
+                    missing.append(f"{path.name}:{node.lineno}")
+    assert missing == []

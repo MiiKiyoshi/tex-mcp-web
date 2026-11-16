@@ -257,6 +257,7 @@ def selection_to_source_range(
             completed = subprocess.run(
                 [synctex, "edit", "-o", f"{page}:{center_x}:{center_y}:{pdf_path}"],
                 cwd=pdf_path.parent,
+                stdin=subprocess.DEVNULL,
                 text=True,
                 capture_output=True,
                 timeout=5,
@@ -289,7 +290,18 @@ def selection_to_source_range(
     if len(files) != 1:
         return None
     lines = [line for _, line in resolved_positions]
-    return files.pop(), min(lines), max(lines)
+    file, first, last = files.pop(), min(lines), max(lines)
+    # SyncTeX places a paragraph's last printed line at the source line that ends the
+    # paragraph, the blank line or the \end after its words: the range ends at the last
+    # line before it that holds words.
+    try:
+        written = (root / file).read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        written = []
+    while 1 < last <= len(written) and (
+            not written[last - 1].strip() or re.fullmatch(r"\s*\\end\{[^}]*\}\s*", written[last - 1])):
+        last -= 1
+    return file, min(first, last), last
 
 
 _VIEW_RESULT_PATTERN = re.compile(
@@ -311,7 +323,7 @@ def source_lines_to_boxes(
         try:
             completed = subprocess.run(
                 [synctex, "view", "-i", f"{line}:0:{source.resolve()}", "-o", str(pdf_path)],
-                cwd=pdf_path.parent, text=True, capture_output=True, timeout=5, check=False,
+                cwd=pdf_path.parent, stdin=subprocess.DEVNULL, text=True, capture_output=True, timeout=5, check=False,
             )
         except (OSError, subprocess.TimeoutExpired):
             continue
