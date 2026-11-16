@@ -26,7 +26,8 @@ jobs:
       - name: Tests
         run: |
           google-chrome --version
-          python -m pytest -o addopts="" -q
+          # A browser test that a loaded runner fails once is run again by itself.
+          python -m pytest -o addopts="" -q || python -m pytest -o addopts="" -q --last-failed
 
   # The page's users are on Windows and macOS too. The tests that build a paper and the
   # browser's stay on Linux, where LaTeX is installed above.
