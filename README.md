@@ -46,8 +46,7 @@ apply or reject. The keys at the bottom right are the ones pressed.
    Install tex-mcp-web by following https://raw.githubusercontent.com/MiiKiyoshi/tex-mcp-web/main/INSTALL.md
    ```
 
-   The agent checks for Python 3.10 or newer and `latexmk`, shows where it will install and
-   which agents it will register with, and installs once you agree.
+   The agent sets up everything it needs on your machine and installs once you agree.
 
 2. Say `do tex init` to the agent, right where it is working. The paper can be in any
    folder, one you have or one you ask the agent to make. It finds the main `.tex` file

@@ -11,8 +11,9 @@ environment's `Scripts` folder where the commands say `bin`.
 ## 1. Inspect (change nothing)
 
 - Python 3.10 or newer (the `mcp` package has no release for older ones): `python3 --version`.
-  When older, `command -v python3.13 python3.12 python3.11 python3.10`. None: stop and tell
-  the user. Use the one found as `python3` below.
+  When older, `command -v python3.13 python3.12 python3.11 python3.10`. None: name the
+  command that installs one on this system, and install it only when the user says to. Use
+  the one found as `python3` below.
 - LaTeX: `command -v latexmk`, and record its directory. Missing: name the TeX distribution
   that fits this system and the command that installs it, as TeX Live on Linux, MacTeX on
   macOS, MiKTeX or TeX Live on Windows, and install it only when the user says to. Go on
