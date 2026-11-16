@@ -20,11 +20,17 @@ PROJECT_ID = "0123456789abcdef01234567"
 MAIN = "\\documentclass{article}\n\\begin{document}\nThe placer is fast.\n\\input{tex/body}\n\\end{document}"
 BODY = "Body text.\nMore body text here.\n가나다 😀 end."
 FIGURE = b"\x89PNG figure one"
+TIDES = "Tide log, north light.\nHigh water 04:12, calm.\nLow water 10:31, fog on the rocks.\nLamp trimmed at dusk."
 
 
 def wire(text: str) -> str:
     """A line as joinDoc sends it: UTF-8 bytes one per character."""
     return text.encode("utf-8").decode("latin-1")
+
+
+def crlf(text: str) -> bytes:
+    """A file holding *text* with CRLF line ends, as Git for Windows checks files out."""
+    return text.replace("\n", "\r\n").encode("utf-8")
 
 
 class FakeOverleaf:
@@ -868,6 +874,92 @@ async def test_choosing_overleafs_text_for_a_file_that_differs_writes_it_and_kee
         await opened.close()
 
 
+# ----- Line ends -----
+
+def test_a_files_text_is_read_with_lf_and_written_with_the_line_ends_it_had(tmp_path) -> None:
+    """A file's text is read with LF line ends, as Overleaf's text has them, and Overleaf's text
+    is written with the line ends most of the file's lines have: CRLF stays CRLF, LF stays LF,
+    a file mixing both takes the more common, and a file made anew gets LF."""
+    records = overleaf_sync._Records(tmp_path)
+    later = TIDES + "\nCalm night."
+    for name, held, ends in (("crlf.tex", crlf(TIDES), "\r\n"), ("lf.tex", TIDES.encode("utf-8"), "\n"),
+                             ("mixed.tex", crlf(TIDES).replace(b"calm.\r\n", b"calm.\n"), "\r\n")):
+        file = tmp_path / name
+        file.write_bytes(held)
+        doc = overleaf_sync.Doc(f"d-{name}", name)
+        assert records._read(doc) == TIDES
+        records._write(doc, later)
+        assert file.read_bytes() == later.replace("\n", ends).encode("utf-8")
+        assert doc.local == later == records._read(doc)
+        file.unlink()
+        records._write(doc, TIDES)
+        assert file.read_bytes() == TIDES.encode("utf-8")
+
+
+@pytest.mark.parametrize("held", [crlf(TIDES), crlf(TIDES).replace(b"calm.\r\n", b"calm.\n")],
+                         ids=["crlf", "mostly-crlf"])
+async def test_live_a_file_with_crlf_line_ends_follows_overleaf_and_keeps_them(paper, overleaf_site, held) -> None:
+    """Git for Windows checks a file out with CRLF line ends, and Overleaf's text has LF. The
+    two are the same, a thread on Overleaf lands on its words here, Overleaf's edits are
+    written with CRLF, and an edit here reaches Overleaf at the place Overleaf counts."""
+    fake, link = overleaf_site
+    fake.docs["d-body"]["text"] = TIDES
+    body = paper / "tex" / "body.tex"
+    body.write_bytes(held)
+    opened = await Review(paper, fake, link).open()
+    try:
+        await opened.settled()
+        assert body.read_bytes() == held
+        assert not [e for e in fake.sent if e["name"] == "applyOtUpdate"]
+
+        fake.threads["t1"] = {"messages": [{"id": "m1", "user": {"first_name": "Ann"}, "content": "How thick?"}]}
+        fake.comment("d-body", "t1", "fog")
+        await fake.broadcast("new-comment", "t1", {})
+        await wait_for(lambda: len(opened.server.comments.list()) == 1)
+        anchor = opened.server.comments.list()[0].anchor
+        at = len("Low water 10:31, ")
+        assert (anchor.line_start, anchor.column_start, anchor.column_end) == (3, at, at + len("fog"))
+
+        await fake.coauthor("d-body", [{"p": TIDES.index("Lamp"), "i": "Gulls loud.\n"}])
+        theirs = TIDES.replace("Lamp", "Gulls loud.\nLamp")
+        await wait_for(lambda: body.read_bytes() == crlf(theirs))
+
+        mine = theirs.replace("fog", "thick fog")
+        body.write_bytes(crlf(mine))
+        await opened.settled()
+        assert fake.docs["d-body"]["text"] == mine and body.read_bytes() == crlf(mine)
+        assert [op for doc, source, op in fake.applied if source != "co-1"] == [
+            [{"p": theirs.index("fog"), "i": "thick "}]]
+
+        # Edits made at once on both sides end the same on both, the file still with CRLF.
+        version = fake.docs["d-body"]["version"]
+        body.write_bytes(crlf(mine.replace("High water", "Spring high water")))
+        await fake.coauthor("d-body", [{"p": len(mine), "i": "\nAll quiet."}], at=version)
+        await opened.settled()
+        both = mine.replace("High water", "Spring high water") + "\nAll quiet."
+        assert fake.docs["d-body"]["text"] == both and body.read_bytes() == crlf(both)
+    finally:
+        await opened.close()
+
+
+async def test_live_line_ends_changed_here_are_no_edit_and_each_file_keeps_its_own(review) -> None:
+    """An editor that saves a file with CRLF line ends changes none of its words: nothing goes
+    to Overleaf, and Overleaf's next edit is written there with CRLF, while a file with LF line
+    ends keeps LF."""
+    fake = review.fake
+    await review.settled()
+    body, main = review.folder / "tex" / "body.tex", review.folder / "main.tex"
+    body.write_bytes(crlf(BODY))
+    await asyncio.sleep(0.3)
+    assert review.files()["tex/body.tex"] == "synced"
+    assert not [e for e in fake.sent if e["name"] == "applyOtUpdate"]
+
+    await fake.coauthor("d-body", [{"p": ot.js_len(BODY), "i": "\nEbb at noon."}])
+    await fake.coauthor("d-main", [{"p": 0, "i": "% tide table\n"}])
+    await wait_for(lambda: body.read_bytes() == crlf(BODY + "\nEbb at noon.")
+                   and main.read_bytes() == ("% tide table\n" + MAIN).encode("utf-8"))
+
+
 # ----- Connecting from the page -----
 
 async def test_the_page_connects_a_project_and_turns_each_switch_in_the_config(paper, overleaf_site) -> None:
@@ -1155,6 +1247,34 @@ async def test_by_hand_files_pick_up_where_live_left_off(paper, overleaf_site) -
         assert live.read("main.tex").startswith("% hand\n")
     finally:
         await live.close()
+
+
+async def test_by_hand_a_file_with_crlf_line_ends_is_the_same_as_overleafs_and_keeps_them(
+        paper, overleaf_site) -> None:
+    """A file with CRLF line ends and Overleaf's text with LF leave nothing to Get, Send or
+    choose. Get writes Overleaf's edit with CRLF, and Send makes the edit here on Overleaf at
+    the place Overleaf counts."""
+    fake, link = overleaf_site
+    fake.docs["d-body"]["text"] = TIDES
+    body = paper / "tex" / "body.tex"
+    body.write_bytes(crlf(TIDES))
+    opened = await Review(paper, fake, link, sync=False).open()
+    nothing = {"read": True, "get": [], "send": [], "choose": [], "gone": [], "dropped": []}
+    try:
+        assert await hand_ready(opened) == nothing
+        await fake.coauthor("d-body", [{"p": TIDES.index("Lamp"), "i": "Gulls loud.\n"}])
+        theirs = TIDES.replace("Lamp", "Gulls loud.\nLamp")
+        now = await (await opened.client.post("/overleaf/files/get")).json()
+        assert now == nothing and body.read_bytes() == crlf(theirs)
+
+        mine = theirs.replace("fog", "thick fog")
+        body.write_bytes(crlf(mine))
+        now = await (await opened.client.post("/overleaf/files/send")).json()
+        assert now == nothing and fake.docs["d-body"]["text"] == mine
+        assert [op for doc, source, op in fake.applied if source != "co-1"] == [
+            [{"p": theirs.index("fog"), "i": "thick "}]]
+    finally:
+        await opened.close()
 
 
 # ----- Uploaded files, without git -----

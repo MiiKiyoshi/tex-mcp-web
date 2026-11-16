@@ -101,6 +101,7 @@ class Doc:
         self.comments: list[dict] = []
         self.threads: list[str] = []   # open threads an edit held back would delete
         self.mark: tuple[int, int] | None = None
+        self.crlf = False           # whether most of the file's lines ended in CRLF when last read
         self.last_check = 0.0
         self.busy_since_check = False
 
@@ -147,6 +148,10 @@ class _Records:
         return file
 
     def _read(self, doc: Doc) -> str | None:
+        """The file's text with its lines ending in LF, as Overleaf's text has them, so a file
+        with CRLF line ends, as Git for Windows checks files out, differs from Overleaf's only
+        where its words do, and every position in it is the one Overleaf counts. Whether most
+        of its lines end in CRLF is noted for the next write."""
         file = self._file(doc)
         try:
             info = file.stat()
@@ -154,12 +159,14 @@ class _Records:
             return None
         data = file.read_bytes()
         doc.mark = (info.st_mtime_ns, info.st_size)
-        return data.decode("utf-8")
+        doc.crlf = data.count(b"\r\n") * 2 > data.count(b"\n")
+        return data.decode("utf-8").replace("\r\n", "\n")
 
     def _write(self, doc: Doc, text: str) -> None:
         """Write the file, unless it changed since it was read: then the caller reads it
         again. The record goes first, naming what the file held, so a stop between the
-        two is told from an edit."""
+        two is told from an edit. *text* ends its lines in LF; the file keeps the line ends
+        most of its lines had, and a new file ends them in LF."""
         file = self._file(doc)
         try:
             info = file.stat()
@@ -170,11 +177,12 @@ class _Records:
             raise _ChangedMeanwhile()
         doc.local_before, doc.local = _sha(doc.local), text
         self._save(doc)
+        doc.crlf = doc.crlf and now is not None
         file.parent.mkdir(parents=True, exist_ok=True)
         mode = stat.S_IMODE(file.stat().st_mode) if file.exists() else 0o644
         with tempfile.NamedTemporaryFile("wb", dir=file.parent, prefix=f".{file.name}-", suffix=".tmp",
                                          delete=False) as handle:
-            handle.write(text.encode("utf-8"))
+            handle.write((text.replace("\n", "\r\n") if doc.crlf else text).encode("utf-8"))
             staging = Path(handle.name)
         os.chmod(staging, mode)
         os.replace(staging, file)
