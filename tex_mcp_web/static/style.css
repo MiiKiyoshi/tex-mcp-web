@@ -737,6 +737,9 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 .icon-btn svg { display: block; }
 .icon-btn .count:empty { display: none; }
 .icon-btn:disabled { opacity: .45; }
+/* Why the leaf tab's comments cannot sync yet, above the list. */
+.sync-why { margin: 0; padding: 6px 10px; font-size: .85em; color: var(--muted, inherit); border-bottom: 1px solid var(--border, currentColor); }
+.sync-why[hidden] { display: none; }
 .filter-row .icon-btn[hidden] { display: none; }
 /* The less pressed buttons sit in the row while it has room for them, and otherwise behind
    the dots, each named by its label. */

@@ -3224,9 +3224,23 @@ def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path
         wait_until(lambda: said().startswith("This folder is at Overleaf's commit"))
         assert (paper / "notes.tex").exists() and status() == "git pull done."
         assert not disabled("#overleaf-sync-comments-btn") and hidden("#git-pull-btn") and hidden("#git-push-btn")
+        # Behind Overleaf again, the leaf tab says why its comments wait, and git pull in a
+        # terminal clears it as the button does, with nothing pressed on the page.
+        why = lambda: browser.execute_script(
+            'const note = document.querySelector("#overleaf-sync-why"); return note && !note.hidden ? note.textContent : ""')
+        browser.execute_script('document.querySelector(\'.tab-btn[data-tab="overleaf-comments"]\').click()')
+        git(paper, "reset", "-q", "--hard", "HEAD~1")
+        wait_until(lambda: why().startswith("Overleaf has 1 commit this folder lacks. git pull first"))
+        assert disabled("#overleaf-sync-comments-btn")
+        assert browser.execute_script('return document.querySelector("#overleaf-sync-comments-btn").title') == why()
+        git(paper, "pull", "-q")
+        wait_until(lambda: why() == "" and not disabled("#overleaf-sync-comments-btn"), timeout=15)
+        assert said().startswith("This folder is at Overleaf's commit")
+        browser.execute_script('document.querySelector(\'.tab-btn[data-tab="comments"]\').click()')
 
         # The sync button sits in the leaf Comments tab, with the threads it brings.
-        assert hidden("#overleaf-sync-comments-btn")
+        wait_until(lambda: hidden("#overleaf-sync-comments-btn"), timeout=5)
+        assert why() == ""
         browser.execute_script('document.querySelector(\'.tab-btn[data-tab="overleaf-comments"]\').click()')
         wait_until(lambda: not hidden("#overleaf-sync-comments-btn"))
         browser.execute_script('document.querySelector("#overleaf-sync-comments-btn").click()')

@@ -1226,10 +1226,34 @@ function renderOverleafThreadSync() {
   side.title = words;
   side.setAttribute("aria-label", words);
   const files = state.overleafFiles;
-  side.disabled = !state.overleafSignedIn || state.syncingComments
-    || (state.overleafGit !== null && state.overleafGit.state !== "same")
-    || (files !== null && (!files.read || files.get.length + files.send.length + files.choose.length > 0));
+  // Comments sync once the folder and Overleaf hold the same: until then the tab says what
+  // stands in the way and which button in the top bar clears it, since a greyed button says nothing.
+  const git = state.overleafGit;
+  const why = git !== null && git.state !== "same"
+    ? {
+      behind: `Overleaf has ${commits(git.behind)} this folder lacks. git pull first, in the top bar or a terminal, and comments sync after that.`,
+      ahead: `This folder has ${commits(git.ahead)} Overleaf lacks. commit & push first, in the top bar or a terminal, and comments sync after that.`,
+      diverged: "Overleaf and this folder each have commits the other lacks. git pull, then commit & push, and comments sync after that.",
+    }[git.state]
+    : files !== null && files.read && files.get.length + files.send.length + files.choose.length > 0
+      ? "This folder and Overleaf hold different files. Get or Send in the top bar first, and comments sync after that."
+      : "";
+  side.disabled = !state.overleafSignedIn || state.syncingComments || why !== "" || (files !== null && !files.read);
   side.classList.toggle("busy", state.syncingComments);
+  if (why) side.title = why;
+  let note = $("#overleaf-sync-why");
+  if (!note) {
+    note = h("p", { id: "overleaf-sync-why", class: "sync-why" });
+    $("#comments-list").before(note);
+  }
+  note.hidden = side.hidden || !why;
+  note.textContent = why;
+  // git pull in a terminal is seen here too: while comments wait on it, the folder's
+  // standing is read again every few seconds, which asks Overleaf nothing.
+  clearInterval(state.overleafGitWatch);
+  state.overleafGitWatch = why && git !== null && !side.hidden
+    ? setInterval(() => { if (!document.hidden) readOverleafGitState().catch((error) => console.error(error)); }, 4000)
+    : null;
 }
 
 async function loadOverleafStatus() {

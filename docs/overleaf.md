@@ -176,6 +176,11 @@ Overleaf's commit, with commits Overleaf lacks, lacking commits Overleaf has, or
   token in the remote's address never reaches the page, and git push refuses a commit that
   holds the page's own records.
 
+Comments sync once the folder and Overleaf are at the same commit. Until then the leaf
+Comments tab says what is in the way above its list, and its sync button stays greyed. A
+git pull or git push made in a terminal counts as the buttons do: the page sees it within
+a few seconds.
+
 ### Get and Send
 
 In a folder that is no git clone, the top bar's buttons are **Get** and **Send**, with the
