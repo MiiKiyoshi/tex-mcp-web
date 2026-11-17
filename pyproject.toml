@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tex-mcp-web"
-version = "0.10.1"
+version = "0.10.2"
 description = "Write a LaTeX paper in the coding-agent session that did the research, and review it from the PDF while the agent edits the source. MCP server with Overleaf sync."
 dynamic = ["readme"]
 license = "MIT"
