@@ -2829,6 +2829,15 @@ function answeredByOthers(comment) {
   return last !== undefined && last.overleaf === undefined && last.name !== state.overleafMe;
 }
 
+// A thread on Overleaf the reviewer is in: a message there is theirs, sent from here or
+// written there under their name, or one names them. Until the page hears who the reviewer
+// is on Overleaf it cannot tell, and every thread is taken as theirs.
+function reviewersThread(comment) {
+  const me = state.overleafMe.toLowerCase();
+  return !me || comment.thread.some((entry) => entry.overleaf !== undefined
+    || (entry.name !== undefined && (entry.name.toLowerCase() === me || (entry.text ?? "").toLowerCase().includes(me))));
+}
+
 // A thread from Overleaf whose last message there is the reviewer's own.
 function answeredByMe(comment) {
   return lastOnOverleaf(comment) !== undefined && !answeredByOthers(comment);
@@ -2866,14 +2875,14 @@ const COMMENT_VIEWS = {
 
 // What is not done yet, which each tab opens on: a suggestion to apply, and a comment the
 // agent has yet to answer, one just written or one replied to since its last answer. In the
-// leaf tab, whose threads the people on Overleaf answer, a thread whose last message there
-// is someone else's, a draft to send there, a reply or a new thread, and the suggested edits
+// leaf tab, whose threads the people on Overleaf answer, a thread the reviewer is in whose
+// last message there is someone else's, a draft to send there, a reply or a new thread, and the suggested edits
 // to accept or reject. Each leaves the view once done, so an empty view is nothing left to do.
 // A reply on its way to Overleaf is done for the reviewer, who decided it: its thread leaves
 // at the press, and comes back, opened and saying why, only when Overleaf refuses it.
 function inToDo(comment) {
   return comment.status === "open" && !state.sending.has(comment.id) && (Boolean(comment.suggestion)
-    || (forOverleaf(comment) ? Boolean(comment.overleaf_draft) || answeredByOthers(comment)
+    || (forOverleaf(comment) ? Boolean(comment.overleaf_draft) || (answeredByOthers(comment) && reviewersThread(comment))
       : Boolean(comment.awaits_agent)));
 }
 

@@ -2778,6 +2778,11 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
     kept.sent_to_overleaf(answered.id, "These.", "")
     answered_there = kept.add(PaperAnchor(), "Is this clear?", name="A. Reviewer")
     kept.reply(answered_there.id, "Yes, see the intro.", "human", name="Me Myself")
+    # Two more the reviewer is in: one names them, and one they wrote in was answered since.
+    named = kept.add(PaperAnchor(), "Me Myself, do you agree?", name="A. Reviewer")
+    joined = kept.add(PaperAnchor(), "And the outro?", name="A. Reviewer")
+    kept.reply(joined.id, "It is fine.", "human", name="Me Myself")
+    kept.reply(joined.id, "Then one more look, please.", "human", name="A. Reviewer")
 
     def draft(text):
         ranges, texts = _draft_ranges(tmp_path, ["paper.tex:3-3"])
@@ -2791,7 +2796,8 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
     (tmp_path / ".tex-mcp-web" / "overleaf-imported.json").write_text(json.dumps(
         {"t1": {"comment": brought.id, "messages": 1, "seen": ["#0"]},
          "t2": {"comment": answered.id, "entries": {}}, "t3": {"comment": answered_there.id, "entries": {}},
-         "t4": {"comment": opened_here.id, "entries": {}}}),
+         "t4": {"comment": opened_here.id, "entries": {}}, "t5": {"comment": named.id, "entries": {}},
+         "t6": {"comment": joined.id, "entries": {}}}),
         encoding="utf-8")
     port = available_port()
     config_path = tmp_path / ".tex-mcp-web.yaml"
@@ -2846,9 +2852,9 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
         wait_until(lambda: "Written here." in browser.execute_script(listed))
         assert "Say hello properly." not in browser.execute_script(listed)
         # Each tab's number counts its to do: here the suggestion to apply, and among the
-        # threads from Overleaf the two whose last message there is someone else's, as far
+        # threads from Overleaf the four whose last message there is someone else's, as far
         # as the page knows before it hears who the reviewer is on Overleaf.
-        assert count("#comments-tab-count") == "1" and count("#overleaf-tab-count") == "2"
+        assert count("#comments-tab-count") == "1" and count("#overleaf-tab-count") == "4"
         # However narrow the panel, its four tabs and their counts show: the words give way.
         for width in (520, 240):
             assert browser.execute_script(f'''
@@ -2884,6 +2890,13 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
             {"type": "overleaf_live", "status": "off", "me": "Me Myself"}), shared.loop).result(5)
         wait_until(lambda: "Is this clear?" not in browser.execute_script(listed))
         assert "Say hello properly." in browser.execute_script(listed)
+        # Knowing who the reviewer is, to do keeps the threads they are in, by a message of
+        # theirs or one that names them, and leaves those between others to unanswered.
+        show_view(browser, "todo")
+        wait_until(lambda: "do you agree?" in browser.execute_script(listed))
+        assert "And the outro?" in browser.execute_script(listed)
+        assert "Say hello properly." not in browser.execute_script(listed)
+        assert count("#overleaf-tab-count") == "2"
         # The answered view, under it, holds the threads whose last message there is the reviewer's.
         browser.execute_script('const f = document.querySelector("#comment-filter"); f.value = "answered";'
                                ' f.dispatchEvent(new Event("change"));')
@@ -2924,8 +2937,8 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
         (tmp_path / "paper.tex").write_text(PAPER.replace("\\section", "\\relax\n\\relax\n\\section"), encoding="utf-8")
         wait_until(lambda: browser.execute_script(label) == "paper.tex:5-5", timeout=15)
         assert "New public thread on Overleaf" in browser.execute_script(f'return document.querySelector("{card}").textContent')
-        # The tab counts it with the thread that waits for an answer.
-        assert count("#overleaf-tab-count") == "2"
+        # The tab counts it with the two threads that wait for the reviewer's answer.
+        assert count("#overleaf-tab-count") == "3"
         browser.execute_script(f'document.querySelector("{card} .cmt-head").click()')
         wait_until(lambda: browser.execute_script(f'return document.querySelector("{card} .cmt-actions") !== null'))
         assert browser.execute_script(
