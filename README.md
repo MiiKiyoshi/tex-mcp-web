@@ -111,7 +111,7 @@ Keeping the paper's files in step with Overleaf, by git, by hand or live, is in
   <img alt="With the leaf beside the comment button pressed, the room temperature is selected in the source with v and gc, and a rough note tells the agent what to ask the co-author. The note waits in the leaf Comments tab under new thread. Called, the agent drafts a polite question, sent with ss: it opens on Overleaf alone, and the note stays on the page, marked private." src="docs/images/new-thread.webp">
 </picture>
 
-Press the leaf beside **+ Comment** in the editor's bar, select the words in the source, as
+Press the leaf beside the comment button (the speech bubble) in the editor's bar, select the words in the source, as
 Overleaf puts a thread on source words, and tell the agent what to say, as roughly as you
 like. It drafts the thread's first message, worded for your co-authors, and you send it. It
 opens on Overleaf on those words, public, and your note stays private. Asked in any thread, the agent

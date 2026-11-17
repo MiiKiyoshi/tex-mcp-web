@@ -1183,7 +1183,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         pdf_path = get_main_file(cfg).with_suffix(".pdf")
         if not pdf_path.exists():
             return [TextContent(type="text",
-                text=_err("no PDF on disk; start tex-web and wait for its initial compile"))]
+                text=_err("no PDF on disk; start the review page with `tex-mcp-web serve` and wait for its initial compile"))]
 
         parsed_bbox: tuple[float, float, float, float] | None = None
         if bbox is not None:

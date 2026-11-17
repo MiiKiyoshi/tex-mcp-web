@@ -3,19 +3,20 @@
 ## Commenting
 
 - Drag over PDF text and write what should change.
-- With a paper that follows an Overleaf project, the leaf beside **+ Comment** in the
-  editor's bar makes a comment on source text start a thread for Overleaf, which the agent
+- With a paper that follows an Overleaf project, the leaf beside the comment button (the
+  speech bubble) in the editor's bar makes a comment on source text start a thread for Overleaf, which the agent
   drafts from what you write and you send. [Working with Overleaf](overleaf.md) says more.
 - The box tool, beside pan and pointer in the PDF's toolbar, turns a drag on the PDF into a
   box to comment on what has no text to select, such as part of a figure. The box holds
   while a compile leaves what it covers as it was.
-- **+ Note** comments on the whole paper, and the **Sections** tab comments on a section. A
+- **Add a paper note…** in the ⋯ menu comments on the whole paper, and the **Sections** tab comments on a section. A
   section comment stays on the heading it was made on as the file is edited, also when
   another heading has the same title. Text selected in the Source tab takes a comment by
-  **+ Comment**.
+  the comment button, the speech bubble in the editor's bar.
 - **Source** beside **Comment** on a PDF selection selects the same words in the source
   editor, at the lines SyncTeX names, or those lines when a macro prints the words. The
-  other way, **→ Preview** beside **+ Comment** in the editor's bar marks where the Preview
+  other way, the button after the comment button in the editor's bar, which reads
+  *show it in the Preview* when pointed at, marks where the Preview
   prints the selected words. Either turns the view to Split. Both need a PDF built with
   SyncTeX, which **Compile** builds. Cmd (macOS) or Ctrl with a double click on a PDF word
   does what **Source** does for that word.

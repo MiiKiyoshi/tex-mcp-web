@@ -5859,6 +5859,6 @@ async function init() {
 document.addEventListener("DOMContentLoaded", () => {
   init().catch((error) => {
     console.error(error);
-    alert(`tex-web failed to start: ${error.message}`);
+    alert(`tex-mcp-web failed to start: ${error.message}`);
   });
 });
