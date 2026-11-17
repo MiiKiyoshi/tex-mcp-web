@@ -433,6 +433,148 @@ def test_browser_comment_actions(tmp_path: Path) -> None:
 
 
 @needs_chrome
+def test_the_page_says_why_it_waits_and_catches_up_when_its_server_returns(tmp_path: Path) -> None:
+    """Nothing greyed, waiting or out of date goes unexplained. A first build that fails says
+    so in the Preview, a source changed since the build and a config the server cannot take
+    say so in the top bar, a comment asked for over unsaved edits says to save, a suggestion
+    the file no longer fits says so on its card, a call no agent hears says so above the
+    list, and a server that stopped says so across the top. A page that could not hear its
+    server reads again what it missed once it can."""
+    import asyncio
+
+    paper = tmp_path / "paper.tex"
+    paper.write_text("\\documentclass{article}\n\\begin{document}\n\\badcommand\n\\end{document}\n", encoding="utf-8")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config = f"main: paper.tex\nport: {port}\n"
+    config_path.write_text(config, encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    browser = None
+    script = lambda code, *args: browser.execute_script(code, list(args))
+    text = lambda selector: script(f'return document.querySelector("{selector}")?.textContent ?? ""')
+    shown = lambda selector: script(f'const node = document.querySelector("{selector}"); return Boolean(node) && !node.hidden')
+    status = lambda: text("#compile-status")
+    editor = '(window.wrappedJSObject || window).ace.edit("source-editor")'
+    ahead = " · source changed, Compile to update"
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        browser = chrome.launch()
+        browser.navigate(base)
+
+        # The first build fails: the Preview says so, and its button opens Problems.
+        wait_until(lambda: text("#pdf-viewer").startswith("The build failed. Problems lists why."))
+        script('document.querySelector("#pdf-viewer button")?.click()')
+        wait_until(lambda: script('return document.querySelector(".tab-btn[data-tab=compile]").classList.contains("active")'))
+
+        # A source changed after the build says so in the top bar, once, until a build.
+        script('document.querySelector("[data-view=split]").click()')
+        wait_until(lambda: script(f'return {editor}.getValue().includes("badcommand")'))
+        paper.write_text(PAPER, encoding="utf-8")
+        wait_until(lambda: script(f'return {editor}.getValue()') == PAPER)
+        wait_until(lambda: status().endswith(ahead))
+        paper.write_text(PAPER + "% again\n", encoding="utf-8")
+        wait_until(lambda: script(f'return {editor}.getValue()').endswith("% again\n"))
+        wait_until(lambda: status().count("source changed") == 1)
+        # The build that follows shows the PDF in the Preview's place.
+        script('document.querySelector("#compile-btn").click()')
+        wait_until(lambda: script('return document.querySelector("#pdf-viewer embedpdf-container") !== null'))
+        wait_until(lambda: status().startswith("✓ ok") and "source changed" not in status())
+
+        # A new source file joins the editor's list as it appears.
+        (tmp_path / "extra.tex").write_text("Extra.\n", encoding="utf-8")
+        wait_until(lambda: script(
+            'return [...document.querySelectorAll("#source-file option")].some((o) => o.value === "extra.tex")'))
+
+        # A config the server cannot take is said until it can, and then the build's word is back.
+        before = status()
+        config_path.write_text(f"main: paper.tex\nport: {port + 1}\n", encoding="utf-8")
+        wait_until(lambda: status().startswith("config error: port changed"))
+        config_path.write_text(config, encoding="utf-8")
+        wait_until(lambda: status() == before)
+
+        # With unsaved edits, the comment button stays pressable and says to save first.
+        script(f'''const e = {editor}; e.session.insert({{row: 0, column: 0}}, "% draft\\n");
+          e.selection.setRange(new (window.ace.require("ace/range").Range)(4, 0, 4, 5));''')
+        wait_until(lambda: script('return !document.querySelector("#source-comment-btn").disabled'))
+        script('document.querySelector("#source-comment-btn").click()')
+        wait_until(lambda: text("#source-status") == "Save before commenting"
+                   and not script('return document.querySelector("#compose-dialog").open'))
+        script("window.confirm = () => true; document.querySelector('#source-reload-btn').click()")
+        wait_until(lambda: text("#source-status") == "Saved")
+
+        # A suggestion the file no longer fits says so on its card, and nothing pops up.
+        suggested = post_suggested(base, shared, {
+            "anchor": {"kind": "source_range", "file": "paper.tex", "line_start": 4, "line_end": 4},
+            "text": "Say it better."}, "Hello world.", "Hello, world.")
+        script('document.querySelector(".tab-btn[data-tab=comments]").click()')
+        show_view(browser, "open")
+        card = f'document.querySelector("[data-comment-id=\\"{suggested["id"]}\\"]")'
+        wait_until(lambda: script(f'return {card}?.querySelector(".sugg-apply") !== null'))
+        paper.write_text(PAPER.replace("Hello world.", "Hello there."), encoding="utf-8")
+        wait_until(lambda: script(f'return {editor}.getValue()').count("Hello there.") == 1)
+        script("window.alerted = []; window.alert = (words) => window.alerted.push(words);")
+        wait_until(lambda: script(f'return {card}?.querySelector(".sugg-apply") !== null'))
+        script(f'{card}.querySelector(".sugg-apply").click()')
+        wait_until(lambda: script(f'return {card}?.querySelector(".sugg-unfit")?.textContent ?? ""').startswith(
+            "The file changed since this was proposed, so it no longer fits. "
+            "Reject it, or reply to ask the agent for a new one. (")
+            and script("return window.alerted.length") == 0)
+
+        # A call no agent hears says so above the list until one listens.
+        script('document.querySelector("#call-agent-btn").click()')
+        wait_until(lambda: shown("#call-agent-why") and text("#call-agent-why") == (
+            "No agent is listening yet, so the call waits. Claude Code listens when started in the "
+            "paper's folder. In Codex, say do tex listen."))
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            waiter = pool.submit(lambda: urllib.request.urlopen(
+                f"{base}/wait-review?listener=one&pid={os.getpid()}", timeout=10).read())
+            assert waiter.result(timeout=10).startswith(b"[review]")
+        wait_until(lambda: not shown("#call-agent-why"))
+
+        # The page's socket drops for a moment: no band, and back, the page reads what it
+        # missed, a comment written meanwhile and a build that ended meanwhile.
+        script('''window.bandSeen = false; const band = document.querySelector("#server-alert");
+          if (band) new MutationObserver(() => { window.bandSeen ||= !band.hidden; }).observe(band, {attributes: true});''')
+        on_server = lambda work: asyncio.run_coroutine_threadsafe(work, shared.loop).result(5)
+        on_server(shared.server.broadcast({"type": "compiling", "status": True}))
+        wait_until(lambda: script('return document.querySelector("#compile-btn").disabled'))
+
+        async def drop(closing: bool) -> None:
+            # The page's socket closes, and with *closing* the port first, as when the agent's
+            # process ends.
+            if closing:
+                for site in list(shared.server._runner.sites):
+                    await site.stop()
+            for page in list(shared.server.websockets):
+                await page.close()
+
+        on_server(drop(False))
+        post_json(f"{base}/comments", {"anchor": {"kind": "paper"}, "text": "Written while the page was away."})
+        wait_until(lambda: "Written while the page was away." in text("#comments-list")
+                   and not script('return document.querySelector("#compile-btn").disabled'))
+        wait_until(lambda: script('return document.querySelector("#server-alert")?.hidden === true && !window.bandSeen'))
+
+        # The server stops: once a try to reconnect fails, the band says so and the bell says
+        # the server cannot be reached. Back, both go.
+        bell = lambda: script('return document.querySelector("#call-agent-btn").title')
+        on_server(drop(True))
+        shared.stop()
+        wait_until(lambda: shown("#server-alert") and text("#server-alert") == (
+            "The review page's server stopped. It runs inside your agent: start the agent again, "
+            "or ask it to use a tex tool, and this page reconnects by itself.")
+            and bell() == "The review page's server cannot be reached")
+        shared.ensure()
+        wait_until(lambda: not shown("#server-alert")
+                   and bell() == "Agent is not waiting; queue this call until it reconnects (Ctrl+Alt+Enter)")
+    finally:
+        if browser is not None:
+            browser.quit()
+        shared.stop()
+
+
+@needs_chrome
 def test_highlight_badges_leave_pdf_text_selectable(tmp_path: Path) -> None:
     import pymupdf
 
@@ -3175,6 +3317,8 @@ def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path
     shown = lambda selector: browser.execute_script(f'return !document.querySelector("{selector}").hidden')
     status = lambda: browser.execute_script('return document.querySelector("#overleaf-status").textContent')
     text = lambda selector: browser.execute_script(f'return document.querySelector("{selector}").textContent')
+    why = lambda: browser.execute_script(
+        'const note = document.querySelector("#overleaf-sync-why"); return note && !note.hidden ? note.textContent : ""')
     try:
         shared.ensure()
         base = f"http://127.0.0.1:{port}"
@@ -3182,6 +3326,12 @@ def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path
         browser = chrome.launch()
         browser.navigate(base)
         wait_until(lambda: browser.execute_script('return document.querySelector("#comments-list") !== null'))
+        # Without the cookie the leaf tab says what is missing, and the sentence opens Settings.
+        browser.execute_script('document.querySelector(\'.tab-btn[data-tab="overleaf-comments"]\').click()')
+        wait_until(lambda: why() == "Save your Overleaf cookie in Settings to sync comments and send replies.")
+        browser.execute_script('document.querySelector("#overleaf-sync-why button")?.click()')
+        wait_until(lambda: browser.execute_script('return document.querySelector("#settings-dialog").open'))
+        browser.execute_script('document.querySelector(\'.tab-btn[data-tab="comments"]\').click()')
         browser.execute_script('document.querySelector("#settings-btn").click()')
         wait_until(lambda: shown("#overleaf-direct"))
         assert shown("#overleaf-cookie-row") and not shown("#overleaf-signed")
@@ -3226,8 +3376,6 @@ def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path
         assert not disabled("#overleaf-sync-comments-btn") and hidden("#git-pull-btn") and hidden("#git-push-btn")
         # Behind Overleaf again, the leaf tab says why its comments wait, and git pull in a
         # terminal clears it as the button does, with nothing pressed on the page.
-        why = lambda: browser.execute_script(
-            'const note = document.querySelector("#overleaf-sync-why"); return note && !note.hidden ? note.textContent : ""')
         browser.execute_script('document.querySelector(\'.tab-btn[data-tab="overleaf-comments"]\').click()')
         git(paper, "reset", "-q", "--hard", "HEAD~1")
         wait_until(lambda: why().startswith("Overleaf has 1 commit this folder lacks. git pull first"))
@@ -3287,6 +3435,36 @@ def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path
         choose("hand")
         wait_until(lambda: status() == "The files now follow Overleaf by hand.")
         assert "overleaf_sync" not in config_path.read_text(encoding="utf-8")
+
+        # Disconnected and connected again, the folder shows at once that Overleaf has a commit
+        # it lacks.
+        git(coauthor, "pull", "-q")
+        (coauthor / "more.tex").write_text("More.\n", encoding="utf-8")
+        git(coauthor, "add", "more.tex")
+        git(coauthor, "commit", "-q", "-m", "more")
+        git(coauthor, "push", "-q", "origin", "HEAD:main")
+        browser.execute_script('document.querySelector("#overleaf-disconnect-btn").click()')
+        wait_until(lambda: status() == "Disconnected." and hidden("#git-pull-btn"))
+        browser.execute_script('document.querySelector("#overleaf-link").value = arguments[0];'
+                               'document.querySelector("#overleaf-connect-btn").click()',
+                               [f"http://127.0.0.1:{overleaf_server.server_port}/project/{project}"])
+        wait_until(lambda: not hidden("#git-pull-btn") and text("#git-pull-btn") == "git pull1", timeout=15)
+
+        # A reading of Overleaf's branch that fails says why in the leaf tab, where comments
+        # wait on it.
+        browser.execute_script('document.querySelector("#settings-dialog").close()')
+        browser.execute_script('document.querySelector(\'.tab-btn[data-tab="overleaf-comments"]\').click()')
+        away = remote.with_name("away")
+        remote.rename(away)
+        browser.execute_script('document.querySelector("#settings-btn").click()')
+        wait_until(lambda: why().startswith("Could not read Overleaf's branch: "), timeout=15)
+        away.rename(remote)
+
+        # A cookie Overleaf turns away is asked for again.
+        browser.execute_script('document.querySelector("#overleaf-cookie").value = "s%3Aturned.away";'
+                               'document.querySelector("#overleaf-cookie-save").click()')
+        wait_until(lambda: shown("#overleaf-cookie-row") and shown("#overleaf-signed")
+                   and text("#overleaf-signed-text") == "Overleaf turned this cookie away. Paste a new one.", timeout=15)
     finally:
         overleaf_server.shutdown()
         if browser is not None:
@@ -3347,6 +3525,15 @@ def test_a_file_that_differs_from_overleaf_waits_for_a_choice_on_the_page(tmp_pa
             'return [...document.querySelectorAll("#overleaf-sync-alert button")].map((b) => b.textContent)')] == [
             "Open the file", "Use Overleaf's", "Send this file's"]
         assert (tmp_path / "main.tex").read_text(encoding="utf-8") == MAIN + "\n% only here"
+        # A thread written on Overleaf meanwhile waits for every file to be settled, and the leaf
+        # tab says so.
+        fake.threads["t9"] = {"messages": [{"id": "m-0", "user": {"first_name": "Co"}, "content": "Is this right?"}]}
+        fake.comment("d-body", "t9", "Body text.")
+        asyncio.run_coroutine_threadsafe(fake.broadcast("new-comment", "t9", {}), loop).result(10)
+        browser.execute_script('document.querySelector(\'.tab-btn[data-tab="overleaf-comments"]\').click()')
+        wait_until(lambda: browser.execute_script(
+            'const note = document.querySelector("#overleaf-sync-why"); return note && !note.hidden ? note.textContent : ""')
+            == "1 new thread on Overleaf comes in once every file is settled.", timeout=15)
         browser.execute_script("(window.wrappedJSObject || window).confirm = () => true;", sandbox=None)
         browser.execute_script("document.querySelector('#overleaf-sync-alert .overleaf-sync-overleaf').click()")
         wait_until(lambda: (tmp_path / "main.tex").read_text(encoding="utf-8") == MAIN, timeout=15)
@@ -3711,6 +3898,14 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
             'return document.querySelector("#overleaf-live-btn").classList.contains("trouble")') is True
         assert browser.execute_script('return document.querySelector("#overleaf-live-btn").hidden') is False
         assert text("#overleaf-live-label") == "Comments not coming in"
+
+        # Disconnected, the collaborators' faces and Send go with the session.
+        wait_until(lambda: text("#overleaf-live-faces") == "CA"
+                   and not browser.execute_script('return document.querySelector("#git-push-btn").hidden'))
+        click("#overleaf-disconnect-btn")
+        wait_until(lambda: text("#overleaf-status") == "Disconnected.")
+        wait_until(lambda: text("#overleaf-live-faces") == "" and browser.execute_script(
+            'return document.querySelector("#git-pull-btn").hidden && document.querySelector("#git-push-btn").hidden'))
     finally:
         if browser is not None:
             browser.quit()

@@ -43,16 +43,21 @@ const state = {
   overleafReplies: new Map(),
   // Where on Overleaf the comments from there are whose words are not in the file here yet.
   overleafUnplaced: {},
-  // The cookie is kept, the files are kept the same both ways (which brings new threads in
-  // by themselves), how many open threads on Overleaf wait to be synced, and where a folder
-  // cloned by git stands against Overleaf's branch (null until read, or no git).
-  overleafSignedIn: false,
+  // Where the cookie comes from ("file" or "environment", null when there is none) and whether
+  // Overleaf turned it away, the files are kept the same both ways (which brings new threads
+  // in by themselves), how many open threads on Overleaf wait to be synced, the git remote of
+  // a folder cloned from the project (null when it is none), where that folder stands against
+  // Overleaf's branch (null until read), and why the last reading of the branch failed.
+  overleafCookie: null,
+  overleafCookieRefused: false,
   overleafProject: null,
   // The reviewer's own name on Overleaf, once the page sits in the project.
   overleafMe: "",
   overleafFullSync: false,
   overleafWaiting: 0,
+  overleafRemote: null,
   overleafGit: null,
+  overleafGitTrouble: "",
   overleafGitRead: 0,
   // Where a folder brought together with Overleaf by Get and Send stands, or null.
   overleafFiles: null,
@@ -95,6 +100,17 @@ const state = {
   lastViewerPointer: null,
   appliedCompileTimestamp: null,
   compileRefreshPromise: null,
+  // What the top bar says of the build: how the last one went or that one runs, whether a
+  // source file changed since, and a config the server could not take, until it takes one
+  // or a build begins or ends.
+  compileStatus: "idle",
+  sourceAhead: false,
+  configError: "",
+  // The page cannot reach its server, and a call to the agent waits for one to listen.
+  serverGone: false,
+  callWaits: false,
+  // Why applying a thread's suggestion was refused, with the suggestion it was refused for.
+  unfitSuggestions: new Map(),
   view: "pdf",
   editor: null,
   sourcePath: null,
@@ -866,7 +882,8 @@ function updateSourceCommentButton() {
   const button = $("#source-comment-btn");
   if (!button) return;
   const selected = Boolean(state.editor?.getSelectedText().trim());
-  button.disabled = !selected || state.sourceDirty;
+  // With unsaved edits a press says to save first, in the bar, as the keys do.
+  button.disabled = !selected;
   const where = sourceForOverleaf() && state.overleafProject ? "Start a thread on Overleaf on" : "Comment on";
   button.title = state.sourceDirty
     ? "Save source before commenting"
@@ -1153,13 +1170,24 @@ function showSettings(status = "") {
   if (!$("#settings-dialog").open) {
     $("#settings-dialog").showModal();
     // Opening reads Overleaf's branch afresh, so what the dialog says is what is there now.
-    loadOverleafStatus()
-      .then((linked) => (linked?.git || state.overleafFiles ? overleafGitAction("fetch") : null))
-      .catch((error) => console.error(error));
+    loadOverleafStanding().catch((error) => console.error(error));
   }
 }
 
+// What the page knows of the project, read afresh, and then where a git clone or a folder
+// brought together by hand stands against Overleaf: at the start, when Settings opens, and
+// when the config changes.
+async function loadOverleafStanding() {
+  await loadOverleafStatus();
+  readOverleafGitSoon(0);
+}
+
 function renderOverleafStatus({ project, cookie, sync = false, live = false, settable = true, git = null, waiting = 0 }) {
+  // Without the project or the cookie no session runs, so what it showed goes with it.
+  if (!project || !cookie) {
+    state.overleafFiles = null;
+    $("#overleaf-live-faces").replaceChildren();
+  }
   $("#overleaf-link-row").hidden = Boolean(project) || !settable;
   $("#overleaf-connected").hidden = !project;
   $("#overleaf-disconnect-btn").hidden = !settable;
@@ -1190,11 +1218,13 @@ function renderOverleafStatus({ project, cookie, sync = false, live = false, set
   $("#overleaf-direct").hidden = !project;
   $("#overleaf-tracking-git").hidden = !git;
   $("#overleaf-git").hidden = !git && !state.overleafFiles;
+  state.overleafRemote = git;
   if (!git) {
     state.overleafGit = null;
-    renderGitButtons();
+    state.overleafGitTrouble = "";
   }
-  state.overleafSignedIn = Boolean(cookie);
+  renderGitButtons();
+  state.overleafCookie = cookie ?? null;
   state.overleafProject = project ?? null;
   state.overleafFullSync = live;
   state.overleafWaiting = waiting;
@@ -1202,16 +1232,32 @@ function renderOverleafStatus({ project, cookie, sync = false, live = false, set
     $("#overleaf-project").href = project;
     $("#overleaf-project").textContent = project.replace(/^https?:\/\//, "");
   }
-  $("#overleaf-cookie-row").hidden = Boolean(cookie);
-  $("#overleaf-cookie-help").hidden = Boolean(cookie);
-  $("#overleaf-signed").hidden = !cookie;
-  $("#overleaf-signed-text").textContent = cookie === "environment"
-    ? "Signed in with the cookie in the environment variable TEX_MCP_WEB_OVERLEAF_COOKIE."
-    : "Signed in with your saved cookie.";
-  $("#overleaf-cookie-forget").hidden = cookie !== "file";
+  renderOverleafCookie();
   renderOverleafThreadSync();
   renderPickedActions();
 }
+
+// The field to paste a cookie in shows while there is none and while Overleaf turns the saved
+// one away. A cookie from the environment variable, which comes before a saved one, is
+// changed where it is set.
+function renderOverleafCookie() {
+  const cookie = state.overleafCookie;
+  const refused = Boolean(cookie) && state.overleafCookieRefused;
+  const asked = !cookie || (refused && cookie === "file");
+  $("#overleaf-cookie-row").hidden = !asked;
+  $("#overleaf-cookie-help").hidden = !asked;
+  $("#overleaf-signed").hidden = !cookie;
+  $("#overleaf-signed-text").textContent = cookie === "environment"
+    ? (refused ? "Overleaf turned away the cookie in the environment variable TEX_MCP_WEB_OVERLEAF_COOKIE. "
+      + "Set a new one there and restart the agent."
+      : "Signed in with the cookie in the environment variable TEX_MCP_WEB_OVERLEAF_COOKIE.")
+    : refused ? "Overleaf turned this cookie away. Paste a new one." : "Signed in with your saved cookie.";
+  $("#overleaf-cookie-forget").hidden = cookie !== "file";
+}
+
+// What stands in the way of comments while the project has no cookie, said in the leaf tab
+// and on a thread's reply for Overleaf.
+const OVERLEAF_COOKIE_WANTED = "Save your Overleaf cookie in Settings to sync comments and send replies.";
 
 // Comments sync at the commit Overleaf is at: a thread is on words, and only the same text
 // puts it exactly where Overleaf has it.
@@ -1229,16 +1275,25 @@ function renderOverleafThreadSync() {
   // Comments sync once the folder and Overleaf hold the same: until then the tab says what
   // stands in the way and which button in the top bar clears it, since a greyed button says nothing.
   const git = state.overleafGit;
-  const why = git !== null && git.state !== "same"
+  const gitWhy = git !== null && git.state !== "same"
     ? {
       behind: `Overleaf has ${commits(git.behind)} this folder lacks. git pull first, in the top bar or a terminal, and comments sync after that.`,
       ahead: `This folder has ${commits(git.ahead)} Overleaf lacks. commit & push first, in the top bar or a terminal, and comments sync after that.`,
       diverged: "Overleaf and this folder each have commits the other lacks. git pull, then commit & push, and comments sync after that.",
     }[git.state]
-    : files !== null && files.read && files.get.length + files.send.length + files.choose.length > 0
-      ? "This folder and Overleaf hold different files. Get or Send in the top bar first, and comments sync after that."
-      : "";
-  side.disabled = !state.overleafSignedIn || state.syncingComments || why !== "" || (files !== null && !files.read);
+    : "";
+  // Live, new threads come in by themselves once every file is the same as on Overleaf.
+  const why = state.overleafFullSync
+    ? (waiting ? `${waiting} new thread${waiting === 1 ? " on Overleaf comes" : "s on Overleaf come"} in once every file is settled.` : "")
+    : !state.overleafCookie ? OVERLEAF_COOKIE_WANTED
+    : state.overleafGitTrouble || gitWhy || (files === null ? ""
+      : !files.read ? "Reading Overleaf's files…"
+      : files.get.length + files.send.length > 0
+        ? "This folder and Overleaf hold different files. Get or Send in the top bar first, and comments sync after that."
+      : files.choose.length > 0
+        ? "A file differs from Overleaf's and waits for your choice, in the band above. Comments sync after that."
+      : "");
+  side.disabled = state.syncingComments || why !== "";
   side.classList.toggle("busy", state.syncingComments);
   if (why) side.title = why;
   let note = $("#overleaf-sync-why");
@@ -1246,12 +1301,14 @@ function renderOverleafThreadSync() {
     note = h("p", { id: "overleaf-sync-why", class: "sync-why" });
     $("#comments-list").before(note);
   }
-  note.hidden = side.hidden || !why;
-  note.textContent = why;
+  note.hidden = !state.overleafProject || state.commentTab !== "overleaf-comments" || !why;
+  // The missing cookie is pasted in Settings, which the sentence opens.
+  note.replaceChildren(why === OVERLEAF_COOKIE_WANTED
+    ? h("button", { type: "button", class: "sync-why-go", onclick: () => showSettings() }, why) : why);
   // git pull in a terminal is seen here too: while comments wait on it, the folder's
   // standing is read again every few seconds, which asks Overleaf nothing.
   clearInterval(state.overleafGitWatch);
-  state.overleafGitWatch = why && git !== null && !side.hidden
+  state.overleafGitWatch = why === gitWhy && gitWhy && !side.hidden
     ? setInterval(() => { if (!document.hidden) readOverleafGitState().catch((error) => console.error(error)); }, 4000)
     : null;
 }
@@ -1276,6 +1333,7 @@ function replies(count) {
 // in the top bar, each shown only when it has commits to move.
 function renderOverleafGit(now) {
   state.overleafGit = now;
+  state.overleafGitTrouble = "";
   // With the files kept the same, comments come in by themselves, not after a commit.
   const then = state.overleafFullSync ? "" : ", and comments sync after that";
   $("#overleaf-git-state").textContent = {
@@ -1403,8 +1461,11 @@ async function overleafGitAction(action, commit) {
   }
   const why = await responseError(response);
   if (action === "fetch") {
-    $("#overleaf-git-state").textContent = `Could not read Overleaf's branch: ${why}`;
+    // Said in the leaf tab too, where comments wait on the branch.
+    state.overleafGitTrouble = `Could not read Overleaf's branch: ${why}`;
+    $("#overleaf-git-state").textContent = state.overleafGitTrouble;
     renderGitButtons();
+    renderOverleafThreadSync();
     return;
   }
   showSettings(`Could not ${action}: ${why}`);
@@ -1440,8 +1501,10 @@ async function overleafFilesAction(action) {
   await overleafFilesAction("read");
 }
 
+// A connected folder cloned by git, or brought together by hand, is read whether or not a
+// reading before went through, so one that failed is tried again.
 function readOverleafGitSoon(delay) {
-  if (!state.overleafGit && !state.overleafFiles) return;
+  if (!state.overleafProject || (!state.overleafRemote && !state.overleafFiles)) return;
   clearTimeout(state.overleafGitTimer);
   state.overleafGitTimer = setTimeout(() => overleafGitAction("fetch").catch((error) => console.error(error)), delay);
 }
@@ -1468,6 +1531,8 @@ async function connectOverleaf(change, done) {
     return false;
   }
   renderOverleafStatus(await response.json());
+  // A git clone just connected shows where it stands in the top bar at once.
+  readOverleafGitSoon(0);
   showSettings(done);
   return true;
 }
@@ -1492,6 +1557,8 @@ async function saveOverleafCookie() {
     return;
   }
   input.value = "";
+  // A new cookie is not turned away until Overleaf says so.
+  state.overleafCookieRefused = false;
   renderOverleafStatus(await response.json());
   showSettings("Cookie saved.");
 }
@@ -1517,7 +1584,10 @@ async function syncOverleafComments() {
     const response = await fetch("/overleaf/comments", { method: "POST" });
     if (!response.ok) {
       // A cookie Overleaf turned away is asked for again.
-      if (response.status === 401) $("#overleaf-cookie-row").hidden = false;
+      if (response.status === 401) {
+        state.overleafCookieRefused = true;
+        renderOverleafCookie();
+      }
       showSettings(`Could not sync them: ${await responseError(response)}`);
       return;
     }
@@ -1690,6 +1760,10 @@ function renderOverleafLive(snapshot) {
     renderGitButtons();
   }
   const { status, users = [], changes = [] } = snapshot;
+  // Signed out with a cookie is Overleaf turning it away, until a session gets in with one.
+  if (status === "signed_out") state.overleafCookieRefused = true;
+  else if (status === "live") state.overleafCookieRefused = false;
+  renderOverleafCookie();
   const button = $("#overleaf-live-btn");
   const off = status === "off";
   const commentsTrouble = status === "live" ? snapshot.comments_trouble : "";
@@ -2371,8 +2445,8 @@ async function openSuggestedEdit(id) {
   if (item) focusComment(item);
 }
 
-// Ctrl+Alt+M (Cmd+Option+M), or gc with Vim keys. Comments wait for the file to be saved,
-// as the button does, and the bar says so.
+// The comment button, Ctrl+Alt+M (Cmd+Option+M), or gc with Vim keys. Comments wait for the
+// file to be saved, and the bar says so.
 function commentSourceSelection() {
   if (state.sourceDirty) {
     setSourceStatus("Save before commenting", "dirty");
@@ -2655,7 +2729,7 @@ async function readComments() {
   if (asked !== state.commentsAsked) return state.commentsReading;
   state.overleafImported = new Set(linked.imported ?? []);
   state.overleafUnplaced = linked.unplaced ?? {};
-  state.overleafSignedIn = Boolean(linked.cookie);
+  state.overleafCookie = linked.cookie ?? null;
   state.overleafProject = linked.project ?? null;
   state.overleafFullSync = Boolean(linked.live);
   state.overleafWaiting = linked.waiting ?? 0;
@@ -2916,12 +2990,12 @@ function renderPickedActions() {
     && overleafReplyText(comment).trim()).map((comment) => comment.id);
   const send = $("#send-picked-btn");
   send.hidden = !state.overleafProject || state.commentTab !== "overleaf-comments";
-  send.disabled = !state.overleafSignedIn || sendable.length === 0 || state.sending.size > 0;
+  send.disabled = !state.overleafCookie || sendable.length === 0 || state.sending.size > 0;
   send.classList.toggle("busy", state.sending.size > 0);
   send.querySelector(".count").textContent = sendable.length > 0 ? String(sendable.length) : "";
   send.setAttribute("aria-label", sendable.length > 0 ? `Send ${replies(sendable.length)} to Overleaf` : "Send to Overleaf");
-  send.title = state.overleafSignedIn ? "Send the picked public replies to Overleaf, for everyone in the project"
-    : "Save your Overleaf cookie first";
+  send.title = state.overleafCookie ? "Send the picked public replies to Overleaf, for everyone in the project"
+    : OVERLEAF_COOKIE_WANTED;
   send.dataset.ids = sendable.join(" ");
   // A view of suggested edits accepts or rejects the picked ones: the suggested edits view, in
   // place of resolving and sending, and the to do view beside them.
@@ -3269,7 +3343,12 @@ function renderSuggestion(comment) {
     applyButton = actionButton("sugg-apply", "Apply suggestion", async () => {
       applyButton.disabled = true;
       applyButton.textContent = "Applying…";
-      if (await doMutation(comment.id, "apply-suggestion", { updated: comment.updated })) {
+      // One the file no longer fits says so on the card, under the proposal.
+      const refused = (why) => {
+        state.unfitSuggestions.set(comment.id, { suggestion: JSON.stringify(comment.suggestion), why });
+        renderComments();
+      };
+      if (await doMutation(comment.id, "apply-suggestion", { updated: comment.updated }, refused)) {
         try {
           await refreshComments();
         } catch (error) {
@@ -3281,6 +3360,8 @@ function renderSuggestion(comment) {
       applyButton.textContent = "Apply suggestion";
     });
   }
+  // A refusal stays with the suggestion it was for: a new one from the agent is tried afresh.
+  const unfit = state.unfitSuggestions.get(comment.id);
   // One pair per piece the proposal changes; the text it leaves alone is not shown,
   // because it is not part of the proposal.
   return h("div", { class: "cmt-suggestion" },
@@ -3292,6 +3373,10 @@ function renderSuggestion(comment) {
         h("span", { class: "sugg-marker", text: "+" }),
         h("span", { class: "sugg-text", text: change.new })),
     ]),
+    unfit?.suggestion === JSON.stringify(comment.suggestion)
+      ? h("p", { class: "sugg-unfit", role: "status", text: "The file changed since this was proposed, so it no longer fits. "
+        + `Reject it, or reply to ask the agent for a new one. (${unfit.why})` })
+      : null,
     applyButton ? h("div", { class: "sugg-actions" }, rejectButton, applyButton) : null,
   );
 }
@@ -3327,13 +3412,15 @@ function renderOverleafReply(comment) {
   });
   const sending = state.sending.has(comment.id);
   textarea.disabled = sending;
-  const note = h("div", { class: "overleaf-reply-note", role: "status", text: sending ? "Sending…" : kept?.error ?? "" });
+  // Send waits for a cookie, which the note says when nothing else is to be said.
+  const note = h("div", { class: "overleaf-reply-note", role: "status",
+    text: sending ? "Sending…" : kept?.error ?? (state.overleafCookie ? "" : OVERLEAF_COOKIE_WANTED) });
   const send = h("button", {
     class: `overleaf-send${sending ? " busy" : ""}`, type: "button",
-    title: state.overleafSignedIn ? `Send to Overleaf as public, for everyone in the project${keyHint("overleaf-send")}`
-      : "Save your Overleaf cookie first",
+    title: state.overleafCookie ? `Send to Overleaf as public, for everyone in the project${keyHint("overleaf-send")}`
+      : OVERLEAF_COOKIE_WANTED,
   }, "Send to ", leafIcon());
-  send.disabled = !state.overleafSignedIn || sending;
+  send.disabled = !state.overleafCookie || sending;
   // The thread leaves the to do and the unanswered views at the press, and elsewhere its
   // card shows the reply on its way until the list shows it sent, or why not.
   send.addEventListener("click", async () => {
@@ -3666,7 +3753,9 @@ function anchorLabel(anchor) {
   }
 }
 
-async function doMutation(commentId, action, body) {
+// A 409, the server refusing because something changed since, goes with the server's reason
+// to *refused* when it is given. Every other failure is said in an alert.
+async function doMutation(commentId, action, body, refused = null) {
   const isDelete = action === "delete";
   let response;
   try {
@@ -3683,7 +3772,9 @@ async function doMutation(commentId, action, body) {
     return false;
   }
   if (!response.ok) {
-    alert(`Action failed: ${await responseError(response)}`);
+    const why = await responseError(response);
+    if (refused && response.status === 409) refused(why);
+    else alert(`Action failed: ${why}`);
     return false;
   }
   return true;
@@ -4050,7 +4141,9 @@ function applyCompileResult(result) {
   const duration = typeof result.duration_seconds === "number"
     ? ` · ${result.duration_seconds.toFixed(1)}s`
     : "";
-  $("#compile-status").textContent = (result.success ? "✓ ok" : "✗ failed") + duration;
+  state.compileStatus = (result.success ? "✓ ok" : "✗ failed") + duration;
+  state.configError = "";
+  renderCompileStatus();
   const badge = $("#compile-tab-count");
   const total = state.errors.length + state.warnings.length + (state.layout.short_lines?.length ?? 0)
     + (state.layout.more_short_lines ?? 0);
@@ -4058,13 +4151,29 @@ function applyCompileResult(result) {
   badge.classList.toggle("hidden", total === 0);
   badge.classList.toggle("has-errors", state.errors.length > 0);
   renderErrorBanner();
+  // Until a build makes a PDF, the Preview says why there is none and where to read it.
+  if (!result.success && !state.viewer) {
+    $("#pdf-viewer").replaceChildren(h("p", { class: "placeholder" }, "The build failed. Problems lists why. ",
+      h("button", { type: "button", onclick: () => { setSidebarCollapsed(false); switchTab("compile"); } }, "Show Problems")));
+  }
 }
 
 function applyCompiling(compiling) {
   const button = $("#compile-btn");
   button.disabled = compiling;
   button.querySelector(".wide-label").textContent = compiling ? "Compiling…" : "Compile";
-  if (compiling) $("#compile-status").textContent = "compiling…";
+  if (compiling) {
+    // A build that starts now reads the sources as they are.
+    state.compileStatus = "compiling…";
+    state.sourceAhead = false;
+    state.configError = "";
+    renderCompileStatus();
+  }
+}
+
+function renderCompileStatus() {
+  $("#compile-status").textContent = state.configError ? `config error: ${state.configError}`
+    : state.compileStatus + (state.sourceAhead ? " · source changed, Compile to update" : "");
 }
 
 // ----- Translation -----
@@ -4264,6 +4373,8 @@ async function handleWebSocketMessage(message) {
       await applyCompletedCompile(message.result, message.pdf_digest);
       scheduleTranslation(1500);
       scheduleCompletions(1500);
+      // A build may bring in or drop source files.
+      if (state.editor) await refreshSourceFiles();
       break;
     case "comment_added":
     case "comment_updated":
@@ -4273,18 +4384,33 @@ async function handleWebSocketMessage(message) {
       break;
     case "source_changed":
       readOverleafGitStateSoon();
+      // The PDF shows the sources as the last build read them. A change heard of while a
+      // build runs is the save that Compile made just before it, which the build has.
+      if (!$("#compile-btn").disabled) {
+        state.sourceAhead = true;
+        renderCompileStatus();
+      }
+      // A file the list does not hold yet is new: the list is read again.
+      if (state.editor && ![...$("#source-file").options].some((option) => option.value === message.path)) {
+        await refreshSourceFiles();
+      }
       await handleSourceChanged(message);
       break;
     case "config_reloaded":
+      state.configError = "";
+      renderCompileStatus();
       await refreshPaper();
       if (state.editor) await refreshSourceFiles();
+      await loadOverleafStanding();
       break;
     case "config_error":
-      $("#compile-status").textContent = `config error: ${message.error}`;
+      state.configError = message.error;
+      renderCompileStatus();
       break;
     case "state":
       if (message.result) applyCompileResult(message.result);
-      if (message.compiling) applyCompiling(true);
+      // A build that ended while the page could not hear of it leaves Compile free again.
+      applyCompiling(Boolean(message.compiling));
       if (message.review_waiters !== undefined) showAgentWaiting(message.review_waiters);
       break;
     case "review_waiters":
@@ -4304,16 +4430,26 @@ async function handleWebSocketMessage(message) {
 }
 
 // Green reaches a parked waiter now; red remains clickable because the server queues the
-// call until the next waiter connects.
+// call until the next waiter connects. A queued call is said above the list until an agent
+// listens, which takes it at once.
 function showAgentWaiting(waiters) {
   const waiting = waiters > 0;
   const button = $("#call-agent-btn");
   button.classList.toggle("agent-ready", waiting);
   button.classList.toggle("agent-offline", !waiting);
   button.setAttribute("aria-label", waiting ? "Call agent" : "Queue call for agent");
-  button.title = waiting
-    ? "Call the waiting agent now (Ctrl+Alt+Enter)"
+  button.title = state.serverGone ? "The review page's server cannot be reached"
+    : waiting ? "Call the waiting agent now (Ctrl+Alt+Enter)"
     : "Agent is not waiting; queue this call until it reconnects (Ctrl+Alt+Enter)";
+  if (waiting) state.callWaits = false;
+  renderCallWaits();
+}
+
+function renderCallWaits() {
+  const note = $("#call-agent-why");
+  note.textContent = "No agent is listening yet, so the call waits. Claude Code listens when started in the "
+    + "paper's folder. In Codex, say do tex listen.";
+  note.hidden = !state.callWaits;
 }
 
 async function callAgent() {
@@ -4327,6 +4463,8 @@ async function callAgent() {
     // Delivered went straight to a parked agent; queued is kept by the server and
     // answers the agent's next wait at once.
     word.textContent = reply.delivered ? "Called" : "Queued";
+    state.callWaits = !reply.delivered;
+    renderCallWaits();
   } catch (error) {
     word.textContent = "Failed";
     console.error(error);
@@ -4392,17 +4530,46 @@ async function runUpdate() {
   }
 }
 
+// The server runs inside the agent's process, so it stops with the agent. While the page
+// cannot reach it, a band across the top says so: once a try to reconnect has failed too, so
+// a moment's break does not flash it. How many times the socket closed since it was last open.
+let socketCloses = 0;
+
+function showServerGone(gone) {
+  state.serverGone = gone;
+  const band = $("#server-alert");
+  band.textContent = "The review page's server stopped. It runs inside your agent: start the agent again, "
+    + "or ask it to use a tex tool, and this page reconnects by itself.";
+  band.hidden = !gone;
+  showAgentWaiting(0);
+}
+
+// What changed while the page could not hear the server: the PDF, the comments and Overleaf.
+async function catchUp() {
+  const shown = state.pdfDigest;
+  await refreshPaper();
+  if (state.pdfDigest && state.pdfDigest !== shown) await initializePdfViewer(capturePdfView());
+  await refreshComments();
+  await loadOverleafStatus();
+}
+
 function connectWebSocket() {
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
   const socket = new WebSocket(`${protocol}//${location.host}/ws`);
-  // A server that comes back may be a new version's: the page asks which runs now.
-  socket.onopen = () => readUpdate().catch((error) => console.error(error));
+  socket.onopen = () => {
+    // A server that comes back may be a new version's: the page asks which runs now.
+    readUpdate().catch((error) => console.error(error));
+    if (socketCloses > 0) catchUp().catch((error) => console.error(error));
+    socketCloses = 0;
+    showServerGone(false);
+  };
   socket.onmessage = (event) => {
     const message = JSON.parse(event.data);
     handleWebSocketMessage(message).catch((error) => console.error(error));
   };
   socket.onclose = () => {
-    showAgentWaiting(0);
+    socketCloses += 1;
+    showServerGone(socketCloses > 1);
     setTimeout(connectWebSocket, 2000);
   };
 }
@@ -5567,7 +5734,7 @@ async function init() {
   });
   applySourceWrap();
   applyVimKeys();
-  $("#source-comment-btn").addEventListener("click", openSourceCommentCompose);
+  $("#source-comment-btn").addEventListener("click", commentSourceSelection);
   $("#source-pdf-btn").addEventListener("click", () => {
     showSourceSelectionInPdf().catch((error) => alert(`Could not show it in the Preview: ${error.message}`));
   });
@@ -5682,9 +5849,7 @@ async function init() {
   await refreshPaper();
   await refreshComments();
   // A git clone of the Overleaf project: where it stands shows in the top bar from the start.
-  loadOverleafStatus()
-    .then((linked) => (linked?.git ? overleafGitAction("fetch") : null))
-    .catch((error) => console.error(error));
+  loadOverleafStanding().catch((error) => console.error(error));
   if (state.pdfDigest) await initializePdfViewer(null);
   const savedView = localStorage.getItem("workspaceView");
   if (["source", "split"].includes(savedView)) await setWorkspaceView(savedView);

@@ -737,9 +737,11 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 .icon-btn svg { display: block; }
 .icon-btn .count:empty { display: none; }
 .icon-btn:disabled { opacity: .45; }
-/* Why the leaf tab's comments cannot sync yet, above the list. */
+/* Notes above the list: why the leaf tab's comments cannot sync yet, and that a call to the
+   agent waits for one to listen. A note that opens what clears it reads as a link. */
 .sync-why { margin: 0; padding: 6px 10px; font-size: .85em; color: var(--muted, inherit); border-bottom: 1px solid var(--border, currentColor); }
 .sync-why[hidden] { display: none; }
+.sync-why-go { padding: 0; border: 0; background: none; font: inherit; color: var(--accent); text-align: left; text-decoration: underline; cursor: pointer; }
 .filter-row .icon-btn[hidden] { display: none; }
 /* The less pressed buttons sit in the row while it has room for them, and otherwise behind
    the dots, each named by its label. */
@@ -987,6 +989,14 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
   width: 1ch;
 }
 .cmt-suggestion .sugg-text { flex: 1; }
+.cmt-suggestion .sugg-unfit {
+  margin: 0;
+  padding: 0.3rem 0.5rem;
+  border-top: 1px solid var(--border);
+  font-family: var(--sans);
+  color: var(--warn);
+  overflow-wrap: anywhere;
+}
 .cmt-suggestion .sugg-actions {
   display: flex;
   justify-content: flex-end;

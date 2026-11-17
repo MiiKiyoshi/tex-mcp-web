@@ -70,6 +70,8 @@
     <a id="update-alert-how" href="https://github.com/MiiKiyoshi/tex-mcp-web/blob/main/docs/reviewing.md#updating" target="_blank" rel="noopener">How</a>
     <button id="update-reload-btn" type="button" hidden>Reload</button>
   </div>
+  <!-- Shown while the page cannot reach its server, which stops with the agent. -->
+  <div id="server-alert" class="update-alert" role="alert" hidden></div>
   <div id="overleaf-sync-alert" class="overleaf-sync-alert" role="alert" hidden>
     <p id="overleaf-sync-alert-head" class="overleaf-sync-alert-head"></p>
     <ul id="overleaf-sync-alert-files" class="overleaf-sync-alert-files"></ul>
@@ -204,6 +206,8 @@
         <!-- Lists the tab's comments holding the words typed, whatever their status. -->
         <input id="comment-search" class="comment-search" type="search" autocomplete="off" spellcheck="false"
                aria-label="Search comments" title="Search the comments of this tab (/)" placeholder="Search comments…">
+        <!-- Said after a call to the agent that no agent heard, until one listens. -->
+        <p id="call-agent-why" class="sync-why" role="status" hidden></p>
         <div id="comments-list" class="comments-list" tabindex="-1"></div>
       </div>
 
