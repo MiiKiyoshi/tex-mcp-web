@@ -259,6 +259,20 @@ your field use an established term. Convert the papers your work builds on to Ma
 [marker](https://github.com/datalab-to/marker), keep them in one folder, and set `references`
 to that folder. The agent then reads the terms those papers use before it edits.
 
+## Read the paper in your language
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/translation-dark.webp">
+  <img alt="In the Preview, Translation: Korean is chosen from the ⋯ menu. The pane under the PDF shows Translating… and then each paragraph of the source in Korean, with the paragraphs on page 1 marked. On page 2, the marks move to the Results, the table caption and the Discussion. Clicking the Korean Results paragraph opens the source beside the PDF at those lines, and clicking a line of the Method in the source moves the highlight in the pane to the Method paragraph." src="docs/images/translation.webp">
+</picture>
+
+The page can show your paper in your own language as you read the PDF. With `translation`
+set, as in the example under [Configuration](#configuration), **Translation: Korean** in the ⋯
+menu at the top of the page shows each paragraph of the source in that language. The
+translation runs through a command line you choose, set as `translation.command` in
+`.tex-mcp-web.yaml` or, for every paper, in `~/.config/tex-mcp-web/config.yaml`. If you ask
+your agent to set up translation, it proposes a command and tests it.
+
 ## Configuration
 
 `do tex init` writes `.tex-mcp-web.yaml` in the folder where the agent was started. A typical
@@ -280,11 +294,7 @@ translation:
 overleaf: https://www.overleaf.com/project/0123456789abcdef01234567
 ```
 
-With `translation` set, **Translation: Korean** in the ⋯ menu at the top of the page shows each
-paragraph of the source in that language. The translation runs through a command line you
-choose, set as `translation.command` here or, for every paper, in
-`~/.config/tex-mcp-web/config.yaml`. If you ask your agent to set up translation, it proposes
-a command and tests it. [Configuration](docs/configuration.md) describes every field.
+[Configuration](docs/configuration.md) describes every field.
 
 ## See also
 
