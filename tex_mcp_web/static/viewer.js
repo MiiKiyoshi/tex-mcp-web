@@ -6131,6 +6131,11 @@ async function init() {
       const ids = button.dataset.ids ? button.dataset.ids.split(" ") : [];
       const status = button.dataset.status;
       if (ids.length === 0) return;
+      // Resolving or reopening a thread from Overleaf does so there, for everyone in the
+      // project: several at one press are asked about first, with their number.
+      const there = state.comments.filter((comment) => ids.includes(comment.id) && forOverleaf(comment)).length;
+      if (id === "#resolve-picked-btn" && there > 1
+        && !confirm(`${status === "open" ? "Reopen" : "Resolve"} ${there} threads on Overleaf, for everyone in the project?`)) return;
       button.disabled = true;
       try {
         await setPickedStatus(ids, status);
