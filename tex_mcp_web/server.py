@@ -108,7 +108,8 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 def _comment_to_dict(c: Comment) -> dict[str, Any]:
     d = c.to_dict()
-    # The reviewer wrote in it after the agent's last answer, which the page's to do lists.
+    # The reviewer wrote in it after the agent's last answer, so the page can remind them to
+    # call the agent.
     if c.waiting():
         d["awaits_agent"] = True
     if c.overleaf_draft is not None:
@@ -1875,6 +1876,11 @@ class TexMcpWebServer:
                 held[key] = comment.thread[-1].id
                 counts["replies"] += 1
                 changed = True
+                # A hidden thread shows again when someone else writes in it, so their message
+                # is not missed. The reviewer's name is known while the page is in the project;
+                # until then any new message shows it.
+                if comment.hidden is not None and by(message) != (self.overleaf_live.me if self.overleaf_live else ""):
+                    comment = self.comments.set_hidden(comment.id, False)
             known["entries"] = held
             known.pop("seen", None)
             known.pop("messages", None)
@@ -2965,17 +2971,19 @@ class TexMcpWebServer:
 
     async def _handle_set_status(self, request: web.Request) -> web.Response:
         """Give the picked comments one status in one call, and the page one notice. The
-        threads from Overleaf go there first, together, as each would alone. An undo that
-        resolves comments again gives each the moment it was resolved at before, by id
-        (resolved)."""
+        threads from Overleaf that are resolved or reopened go there first, together, as each
+        would alone. "hidden" hides threads from Overleaf on the page only, and "open" shows
+        hidden ones again: neither reaches Overleaf unless a thread was resolved there, as
+        when an undo puts a resolved thread back to hidden. An undo that resolves comments
+        again gives each the moment it was resolved at before, by id (resolved)."""
         data, err = await self._read_json(request)
         if err is not None:
             return err
         ids, status, times = data.get("ids"), data.get("status"), data.get("resolved", {})
         if not isinstance(ids, list) or not all(isinstance(cid, str) for cid in ids):
             return web.json_response({"error": "ids must be a list of comment ids"}, status=400)
-        if status not in ("open", "resolved", "archived"):
-            return web.json_response({"error": "status must be open, resolved or archived"}, status=400)
+        if status not in ("open", "resolved", "archived", "hidden"):
+            return web.json_response({"error": "status must be open, resolved, archived or hidden"}, status=400)
         try:
             if not isinstance(times, dict) or (times and status != "resolved") or not set(times) <= set(ids):
                 raise ValueError
@@ -2984,17 +2992,24 @@ class TexMcpWebServer:
         except (TypeError, ValueError):
             return web.json_response({"error": "resolved must map ids being resolved to the ISO times "
                                                "they were resolved at before"}, status=400)
-        present = {comment.id for comment in self.comments.list()}
+        present = {comment.id: comment for comment in self.comments.list()}
         if missing := [cid for cid in ids if cid not in present]:
             return web.json_response({"error": f"no comment {', '.join(missing)}"}, status=404)
         followed = {known["comment"]: thread for thread, known in self._overleaf_ledger().items()}
-        threads = {followed[cid]: cid for cid in ids if cid in followed}
-        if threads and status == "archived":
-            return self._follows_overleaf(next(iter(threads.values())))
+        if followed.keys() & set(ids) and status == "archived":
+            return self._follows_overleaf(next(cid for cid in ids if cid in followed))
+        if status == "hidden" and (here := [cid for cid in ids if cid not in followed]):
+            return web.json_response({"error": f"only a thread from Overleaf can be hidden, not {', '.join(here)}"},
+                                     status=409)
+        # Overleaf hears of a thread resolved, or of one reopened that is not open there.
+        threads = {followed[cid]: cid for cid in ids
+                   if cid in followed and (status == "resolved" or present[cid].status != "open")}
         refused = await self._set_on_overleaf(threads, status == "resolved", times) if threads else None
         if refused is None:
             for cid in ids:
                 if cid in followed:
+                    if status in ("open", "hidden"):
+                        self.comments.set_hidden(cid, status == "hidden")
                     continue
                 if status == "resolved":
                     self.comments.resolve(cid, summary="", author="human", at=times.get(cid))

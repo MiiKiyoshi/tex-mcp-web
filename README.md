@@ -90,9 +90,11 @@ tab of their own, **Comments** with a leaf icon, next to the tab for the comment
 the page. Within a thread you talk with the agent, which drafts the public reply in the box
 below the thread, and you send that reply once you are happy with it.
 
-Each tab opens on its **to do** view, which lists what is still pending: a comment the agent
-has not answered, a suggestion to apply, a reply to send or a suggested edit to accept. The
-number on the tab counts these items, and when it disappears, you are done.
+Each tab opens on its **open** view. A comment is marked **unanswered** when its last message
+is not yours: the agent's reply in the Comments tab, or a co-author's message in the Overleaf
+tab. The **unanswered** view lists just those. The number on each tab counts them, along with
+the suggested edits waiting in the Overleaf tab, and when it disappears, nothing is waiting for
+your reply.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/overleaf-thread-dark.webp">

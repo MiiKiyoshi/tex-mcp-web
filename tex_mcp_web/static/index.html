@@ -51,7 +51,7 @@
           <!-- The source translated, under the Preview or the editor: a check mark once a language
                is configured, and with none the pane all the same. -->
           <button id="translation-btn" type="button" role="menuitem">Translation…</button>
-          <button id="keys-btn" type="button" role="menuitem">Keyboard shortcuts (?)</button>
+          <button id="help-btn" type="button" role="menuitem">Help (?)</button>
           <button id="download-pdf-btn" type="button" role="menuitem">Download PDF</button>
           <button id="settings-menu-btn" type="button" role="menuitem">Settings…</button>
           <button id="update-btn" type="button" role="menuitem" hidden></button>
@@ -157,8 +157,8 @@
                  for the shortest view's name it is its icon alone, with the list lying clear over it. -->
             <span class="pick view-pick"><span class="icon-btn view-icon" aria-hidden="true">
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h12l-4.5 5.5V13l-3-1.5V8.5z"/></svg>
-              </span><span id="comment-filter-name" class="pick-name" aria-hidden="true">to do</span><select id="comment-filter" aria-label="View">
-              <option value="todo" selected>to do</option>
+              </span><span id="comment-filter-name" class="pick-name" aria-hidden="true">open</span><select id="comment-filter" aria-label="View">
+              <option value="open" selected>open</option>
             </select></span>
             <!-- The order of the list, kept for each comment tab. In a row short of room it is its
                  icon alone, with the list lying clear over it. -->
@@ -194,6 +194,13 @@
             </button>
             <button id="archive-picked-btn" class="icon-btn" type="button" disabled data-status="archived" aria-label="Archive" title="Archive the selected comments">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 3h12v3H2z"/><path d="M3 6v7h10V6M6 9h4"/></svg><span class="count"></span>
+            </button>
+            <!-- Shown in the leaf Comments tab in place of Archive: hides the selected threads on this
+                 page only, or shows hidden ones again. -->
+            <button id="hide-picked-btn" class="icon-btn" type="button" hidden disabled data-status="hidden" aria-label="Hide" title="Hide the selected threads here without changing them on Overleaf">
+              <svg class="icon-hide" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8 12.1 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/><path d="M2.5 2.5l11 11"/></svg>
+              <svg class="icon-show hidden" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8 12.1 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg>
+              <span class="count"></span>
             </button>
             <!-- Shown in the leaf tab's suggested edits view, in place of Resolve and Send: the picked
                  suggested edits are accepted or rejected on Overleaf. -->
@@ -239,6 +246,7 @@
           <button type="button" tabindex="-1" data-insert="OR" title="Match either the word before or the word after">OR</button>
           <button type="button" tabindex="-1" data-insert="after:" title="Show comments written on or after a date, such as 11-13, 2026-11-13 or 11-13T09:30">after:</button>
           <button type="button" tabindex="-1" data-insert="before:" title="Show comments written before a date, such as 11-13, 2026-11-13 or 11-13T09:30">before:</button>
+          <button id="search-help-btn" class="search-help" type="button" tabindex="-1" title="Search help">more…</button>
           <div id="search-pick" class="search-pick" role="listbox" aria-label="Suggestions" hidden></div>
         </div>
         <!-- Said after a call to the agent that no agent heard, until one listens. -->
@@ -383,14 +391,208 @@
   </form>
 </dialog>
 
-<!-- The comment keys, which the page lists here from the keys themselves. -->
-<dialog id="keys-dialog">
-  <form method="dialog" id="keys-form">
-    <h3>Keyboard shortcuts</h3>
-    <p>These shortcuts act on the current comment when the Comments tab is open and you are not
-      typing. For a doubled letter such as dd, press the key twice.</p>
-    <div id="keys-list"></div>
-    <p id="keys-picked"></p>
+<!-- Help, in four pages chosen by the tabs. The comment keys on the Keys page are filled in
+     from the keys themselves each time the dialog opens. The tests type the examples on the
+     Search page into the search box, so each one must find what its text says. -->
+<dialog id="help-dialog" aria-labelledby="help-title">
+  <form method="dialog" id="help-form">
+    <h3 id="help-title">Help</h3>
+    <div id="help-tabs" class="help-tabs" role="tablist" aria-label="Help pages">
+      <button type="button" role="tab" id="help-tab-start" data-page="start" aria-controls="help-start" aria-selected="true">Start here</button>
+      <button type="button" role="tab" id="help-tab-search" data-page="search" aria-controls="help-search" aria-selected="false" tabindex="-1">Search</button>
+      <button type="button" role="tab" id="help-tab-overleaf" data-page="overleaf" aria-controls="help-overleaf" aria-selected="false" tabindex="-1">Overleaf</button>
+      <button type="button" role="tab" id="help-tab-keys" data-page="keys" aria-controls="help-keys" aria-selected="false" tabindex="-1">Keys</button>
+    </div>
+    <div id="help-pages" class="help-pages">
+      <section id="help-start" class="help-page" role="tabpanel" aria-labelledby="help-tab-start">
+        <h4>Add a comment</h4>
+        <p>Select words in the Preview and choose <b>Comment</b>. In the Source, select text and
+          press the comment <span class="help-nowrap">button <svg class="help-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M12 7v6M9 10h6"/></svg></span>
+          in the editor's toolbar. For a figure, a table or anything else without text to select,
+          choose the box <span class="help-nowrap">tool <svg class="help-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9V3h6M15 3h6v6M21 15v6h-6M9 21H3v-6M8 12h8M12 8v8"/></svg></span>
+          in the Preview's toolbar and draw a box over it. To comment on the paper as a whole,
+          choose <b>Comment on the whole paper…</b> in the ⋯ menu.</p>
+        <h4>Call the agent</h4>
+        <p>Write as many comments as you like. When they are ready, press the
+          <span class="help-nowrap">bell <svg class="help-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11V7a4 4 0 0 1 8 0v4l1.5 1.5h-11z"/><path d="M6.5 14a1.5 1.5 0 0 0 3 0"/></svg></span>
+          above the comment list, or <kbd>Ctrl+Alt+Enter</kbd>, and the agent receives them all at
+          once. The bell is green while an agent is listening. When it is red, the call is queued
+          until an agent connects.</p>
+        <h4>Read the reply</h4>
+        <p>The agent edits the LaTeX source, compiles the paper and replies in each comment's
+          thread. When the wording is yours to decide, it proposes a change instead. The card
+          shows the current lines marked − and the new ones marked +, and the Source highlights
+          the same text in red. <b>Apply suggestion</b> writes the change into the file, and
+          <b>Reject</b> discards it. To ask for something different, use <b>Reply privately</b>
+          and call the agent again.</p>
+        <p>A comment is unanswered when its last message is from the agent. Its card is marked
+          <span class="cmt-unanswered">unanswered</span>, the <b>unanswered</b> view lists only
+          those comments, and the number on the Comments tab counts them.</p>
+        <h4>Finish a thread</h4>
+        <p>When the change is what you wanted, press <b>Resolve</b> on the card. <b>Archive</b>
+          sets a thread aside without resolving it, and you can still reply to it. After either
+          one, a line above the list says what was done, and <b>Undo</b> on that line, or the
+          <kbd>u</kbd> key, reverses it.</p>
+      </section>
+      <section id="help-search" class="help-page" role="tabpanel" aria-labelledby="help-tab-search" hidden>
+        <p>The search box above the comment list finds comments in the tab that is open, in any
+          status. Press <kbd>/</kbd> to go to it.</p>
+        <h4>Example: a co-author's comment</h4>
+        <p>Suppose several people work on the paper on Overleaf, and you want to find a comment
+          your co-author Ann Lee left a few days ago. You remember that it was about 2_main.tex and
+          that she wrote it on the morning of November&nbsp;13. Open the
+          <span class="help-nowrap"><svg class="help-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13C3 7 7 3 13 3c0 6-4 10-10 10z"/><path d="M3 13l6-6"/></svg> <b>Comments</b></span>
+          tab, where the threads from Overleaf are listed, and type the following in the search
+          box.</p>
+        <ol class="help-steps">
+          <li><code class="help-typed"><span>from:ann</span></code>
+            <p>The list shows only the threads Ann Lee wrote in, on any file. As you type after
+              <code>from:</code>, the names of the people in the tab appear under the box, and you
+              can pick one with a click or with the arrow keys and Enter.</p></li>
+          <li><code class="help-typed"><span>from:ann</span> <span>file:2_main</span></code>
+            <p>Adding <code>file:2_main</code> leaves only her threads on 2_main.tex. Part of a
+              file name is enough.</p></li>
+          <li><code class="help-typed"><span>from:ann</span> <span>file:2_main</span> <span>after:11-12</span> <span>before:11-14</span></code>
+            <p><code>after:11-12</code> keeps the threads with a message written on or after
+              November&nbsp;12, and <code>before:11-14</code> keeps those with a message written
+              before November&nbsp;14. Two threads are left.</p></li>
+          <li><code class="help-typed"><span>from:ann</span> <span>file:2_main</span> <span>after:11-13T09</span> <span>before:11-13T12</span></code>
+            <p>A time works the same way, here 9:00 and 12:00 on November&nbsp;13. Only the
+              comment you were looking for is left.</p></li>
+        </ol>
+        <p>While you search, the view list shows <b>all</b>, because the search covers threads in
+          every status. Press Enter to move to the results and go through them with the keys.
+          Press Escape in the search box to clear the search and return to the view you had.</p>
+        <p>The sort list orders the results as it does in any view. With <b>paper order</b>,
+          threads from Overleaf follow the order of the paper, and your own comments the order
+          you wrote them in. <b>latest first</b> and <b>oldest first</b> order them by each
+          thread's most recent message.</p>
+        <h4>Search terms</h4>
+        <table id="help-search-terms" class="help-table">
+          <thead><tr><th>Search</th><th>Finds threads that</th></tr></thead>
+          <tbody>
+            <tr><td><code>caption width</code></td><td>contain both words, in any order</td></tr>
+            <tr><td><code>figure OR table</code></td><td>contain either word</td></tr>
+            <tr><td><code>"base case"</code></td><td>contain the exact phrase</td></tr>
+            <tr><td><code>-appendix</code></td><td>don't contain the word</td></tr>
+            <tr><td><code>from:ann</code></td><td>have a message from someone whose name contains “ann”</td></tr>
+            <tr><td><code>file:2_main</code></td><td>are on a file whose path contains “2_main”</td></tr>
+            <tr><td><code>after:11-12</code></td><td>have a message written on or after November&nbsp;12</td></tr>
+            <tr><td><code>before:11-14</code></td><td>have a message written before November&nbsp;14</td></tr>
+          </tbody>
+        </table>
+        <p>Write OR in capitals. It splits the search into alternatives, so
+          <code>caption width OR table</code> finds threads that contain both caption and width,
+          or that contain table. A minus also works before a phrase or a term with a colon, as in
+          <code>-from:agent</code>. Use <code>from:me</code> for your own messages,
+          <code>from:agent</code> for the agent's, and quotes for a name with a space, as in
+          <code>from:"Ann Lee"</code>.</p>
+        <h4>Dates and times</h4>
+        <table id="help-search-dates" class="help-table">
+          <thead><tr><th>Date</th><th>Means</th></tr></thead>
+          <tbody>
+            <tr><td><code>11-12</code></td><td>November&nbsp;12 of this year</td></tr>
+            <tr><td><code>2026-11-12</code></td><td>November&nbsp;12, 2026</td></tr>
+            <tr><td><code>11-12T09</code></td><td>9:00 on November&nbsp;12</td></tr>
+            <tr><td><code>11-12T09:30</code></td><td>9:30 on November&nbsp;12</td></tr>
+            <tr><td><code>"11-12 09:30"</code></td><td>9:30 on November&nbsp;12, written as the comment cards show it</td></tr>
+          </tbody>
+        </table>
+        <p>Dates and times are in your computer's time zone, as on the comment cards. A date
+          without a time means the start of that day, so <code>before:11-14</code> still includes
+          November&nbsp;13.</p>
+        <p>The search looks for words in the messages and their writers' names, the text a comment
+          is on, its file name, proposed changes and drafts for Overleaf. Capital letters don't
+          matter. Each term is checked against the whole thread rather than a single message, so
+          <code>from:ann after:11-12</code> also finds a thread Ann Lee wrote in on
+          November&nbsp;10 if someone else replied on November&nbsp;12. A word with a colon that
+          isn't one of these terms, such as <code>note:</code>, is searched for as an ordinary
+          word.</p>
+      </section>
+      <section id="help-overleaf" class="help-page" role="tabpanel" aria-labelledby="help-tab-overleaf" hidden>
+        <p>Once the paper is connected to its Overleaf project in Settings, the comment threads
+          from Overleaf appear in a second Comments tab, marked with a
+          <span class="help-nowrap">leaf <svg class="help-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13C3 7 7 3 13 3c0 6-4 10-10 10z"/><path d="M3 13l6-6"/></svg>.</span>
+          The first Comments tab lists the comments you write for the agent.</p>
+        <h4>Views in the leaf tab</h4>
+        <p>The leaf tab opens on <b>open</b>, which lists its open threads and, after them, the
+          suggested edits waiting for you to accept or reject. A thread is unanswered when its last
+          message on Overleaf is from someone else, and the <b>unanswered</b> view lists only those
+          threads. The number on the tab counts the unanswered threads and the suggested edits.
+          The <b>drafts</b> view lists the threads with something not yet sent to Overleaf, new
+          threads first and then replies the agent has drafted.</p>
+        <h4>Public and private messages</h4>
+        <p>Comments in the first Comments tab are private, so only you and the agent can see them.
+          A thread from Overleaf can contain both kinds of message. Your co-authors' messages and
+          the replies you send are public, marked
+          <span class="help-nowrap"><svg class="help-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13C3 7 7 3 13 3c0 6-4 10-10 10z"/><path d="M3 13l6-6"/></svg> public,</span>
+          and everyone in the project can read them. Messages you exchange with the agent through
+          <b>Reply privately</b> are marked private and are never sent to Overleaf.</p>
+        <h4>Replying on Overleaf</h4>
+        <p>The box under a thread is for its public reply. The agent can write a draft there for
+          you to edit. <span class="help-nowrap"><b>Send to</b> <svg class="help-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13C3 7 7 3 13 3c0 6-4 10-10 10z"/><path d="M3 13l6-6"/></svg></span>
+          posts the reply to Overleaf, where everyone in the project can read it. To send the
+          replies of several threads at once, select them and press the send
+          <span class="help-nowrap">button <svg class="help-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2L7 9"/><path d="M14 2l-4.5 12L7 9 2 6.5z"/></svg></span>
+          above the list. <b>Reject draft</b> removes the agent's draft. Say why in a private
+          reply, and the agent will write a new one the next time you call it.</p>
+        <p>To start a new thread on Overleaf, turn on the <span class="help-nowrap">leaf <svg class="help-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13C3 7 7 3 13 3c0 6-4 10-10 10z"/><path d="M3 13l6-6"/></svg></span>
+          in the Source toolbar, then select text in the Source and comment on it.</p>
+        <h4>Resolving and hiding threads</h4>
+        <p><b>Resolve</b> and <b>Reopen</b> on a thread from Overleaf change it on Overleaf, for
+          everyone in the project. When you resolve or reopen several selected Overleaf threads at
+          once, the page asks you to confirm first. <b>Undo</b> reverses the change on Overleaf
+          too.</p>
+        <p>Overleaf has no archive. To put a thread out of the way without changing it on
+          Overleaf, press <b>Hide</b>. It stays open for everyone else and moves to the
+          <b>hidden</b> view, where <b>Show</b> brings it back. If someone else writes in a hidden
+          thread, it is shown again so that you don't miss the message.</p>
+        <h4>Your co-authors and your cursor</h4>
+        <p>Co-authors who have the project open appear as faces in the top bar. Click a face to go
+          to the file and line that person is on. In Settings, under <b>Your cursor on
+          Overleaf</b>, <b>Show my cursor</b> lets your co-authors see your cursor in this page's
+          editor, and you see theirs as they move. With <b>Hidden</b>, they don't see your cursor,
+          and Overleaf doesn't show you as online. You can still see who is in the project, but
+          their cursors may be up to five minutes old.</p>
+        <h4>git pull and commit &amp; push</h4>
+        <p>If the paper's folder is a git clone of the Overleaf project, <b>git pull</b> and
+          <b>commit &amp; push</b> appear in the top bar when there is something to pull or push.
+          The number on git pull is how many commits Overleaf has that this folder doesn't, and
+          the number on commit &amp; push is how many commits it will send. In a folder that isn't
+          a git clone, the buttons read <b>Get</b> and <b>Send</b> and count files instead.</p>
+      </section>
+      <section id="help-keys" class="help-page" role="tabpanel" aria-labelledby="help-tab-keys" hidden>
+        <div class="keys-grid">
+          <h4>Comments</h4>
+          <p>These shortcuts act on the current comment when the Comments tab is open and you are
+            not typing. For a doubled letter such as dd, press the key twice.</p>
+          <div id="keys-list"></div>
+          <p id="keys-picked"></p>
+          <h4>Source editor</h4>
+          <span class="keys-of"><kbd>Ctrl+S</kbd></span><span>Save the file</span>
+          <span class="keys-of"><kbd>Ctrl+Enter</kbd></span><span>Compile the paper</span>
+          <span class="keys-of"><kbd>Ctrl+Alt+M</kbd></span><span>Comment on the selected text</span>
+          <span class="keys-of"><kbd>Ctrl+Alt+P</kbd></span><span>Show the selected text in the Preview</span>
+          <span class="keys-of"><kbd>Ctrl+Alt+K</kbd></span><span>Go to the comment at the cursor in the comment list. Press it again there to come back.</span>
+          <span class="keys-of"><kbd>F12</kbd></span><span>Go to the file, label or .bib entry that the \input, \ref or \cite at the cursor names</span>
+          <span class="keys-of"><kbd>Shift+F12</kbd></span><span>Go back to where you were</span>
+          <span class="keys-of"><kbd>Ctrl+Space</kbd></span><span>Show suggestions for what you are typing, such as labels after \ref. Enter or Tab inserts the selected one.</span>
+          <span class="keys-of"><kbd>Ctrl+Alt+Enter</kbd></span><span>Call the agent</span>
+          <h5>With Vim keys</h5>
+          <p>To use Vim keys, turn them on in the ⋯ menu at the end of the editor's toolbar. These
+            keys then work along with Vim's usual ones.</p>
+          <span class="keys-of"><kbd>:w</kbd></span><span>Save the file</span>
+          <span class="keys-of"><kbd>:make</kbd></span><span>Compile the paper</span>
+          <span class="keys-of"><kbd>jj</kbd><kbd>Escape</kbd><kbd>Ctrl+[</kbd></span><span>Leave Insert mode. Type jj quickly.</span>
+          <span class="keys-of"><kbd>gc</kbd></span><span>Comment on the text a motion or selection covers, as in gcc for the line or gcip for the paragraph</span>
+          <span class="keys-of"><kbd>gs</kbd></span><span>Show the text a motion or selection covers in the Preview, as in gss for the line</span>
+          <span class="keys-of"><kbd>K</kbd></span><span>Go to the comment at the cursor in the comment list</span>
+          <span class="keys-of"><kbd>gd</kbd><kbd>Ctrl+]</kbd></span><span>Go to the file, label or .bib entry named at the cursor</span>
+          <span class="keys-of"><kbd>Ctrl+O</kbd><kbd>Ctrl+T</kbd></span><span>Go back. On Windows, use Ctrl+O, since the browser opens a new tab with Ctrl+T.</span>
+          <p>Text you yank is also copied to the system clipboard.</p>
+        </div>
+      </section>
+    </div>
     <div class="dialog-actions">
       <button type="submit">Close</button>
     </div>

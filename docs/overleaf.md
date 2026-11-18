@@ -33,15 +33,15 @@ address, so on the shared machine's own browser, open no page another account se
 - The threads come into the leaf **Comments** tab beside **Comments**, kept as Overleaf has
   them. The editor and the PDF mark the open comments of the tab shown. The tab lists the
   threads in the order the paper reads them, or latest or oldest first as its sort list
-  says (see [Threads](reviewing.md#threads)), and opens on **to do**, what waits for you
-  alone: a thread whose last message on Overleaf is someone else's, a suggestion to apply,
-  a draft to send, a reply or a new thread, and the suggested edits to accept or reject. Each leaves it once done, so an empty to do is nothing left,
-  and the number on the tab counts what is in it.
-  **unanswered** holds the open threads whose last message on Overleaf is someone else's,
-  and a reply sent from here, or one written on Overleaf under your name, moves a thread to
-  **answered**. The list atop the tab also shows the new threads, the suggested edits, and
-  the open, resolved and all threads. A comment opened from its mark in the PDF or the
-  editor, when to do leaves it out, shows in **open**.
+  says (see [Threads](reviewing.md#threads)), and opens on **open**. A thread is unanswered
+  when its last message on Overleaf is from someone else: the open view marks it,
+  **unanswered** lists it, and the number on the tab counts it, with the suggested edits
+  waiting. A reply sent from here, or one written on Overleaf under your name, answers a
+  thread, and a new thread not sent yet, which has no message, is only open. **drafts** lists
+  the threads with something not yet sent to Overleaf: the new threads not opened there yet
+  first, then the threads with a reply drafted, each group in the order the sort list sets. A
+  thread leaves it once its draft is sent or rejected. The list atop the tab also shows the
+  suggested edits and the hidden, resolved and all threads.
 - The sync button with the leaf atop the tab, behind **⋯** when the panel is too narrow for
   it, brings Overleaf's open threads in as comments
   on the words they were written about, with their replies. While a page is open, a new
@@ -61,6 +61,15 @@ address, so on the shared machine's own browser, open no page another account se
   without asking. Overleaf has no archive and deletes a thread only there, so the page
   offers neither. A message reworded or deleted there is reworded or deleted here, a thread
   deleted there is deleted here, and one deleted here comes back.
+- **Hide**, on a card or for the selected threads, puts a thread out of the way on this page
+  only. Nothing is sent to Overleaf, where the thread stays open for everyone. A hidden thread
+  is no longer listed in **open** or **unanswered** or counted on the tab, and the PDF and the
+  editor no longer mark it. It is listed in **hidden** and **all**, where **Show** brings it
+  back. If someone else writes in it on Overleaf, it is shown again automatically, and a
+  hidden thread that is resolved is listed as resolved. **Undo** reverses Hide and Show, and
+  the `A` key hides or shows the current thread, as it archives a comment in the first
+  Comments tab. The agent treats a hidden thread as set aside, the same way it treats an
+  archived comment.
 
 ## Replying
 
@@ -83,7 +92,7 @@ address, so on the shared machine's own browser, open no page another account se
   turned down. Nothing goes to Overleaf, and your next **Call agent** tells the agent once.
   Say why in a private reply, and the agent drafts again. The send button atop
   the tab sends the reply of every picked thread, one after another, and a refused one
-  keeps its words and says why on its card while the rest go. A thread leaves **to do** and
+  keeps its words and says why on its card while the rest go. A thread leaves
   **unanswered** the moment you send its reply, so you go on to the next while the reply is
   on its way, and comes back, opened and saying why, only when Overleaf refuses it. In the
   other views, while a reply is on its way, and while the sync button brings threads in,
@@ -127,7 +136,8 @@ rejects it. Overleaf's text holds a suggested insertion's words and not a sugges
 and so do the files here once they hold Overleaf's text.
 
 - The leaf Comments tab's **suggested edits** view lists them in the order the paper reads
-  them, and the tab's number counts them with the rest of its to do. A card names who suggested the edit and
+  them, the open view lists them after its threads, and the tab's number counts them with its
+  unanswered threads. A card names who suggested the edit and
   when, and shows the deleted words on a − line and the inserted ones on a + line, as a
   proposal's are shown. Words typed over others make one card. A click on the card, or Space,
   shows the edit in the source.

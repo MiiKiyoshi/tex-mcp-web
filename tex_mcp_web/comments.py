@@ -605,6 +605,10 @@ class Comment:
     # The hash of the file's text in which resolved_source is exact, kept under
     # anchor-texts beside the store: the next edits to the file move the comment from it.
     base: str | None = None
+    # When the reviewer hid this open thread from Overleaf on the page, which changes nothing on
+    # Overleaf; None while it is shown. Resolving it, or a new message from someone else on
+    # Overleaf, shows it again.
+    hidden: str | None = None
 
     @property
     def text(self) -> str:
@@ -622,7 +626,10 @@ class Comment:
         before it all the same, so that is not asked again. *after* leaves only those
         written after that moment, and with it the record of a suggestion applied, or of a
         suggestion or a draft rejected, is among them on any thread: it asks nothing, and
-        the agent hears once what became of what it put up."""
+        the agent hears once what became of what it put up. A hidden thread is set aside, as
+        an archived one is, and waits for nothing."""
+        if self.hidden is not None:
+            return []
         answered = max((position for position, entry in enumerate(self.thread) if entry.author == "agent"), default=-1)
         # Up to when each reply sent to Overleaf answers: its draft's moment, or its own.
         # A draft rejected answers up to its moment as one sent does.
@@ -665,7 +672,15 @@ class Comment:
             d["reanchored"] = True
         if self.base is not None:
             d["base"] = self.base
+        if self.hidden is not None:
+            d["hidden"] = self.hidden
         return d
+
+    @property
+    def shown_status(self) -> str:
+        """The status the page and the agent list the thread under: "hidden" for an open
+        thread the reviewer hid, else its status."""
+        return "hidden" if self.hidden is not None and self.status == "open" else self.status
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "Comment":
@@ -701,6 +716,7 @@ class Comment:
             stale=bool(d["stale"]) if "stale" in d else False,
             reanchored=bool(d.get("reanchored", False)),
             base=str(d["base"]) if "base" in d else None,
+            hidden=str(d["hidden"]) if "hidden" in d else None,
         )
 
 
@@ -1577,6 +1593,9 @@ class CommentStore:
                     if new_status is not None:
                         c.status = new_status
                         c.resolved = (resolved_at or now) if new_status == "resolved" else None
+                        # A resolved thread is listed as resolved, not as hidden.
+                        if new_status == "resolved":
+                            c.hidden = None
                     c.updated = now
                     comments[i] = c
                     self._save(comments)
@@ -1920,6 +1939,19 @@ class CommentStore:
     def archive(self, comment_id: str, author: Author = "human") -> Comment:
         """Set the thread aside to be read again; its entries stay as they are."""
         return self._append_entry(comment_id, author, "", new_status="archived")
+
+    def set_hidden(self, comment_id: str, hidden: bool) -> Comment:
+        """Hide a thread on the page, stamped now, or show it again. Only the page's view of
+        it changes, so its updated stamp, which writes are checked against, stays."""
+        with self._locked():
+            comments = self._all()
+            for comment in comments:
+                if comment.id == comment_id:
+                    if hidden != (comment.hidden is not None):
+                        comment.hidden = _now() if hidden else None
+                        self._save(comments)
+                    return comment
+        raise KeyError(f"comment {comment_id!r} not found")
 
     def edit_entry(
         self,

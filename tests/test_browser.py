@@ -53,7 +53,7 @@ def type_keys(browser, keys):
 
 def show_view(browser, view: str) -> None:
     """The comment list's view, chosen as a reader chooses it in the list atop the tab, once the
-    page has drawn the tab's views: each comment tab opens on to do."""
+    page has drawn the tab's views: each comment tab opens on open."""
     wait_until(lambda: browser.execute_script(
         'return [...document.querySelectorAll("#comment-filter option")].some((o) => o.value === arguments[0])',
         script_args=[view]))
@@ -2142,9 +2142,10 @@ def test_the_top_bar_fits_a_phone_at_every_text_size(tmp_path: Path) -> None:
 
 @needs_browser
 def test_the_row_above_the_leaf_tabs_list_stays_one_line_at_every_text_size(tmp_path: Path) -> None:
-    """In the leaf tab, with a suggested edit from Overleaf in to do, the row above the list
-    stays one line at every text size from a 240px panel up, a thread picked or not: Send drops
-    its leaf, Accept and Reject wait behind the dots, and last the view list is its icon."""
+    """In the leaf tab, with a search that finds a thread and a suggested edit from Overleaf, so
+    that Resolve, Hide, Accept, Reject and Send all show, the row above the list stays one line
+    at every text size from a 240px panel up, a thread picked or not: Send drops its leaf,
+    Accept and Reject wait behind the dots, and last the view list is its icon."""
     (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
     port = available_port()
     config_path = tmp_path / ".tex-mcp-web.yaml"
@@ -2170,8 +2171,15 @@ def test_the_row_above_the_leaf_tabs_list_stays_one_line_at_every_text_size(tmp_
                                                   "line_end": 4, "column_start": 0, "column_end": 5},
                                        "draft": "Is this greeting right?", "text": "ask politely", "overleaf": True})
         script(f'document.querySelector(\'{tab}\').click()')
+        # The open view lists the thread and then the suggested edit.
+        wait_until(lambda: script('return [...document.querySelectorAll("#comments-list .cmt")]'
+                                  '.map((card) => card.classList.contains("suggested-edit"))') == [False, True])
+        script('const box = document.querySelector("#comment-search"); box.value = "hello";'
+               ' box.dispatchEvent(new Event("input"))')
         wait_until(lambda: script('return document.querySelector("#comments-list .suggested-edit") !== null'
                                   ' && document.querySelectorAll("#comments-list .cmt").length === 2'))
+        assert script('return ["#resolve-picked-btn", "#hide-picked-btn", "#accept-picked-btn", "#send-picked-btn"]'
+                      '.every((id) => !document.querySelector(id).hidden)')
         sizes = script(TEXT_SIZES)
         row = '''const row = document.querySelector(".filter-row");
           return row.scrollWidth <= row.clientWidth && !row.classList.contains("wrapped")
@@ -2221,10 +2229,11 @@ def test_the_page_says_how_to_comment_how_comments_reach_the_agent_and_what_a_se
         listed = 'return [...document.querySelectorAll("#comments-list .placeholder")].map((line) => line.textContent)'
         how = "To comment, select words in the Preview or the Source, or draw a box with the box tool."
         # Nothing at all in the tab: the list says how to comment, in every view.
-        wait_until(lambda: script(listed) == ["Nothing is left to do here.", how])
-        show_view(browser, "open")
         wait_until(lambda: script(listed) == ["No comments in this view.", how])
-        show_view(browser, "todo")
+        show_view(browser, "unanswered")
+        wait_until(lambda: script(listed) == ["No comments in this view.", how]
+                   and script('return document.querySelector("#comment-filter").value') == "unanswered")
+        show_view(browser, "open")
         note = 'const note = document.querySelector("#call-agent-why"); return note.hidden ? null : note.textContent'
         assert script(note) is None
         # The Post button names the key that sends, as Settings chooses it.
@@ -2253,16 +2262,16 @@ def test_the_page_says_how_to_comment_how_comments_reach_the_agent_and_what_a_se
         # the list is back on its view.
         view = ('const f = document.querySelector("#comment-filter");'
                 ' return [f.value, f.classList.contains("searching"), getComputedStyle(f).color, f.title]')
-        todo = script(view)
-        assert todo[:2] == ["todo", False] and todo[3] == "Showing to do"
+        shown = script(view)
+        assert shown[:2] == ["open", False] and shown[3] == "Showing open"
         script('const box = document.querySelector("#comment-search"); box.value = "opening";'
                ' box.dispatchEvent(new Event("input"))')
         wait_until(lambda: script(view)[:2] == ["all", True])
         searching = script(view)
-        assert searching[2] != todo[2] and searching[3] == "The search covers all comments. Choose a view to clear it."
+        assert searching[2] != shown[2] and searching[3] == "The search covers all comments. Choose a view to clear it."
         script('const box = document.querySelector("#comment-search"); box.focus();'
                ' box.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}))')
-        wait_until(lambda: script(view)[:2] == ["todo", False])
+        wait_until(lambda: script(view)[:2] == ["open", False])
         # The bell takes the note about it away, and a comment posted after says it no more.
         script('document.querySelector("#call-agent-btn").click()')
         wait_until(lambda: script(note) != reminder)
@@ -2576,11 +2585,12 @@ def test_r_right_after_space_keeps_the_reply_box_when_the_jump_ends(tmp_path: Pa
 
 @chrome.not_in_safari("a key that opens a confirm() does not return until the dialog closes, and the driver takes no command meanwhile")
 @needs_browser
-def test_each_comment_tab_opens_on_what_waits_for_the_reviewer(tmp_path: Path) -> None:
-    """The Comments tab opens on to do: the comments the agent has yet to answer and those
-    whose suggestion waits to be applied. Answered with nothing to apply, a comment leaves
-    it, and a reply brings it back. The editor still marks every open comment, one opened
-    from its mark shows in the open view, and applied, the suggestion leaves to do empty."""
+def test_the_comments_tab_opens_on_open_and_marks_what_waits_for_the_reviewer(tmp_path: Path) -> None:
+    """The Comments tab opens on open. A comment is unanswered while its last message is the
+    agent's, a reply or a proposed change, until the reviewer replies, applies or rejects: the
+    open view marks it, the unanswered view lists it, and the tab's number counts it. A comment
+    the agent has not answered yet is open and nothing more. The editor marks every open
+    comment, and one opened from its mark shows in the open view."""
     lines = [f"Sentence {n} of an invented body." for n in range(1, 21)]
     (tmp_path / "paper.tex").write_text(
         "\\documentclass{article}\n\\begin{document}\n" + "\n".join(lines) + "\n\\end{document}\n", encoding="utf-8")
@@ -2605,37 +2615,43 @@ def test_each_comment_tab_opens_on_what_waits_for_the_reviewer(tmp_path: Path) -
         script = lambda code: browser.execute_script(code, sandbox=None)
         listed = lambda: script('return [...document.querySelectorAll("#comments-list .cmt")].map((c) => c.dataset.commentId)')
         wait_until(lambda: listed() == [asked["id"], proposed["id"]])
-        assert script('return document.querySelector("#comment-filter-name").textContent') == "to do"
-        assert script('return document.querySelector("#comments-tab-count").textContent') == "2"
-        # Answered with nothing to apply, the comment leaves to do, and the tab's number
-        # counts the to do, not every open comment.
-        shared.server.comments.reply(asked["id"], "It is.", author="agent")
-        show_view(browser, "todo")
-        wait_until(lambda: listed() == [proposed["id"]])
+        assert script('return document.querySelector("#comment-filter-name").textContent') == "open"
         assert script('return document.querySelector("#comments-tab-count").textContent') == "1"
+        # Only the comment with a change for the reviewer is marked: the other waits for the agent.
+        marked = lambda: script('return [...document.querySelectorAll("#comments-list .cmt")]'
+                                '.filter((c) => c.querySelector(".cmt-unanswered")).map((c) => c.dataset.commentId)')
+        assert marked() == [proposed["id"]]
+        assert script('return document.querySelector("#comments-list .cmt-unanswered").title') == "Waiting for your response"
+        # The unanswered view lists that one alone, and there its card needs no mark.
+        show_view(browser, "unanswered")
+        wait_until(lambda: listed() == [proposed["id"]])
+        assert marked() == []
         # The editor marks both open comments, whatever the list shows.
         script('document.querySelector("[data-view=source]").click()')
         wait_until(lambda: script('return document.querySelectorAll("#source-editor .source-comment-highlight").length') == 2)
-        # K on the words of the comment to do leaves out opens it in the open view.
+        # K on the words of the comment the view leaves out opens it in the open view.
         script('const e = ace.edit("source-editor"); e.focus(); e.gotoLine(5, 2);')
         type_keys(browser, ["K"])
         wait_until(lambda: script('return document.querySelector("#comment-filter").value') == "open")
         wait_until(lambda: script('return document.querySelector(".cmt.is-focused")?.dataset.commentId') == asked["id"])
-        # Applied, the suggestion leaves nothing to do.
-        show_view(browser, "todo")
-        wait_until(lambda: listed() == [proposed["id"]])
+        # Answered by the agent, the comment is unanswered too, and the tab counts both.
+        shared.server.comments.reply(asked["id"], "It is.", author="agent")
+        show_view(browser, "unanswered")
+        wait_until(lambda: listed() == [asked["id"], proposed["id"]])
+        wait_until(lambda: script('return document.querySelector("#comments-tab-count").textContent') == "2")
+        # Applied, the suggestion is answered; a reply answers the other.
         script('document.querySelector("#comments-list .sugg-apply").click()')
-        wait_until(lambda: script('return document.querySelector("#comments-list").textContent') == "Nothing is left to do here.")
-        # A reply in the answered comment asks the agent again, which brings it back.
-        post_json(f"{base}/comments/{asked['id']}/reply", {"text": "And the next one?"})
-        show_view(browser, "todo")
         wait_until(lambda: listed() == [asked["id"]])
-        # Reject takes a suggestion off its card and out of to do, the thread saying what
-        # was turned down, and a reply saying why brings the comment back.
+        post_json(f"{base}/comments/{asked['id']}/reply", {"text": "And the next one?"})
+        show_view(browser, "unanswered")
+        wait_until(lambda: script('return document.querySelector("#comments-list").textContent') == "No comments in this view.")
+        assert script('return document.querySelector("#comments-tab-count").classList.contains("hidden")')
+        # Reject takes a suggestion off its card and answers it, the thread saying what was
+        # turned down.
         shared.server.comments.reply(asked["id"], "The next one too.", author="agent")
         turned = post_suggested(base, shared, {"anchor": anchor(12), "text": "Shorten it."}, "Sentence 10 ", "Line 10 ")
-        show_view(browser, "todo")
-        wait_until(lambda: listed() == [turned["id"]])
+        show_view(browser, "unanswered")
+        wait_until(lambda: listed() == [asked["id"], turned["id"]])
         # The card is listed a moment before its suggestion is drawn on it.
         wait_until(lambda: script('return [...document.querySelectorAll("#comments-list .sugg-actions button")].map((b) => b.textContent)')
                    == ["Reject", "Apply suggestion"])
@@ -2644,18 +2660,19 @@ def test_each_comment_tab_opens_on_what_waits_for_the_reviewer(tmp_path: Path) -
                '.dispatchEvent(new MouseEvent("mousedown", {bubbles: true}))')
         script('document.querySelector("#comments-list").focus()')
         type_keys(browser, ["n", "n"])
-        wait_until(lambda: script('return document.querySelector("#comments-list").textContent') == "Nothing is left to do here.")
-        assert script('return document.querySelector("#comments-tab-count").classList.contains("hidden")')
+        wait_until(lambda: listed() == [asked["id"]])
+        wait_until(lambda: script('return document.querySelector("#comments-tab-count").textContent') == "1")
         last = shared.server.comments.get(turned["id"]).thread[-1]
         assert last.rejected and last.text == "Rejected suggestion.\n− Sentence 10 \n+ Line 10 "
         assert (tmp_path / "paper.tex").read_text(encoding="utf-8").count("Sentence 10 ") == 1
         post_json(f"{base}/comments/{turned['id']}/reply", {"text": "Keep the word."})
-        show_view(browser, "todo")
-        wait_until(lambda: listed() == [turned["id"]])
+        show_view(browser, "open")
+        wait_until(lambda: listed() == [asked["id"], proposed["id"], turned["id"]])
         # / opens the search, which lists the tab's comments holding every word typed, in
         # any letter case, whatever their status and whatever view was shown: in a reply,
         # in what a rejected suggestion proposed, in a resolved comment.
         post_json(f"{base}/comments/{asked['id']}/resolve", {"summary": ""})
+        wait_until(lambda: listed() == [proposed["id"], turned["id"]])
         script('document.querySelector("#comments-list").focus()')
         type_keys(browser, ["/", *"NEXT one"])
         assert script('return document.activeElement.id') == "comment-search"
@@ -2678,9 +2695,9 @@ def test_each_comment_tab_opens_on_what_waits_for_the_reviewer(tmp_path: Path) -
         assert script('return document.activeElement.id') == "comments-list"
         assert len(listed()) == 2 and script('return document.querySelector("#comment-search").value') == "sentence"
         type_keys(browser, ["/", "\ue00c"])
-        wait_until(lambda: listed() == [turned["id"]])
+        wait_until(lambda: listed() == [proposed["id"], turned["id"]])
         assert script('return [document.querySelector("#comment-search").value,'
-                      ' document.querySelector("#comment-filter").value]') == ["", "todo"]
+                      ' document.querySelector("#comment-filter").value]') == ["", "open"]
         # D deletes the last thing the reviewer wrote in the ringed thread, once they say yes:
         # the reply, and not the thread, which dd deletes. Declined, nothing goes.
         said = lambda: [entry.text for entry in shared.server.comments.get(turned["id"]).thread]
@@ -2697,7 +2714,7 @@ def test_each_comment_tab_opens_on_what_waits_for_the_reviewer(tmp_path: Path) -
                 assert said()[-1] == "Keep the word."
         wait_until(lambda: said()[-1].startswith("Rejected suggestion."))
         assert shared.server.comments.get(turned["id"]) is not None
-        assert script('return document.querySelector("#comment-filter-name").textContent') == "to do"
+        assert script('return document.querySelector("#comment-filter-name").textContent') == "open"
     finally:
         if browser is not None:
             browser.quit()
@@ -2938,7 +2955,7 @@ def test_the_sort_list_orders_each_tab_and_its_search_and_the_keys_follow(tmp_pa
         sorted_by("oldest")
         wait_until(lambda: listed() == ["second", "third", "first"])
         # A search is ordered by the same list, and keeps its words while the order changes. In
-        # paper order it leads with the thread written last, as the all view does.
+        # paper order it keeps the server's order, as the open view does.
         script('const box = document.querySelector("#comment-search"); box.value = "request";'
                ' box.dispatchEvent(new Event("input"))')
         wait_until(lambda: listed() == ["second", "third", "first"]
@@ -2946,7 +2963,7 @@ def test_the_sort_list_orders_each_tab_and_its_search_and_the_keys_follow(tmp_pa
         sorted_by("latest")
         wait_until(lambda: listed() == ["first", "third", "second"])
         sorted_by("paper")
-        wait_until(lambda: listed() == ["third", "second", "first"])
+        wait_until(lambda: listed() == ["first", "second", "third"])
         assert script('return document.querySelector("#comment-search").value') == "request"
         # The keys go down the list as it is shown: j rings the first and the second, and a range
         # from the first stretched by j picks the two at the top.
@@ -2962,17 +2979,17 @@ def test_the_sort_list_orders_each_tab_and_its_search_and_the_keys_follow(tmp_pa
         wait_until(lambda: sorted(ids[card] for card in script(
             'return [...document.querySelectorAll(".cmt")].filter((c) => c.querySelector(".comment-pick").checked)'
             '.map((c) => c.dataset.commentId)')) == ["first", "third"])
-        # o steps through the orders, round to the first, and the keys dialog lists it.
+        # o steps through the orders, round to the first, and the Keys page of Help lists it.
         for order, name, shown in [("oldest", "oldest first", ["second", "third", "first"]),
-                                   ("paper", "paper order", ["third", "second", "first"]),
+                                   ("paper", "paper order", ["first", "second", "third"]),
                                    ("latest", "latest first", ["first", "third", "second"])]:
             type_keys(browser, ["o"])
             wait_until(lambda: shown_sort() == [order, name] and listed() == shown)
         type_keys(browser, ["?"])
-        wait_until(lambda: script('return document.querySelector("#keys-dialog").open'))
+        wait_until(lambda: script('return document.querySelector("#help-dialog").open'))
         assert "Next sort order (paper order, latest first, oldest first)" in script(
             'return document.querySelector("#keys-list").textContent')
-        script('document.querySelector("#keys-dialog").close()')
+        script('document.querySelector("#help-dialog").close()')
         # The leaf tab keeps an order of its own, and a reload brings each tab's back.
         script('document.querySelector(\'.tab-btn[data-tab="overleaf-comments"]\').click()')
         wait_until(lambda: shown_sort() == ["paper", "paper order"])
@@ -3103,7 +3120,7 @@ def test_a_reviewer_finds_a_co_authors_thread_by_its_writer_file_and_day(tmp_pat
         browser.find_element("css selector", "#comment-search").click()
         wait_until(lambda: script(terms))
         assert script('return [...document.querySelectorAll("#search-terms button")].map((b) => b.textContent)') \
-            == ["from:", "file:", '"phrase"', "-not", "OR", "after:", "before:"]
+            == ["from:", "file:", '"phrase"', "-not", "OR", "after:", "before:", "more…"]
         # from: typed by hand lists the tab's writers. The arrows go through them, round from the
         # last to the first, and Enter completes the name, the focus kept and the list closed.
         type_keys(browser, list("from:"))
@@ -3171,6 +3188,371 @@ def test_a_reviewer_finds_a_co_authors_thread_by_its_writer_file_and_day(tmp_pat
         wait_until(lambda: shared.server.comments.get(sought.id).thread[-1].text == "Do you mean the case n = 0?")
         asked = shared.server.comments.get(sought.id).thread[-1]
         assert (asked.author, asked.name, asked.overleaf) == ("human", None, None)
+    finally:
+        if browser is not None:
+            browser.quit()
+        shared.stop()
+
+
+def help_story(tmp_path: Path) -> dict[str, str]:
+    """The co-authors' threads on Overleaf that the Search page of Help tells its example about,
+    by name: Ann Lee's on three files, one on 2_main.tex written on the morning of 11-13, and
+    one she wrote in on 11-10 that Ben Cho answered on 11-12. Ben Cho has one of his own."""
+    from tex_mcp_web.comments import CommentStore, ResolvedSource, SourceRangeAnchor, capture_source_selector
+
+    (tmp_path / "paper.tex").write_text(
+        "\\documentclass{article}\n\\begin{document}\n\\input{1_intro}\n\\input{2_main}\n\\input{3_results}\n"
+        "\\end{document}\n", encoding="utf-8")
+    (tmp_path / "1_intro.tex").write_text("We open with a question.\n", encoding="utf-8")
+    (tmp_path / "2_main.tex").write_text(
+        "The constant is two.\nLet n be large.\nBy induction on n, the claim follows.\n", encoding="utf-8")
+    (tmp_path / "3_results.tex").write_text("The table lists every run.\n", encoding="utf-8")
+    store = tmp_path / ".tex-mcp-web" / "comments.json"
+    kept = CommentStore(store)
+
+    def thread(file, line, name, text):
+        return kept.add(SourceRangeAnchor(file=file, line_start=line, line_end=line), text,
+                        resolved_source=ResolvedSource(file=file, line_start=line, line_end=line),
+                        source_selector=capture_source_selector(tmp_path / file, line, line), name=name)
+
+    made = {
+        "intro": thread("1_intro.tex", 1, "Ann Lee", "Could the opening be shorter?"),
+        "constant": thread("2_main.tex", 1, "Ann Lee", "Is this constant tight?"),
+        "define": thread("2_main.tex", 2, "Ann Lee", "Define n before using it."),
+        "sought": thread("2_main.tex", 3, "Ann Lee", "This step skips the base case."),
+        "runs": thread("3_results.tex", 1, "Ann Lee", "Which runs are in this table?"),
+        "typo": thread("2_main.tex", 3, "Ben Cho", "Typo in the second display."),
+    }
+    kept.reply(made["runs"].id, "All of them.", "human", name="Ben Cho")
+    stamp(store, {made["intro"].id: [local_moment(11, 5, 10)], made["constant"].id: [local_moment(11, 9, 15)],
+                  made["define"].id: [local_moment(11, 12, 16, 40)], made["sought"].id: [local_moment(11, 13, 10, 20)],
+                  made["runs"].id: [local_moment(11, 10, 11), local_moment(11, 12, 9, 15)],
+                  made["typo"].id: [local_moment(11, 13, 10, 5)]})
+    (tmp_path / ".tex-mcp-web" / "overleaf-imported.json").write_text(json.dumps(
+        {f"t{n}": {"comment": comment.id, "entries": {}} for n, comment in enumerate(made.values())}), encoding="utf-8")
+    return {name: comment.id for name, comment in made.items()}
+
+
+@needs_browser
+def test_help_opens_from_the_menu_and_the_question_mark_on_the_page_shown_last(tmp_path: Path) -> None:
+    """Help opens from the ⋯ menu, from ? and from more… under the search box, which opens its
+    Search page. Its four pages go by tabs, which the arrow keys, Home and End move through,
+    round from the last to the first. Each page opens at its top, and the page shown last
+    opens next time, after a reload too. Its text follows the size Settings chooses."""
+    (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    browser = None
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        browser = chrome.launch()
+        browser.set_window_rect(width=1100, height=700)
+        browser.navigate(base)
+        script = lambda code, *args: browser.execute_script(code, script_args=args)
+        wait_until(lambda: script('return document.querySelector("#comments-list") !== null'))
+        shown = lambda: script('''const d = document.querySelector("#help-dialog");
+          const tab = document.querySelector('#help-tabs [aria-selected="true"]');
+          return d.open ? [tab.dataset.page, document.activeElement === tab,
+                           [...document.querySelectorAll(".help-page")].filter((p) => !p.hidden).map((p) => p.id),
+                           document.querySelector("#help-pages").scrollTop] : null''')
+        close = lambda: script('document.querySelector("#help-dialog").close(); document.activeElement.blur();')
+        assert script('return document.querySelector("#help-btn").textContent') == "Help (?)"
+        browser.find_element("css selector", "#more-btn").click()
+        browser.find_element("css selector", "#help-btn").click()
+        wait_until(lambda: shown() == ["start", True, ["help-start"], 0])
+        assert script('return document.querySelector("#help-title").textContent') == "Help"
+        assert script('return [...document.querySelectorAll("#help-tabs [role=tab]")].map((t) => t.textContent)') \
+            == ["Start here", "Search", "Overleaf", "Keys"]
+        # Right and Left go round the tabs, and Home and End go to the ends.
+        for key, page in [("\ue014", "search"), ("\ue014", "overleaf"), ("\ue014", "keys"), ("\ue014", "start"),
+                          ("\ue012", "keys"), ("\ue011", "start"), ("\ue010", "keys")]:
+            type_keys(browser, [key])
+            wait_until(lambda: shown() == [page, True, [f"help-{page}"], 0])
+        # A page scrolled down opens at its top next time, and ? opens the page shown last.
+        browser.find_element("css selector", "#help-tab-search").click()
+        # The page is put at its top a frame after the tab is chosen.
+        script('return new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))')
+        script('document.querySelector("#help-pages").scrollTop = 300')
+        assert script('return document.querySelector("#help-pages").scrollTop') > 0
+        close()
+        type_keys(browser, ["?"])
+        wait_until(lambda: shown() == ["search", True, ["help-search"], 0])
+        close()
+        browser.refresh()
+        wait_until(lambda: script('return document.querySelector("#comments-list") !== null'))
+        type_keys(browser, ["?"])
+        wait_until(lambda: (shown() or [None])[0] == "search")
+        # The text follows the size Settings chooses, as the other dialogs do.
+        size = lambda: script('return parseFloat(getComputedStyle(document.querySelector("#help-search p")).fontSize)')
+        at_100 = size()
+        script('document.querySelector("[data-text-choice=\'130\']").click()')
+        assert size() == pytest.approx(at_100 * 1.3, abs=0.1)
+        script('document.querySelector("[data-text-choice=\'100\']").click()')
+        # more… under the search box opens the Search page, whichever page was shown last.
+        browser.find_element("css selector", "#help-tab-keys").click()
+        close()
+        browser.find_element("css selector", "#comment-search").click()
+        wait_until(lambda: script('return !document.querySelector("#search-terms").hidden'))
+        assert script('return document.querySelector("#search-help-btn").textContent') == "more…"
+        browser.find_element("css selector", "#search-help-btn").click()
+        wait_until(lambda: shown() == ["search", True, ["help-search"], 0])
+    finally:
+        if browser is not None:
+            browser.quit()
+        shared.stop()
+
+
+@needs_browser
+def test_the_search_examples_in_help_find_what_help_says(tmp_path: Path) -> None:
+    """The Search page's example, typed into the search box of the leaf tab step by step, lists
+    what each step says: Ann Lee's threads, those on 2_main.tex, the two with a message from
+    11-12 on and one before 11-14, and the one from that morning. A thread Ann wrote in on 11-10
+    that Ben Cho answered on 11-12 meets from:ann after:11-12, as the notes say. Every other
+    example on the page reads as the condition its row names."""
+    from datetime import datetime
+
+    ids = help_story(tmp_path)
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    browser = None
+    names = {cid: name for name, cid in ids.items()}
+    steps = [
+        ("from:ann", ["intro", "constant", "define", "sought", "runs"]),
+        ("from:ann file:2_main", ["constant", "define", "sought"]),
+        ("from:ann file:2_main after:11-12 before:11-14", ["define", "sought"]),
+        ("from:ann file:2_main after:11-13T09 before:11-13T12", ["sought"]),
+    ]
+    year = datetime.now().year
+    word = lambda value, no=False: {"not": no, "field": "", "value": value}
+    term = lambda field, value, no=False: {"not": no, "field": field, "value": value}
+    moment = lambda *at: datetime(year, *at).timestamp() * 1000
+    # What each other example reads as: from: alone, with nothing typed after it, asks for
+    # nothing yet. A date in the dates table is read after after:.
+    readings = {
+        "caption width": [[word("caption"), word("width")]],
+        "figure OR table": [[word("figure")], [word("table")]],
+        '"base case"': [[word("base case")]],
+        "-appendix": [[word("appendix", True)]],
+        "from:ann": [[term("from", "ann")]],
+        "from:": [],
+        "file:2_main": [[term("file", "2_main")]],
+        "after:11-12": [[term("after", moment(11, 12))]],
+        "before:11-14": [[term("before", moment(11, 14))]],
+        "caption width OR table": [[word("caption"), word("width")], [word("table")]],
+        "-from:agent": [[term("from", "agent", True)]],
+        "from:me": [[term("from", "me")]],
+        "from:agent": [[term("from", "agent")]],
+        'from:"Ann Lee"': [[term("from", "ann lee")]],
+        "from:ann after:11-12": [[term("from", "ann"), term("after", moment(11, 12))]],
+        "note:": [[word("note:")]],
+        "11-12": [[term("after", moment(11, 12))]],
+        f"{year}-11-12": [[term("after", moment(11, 12))]],
+        "11-12T09": [[term("after", moment(11, 12, 9))]],
+        "11-12T09:30": [[term("after", moment(11, 12, 9, 30))]],
+        '"11-12 09:30"': [[term("after", moment(11, 12, 9, 30))]],
+    }
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        browser = chrome.launch()
+        browser.set_window_rect(width=1500, height=1000)
+        browser.navigate(base)
+        script = lambda code, *args: browser.execute_script(code, script_args=args)
+        listed = lambda: sorted(names[cid] for cid in script(
+            'return [...document.querySelectorAll("#comments-list .cmt")].map((c) => c.dataset.commentId)'))
+        leaf_tab = '.tab-btn[data-tab="overleaf-comments"]'
+        wait_until(lambda: script(f"return !document.querySelector('{leaf_tab}').hidden"))
+        script(f"document.querySelector('{leaf_tab}').click()")
+        wait_until(lambda: len(listed()) == 6)
+        # The page's steps are these, in this order, and the dates table names this year's.
+        typed = script('return [...document.querySelectorAll("#help-search .help-typed")].map((c) => c.textContent)')
+        assert typed == [text for text, _ in steps]
+        examples = script('return [...document.querySelectorAll("#help-search code:not(.help-typed)")].map((c) => c.textContent)')
+        examples = [f"{year}-11-12" if text == "2026-11-12" else text for text in examples]
+        assert sorted(set(examples)) == sorted(readings)
+        dated = set(script('return [...document.querySelectorAll("#help-search-dates code")].map((c) => c.textContent)'))
+        read = script('''const [texts, dated] = arguments;
+          return import("/static/viewer.js").then(({ parseSearch }) =>
+            texts.map((text) => parseSearch(dated.includes(text) ? `after:${text}` : text, arguments[2])));''',
+                      examples, [f"{year}-11-12" if text == "2026-11-12" else text for text in dated], year)
+        assert dict(zip(examples, read)) == {text: readings[text] for text in examples}
+        # Each step, typed into the box, lists what the page says it lists.
+        for text, expected in [*steps, ("from:ann after:11-12", ["define", "sought", "runs"])]:
+            script('const box = document.querySelector("#comment-search"); box.value = arguments[0];'
+                   ' box.dispatchEvent(new Event("input"))', text)
+            wait_until(lambda: listed() == sorted(expected))
+            assert script('return document.querySelector("#comment-filter").value') == "all", text
+    finally:
+        if browser is not None:
+            browser.quit()
+        shared.stop()
+
+
+@needs_browser
+def test_help_fits_a_narrow_window_on_every_page(tmp_path: Path) -> None:
+    """At 480 pixels wide, every page of Help fits the dialog at the default text size and at
+    the largest: nothing sticks out of it, and nothing in it scrolls sideways."""
+    (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    browser = None
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        browser = chrome.launch()
+        browser.set_window_rect(width=480, height=700)
+        browser.navigate(base)
+        script = lambda code, *args: browser.execute_script(code, script_args=args)
+        wait_until(lambda: script('return document.querySelector("#comments-list") !== null'))
+        for size in ("100", "150"):
+            script('document.querySelector(`[data-text-choice="${arguments[0]}"]`).click()', size)
+            for page in ("start", "search", "overleaf", "keys"):
+                script('document.querySelector("#help-dialog").open || document.querySelector("#help-btn").click();'
+                       ' document.querySelector(`#help-tab-${arguments[0]}`).click()', page)
+                spill = script('''const dialog = document.querySelector("#help-dialog");
+                  const box = dialog.getBoundingClientRect();
+                  const out = [...dialog.querySelectorAll("*")].filter((node) => {
+                    const at = node.getBoundingClientRect();
+                    return at.width > 0 && (at.right > box.right + 0.5 || at.left < box.left - 0.5);
+                  }).map((node) => `${node.tagName} ${node.getAttribute("class") ?? ""} ${node.textContent.slice(0, 40)}`);
+                  const sideways = [dialog, ...dialog.querySelectorAll("*")].filter((node) => node.clientWidth > 0
+                    && node.scrollWidth > node.clientWidth + 1 && getComputedStyle(node).overflowX !== "visible")
+                    .map((node) => node.id || node.tagName);
+                  return [out, sideways, box.right <= innerWidth, document.documentElement.scrollWidth <= innerWidth];''')
+                assert spill == [[], [], True, True], (size, page, spill)
+    finally:
+        if browser is not None:
+            browser.quit()
+        shared.stop()
+
+
+@needs_browser
+def test_hide_puts_a_thread_from_overleaf_out_of_the_way_on_this_page_only(tmp_path: Path) -> None:
+    """The leaf tab opens on open, and its number counts the unanswered threads: those whose
+    last message on Overleaf is someone else's, not one answered from here. Hide on a card, or
+    on the picked threads in the row, moves threads to the hidden view without asking Overleaf
+    anything: they leave open, the number and the editor's marks, and the line above the list
+    offers Undo. In the hidden view the row's button reads Show, and A shows the ringed thread
+    again, as it archives a comment in the other tab."""
+    from tex_mcp_web.comments import CommentStore, ResolvedSource, SourceRangeAnchor, capture_source_selector
+
+    (tmp_path / "paper.tex").write_text(
+        "\\documentclass{article}\n\\begin{document}\nThe first claim.\nThe second claim.\nThe third claim.\n"
+        "\\end{document}\n", encoding="utf-8")
+    store = tmp_path / ".tex-mcp-web" / "comments.json"
+    kept = CommentStore(store)
+
+    def thread(line, text):
+        return kept.add(SourceRangeAnchor(file="paper.tex", line_start=line, line_end=line), text,
+                        resolved_source=ResolvedSource(file="paper.tex", line_start=line, line_end=line),
+                        source_selector=capture_source_selector(tmp_path / "paper.tex", line, line), name="Ann Lee")
+
+    first, second, third = thread(3, "Cite a source here."), thread(4, "Is this proved?"), thread(5, "Reword this.")
+    kept.sent_to_overleaf(second.id, "Yes, in the appendix.", "")
+    (tmp_path / ".tex-mcp-web" / "overleaf-imported.json").write_text(json.dumps(
+        {f"t{n}": {"comment": comment.id, "entries": {}} for n, comment in enumerate([first, second, third])}),
+        encoding="utf-8")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    browser = None
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        mine = post_json(f"{base}/comments", {"anchor": {"kind": "paper"}, "text": "A note for later."})["id"]
+        browser = chrome.launch()
+        browser.set_window_rect(width=1500, height=1000)
+        browser.navigate(base)
+        script = lambda code, *args: browser.execute_script(code, script_args=args)
+        listed = lambda: script('return [...document.querySelectorAll("#comments-list .cmt")].map((c) => c.dataset.commentId)')
+        line = lambda: script('return document.querySelector("#undo-line").offsetHeight > 0'
+                              ' ? document.querySelector("#undo-text").textContent : null')
+        count = lambda: script('const badge = document.querySelector("#overleaf-tab-count");'
+                               ' return badge.classList.contains("hidden") ? "" : badge.textContent')
+        marks = lambda: script('return document.querySelectorAll("#source-editor .source-comment-highlight").length')
+        hidden = lambda cid: shared.server.comments.get(cid).hidden is not None
+        leaf_tab = '.tab-btn[data-tab="overleaf-comments"]'
+        wait_until(lambda: script(f"return !document.querySelector('{leaf_tab}').hidden"))
+        script(f"document.querySelector('{leaf_tab}').click()")
+        wait_until(lambda: listed() == [first.id, second.id, third.id])
+        assert script('return document.querySelector("#comment-filter").value') == "open"
+        wait_until(lambda: count() == "2")
+        script('document.querySelector("[data-view=split]").click()')
+        wait_until(lambda: marks() == 3)
+        # Hide on a card, named for what it does and for its key.
+        script(f'document.querySelector(\'[data-comment-id="{first.id}"] .cmt-head\').click()')
+        wait_until(lambda: script(f'return document.querySelector(\'[data-comment-id="{first.id}"] .cmt-hide\') !== null'))
+        assert script(f'return document.querySelector(\'[data-comment-id="{first.id}"] .cmt-hide\').title') \
+            == "Hide this thread here without changing it on Overleaf (A)"
+        script(f'document.querySelector(\'[data-comment-id="{first.id}"] .cmt-hide\').click()')
+        wait_until(lambda: line() == "Hid 1 thread." and listed() == [second.id, third.id])
+        assert hidden(first.id) and shared.server.comments.get(first.id).status == "open"
+        wait_until(lambda: count() == "1" and marks() == 2)
+        script('document.querySelector("#undo-btn").click()')
+        wait_until(lambda: listed() == [first.id, second.id, third.id] and line() is None)
+        assert not hidden(first.id)
+        wait_until(lambda: count() == "2" and marks() == 3)
+        # The picked threads, hidden from the row, which counts them.
+        for cid in (first.id, third.id):
+            script(f'document.querySelector(\'[data-comment-id="{cid}"] .comment-pick\').click()')
+        assert script('return document.querySelector("#hide-picked-btn").getAttribute("aria-label")') == "Hide 2"
+        script('document.querySelector("#hide-picked-btn").click()')
+        wait_until(lambda: line() == "Hid 2 threads." and listed() == [second.id])
+        wait_until(lambda: count() == "" and marks() == 1)
+        # The hidden view lists them, and its row button reads Show.
+        show_view(browser, "hidden")
+        wait_until(lambda: listed() == [first.id, third.id])
+        assert script('const b = document.querySelector("#hide-picked-btn");'
+                      ' return [b.getAttribute("aria-label"), b.querySelector(".icon-show").classList.contains("hidden")]') \
+            == ["Show", False]
+        # A on the ringed thread shows it again.
+        script(f'document.querySelector(\'[data-comment-id="{third.id}"] .cmt-head\')'
+               '.dispatchEvent(new MouseEvent("mousedown", {bubbles: true}))')
+        script('document.querySelector("#comments-list").focus()')
+        type_keys(browser, ["A"])
+        wait_until(lambda: line() == "Showed 1 thread again." and listed() == [first.id])
+        assert not hidden(third.id) and hidden(first.id)
+        wait_until(lambda: count() == "1")
+        # The drafts view lists what is not yet sent to Overleaf, new threads first, in any
+        # order the sort list sets: here a new thread, then a reply drafted on an open thread.
+        # A hidden thread's draft is left out with it.
+        from tex_mcp_web.comments import OverleafDraft
+        for cid in (second.id, first.id):
+            kept.draft_overleaf(cid, kept.get(cid).updated, OverleafDraft("Thanks, it is fixed now."), {})
+        started = kept.add(SourceRangeAnchor(file="paper.tex", line_start=5, line_end=5), "ask about the wording",
+                           resolved_source=ResolvedSource(file="paper.tex", line_start=5, line_end=5),
+                           source_selector=capture_source_selector(tmp_path / "paper.tex", 5, 5), for_overleaf=True).id
+        show_view(browser, "drafts")
+        wait_until(lambda: listed() == [started, second.id])
+        for order in ("latest", "oldest"):
+            script('const s = document.querySelector("#comment-sort"); s.value = arguments[0];'
+                   ' s.dispatchEvent(new Event("change"))', order)
+            wait_until(lambda: listed() == [started, second.id])
+        script('const s = document.querySelector("#comment-sort"); s.value = "paper"; s.dispatchEvent(new Event("change"))')
+        # The new thread has no message yet, so it is not unanswered.
+        assert count() == "1"
+        # In the other tab, A archives as before.
+        script('document.querySelector(\'.tab-btn[data-tab="comments"]\').click()')
+        wait_until(lambda: listed() == [mine])
+        assert script('return [document.querySelector("#hide-picked-btn").hidden,'
+                      ' document.querySelector("#archive-picked-btn").hidden]') == [True, False]
+        script(f'document.querySelector(\'[data-comment-id="{mine}"] .cmt-head\')'
+               '.dispatchEvent(new MouseEvent("mousedown", {bubbles: true}))')
+        script('document.querySelector("#comments-list").focus()')
+        type_keys(browser, ["A"])
+        wait_until(lambda: shared.server.comments.get(mine).status == "archived" and line() == "Archived 1 comment.")
     finally:
         if browser is not None:
             browser.quit()
@@ -3321,8 +3703,9 @@ def test_the_editor_holds_the_cursor_line_a_third_down_when_chosen(tmp_path: Pat
 
 @needs_browser
 def test_on_a_mac_the_page_names_the_keys_a_mac_has(tmp_path: Path) -> None:
-    """A Mac holds the page's shortcuts with Cmd and Option. Its tooltips, the keys dialog and
-    the notes name them so, while Ctrl+[ stays Ctrl, and another system reads Ctrl and Alt."""
+    """A Mac holds the page's shortcuts with Cmd and Option. Its tooltips, every page of Help
+    and the notes name them so, while Ctrl+[ and Ctrl+Space stay Ctrl, and another system reads
+    Ctrl and Alt."""
     import pymupdf
 
     (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
@@ -3341,19 +3724,27 @@ def test_on_a_mac_the_page_names_the_keys_a_mac_has(tmp_path: Path) -> None:
         browser = chrome.launch()
         names = '''
           const said = [document.querySelector("#compile-btn").title, document.querySelector("#call-agent-btn").title,
-                        document.querySelector("#source-pdf-btn").title, document.querySelector("#keys-dialog").textContent];
-          document.querySelector("#keys-dialog").close();
+                        document.querySelector("#source-pdf-btn").title, document.querySelector("#help-dialog").textContent];
+          document.querySelector("#help-dialog").close();
           return said;'''
         for platform, held, alt in (("MacIntel", "Cmd", "Option"), ("Win32", "Ctrl", "Alt")):
             browser.platform(platform)
             browser.navigate(base)
             wait_until(lambda: browser.execute_script('return document.querySelector("#comments-list") !== null'))
             wait_until(lambda: f"{held}+{alt}+Enter" in browser.execute_script('return document.querySelector("#call-agent-btn").title'))
-            browser.execute_script('document.querySelector("#keys-btn").click()')
-            # The dialog opens on its first lines, though the focus goes to Close at its end.
+            browser.execute_script('document.querySelector("#help-btn").click()')
+            wait_until(lambda: browser.execute_script('return document.querySelector("#help-dialog").open'))
+            # Start here names the bell's key.
+            assert f"{held}+{alt}+Enter" in browser.execute_script('return document.querySelector("#help-start").textContent')
+            # The Keys page, taller than the dialog, opens on its first lines.
+            browser.execute_script('document.querySelector("#help-tab-keys").click()')
             wait_until(lambda: browser.execute_script(
-                'const d = document.querySelector("#keys-dialog");'
-                ' return d.open && d.scrollHeight > d.clientHeight && d.scrollTop === 0'))
+                'const pages = document.querySelector("#help-pages");'
+                ' return !document.querySelector("#help-keys").hidden'
+                ' && pages.scrollHeight > pages.clientHeight && pages.scrollTop === 0'))
+            editor_keys = browser.execute_script('return document.querySelector("#help-keys").textContent')
+            assert all(f"{held}+{key}" in editor_keys for key in ("S", "Enter", f"{alt}+M", f"{alt}+K"))
+            assert "Ctrl+[" in editor_keys and "Ctrl+Space" in editor_keys
             compile_title, call_title, preview_title, keys = browser.execute_script(names)
             assert f"({held}+Enter" in compile_title and f"{held}+{alt}+Enter" in call_title
             assert f"{held}+{alt}+P" in preview_title
@@ -3782,14 +4173,15 @@ def test_the_comment_list_goes_by_keys(tmp_path: Path) -> None:
                                ' {key: "R", repeat: true, bubbles: true, cancelable: true}))')
         time.sleep(0.5)
         assert status(fourth) == "open"
-        # f moves to the next view, where R reopens a resolved comment, and F moves back.
-        press("f")
+        # f moves to the next view, unanswered, archived and then resolved, where R reopens a
+        # resolved comment, and F moves back.
+        press("f", "f", "f")
         wait_until(lambda: browser.execute_script(
             'return document.querySelector("#comment-filter").value === "resolved"'
             ' && document.querySelectorAll("#comments-list .cmt").length === 1'))
         press("j", "R")
         wait_until(lambda: status(third) == "open")
-        press("F")
+        press("F", "F", "F")
         wait_until(lambda: browser.execute_script(
             'return document.querySelector("#comment-filter").value === "open"'
             ' && document.querySelectorAll("#comments-list .cmt").length === 4'))
@@ -3810,13 +4202,13 @@ def test_the_comment_list_goes_by_keys(tmp_path: Path) -> None:
         press("x")
         assert picked() == []
         # With no comment ringed in a view, v holds the range from the first.
-        press("f")
+        press("f", "f", "f")
         wait_until(lambda: browser.execute_script(
             'return document.querySelectorAll("#comments-list .cmt").length === 3'))
         assert ringed() is None
         press("v", "G", "R")
         wait_until(lambda: status(first) == "open" and status(source) == "open" and status(third) == "open")
-        press("F")
+        press("F", "F", "F")
         wait_until(lambda: browser.execute_script(
             'return document.querySelector("#comment-filter").value === "open"'
             ' && document.querySelectorAll("#comments-list .cmt").length === 4'))
@@ -3826,7 +4218,7 @@ def test_the_comment_list_goes_by_keys(tmp_path: Path) -> None:
         browser.execute_script("""window.realFetch = window.fetch;
           window.fetch = (url, init) => new Promise((resolve) => setTimeout(() => resolve(window.realFetch(url, init)),
             String(url).includes("status=resolved") ? 1200 : 0));""", sandbox=None)
-        press("f", "F")
+        press("f", "f", "f", "F", "F", "F")
         time.sleep(2)
         browser.execute_script("window.fetch = window.realFetch;", sandbox=None)
         assert browser.execute_script(
@@ -3856,14 +4248,14 @@ def test_the_comment_list_goes_by_keys(tmp_path: Path) -> None:
 
         # ? lists the keys from the keys themselves, which rest under it until it closes.
         press("?")
-        assert browser.execute_script('return document.querySelector("#keys-dialog").open') is True
-        listed = browser.execute_script('return document.querySelector("#keys-dialog").textContent')
+        assert browser.execute_script('return document.querySelector("#help-dialog").open') is True
+        listed = browser.execute_script('return document.querySelector("#help-dialog").textContent')
         assert "aaApply its suggestion to the file" in listed
         assert "With comments selected, R, A and ss act on the selection." in listed
         press("j")
         assert ringed() == before
         press(escape)
-        assert browser.execute_script('return document.querySelector("#keys-dialog").open') is False
+        assert browser.execute_script('return document.querySelector("#help-dialog").open') is False
         # A view chosen in the list atop gives the keys back to the comments, which the list
         # kept before.
         browser.execute_script('const f = document.querySelector("#comment-filter"); f.focus();'
@@ -3935,11 +4327,11 @@ def test_archived_threads_have_their_own_view_and_picked_archive_action(tmp_path
                 '  .map((card) => card.dataset.commentId);'
                 f'return JSON.stringify([...ids].sort()) === {json.dumps(json.dumps(sorted(expected), separators=(",", ":")))} ? ids : false;'))
 
-        # The tab of comments written here offers these views, to do first, and no unanswered one.
+        # The tab of comments written here offers these views, open first, and no hidden one.
         assert browser.execute_script(
             'return Array.from(document.querySelectorAll("#comment-filter option"))'
             '.map((o) => [o.value, o.textContent]);'
-        ) == [["todo", "to do"], ["open", "open"], ["resolved", "resolved"], ["archived", "archived"], ["all", "all"]]
+        ) == [["open", "open"], ["unanswered", "unanswered"], ["archived", "archived"], ["resolved", "resolved"], ["all", "all"]]
         assert shown("open", [working, untouched]) == [working, untouched]
         assert shown("archived", [kept]) == [kept]
 
@@ -4058,9 +4450,9 @@ def test_undo_puts_the_last_change_of_status_back(tmp_path: Path) -> None:
         type_keys(browser, ["u"])
         wait_until(lambda: statuses(first) == ["open"] and line() is None)
         type_keys(browser, ["?"])
-        wait_until(lambda: script('return document.querySelector("#keys-dialog").open'))
+        wait_until(lambda: script('return document.querySelector("#help-dialog").open'))
         assert "Undo the last status change" in script('return document.querySelector("#keys-list").textContent')
-        script('document.querySelector("#keys-dialog").close()')
+        script('document.querySelector("#help-dialog").close()')
         # Three resolved from the row, and Undo opens each again.
         wait_until(lambda: listed() == sorted([first, second, third]))
         click("#pick-all-btn")
@@ -4464,9 +4856,9 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
         show_view(browser, "open")
         wait_until(lambda: "Written here." in browser.execute_script(listed))
         assert "Say hello properly." not in browser.execute_script(listed)
-        # Each tab's number counts its to do: here the suggestion to apply, and among the
-        # threads from Overleaf the two whose last message there is someone else's, as far
-        # as the page knows before it hears who the reviewer is on Overleaf.
+        # Each tab's number counts what is unanswered in it: here the suggestion to apply, and
+        # among the threads from Overleaf the two whose last message there is someone else's,
+        # as far as the page knows before it hears who the reviewer is on Overleaf.
         assert count("#comments-tab-count") == "1" and count("#overleaf-tab-count") == "2"
         # However narrow the panel, its four tabs and their counts show: the words give way.
         for width in (520, 240):
@@ -4481,12 +4873,14 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
               }});''') is True
         browser.execute_script('document.querySelector(".layout").style.removeProperty("--tex-mcp-sidebar-width")')
         browser.execute_script(f"document.querySelector('{leaf_tab}').click()")
-        # The tab opens on what waits for the reviewer.
-        wait_until(lambda: browser.execute_script('return document.querySelector("#comment-filter").value') == "todo")
-        # To do holds the threads that wait for the reviewer's answer on Overleaf, and not the
-        # one answered from here.
-        wait_until(lambda: "Say hello properly." in browser.execute_script(listed))
-        assert "Which words?" not in browser.execute_script(listed)
+        # The tab opens on open, which lists every open thread and marks the ones that wait for
+        # the reviewer's answer on Overleaf, and not the one answered from here.
+        wait_until(lambda: browser.execute_script('return document.querySelector("#comment-filter").value') == "open")
+        wait_until(lambda: "Say hello properly." in browser.execute_script(listed)
+                   and "Which words?" in browser.execute_script(listed))
+        unanswered_mark = lambda cid: browser.execute_script(
+            f'return document.querySelector("[data-comment-id=\'{cid}\'] .cmt-unanswered") !== null')
+        assert unanswered_mark(brought.id) and not unanswered_mark(answered.id)
         # The unanswered view holds the threads whose last message on Overleaf is someone
         # else's. Who the reviewer is on Overleaf comes with the page's place in the project.
         show_view(browser, "unanswered")
@@ -4503,11 +4897,6 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
             {"type": "overleaf_live", "status": "off", "me": "Me Myself"}), shared.loop).result(5)
         wait_until(lambda: "Is this clear?" not in browser.execute_script(listed))
         assert "Say hello properly." in browser.execute_script(listed)
-        # The answered view, under it, holds the threads whose last message there is the reviewer's.
-        browser.execute_script('const f = document.querySelector("#comment-filter"); f.value = "answered";'
-                               ' f.dispatchEvent(new Event("change"));')
-        wait_until(lambda: "Is this clear?" in browser.execute_script(listed))
-        assert "Say hello properly." not in browser.execute_script(listed)
         browser.execute_script('const f = document.querySelector("#comment-filter"); f.value = "open";'
                                ' f.dispatchEvent(new Event("change"));')
         wait_until(lambda: "Which words?" in browser.execute_script(listed) and "Is this clear?" in browser.execute_script(listed))
@@ -4543,8 +4932,8 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
         (tmp_path / "paper.tex").write_text(PAPER.replace("\\section", "\\relax\n\\relax\n\\section"), encoding="utf-8")
         wait_until(lambda: browser.execute_script(label) == "paper.tex:5-5", timeout=15)
         assert "New public thread on Overleaf" in browser.execute_script(f'return document.querySelector("{card}").textContent')
-        # The tab counts it with the thread that waits for an answer.
-        assert count("#overleaf-tab-count") == "2"
+        # It has no message yet, so the tab's number counts only the thread that waits for an answer.
+        assert count("#overleaf-tab-count") == "1"
         browser.execute_script(f'document.querySelector("{card} .cmt-head").click()')
         wait_until(lambda: browser.execute_script(f'return document.querySelector("{card} .cmt-actions") !== null'))
         assert browser.execute_script(
@@ -4574,17 +4963,16 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
         assert browser.execute_script(f'return document.querySelector("{here}").value') == "Only for you."
         assert browser.execute_script(leaf_box) == before
         type_keys(browser, [""])
-        # The new-thread view, under answered, holds the threads opened from here: the
-        # drafts still to send, then those already on Overleaf.
+        # The leaf tab's views, open first. The drafts view holds what is not yet sent to
+        # Overleaf: the thread drafted, and not the one already opened from here.
         assert browser.execute_script(
             'return [...document.querySelectorAll("#comment-filter option")].map((o) => o.textContent);') \
-            == ["to do", "unanswered", "answered", "new thread", "suggested edits", "open", "resolved", "all"]
-        browser.execute_script('const f = document.querySelector("#comment-filter"); f.value = "new";'
+            == ["open", "unanswered", "drafts", "suggested edits", "hidden", "resolved", "all"]
+        browser.execute_script('const f = document.querySelector("#comment-filter"); f.value = "drafts";'
                                ' f.dispatchEvent(new Event("change"));')
-        assert wait_until(lambda: browser.execute_script(
-            'const ids = [...document.querySelectorAll("[data-comment-id]")].map((c) => c.dataset.commentId);'
-            ' return ids.length === 2 ? ids : false;')) == [drafted.id, opened_here.id]
-        # The drafted thread takes a reply here, about its draft, and stays a draft in this view.
+        listed_ids = 'return [...document.querySelectorAll("[data-comment-id]")].map((c) => c.dataset.commentId);'
+        wait_until(lambda: browser.execute_script(listed_ids) == [drafted.id])
+        # The drafted thread takes a reply here, about its draft, and stays in the drafts view.
         card = f'document.querySelector(\'[data-comment-id="{drafted.id}"]\')'
         browser.execute_script(f'if (!{card}.querySelector(".cmt-reply")) {card}.querySelector(".cmt-head").click()')
         wait_until(lambda: browser.execute_script(f'return {card}?.querySelector(".cmt-reply") !== null'))
@@ -4596,9 +4984,7 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
             'box.dispatchEvent(new Event("input", {bubbles: true}));'
             f'{card}.querySelector(".cmt-form-submit").click();')
         wait_until(lambda: browser.execute_script(f'return {card}?.textContent.includes("Shorter, please.") ?? false'))
-        assert browser.execute_script(
-            'return [...document.querySelectorAll("[data-comment-id]")].map((c) => c.dataset.commentId);') \
-            == [drafted.id, opened_here.id]
+        assert browser.execute_script(listed_ids) == [drafted.id]
         assert "New public thread on Overleaf" in browser.execute_script(f"return {card}.textContent")
         # What the reviewer typed over the agent's draft stays when the agent drafts again, and
         # the card offers the new draft, which Use new draft puts in the box.
@@ -4629,16 +5015,16 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
             == ["", True, True]
         assert browser.execute_script(edits) == before
         assert kept.get(drafted.id).overleaf_draft is None and kept.get(drafted.id).for_overleaf
-        # The other tab has no unanswered view from the moment it is chosen, not from when its
+        # The other tab has no hidden view from the moment it is chosen, not from when its
         # comments arrive.
-        browser.execute_script('const f = document.querySelector("#comment-filter"); f.value = "unanswered";'
+        browser.execute_script('const f = document.querySelector("#comment-filter"); f.value = "hidden";'
                                ' f.dispatchEvent(new Event("change"));')
         assert browser.execute_script(
             'document.querySelector(\'.tab-btn[data-tab="comments"]\').click();'
             ' const f = document.querySelector("#comment-filter");'
             ' return [f.value, [...f.options].map((o) => o.value),'
-            ' document.querySelector("#comment-filter-name").textContent.startsWith("to do")];') \
-            == ["todo", ["todo", "open", "resolved", "archived", "all"], True]
+            ' document.querySelector("#comment-filter-name").textContent.startsWith("open")];') \
+            == ["open", ["open", "unanswered", "archived", "resolved", "all"], True]
         show_view(browser, "open")
         wait_until(lambda: "Written here." in browser.execute_script(listed))
         assert "Feedback and answer." not in browser.execute_script(
@@ -4647,7 +5033,7 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
         # A reply the reviewer sent to Overleaf carries Edit and Delete, which act there, as
         # an entry written here carries them, and someone else's message carries neither.
         browser.execute_script('document.querySelector(\'.tab-btn[data-tab="overleaf-comments"]\').click()')
-        show_view(browser, "answered")
+        show_view(browser, "open")
         mine = f'document.querySelector(\'[data-comment-id="{answered.id}"]\')'
         wait_until(lambda: browser.execute_script(f'return {mine} !== null'))
         browser.execute_script(f'if (!{mine}.querySelector(".thread-meta")) {mine}.querySelector(".cmt-head").click()')
@@ -5407,7 +5793,7 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
         assert text("#overleaf-sync-comments-btn .count") == "1"
         # However narrow the panel, the row over the threads stays one line inside it, with no
         # control over another: the buttons it has no room for wait behind the dots. At the
-        # panel's own width the sync button and Call agent are in the row, at 520px Resolve
+        # panel's own width the sync button and Call agent are in the row, at 560px Resolve
         # still shows its word, and at the narrowest Resolve and Send are still in the row,
         # Resolve as its icon.
         fits = '''
@@ -5425,15 +5811,15 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
 
         wait_until(lambda: in_row("comment-filter", "pick-all-btn", "resolve-picked-btn", "send-picked-btn",
                                   "overleaf-sync-comments-btn", "call-agent-btn"), timeout=5)
-        for width in (520, 240):
+        for width in (560, 240):
             browser.execute_script(
                 f'document.querySelector(".layout").style.setProperty("--tex-mcp-sidebar-width", "{width}px")')
             wait_until(lambda: in_row("comment-filter", "comment-rare-btn" if width == 240 else "fold-all-btn",
                                       "pick-all-btn", "resolve-picked-btn", "send-picked-btn"), timeout=5)
             resolve_word = ('return getComputedStyle(document.querySelector("#resolve-picked-btn .wide-label"))'
                             '.display !== "none"')
-            assert browser.execute_script(resolve_word) is (width == 520)
-            if width == 520:
+            assert browser.execute_script(resolve_word) is (width == 560)
+            if width == 560:
                 # The word Call agent shows after a press gives way before Resolve's does.
                 browser.execute_script('document.querySelector("#call-agent-btn").click()')
                 wait_until(lambda: text("#call-agent-word") == "Queued", timeout=5)
@@ -5501,10 +5887,11 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
         wait_until(lambda: "public" in text("[data-comment-id] .cmt-thread .entry-overleaf.sent"), timeout=15)
         assert browser.execute_script('return document.querySelector(".overleaf-reply-input").value') == ""
 
-        # A reply Overleaf refuses brings its thread back to the to do, opened, with its words
-        # and the reason.
+        # A reply Overleaf refuses brings its thread back to the drafts view, which it leaves at
+        # the press, opened, with its words and the reason. The thread's last message on Overleaf
+        # is the reviewer's, so the tab counts nothing.
         store.draft_overleaf(brought.id, store.get(brought.id).updated, OverleafDraft("Refused once."), {})
-        show_view(browser, "todo")
+        show_view(browser, "drafts")
         wait_until(lambda: browser.execute_script(
             'return document.querySelector(".overleaf-reply-input")?.value || ""') == "Refused once.", timeout=15)
         browser.execute_script("""window.before = window.fetch;
@@ -5517,7 +5904,8 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
             'return document.querySelector(".overleaf-reply-input") === null'), timeout=0.6)
         wait_until(lambda: text(".overleaf-reply-note") == "Overleaf said no.", timeout=15)
         assert browser.execute_script('return document.querySelector(".overleaf-reply-input").value') == "Refused once."
-        assert text("#overleaf-tab-count") == "1" and len(fake.written) == 1
+        assert text("#overleaf-tab-count") == "0" and len(fake.written) == 1
+        assert browser.execute_script('return document.querySelector("#overleaf-tab-count").classList.contains("hidden")')
         browser.execute_script("window.fetch = window.before;", sandbox=None)
         show_view(browser, "open")
 
@@ -5545,7 +5933,8 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
         wait_until(lambda: browser.execute_script(
             'return [...document.querySelectorAll(".overleaf-reply-input")].map((box) => box.value).sort().join("|")')
             == "Both go, the first.|Both go, the second.", timeout=15)
-        assert text("#overleaf-tab-count") == "2"
+        # Only the new thread's last message is someone else's.
+        assert text("#overleaf-tab-count") == "1"
         assert browser.execute_script('return document.querySelector("#send-picked-btn").disabled') is True
         for cid in (brought.id, second.id):
             click(f"[data-comment-id='{cid}'] .comment-pick")
@@ -5795,9 +6184,8 @@ def test_the_leaf_beside_comment_starts_a_thread_for_overleaf(tmp_path: Path, mo
     """With the leaf pressed beside + Comment, a comment on source text starts a thread for
     Overleaf, in two boxes, either of which will do. The top one is the thread's first
     message, posted at once; the one below is a private note, which waits for the agent, and
-    alone has the agent draft that message, as the thread waits among the new threads of the
-    leaf tab. A first message Overleaf refuses stays on the thread's card as its draft, saying
-    why."""
+    alone has the agent draft that message, as the thread waits in the leaf tab's drafts view. A
+    first message Overleaf refuses stays on the thread's card as its draft, saying why."""
     import asyncio
     import threading
     from aiohttp.test_utils import TestServer
@@ -5894,7 +6282,7 @@ def test_the_leaf_beside_comment_starts_a_thread_for_overleaf(tmp_path: Path, mo
         time.sleep(0.5)
         assert script('return document.querySelector("#compose-dialog").open') is True and store.list() == []
 
-        # The note alone waits for the agent's draft among the new threads, private.
+        # The note alone waits for the agent's draft in the leaf tab's drafts view, private.
         fill("", "ask if the placer is fast enough, politely")
         script('document.querySelector("#compose-form").requestSubmit()')
         note_only = started()
@@ -5902,7 +6290,7 @@ def test_the_leaf_beside_comment_starts_a_thread_for_overleaf(tmp_path: Path, mo
         assert note_only.for_overleaf and note_only.overleaf_draft is None
         assert [entry.text for entry in note_only.waiting()] == ["ask if the placer is fast enough, politely"]
         wait_until(lambda: script('return document.querySelector(".tab-btn.active")?.dataset.tab') == "overleaf-comments")
-        wait_until(lambda: script('return document.querySelector("#comment-filter").value') == "new")
+        wait_until(lambda: script('return document.querySelector("#comment-filter").value') == "drafts")
         card = f'document.querySelector(\'[data-comment-id="{note_only.id}"]\')'
         wait_until(lambda: script(f'return {card}?.textContent.includes("New public thread on Overleaf") ?? false'))
         script(f'{card}.querySelector(".cmt-head").click()')

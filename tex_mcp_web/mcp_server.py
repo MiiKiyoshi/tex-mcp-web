@@ -317,6 +317,12 @@ def _agent_entry(entry) -> dict[str, Any]:
     return written
 
 
+def _stored_status(status: str) -> str | None:
+    """The status the store holds the threads listed under *status* by: a hidden thread is
+    stored open. None for all."""
+    return None if status == "all" else "open" if status == "hidden" else status
+
+
 def _on_overleaf(watch_dir: Path) -> set[str]:
     """The comments brought in from Overleaf threads."""
     from . import overleaf
@@ -408,7 +414,7 @@ def _agent_comment_to_dict(comment, watch_dir: Path) -> dict[str, Any]:
     anchor = comment.anchor
     payload: dict[str, Any] = {
         "id": comment.id,
-        "status": comment.status,
+        "status": comment.shown_status,
         "kind": anchor.kind,
         "comment": comment.text,
     }
@@ -417,10 +423,10 @@ def _agent_comment_to_dict(comment, watch_dir: Path) -> dict[str, Any]:
             "quote": anchor.quote,
             "page": anchor.selection.page,
         })
-    elif isinstance(anchor, SourceRangeAnchor) and comment.status == "open":
+    elif isinstance(anchor, SourceRangeAnchor) and comment.shown_status == "open":
         # What the file holds here now: the text a suggestion quotes its fragments out
-        # of. A resolved or archived thread is read for what was said, not rewritten,
-        # so it does not carry the paragraph with it.
+        # of. A resolved, archived or hidden thread is read for what was said, not
+        # rewritten, so it does not carry the paragraph with it.
         quote = read_anchored_source(watch_dir, comment)
         if quote is not None:
             payload["quote"] = quote
@@ -681,7 +687,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
     async def read_comments(
         ids: list[str] | None = None,
         new: Annotated[bool, Field(description="Only what the reviewer has written since the last call with new; cannot be combined with ids.")] = False,
-        status: Literal["open", "resolved", "archived", "all"] = "open",
+        status: Literal["open", "resolved", "archived", "hidden", "all"] = "open",
         unanswered: Annotated[bool, Field(description="Only threads where the reviewer wrote to you after the thread's last answer: your reply, your Overleaf draft, or a reply sent to Overleaf.")] = False,
         since: Annotated[str | None, Field(description="A time this server printed, like '09-19 00:52'; only what came after it.")] = None,
         until: Annotated[str | None, Field(description="A time this server printed; a search covers only what came up to the end of that minute.")] = None,
@@ -726,7 +732,9 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         entries and its location. A long entry is shortened to the words around the match and
         marked ``cut``, and only a thread's newest few matches are shown, with the rest counted
         in ``more_matches``; read the thread by id to see it in full. The bounds and the words
-        are each optional, and status="all" also searches closed threads. ``on_overleaf``
+        are each optional, and status="all" also searches closed threads. A thread from Overleaf
+        the reviewer hid on the page has status "hidden": it is set aside, as an archived
+        thread is, so new and the open listing leave it out. ``on_overleaf``
         limits a listing or a search to Overleaf's threads or to the page's own, which are
         entirely private, and ``file`` limits either to the threads on one source file, each
         with its lines in ``source``. Times are shown and passed back as ``MM-DD HH:MM`` on
@@ -766,7 +774,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                 if not said:
                     continue
                 told = {"id": comment.id, "rev": revision_of(comment.updated),
-                        "status": comment.status,
+                        "status": comment.shown_status,
                         "entries": [_agent_entry(entry) for entry in said]}
                 if comment.id in brought:
                     told["on_overleaf"] = True
@@ -860,7 +868,9 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                 return (moment is None or when > moment) and (end is None or when < end)
 
             found = []
-            for comment in store.list(status=None if status == "all" else status):
+            for comment in store.list(status=_stored_status(status)):
+                if status != "all" and comment.shown_status != status:
+                    continue
                 if not wanted(comment):
                     continue
                 said = [(_agent_entry(entry), entry.at, entry.text) for entry in comment.thread]
@@ -873,7 +883,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                 if not matches:
                     continue
                 source = comment.resolved_source
-                hit: dict[str, Any] = {"id": comment.id, "rev": revision_of(comment.updated), "status": comment.status,
+                hit: dict[str, Any] = {"id": comment.id, "rev": revision_of(comment.updated), "status": comment.shown_status,
                                        "source": f"{source.file}:{source.line_start}-{source.line_end}"
                                        if source is not None else comment.anchor.kind,
                                        "matches": matches[-MATCHES_SHOWN:]}
@@ -889,8 +899,8 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                 listed["older"] = len(found) - limit
             return _ok(listed)
         summaries = []
-        for comment in store.list(status=None if status == "all" else status):
-            if not wanted(comment):
+        for comment in store.list(status=_stored_status(status)):
+            if (status != "all" and comment.shown_status != status) or not wanted(comment):
                 continue
             if unanswered and not comment.waiting(on_overleaf=comment.id in brought):
                 continue
@@ -903,7 +913,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                 # The token a write quotes back. Without it here, answering a thread costs
                 # a full read of it first, and a thread grows.
                 "rev": revision_of(comment.updated),
-                "status": comment.status,
+                "status": comment.shown_status,
                 "kind": comment.anchor.kind,
                 # A listing is for picking which threads to open, so each request is cut
                 # to as much as it takes to recognise it.

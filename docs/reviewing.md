@@ -60,12 +60,11 @@ last line of the PDF. Running heads, page numbers and the words inside an includ
   for everyone in the project. Everything in the Comments tab is private. A thread from
   [Overleaf](overleaf.md) holds both: your co-authors' messages and the replies you sent
   are public, and your talk with the agent between them is private.
-- The Comments tab opens on **to do**: the comments the agent has yet to answer, one you
-  just wrote or replied in, and those whose suggestion waits for you to apply it. An answer
-  with nothing to apply takes a comment out of it, and so does applying. The number on the
-  tab counts them. **open** lists every open comment, and one opened from its mark in the
-  PDF or the editor shows there when to do leaves it out. The PDF and the editor mark every
-  open comment of the tab, whatever the list shows.
+- The Comments tab opens on **open**, which lists every open comment. A comment is
+  unanswered when its last message is from the agent: its card is marked **unanswered**, the
+  **unanswered** view lists it, and the number on the tab counts it. A comment you wrote that
+  the agent has not answered yet is simply open. The PDF and the editor mark every open comment of the tab, whatever the list shows,
+  and a comment opened from its mark shows in **open** when the view shown leaves it out.
 - The search box above the comments, which `/` goes to, lists the tab's comments that meet
   what is typed, in any letter case and whatever their status. A word is looked for in a
   comment or a reply, the name of whoever wrote in it on Overleaf, the words it is on, its
@@ -117,27 +116,29 @@ last line of the PDF. Running heads, page numbers and the words inside an includ
 - The sort list beside the view list orders the list. **paper order** keeps each view's own
   order: the comments here as they were written, Overleaf's threads as the paper reads
   them, the last closed first in **resolved**, the last touched first in **archived**, and
-  the newest thread first in **all** and in a search. **latest first** and **oldest first**
+  the newest thread first in **all**. A search keeps the order of **open**. **latest first** and **oldest first**
   order any view, and a search, by when each thread was last written in. Each comment tab
   keeps its own choice, and `o` steps to the next.
 - The row above the comments acts on the threads picked by their boxes. From the left: the
   view list, the sort list and **Expand all**; the box that picks every thread listed or lets them all go;
   **Resolve**, which reads **Reopen** when the picked threads are resolved or archived and,
   as `R` does, resolves the open ones of a mix; **Archive**, or in the Overleaf tab **Accept**,
-  **Reject** and **Send to Overleaf**; then the sync button and **Call agent**. On a narrow
+  **Reject** and **Send to Overleaf**, with **Hide** where the other tab has **Archive**; then the sync
+  button and **Call agent**. On a narrow
   panel the sort list shrinks to its icon first and the word **Resolve** goes next, then the
   sort list, **Expand all**, the sync button and **Call agent** wait behind **⋯** with their
   names. In the Overleaf tab **Send to Overleaf** then drops its leaf, and **Accept** and
-  **Reject**, which each suggested edit's card has too, wait behind **⋯**. Last the view
+  **Reject**, which each suggested edit's card has too, wait behind **⋯**, followed by **Hide**. Last the view
   list shrinks to its icon. **Resolve**, **Archive** and **Send to Overleaf** stay in the
   row, which takes two lines only when even that does not fit.
 
 ## Comment keys
 
 The comments go by keys, as a notebook's cells do. These shortcuts act on the current comment
-when the Comments tab is open and you are not typing. `?`, or **Keyboard
-shortcuts** in the ⋯ menu, lists them on the page, and a comment's buttons name their keys in
-their tooltips. Once you move through the comments by keys, the ringed comment's buttons show
+when the Comments tab is open and you are not typing. `?`, or **Help** in the ⋯ menu, opens
+Help, whose **Keys** page lists them with the Source editor's keys. Its other pages are
+**Start here**, **Search**, which walks through finding a co-author's comment and lists every
+search term, and **Overleaf**. A comment's buttons name their keys in their tooltips. Once you move through the comments by keys, the ringed comment's buttons show
 their keys' letters at their top-left corners, until the mouse moves or a box takes the
 typing.
 
@@ -154,7 +155,7 @@ typing.
 | `c` | Comment on the whole paper |
 | Escape | Leave the text box. An unsent private reply or edit is discarded; a reply for Overleaf is kept |
 | `R` | Resolve, or reopen a comment that is not open |
-| `A` | Archive |
+| `A` | Archive, or in the leaf Comments tab hide the thread, or show it again in the hidden view |
 | `u` | Undo the last status change, while **Undo** is shown above the list |
 | `aa` | Apply the suggestion to the file, or accept a suggested edit on Overleaf |
 | `nn` | Reject the suggestion, or the Overleaf draft if there is none |
@@ -165,10 +166,10 @@ typing.
 | `*` | Select all comments, or clear the selection |
 | `v` | Start a range at the comment (or at the first comment) and extend it with the movement keys. `R`, `A`, `ss` and `x` then act on the whole range; Escape or `v` clears it |
 | `/` | Search this tab's comments in any status |
-| `f` `F` | Next and previous view (to do, open, …) |
+| `f` `F` | Next and previous view (open, unanswered, …) |
 | `o` | Next sort order (paper order, latest first, oldest first) |
 | `t` `T` | Next and previous tab |
-| `?` | Show keyboard shortcuts |
+| `?` | Open Help |
 
 With comments selected, `R`, `A` and `ss` act on the selection. A click on a card puts the ring on it,
 and choosing a comment tab, a view or an order in the lists atop gives the keys back to the comments.

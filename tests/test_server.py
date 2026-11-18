@@ -1298,7 +1298,7 @@ async def test_mcp_contract_is_typed_and_nonduplicative(tmp_path: Path):
     assert "section" not in tools
     assert all(mcp.instructions not in (tool.description or "") for tool in tools.values())
     read_schema = tools["read_comments"].inputSchema["properties"]
-    assert read_schema["status"]["enum"] == ["open", "resolved", "archived", "all"]
+    assert read_schema["status"]["enum"] == ["open", "resolved", "archived", "hidden", "all"]
     assert set(read_schema) == {"ids", "new", "status", "unanswered", "since", "until", "find", "on_overleaf", "file", "limit", "save"}
 
     comment_schema = tools["write_comments"].inputSchema
@@ -3817,6 +3817,103 @@ async def test_overleaf_threads_are_kept_as_overleaf_has_them(client) -> None:
     export["comments"].pop(0)
     await server._bring_in_overleaf(export, new=False)
     assert server.comments.get(one.id) is None and len(server.comments.list()) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_hidden_thread_stays_hidden_here_until_someone_else_writes_in_it(client, monkeypatch) -> None:
+    """Hide puts a thread from Overleaf out of the way on the page and Show brings it back,
+    neither asking Overleaf anything, so neither needs the cookie. A private comment cannot
+    be hidden. The hidden mark, with the time it was set, survives syncs that change nothing,
+    reword a message or move the thread, and the reviewer's own new message on Overleaf.
+    A message from someone else shows the thread again. Resolved on Overleaf, it is
+    resolved and no longer hidden. An undo that puts a resolved thread back to hidden
+    reopens it on Overleaf first. The agent sees a hidden thread as set aside: no request
+    from it waits, and it is listed as hidden."""
+    pytest.importorskip("mcp")
+    import hashlib
+
+    from tex_mcp_web import overleaf
+    from tex_mcp_web.comments import PaperAnchor
+
+    http, server = client
+    asked: list[tuple[str, bool]] = []
+
+    async def set_resolved(project, cookie, threads, resolved):
+        for thread in threads:
+            asked.append((thread, resolved))
+            yield thread
+
+    monkeypatch.setattr(overleaf, "set_resolved", set_resolved)
+    monkeypatch.setattr(overleaf, "read_cookie", lambda: None)
+    paper = server.watch_dir / "paper.tex"
+    text = paper.read_text(encoding="utf-8")
+    message = lambda key, name, content: {"id": key, "user": {"name": name}, "content": content}
+    export = {"threads": {"t1": {"resolved": False, "messages": [message("m1", "Ann Lee", "Is this clear?")]}},
+              "comments": [{"thread_id": "t1", "pathname": "/paper.tex", "line": 5, "anchored_text": "prose"}]}
+    await server._bring_in_overleaf(export, new=True)
+    (thread,) = server.comments.list()
+    mine = server.comments.add(PaperAnchor(), "A note for the agent.")
+
+    async def status(ids, value):
+        return await http.post("/comments/status", json={"ids": ids, "status": value})
+
+    def stored():
+        return server.comments.get(thread.id)
+
+    # Hidden with no cookie, and nothing goes to Overleaf. The thread's rev stays.
+    assert (await status([thread.id], "hidden")).status == 200
+    assert stored().hidden is not None and stored().shown_status == "hidden" and stored().updated == thread.updated
+    assert asked == []
+    refused = await status([mine.id], "hidden")
+    assert refused.status == 409 and server.comments.get(mine.id).hidden is None
+    listed = {c["id"]: c for c in (await (await http.get("/comments")).json())["comments"]}
+    assert "hidden" in listed[thread.id] and "hidden" not in listed[mine.id]
+
+    # Syncs that change nothing, reword the message, or move the thread leave it hidden.
+    hidden_at = stored().hidden
+    await server._bring_in_overleaf(export, new=False)
+    export["threads"]["t1"]["messages"][0]["content"] = "Is this clear enough?"
+    await server._bring_in_overleaf(export, new=False)
+    export["comments"][0].update(anchored_text="Introduction", offset=text.index("Introduction"), line=3,
+                                 text_sha=hashlib.sha256(text.encode("utf-8")).hexdigest())
+    await server._bring_in_overleaf(export, new=False)
+    assert stored().hidden == hidden_at and stored().anchor.line_start == 3
+    assert stored().thread[0].text == "Is this clear enough?"
+
+    # The agent finds no request in it and lists it as hidden, not as open.
+    server.comments.reply(thread.id, "Should we reword it?", "human")
+    assert stored().waiting() == []
+    from tex_mcp_web.mcp_server import _agent_comment_to_dict
+    assert _agent_comment_to_dict(stored(), server.watch_dir)["status"] == "hidden"
+
+    # The reviewer's own message on Overleaf leaves it hidden; a co-author's shows it.
+    # The page in the project knows the reviewer's name there.
+    server.overleaf_live = type("Live", (), {"me": "Dana Cho"})()
+    export["threads"]["t1"]["messages"].append(message("m2", "Dana Cho", "I will look."))
+    await server._bring_in_overleaf(export, new=False)
+    assert stored().hidden == hidden_at
+    export["threads"]["t1"]["messages"].append(message("m3", "Ann Lee", "Any news?"))
+    await server._bring_in_overleaf(export, new=False)
+    assert stored().hidden is None and stored().shown_status == "open"
+    server.overleaf_live = None
+
+    # Hidden again, then shown by the page.
+    await status([thread.id], "hidden")
+    assert (await status([thread.id], "open")).status == 200
+    assert stored().hidden is None and asked == []
+
+    # Resolved on Overleaf while hidden: resolved, and no longer hidden.
+    await status([thread.id], "hidden")
+    export["threads"]["t1"]["resolved"] = True
+    await server._bring_in_overleaf(export, new=False)
+    assert stored().status == "resolved" and stored().hidden is None and stored().shown_status == "resolved"
+
+    # An undo puts it back to hidden: reopened on Overleaf first, then hidden here.
+    monkeypatch.setattr(overleaf, "read_cookie", lambda: ("overleaf_session2", "x"))
+    server.config.overleaf = "https://www.overleaf.com/project/0123456789abcdef01234567"
+    assert (await status([thread.id], "hidden")).status == 200
+    assert asked == [("t1", False)]
+    assert stored().status == "open" and stored().shown_status == "hidden"
 
 
 @pytest.mark.asyncio

@@ -59,7 +59,7 @@ ENTER, CONTROL, SHIFT, ALT, META, ESCAPE = "\ue007", "\ue009", "\ue008", "\ue00a
 # The key the page's own shortcuts are held with: Cmd on a Mac, where Option stands for Alt, and
 # Ctrl elsewhere.
 MOD = META if sys.platform == "darwin" else CONTROL
-# The names the page gives those keys, in its tooltips and its keys dialog.
+# The names the page gives those keys, in its tooltips and in Help.
 MOD_ALT = "Cmd+Option" if sys.platform == "darwin" else "Ctrl+Alt"
 
 
