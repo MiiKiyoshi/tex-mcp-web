@@ -9,7 +9,7 @@ step with the project in one of three ways.
 **Settings** takes the project's link (`https://www.overleaf.com/project/…`) and writes it
 into `.tex-mcp-web.yaml` as `overleaf:`. **Disconnect** there takes it out. A project on
 another Overleaf server is named in the file by hand. Once connected, Settings holds
-everything Overleaf: the cookie, how the files follow Overleaf, who is in the project, and
+everything Overleaf: the cookie, how files sync with Overleaf, who is in the project, and
 where the folder stands against Overleaf's git branch.
 
 Overleaf is read with your Overleaf session cookie (`overleaf_session2`, copied once from
@@ -153,8 +153,8 @@ With `overleaf` set and the cookie kept, an open page sits in the project. The t
 a face for each collaborator there, which goes to the file and line they are on, their
 cursors are drawn in the editor on that file, and a file edited there says so above the
 editor until this folder holds those edits too. Settings lists who is where and those files.
-A leaf button shows in the top bar only when something needs a look: signed out,
-reconnecting, comments not coming in, or files waiting for a choice. **Your cursor on
+A leaf button shows in the top bar only when Overleaf needs your attention: signed out,
+reconnecting, comments not syncing, or files that need a decision. **Your cursor on
 Overleaf** in Settings chooses what they see of you. With **Show my cursor**, where the page
 starts, your cursor in the page's editor is shown to them as your cursor on Overleaf, in the
 file you have open there, and their editors then tell where they are at once. Nothing is
@@ -170,7 +170,7 @@ no edit to the text unless the files follow it live or you press Send.
 
 ## Keeping the files in step
 
-Settings chooses how the files follow Overleaf.
+Settings chooses how files sync with Overleaf.
 
 | | In a git clone of the project | In any other folder |
 |---|---|---|

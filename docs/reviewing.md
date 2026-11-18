@@ -10,17 +10,17 @@
 - The box tool, beside pan and pointer in the PDF's toolbar, turns a drag on the PDF into a
   box to comment on what has no text to select, such as part of a figure. The box holds
   while a compile leaves what it covers as it was.
-- **Add a paper note…** in the ⋯ menu comments on the whole paper, and the **Sections** tab comments on a section. A
+- **Comment on the whole paper…** in the ⋯ menu adds a comment on the whole paper, and the **Sections** tab comments on a section. A
   section comment stays on the heading it was made on as the file is edited, also when
   another heading has the same title. Text selected in the Source tab takes a comment by
   the comment button, the speech bubble in the editor's bar.
-- **Source** beside **Comment** on a PDF selection selects the same words in the source
+- **Show in Source** beside **Comment** on a PDF selection selects the same words in the source
   editor, at the lines SyncTeX names, or those lines when a macro prints the words. The
   other way, the button after the comment button in the editor's bar, which reads
   *show it in the Preview* when pointed at, marks where the Preview
   prints the selected words. Either turns the view to Split. Both need a PDF built with
   SyncTeX, which **Compile** builds. Cmd (macOS) or Ctrl with a double click on a PDF word
-  does what **Source** does for that word.
+  does what **Show in Source** does for that word.
 - Press **Call agent**, the bell in the Comments tab, when your comments are ready. The
   listening agent edits the source, compiles, and replies in the same thread. Without
   listen, ask the agent in chat to handle the tex comments.
@@ -125,8 +125,8 @@ last line of the PDF. Running heads, page numbers and the words inside an includ
 
 ## Comment keys
 
-The comments go by keys, as a notebook's cells do. The keys act on the comment with the ring
-around it while the Comments tab is shown and nothing is being typed in. `?`, or **Keyboard
+The comments go by keys, as a notebook's cells do. These shortcuts act on the current comment
+when the Comments tab is open and you are not typing. `?`, or **Keyboard
 shortcuts** in the ⋯ menu, lists them on the page, and a comment's buttons name their keys in
 their tooltips. Once you move through the comments by keys, the ringed comment's buttons show
 their keys' letters at their top-left corners, until the mouse moves or a box takes the
@@ -136,32 +136,32 @@ typing.
 |---|---|
 | `j` `k`, ↓ ↑ | Next and previous comment. The ringed card stays a third of the way down the list, and one that leaves the view, resolved, archived, deleted, applied or sent, hands the ring to the next in that same place. |
 | `gg` `G`, Home End | First and last comment |
-| Space | Open or close the card, and show where the comment is in the PDF or the source, its line a third of the way down the editor |
-| Shift+Space | Open or close every card |
-| `K`, Ctrl+Alt+K | Go into the source at the comment's words, the keys going with the cursor. `K` in the editor, or Ctrl+Alt+K without Vim keys, comes back |
-| `r` | Reply privately, where the agent reads it and Overleaf does not |
+| Space | Expand or collapse the card; expanding also shows the comment's place in the PDF or the source, its line a third of the way down the editor |
+| Shift+Space | Expand or collapse all comments |
+| `K`, Ctrl+Alt+K | Jump to the comment's text in the source and move keyboard focus there. Press `K` in the editor (Ctrl+Alt+K without Vim keys) to come back |
+| `r` | Write a private reply that the agent sees and Overleaf does not |
 | `i` | Write the thread's reply for Overleaf |
-| `e` | Edit the last thing you wrote in the thread, here or on Overleaf |
-| `c` | Add a paper note |
-| Escape | Leave a box: a reply or an edit being written is dropped, a reply for Overleaf keeps its words |
+| `e` | Edit your last message in the thread, here or on Overleaf |
+| `c` | Comment on the whole paper |
+| Escape | Leave the text box. An unsent private reply or edit is discarded; a reply for Overleaf is kept |
 | `R` | Resolve, or reopen a comment that is not open |
 | `A` | Archive |
-| `u` | Undo the last change of status, while the line above the list offers it |
+| `u` | Undo the last status change, while **Undo** is shown above the list |
 | `aa` | Apply the suggestion to the file, or accept a suggested edit on Overleaf |
-| `nn` | Reject the suggestion, or with none the draft for Overleaf |
+| `nn` | Reject the suggestion, or the Overleaf draft if there is none |
 | `ss` | Send the public reply to Overleaf, for everyone in the project |
-| `dd` | Delete, once you say yes, or reject a suggested edit on Overleaf |
-| `D` | Delete the last thing you wrote in the thread, here or on Overleaf, once you say yes |
-| `x` | Pick the comment, or let it go |
-| `*` | Pick every comment, or let them all go |
-| `v` | Hold a range, which the moving keys stretch. `R`, `A`, `ss` and `x` then act on the whole range, and Escape or `v` lets it go |
-| `/` | Search the tab's comments, whatever their status |
-| `f` `F` | Next and previous view in the list atop the tab: to do, open, … |
-| `o` | Next order of the list: paper order, latest first, oldest first |
+| `dd` | Delete (after confirmation), or reject a suggested edit on Overleaf |
+| `D` | Delete your last message in the thread, here or on Overleaf (after confirmation) |
+| `x` | Select or deselect the comment, or the whole range while one is marked |
+| `*` | Select all comments, or clear the selection |
+| `v` | Start a range at the comment (or at the first comment) and extend it with the movement keys. `R`, `A`, `ss` and `x` then act on the whole range; Escape or `v` clears it |
+| `/` | Search this tab's comments in any status |
+| `f` `F` | Next and previous view (to do, open, …) |
+| `o` | Next sort order (paper order, latest first, oldest first) |
 | `t` `T` | Next and previous tab |
-| `?` | These keys |
+| `?` | Show keyboard shortcuts |
 
-With comments picked, `R`, `A` and `ss` act on them. A click on a card puts the ring on it,
+With comments selected, `R`, `A` and `ss` act on the selection. A click on a card puts the ring on it,
 and choosing a comment tab, a view or an order in the lists atop gives the keys back to the comments.
 With a Korean input method on, a letter key is read by where it sits on the keyboard, so the
 keys work as they are.

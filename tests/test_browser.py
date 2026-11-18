@@ -291,7 +291,7 @@ def test_browser_comment_actions(tmp_path: Path) -> None:
           return [button.classList.contains("agent-offline"), button.disabled,
             button.getAttribute("aria-label"), button.title, getComputedStyle(button).color];
         ''') == [True, False, "Queue call for agent",
-                 "Agent is not waiting; queue this call until it reconnects (Ctrl+Alt+Enter)", "rgb(180, 74, 67)"]
+                 "No agent is listening. The call will be queued until one connects (Ctrl+Alt+Enter)", "rgb(180, 74, 67)"]
         with ThreadPoolExecutor(max_workers=1) as pool:
             waiter = pool.submit(lambda: urllib.request.urlopen(
                 f"{base}/wait-review?listener=one&pid={os.getpid()}", timeout=10).read())
@@ -299,7 +299,7 @@ def test_browser_comment_actions(tmp_path: Path) -> None:
               const button = document.querySelector("#call-agent-btn");
               return button.classList.contains("agent-ready")
                 && button.getAttribute("aria-label") === "Call agent"
-                && button.title === "Call the waiting agent now (Ctrl+Alt+Enter)"
+                && button.title === "Call the agent (Ctrl+Alt+Enter)"
                 && getComputedStyle(button).color === "rgb(79, 119, 88)";
             '''))
             browser.execute_script('document.querySelector("#call-agent-btn").click()')
@@ -464,7 +464,7 @@ def test_the_page_says_why_it_waits_and_catches_up_when_its_server_returns(tmp_p
         browser.navigate(base)
 
         # The first build fails: the Preview says so, and its button opens Problems.
-        wait_until(lambda: text("#pdf-viewer").startswith("The build failed. Problems lists why."))
+        wait_until(lambda: text("#pdf-viewer").startswith("The build failed. See Problems for details."))
         script('document.querySelector("#pdf-viewer button")?.click()')
         wait_until(lambda: script('return document.querySelector(".tab-btn[data-tab=compile]").classList.contains("active")'))
 
@@ -518,15 +518,15 @@ def test_the_page_says_why_it_waits_and_catches_up_when_its_server_returns(tmp_p
         wait_until(lambda: script(f'return {card}?.querySelector(".sugg-apply") !== null'))
         script(f'{card}.querySelector(".sugg-apply").click()')
         wait_until(lambda: script(f'return {card}?.querySelector(".sugg-unfit")?.textContent ?? ""').startswith(
-            "The file changed since this was proposed, so it no longer fits. "
+            "The file has changed since this was suggested, so it no longer applies. "
             "Reject it, or reply to ask the agent for a new one. (")
             and script("return window.alerted.length") == 0)
 
         # A call no agent hears says so above the list until one listens.
         script('document.querySelector("#call-agent-btn").click()')
         wait_until(lambda: shown("#call-agent-why") and text("#call-agent-why") == (
-            "No agent is listening yet, so the call waits. Claude Code listens when started in the "
-            "paper's folder. In Codex, say do tex listen."))
+            "No agent is listening yet, so the call is queued. Claude Code listens when started in the "
+            "paper's folder. In Codex, send “do tex listen”."))
         with ThreadPoolExecutor(max_workers=1) as pool:
             waiter = pool.submit(lambda: urllib.request.urlopen(
                 f"{base}/wait-review?listener=one&pid={os.getpid()}", timeout=10).read())
@@ -567,7 +567,7 @@ def test_the_page_says_why_it_waits_and_catches_up_when_its_server_returns(tmp_p
             and bell() == "The review page's server cannot be reached")
         shared.ensure()
         wait_until(lambda: not shown("#server-alert")
-                   and bell() == "Agent is not waiting; queue this call until it reconnects (Ctrl+Alt+Enter)")
+                   and bell() == "No agent is listening. The call will be queued until one connects (Ctrl+Alt+Enter)")
     finally:
         if browser is not None:
             browser.quit()
@@ -1004,7 +1004,7 @@ def test_source_beside_comment_opens_the_selected_words_in_the_editor(tmp_path: 
         assert browser.execute_script('return document.querySelector("#compile-tab-count").textContent') == "1"
         assert browser.execute_script(
             'return document.querySelector("#error-banner .err-item.err-warning .err-msg").textContent') \
-            == f"A paragraph on page 1, column 1 ends in a line {short['width']} of the column wide: “A last line follows.”"
+            == f"A paragraph on page 1, column 1 ends with a short line ({short['width']} of the column width): “A last line follows.”"
         browser.execute_script('document.querySelector("#error-banner .err-item.err-warning").click()')
         pointed = wait_until(lambda: browser.execute_script('''
           const root = document.querySelector("embedpdf-container").shadowRoot;
@@ -1017,12 +1017,12 @@ def test_source_beside_comment_opens_the_selected_words_in_the_editor(tmp_path: 
         '''))
         assert all(abs(got / page[2] - want) < 3 for got, want in zip(pointed, short["bbox"])), (pointed, short["bbox"])
         assert browser.execute_script('return document.querySelector(".layout").classList.contains("view-pdf")')
-        # Pressed in the Preview alone, Source turns the view to Split and selects the words.
+        # Pressed in the Preview alone, Show in Source turns the view to Split and selects the words.
         select_words()
-        wait_until(lambda: menu_button("Source"))
+        wait_until(lambda: menu_button("Show in Source"))
         browser.execute_script('''
           Array.from(document.querySelector("embedpdf-container").shadowRoot.querySelectorAll("button"))
-            .find((button) => button.textContent.trim() === "Source").click();
+            .find((button) => button.textContent.trim() === "Show in Source").click();
         ''')
         opened = wait_until(lambda: browser.execute_script('''
           const editor = (window.wrappedJSObject || window).ace?.edit("source-editor");
@@ -1731,7 +1731,7 @@ def test_shift_picks_the_run_between_two_boxes(tmp_path: Path) -> None:
         assert browser.execute_script(every) == ["checkbox", "comment-pick", False, True, "Select all"]
         browser.find_element("css selector", "#pick-all-btn").click()
         assert picked() == ids
-        assert browser.execute_script(every)[2:] == [True, False, "Clear"]
+        assert browser.execute_script(every)[2:] == [True, False, "Clear selection"]
         browser.find_element("css selector", "#pick-all-btn").click()
         assert picked() == []
         assert browser.execute_script(every)[2:] == [False, False, "Select all"]
@@ -1980,7 +1980,7 @@ def test_each_comment_tab_opens_on_what_waits_for_the_reviewer(tmp_path: Path) -
         script('const box = document.querySelector("#comment-search"); box.value = "nowhere";'
                ' box.dispatchEvent(new Event("input"))')
         wait_until(lambda: script('return document.querySelector("#comments-list").textContent')
-                   == "No comment here holds these words.")
+                   == "No comments match your search.")
         script('const box = document.querySelector("#comment-search"); box.value = "sentence";'
                ' box.dispatchEvent(new Event("input"))')
         # The words a comment is on are searched too, as the file has them now.
@@ -2228,7 +2228,7 @@ def test_the_sort_list_orders_each_tab_and_its_search_and_the_keys_follow(tmp_pa
             wait_until(lambda: shown_sort() == [order, name] and listed() == shown)
         type_keys(browser, ["?"])
         wait_until(lambda: script('return document.querySelector("#keys-dialog").open'))
-        assert "Next order of the list: paper order, latest first, oldest first" in script(
+        assert "Next sort order (paper order, latest first, oldest first)" in script(
             'return document.querySelector("#keys-list").textContent')
         script('document.querySelector("#keys-dialog").close()')
         # The leaf tab keeps an order of its own, and a reload brings each tab's back.
@@ -3057,7 +3057,7 @@ def test_the_comment_list_goes_by_keys(tmp_path: Path) -> None:
         assert browser.execute_script('return document.querySelector("#keys-dialog").open') is True
         listed = browser.execute_script('return document.querySelector("#keys-dialog").textContent')
         assert "aaApply its suggestion to the file" in listed
-        assert "With comments picked, R, A and ss act on them." in listed
+        assert "With comments selected, R, A and ss act on the selection." in listed
         press("j")
         assert ringed() == before
         press(escape)
@@ -3171,7 +3171,7 @@ def test_archived_threads_have_their_own_view_and_picked_archive_action(tmp_path
         assert browser.execute_script('''
           const button = document.querySelector("#archive-picked-btn");
           return [button.disabled, button.getAttribute("aria-label"), button.title];
-        ''') == [False, "Archive 1", "Archive the picked comments"]
+        ''') == [False, "Archive 1", "Archive the selected comments"]
         browser.find_element("css selector", "#archive-picked-btn").click()
         wait_until(lambda: get_json(f"{base}/comments/{working}")["status"] == "archived")
         wait_until(lambda: browser.execute_script(
@@ -3256,7 +3256,7 @@ def test_undo_puts_the_last_change_of_status_back(tmp_path: Path) -> None:
         wait_until(lambda: statuses(first) == ["open"] and line() is None)
         type_keys(browser, ["?"])
         wait_until(lambda: script('return document.querySelector("#keys-dialog").open'))
-        assert "Undo the last change of status" in script('return document.querySelector("#keys-list").textContent')
+        assert "Undo the last status change" in script('return document.querySelector("#keys-list").textContent')
         script('document.querySelector("#keys-dialog").close()')
         # Three resolved from the row, and Undo opens each again.
         wait_until(lambda: listed() == sorted([first, second, third]))
@@ -3399,7 +3399,7 @@ def test_undo_puts_threads_back_on_overleaf_without_asking(tmp_path: Path, monke
         taken = len(fake.written)
         refuse_after_one()
         click("#undo-btn")
-        wait_until(lambda: (line() or "").startswith("1 thread could not be put back: "))
+        wait_until(lambda: (line() or "").startswith("1 thread could not be undone: "))
         assert resolved() == [False, True] and len(fake.written) == taken + 1
         assert statuses() == ["open", "resolved"]
         fake._check_write = check
@@ -3976,7 +3976,7 @@ def test_the_more_menu_updates_the_install_and_says_what_is_left(tmp_path: Path,
         # page, loaded from the old one, asks to be reloaded.
         monkeypatch.setattr(server_module, "__version__", "99.0.0")
         asked_again()
-        wait_until(lambda: said() == "tex-mcp-web v99.0.0 runs now. Reload this page to use it.", timeout=10)
+        wait_until(lambda: said() == "tex-mcp-web v99.0.0 is now running. Reload this page to use it.", timeout=10)
         assert shown("#update-reload-btn") and not shown("#update-alert-how")
         script('document.querySelector("#update-reload-btn").click()')
         wait_until(lambda: script('return document.querySelector("#update-alert")?.hidden === true'
@@ -3994,7 +3994,7 @@ def test_the_more_menu_updates_the_install_and_says_what_is_left(tmp_path: Path,
         browser.navigate(base)
         wait_until(lambda: shown("#update-btn"), timeout=10)
         script('document.querySelector("#update-btn").click()')
-        wait_until(lambda: said() == "The update did not go through.\nfatal: Not possible to fast-forward")
+        wait_until(lambda: said() == "The update failed.\nfatal: Not possible to fast-forward")
         assert shown("#update-btn") and script('return document.querySelector("#update-btn").disabled') is False
     finally:
         if browser is not None:
@@ -4212,7 +4212,7 @@ def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path
         said = lambda: browser.execute_script('return document.querySelector("#overleaf-git-state").textContent')
         disabled = lambda selector: browser.execute_script(f'return document.querySelector("{selector}").disabled')
         hidden = lambda selector: browser.execute_script(f'return document.querySelector("{selector}").hidden')
-        wait_until(lambda: said().startswith("Overleaf has 1 commit this folder lacks"))
+        wait_until(lambda: said().startswith("This folder is 1 commit behind Overleaf"))
         assert disabled("#overleaf-sync-comments-btn") and hidden("#git-push-btn") and not hidden("#git-pull-btn")
         assert text("#git-pull-btn") == "git pull1"
         browser.execute_script('document.querySelector("#git-pull-btn").click()')
@@ -4223,7 +4223,7 @@ def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path
         # terminal clears it as the button does, with nothing pressed on the page.
         browser.execute_script('document.querySelector(\'.tab-btn[data-tab="overleaf-comments"]\').click()')
         git(paper, "reset", "-q", "--hard", "HEAD~1")
-        wait_until(lambda: why().startswith("Overleaf has 1 commit this folder lacks. git pull first"))
+        wait_until(lambda: why().startswith("This folder is 1 commit behind Overleaf. Comments sync after you run git pull"))
         assert disabled("#overleaf-sync-comments-btn")
         assert browser.execute_script('return document.querySelector("#overleaf-sync-comments-btn").title') == why()
         git(paper, "pull", "-q")
@@ -4275,6 +4275,7 @@ def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path
         assert said().startswith("This folder is at Overleaf's commit") and hidden("#overleaf-git-uncommitted")
         browser.execute_script('document.querySelector("#settings-btn").click()')
         wait_until(lambda: shown("#overleaf-mode"))
+        assert text("#overleaf-git-way") == "This folder is a git clone of the Overleaf project."
 
         # Live may be chosen here too, asked once, and By hand chosen back: each is kept in
         # the config.
@@ -4282,12 +4283,13 @@ def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path
             f'document.querySelector(\'#overleaf-mode input[value="{mode}"]\').click()')
         browser.execute_script("(window.wrappedJSObject || window).confirm = () => true;", sandbox=None)
         choose("live")
-        wait_until(lambda: status() == "The files now follow Overleaf live.")
+        wait_until(lambda: status() == "Files now sync live with Overleaf.")
         assert "overleaf_sync: true" in config_path.read_text(encoding="utf-8")
         live_note = browser.execute_script('return document.querySelector("#overleaf-mode-live-note").textContent')
-        assert "comes in by itself" in live_note and "goes with commit & push" in live_note
+        assert "appear here automatically" in live_note and "go with commit & push" in live_note
+        assert shown("#overleaf-git") and text("#overleaf-git-way") == "This folder is a git clone of the Overleaf project."
         choose("hand")
-        wait_until(lambda: status() == "The files now follow Overleaf by hand.")
+        wait_until(lambda: status() == "Files now sync with Overleaf by hand.")
         assert "overleaf_sync" not in config_path.read_text(encoding="utf-8")
 
         # Disconnected and connected again, the folder shows at once that Overleaf has a commit
@@ -4318,7 +4320,7 @@ def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path
         browser.execute_script('document.querySelector("#overleaf-cookie").value = "s%3Aturned.away";'
                                'document.querySelector("#overleaf-cookie-save").click()')
         wait_until(lambda: shown("#overleaf-cookie-row") and shown("#overleaf-signed")
-                   and text("#overleaf-signed-text") == "Overleaf turned this cookie away. Paste a new one.", timeout=15)
+                   and text("#overleaf-signed-text") == "Overleaf rejected this cookie. Paste a new one.", timeout=15)
     finally:
         overleaf_server.shutdown()
         if browser is not None:
@@ -4363,7 +4365,7 @@ def test_a_file_that_differs_from_overleaf_waits_for_a_choice_on_the_page(tmp_pa
         browser.navigate(base)
         wait_until(lambda: browser.execute_script(
             'return document.querySelector(\'#overleaf-sync-files [data-path="main.tex"]\') !== null'), timeout=20)
-        assert "wait for your choice" in text("#overleaf-sync-head")
+        assert "needs a decision" in text("#overleaf-sync-head")
         # Files kept the same both ways bring new threads in by themselves: nothing to press.
         assert browser.execute_script('return document.querySelector("#overleaf-sync-comments-btn").hidden') is True
         assert browser.execute_script(
@@ -4374,10 +4376,10 @@ def test_a_file_that_differs_from_overleaf_waits_for_a_choice_on_the_page(tmp_pa
         assert browser.execute_script('return document.querySelector("#overleaf-sync-alert").hidden') is False
         assert browser.execute_script(
             'return document.querySelector("#overleaf-sync-alert").getBoundingClientRect().height') > 20
-        assert "Not in step with Overleaf: main.tex" in text("#overleaf-sync-alert")
+        assert "Out of sync with Overleaf: main.tex" in text("#overleaf-sync-alert")
         assert [b for b in browser.execute_script(
             'return [...document.querySelectorAll("#overleaf-sync-alert button")].map((b) => b.textContent)')] == [
-            "Open the file", "Use Overleaf's", "Send this file's"]
+            "Open the file", "Use Overleaf's version", "Send this file's version"]
         assert (tmp_path / "main.tex").read_text(encoding="utf-8") == MAIN + "\n% only here"
         # A thread written on Overleaf meanwhile waits for every file to be settled, and the leaf
         # tab says so.
@@ -4387,11 +4389,11 @@ def test_a_file_that_differs_from_overleaf_waits_for_a_choice_on_the_page(tmp_pa
         browser.execute_script('document.querySelector(\'.tab-btn[data-tab="overleaf-comments"]\').click()')
         wait_until(lambda: browser.execute_script(
             'const note = document.querySelector("#overleaf-sync-why"); return note && !note.hidden ? note.textContent : ""')
-            == "1 new thread on Overleaf comes in once every file is settled.", timeout=15)
+            == "1 new Overleaf thread will appear once every file is in sync.", timeout=15)
         browser.execute_script("(window.wrappedJSObject || window).confirm = () => true;", sandbox=None)
         browser.execute_script("document.querySelector('#overleaf-sync-alert .overleaf-sync-overleaf').click()")
         wait_until(lambda: (tmp_path / "main.tex").read_text(encoding="utf-8") == MAIN, timeout=15)
-        wait_until(lambda: "2 files kept in step with Overleaf" in text("#overleaf-sync-head"), timeout=15)
+        wait_until(lambda: "2 files in sync with Overleaf" in text("#overleaf-sync-head"), timeout=15)
         assert browser.execute_script('return document.querySelector("#overleaf-sync-alert").hidden') is True
         assert "waiting" not in text("#overleaf-live-label")
         assert fake.docs["d-main"]["text"] == MAIN
@@ -4442,11 +4444,12 @@ def test_a_folder_without_git_gets_and_sends_by_hand_from_the_top_bar(tmp_path: 
         wait_until(lambda: get_json(f"{base}/paper") is not None)
         browser = chrome.launch()
         browser.navigate(base)
-        wait_until(lambda: "hold the same files" in text("#overleaf-git-state"), timeout=20)
+        wait_until(lambda: "is in sync with Overleaf" in text("#overleaf-git-state"), timeout=20)
         assert hidden("#git-pull-btn") and hidden("#git-push-btn")
         click("#settings-btn")
+        assert text("#overleaf-git-way") == "This folder syncs with Overleaf by hand, with Get and Send."
         hand_note = text("#overleaf-mode-hand-note")
-        assert "Get or" in hand_note and "Send, which show in the top bar" in hand_note
+        assert "Get or" in hand_note and "Send, which appear in the top bar" in hand_note
         assert browser.execute_script('return document.querySelectorAll("#overleaf-mode-hand-note svg").length') == 7
         browser.execute_script('document.querySelector("#settings-dialog").close()')
 
@@ -4467,7 +4470,7 @@ def test_a_folder_without_git_gets_and_sends_by_hand_from_the_top_bar(tmp_path: 
         browser.execute_script("(window.wrappedJSObject || window).confirm = () => true;", sandbox=None)
         click("#git-push-btn")
         wait_until(lambda: fake.docs["d-main"]["text"] == MAIN.replace("fast", "quick"), timeout=15)
-        wait_until(lambda: hidden("#git-push-btn") and "hold the same files" in text("#overleaf-git-state"), timeout=15)
+        wait_until(lambda: hidden("#git-push-btn") and "is in sync with Overleaf" in text("#overleaf-git-state"), timeout=15)
         wait_until(lambda: browser.execute_script(
             'return document.querySelector("#overleaf-sync-comments-btn").disabled') is False, timeout=15)
     finally:
@@ -4766,11 +4769,11 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
         # When comments cannot be read, the page says so.
         fake.cookie = "s%3Arotated"
         push(event("new-comment", "t1", {}))
-        wait_until(lambda: "not coming in" in text("#overleaf-live-status"), timeout=15)
+        wait_until(lambda: "not syncing" in text("#overleaf-live-status"), timeout=15)
         assert browser.execute_script(
             'return document.querySelector("#overleaf-live-btn").classList.contains("trouble")') is True
         assert browser.execute_script('return document.querySelector("#overleaf-live-btn").hidden') is False
-        assert text("#overleaf-live-label") == "Comments not coming in"
+        assert text("#overleaf-live-label") == "Comments not syncing"
 
         # Disconnected, the collaborators' faces and Send go with the session.
         wait_until(lambda: text("#overleaf-live-faces") == "CA"

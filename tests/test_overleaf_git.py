@@ -104,7 +104,7 @@ async def test_commits_that_change_no_file_are_taken_in_without_a_pull(sides) ->
 async def test_pull_fast_forwards_and_refuses_to_write_over_an_uncommitted_change(sides) -> None:
     paper, coauthor = sides
     link = await overleaf_git.link_of(paper, PROJECT)
-    with pytest.raises(overleaf_git.GitError, match="no commit this folder lacks"):
+    with pytest.raises(overleaf_git.GitError, match="already up to date"):
         await overleaf_git.pull(link)
     commit(coauthor, "paper.tex", "ONE\ntwo\nthree\n", "there")
     git(coauthor, "push", "-q", "origin", "HEAD:main")
@@ -136,7 +136,7 @@ async def test_pull_leaves_a_conflict_to_be_merged_by_hand_and_changes_nothing(s
 async def test_push_sends_commits_only_when_overleaf_has_nothing_this_lacks(sides) -> None:
     paper, coauthor = sides
     link = await overleaf_git.link_of(paper, PROJECT)
-    with pytest.raises(overleaf_git.GitError, match="no commit Overleaf lacks"):
+    with pytest.raises(overleaf_git.GitError, match="everything is up to date"):
         await overleaf_git.push(link)
     commit(paper, "paper.tex", "one\ntwo\nthree!\n", "here")
     (paper / "paper.tex").write_text("one\ntwo\nnot committed\n", encoding="utf-8", newline="")
@@ -325,7 +325,7 @@ async def test_a_commit_with_text_overleaf_has_moved_past_is_not_pushed(sides) -
     commit(paper, "paper.tex", "one\nolder\nthree\n", "here")
     (paper / "paper.tex").write_text("one\nnow\nthree\n", encoding="utf-8", newline="")
     on_overleaf = git(coauthor, "ls-remote", "origin", "main")
-    with pytest.raises(overleaf_git.GitError, match="not Overleaf's now"):
+    with pytest.raises(overleaf_git.GitError, match="differs from Overleaf's current version"):
         await overleaf_git.push(link, ["paper.tex"])
     assert git(coauthor, "ls-remote", "origin", "main") == on_overleaf
 
@@ -459,7 +459,7 @@ async def test_commit_and_push_commits_the_files_shown_then_sends_them(sides) ->
         git(coauthor, "push", "-q", "origin", "HEAD:main")
         refused = await client.post("/overleaf/git/push", json={"message": "Longer note", "files": ["notes.tex"]})
         assert refused.status == 409
-        assert (await refused.json())["error"].startswith("Committed here. Overleaf has commits this folder lacks.")
+        assert (await refused.json())["error"].startswith("Committed here. This folder is behind Overleaf.")
         assert git(paper, "log", "-1", "--format=%s").strip() == "Longer note"
     finally:
         await client.close()
@@ -480,7 +480,7 @@ async def test_a_push_holding_the_review_pages_records_is_refused(sides) -> None
     assert ".tex-mcp-web/" not in git(paper, "status", "--porcelain")
     git(paper, "add", "-f", ".tex-mcp-web/comments.json")
     git(paper, "-c", "user.name=S", "-c", "user.email=s@example.com", "commit", "-q", "-m", "records")
-    with pytest.raises(overleaf_git.GitError, match="hold .tex-mcp-web/"):
+    with pytest.raises(overleaf_git.GitError, match="include .tex-mcp-web/"):
         await overleaf_git.push(link)
 
 

@@ -1367,7 +1367,7 @@ async def test_the_agent_reads_where_the_folder_stands_and_brings_overleafs_edit
         assert await call("overleaf", action="get") == {"by": "hand", "send": ["main.tex"]}
         assert opened.read("tex/body.tex") == "New. " + BODY
         refused = await call("overleaf", action="push")
-        assert "the reviewer sends from the page" in refused["error"]
+        assert "the reviewer sends edits from the page" in refused["error"]
         assert fake.docs["d-main"]["text"] == MAIN
     finally:
         await opened.close()

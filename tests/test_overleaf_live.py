@@ -804,7 +804,7 @@ async def test_the_reviewer_rewords_and_deletes_their_own_messages_on_overleaf(r
     client, server, fake = review
     page, comment = await on_overleaf(client, server, fake)
     theirs = await client.post(f"/comments/{comment.id}/edit", json={"index": 0, "text": "Not mine."})
-    assert theirs.status == 409 and "you wrote" in (await theirs.json())["error"]
+    assert theirs.status == 409 and "your own messages" in (await theirs.json())["error"]
     assert (await client.post(f"/comments/{comment.id}/delete-entry", json={"index": 0})).status == 409
     assert fake.written == []
 

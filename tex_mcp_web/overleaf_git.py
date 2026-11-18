@@ -337,7 +337,7 @@ async def pull(link: Link, followed: Collection[str] | None = None) -> dict:
                            "Merge them by hand with git.")
         await _git(link.folder, "merge", "--no-edit", "--quiet", now["branch"])
     else:
-        raise GitError("Overleaf has no commit this folder lacks")
+        raise GitError("already up to date")
     return await state(link, followed or ())
 
 
@@ -366,16 +366,16 @@ async def push(link: Link, followed: Collection[str] | None = None) -> dict:
         if attempt and now["state"] == "same":      # the first push went through after all
             break
         if now["state"] in ("behind", "diverged"):
-            raise GitError("Overleaf has commits this folder lacks. Press git pull first.")
+            raise GitError("This folder is behind Overleaf. Press git pull first.")
         if now["state"] == "same":
-            raise GitError("this folder has no commit Overleaf lacks")
+            raise GitError("everything is up to date")
         _, records = await _git(link.folder, "ls-files", "--", RECORDS)
         if records.strip():
-            raise GitError("The commits hold .tex-mcp-web/, the review page's own records with its comments. "
+            raise GitError("The commits include .tex-mcp-web/, where the review page stores its comments. "
                            "Untrack it with git rm -r --cached .tex-mcp-web and commit, then press commit & push.")
         if followed is not None and (older := await _not_overleafs(link, now["branch"], followed)):
-            raise GitError(f"The commits hold text for {', '.join(older)} that is not Overleaf's now. "
-                           "Commit those files as they are with git, then press commit & push.")
+            raise GitError(f"The commits contain text for {', '.join(older)} that differs from Overleaf's current version. "
+                           "Commit those files as they are now with git, then press commit & push.")
         code, _ = await _git(link.folder, "push", "--quiet", link.remote,
                              f"HEAD:{now['branch'].removeprefix(link.remote + '/')}", check=attempt > 0 or followed is None)
         if code == 0:

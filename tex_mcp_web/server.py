@@ -439,8 +439,8 @@ def _overleaf_link(raw: Any) -> str:
     server, project = overleaf.project_of(str(raw))
     host = urlsplit(server).hostname
     if host not in _OVERLEAF_HOSTS and not server.startswith("http://"):
-        raise ValueError("give the project's link on overleaf.com; another server is named in "
-                         ".tex-mcp-web.yaml itself")
+        raise ValueError("use a project link on overleaf.com; for another server, set the link in "
+                         ".tex-mcp-web.yaml")
     if host in _OVERLEAF_HOSTS:
         server = "https://www.overleaf.com"
     return f"{server}/project/{project}"
@@ -1151,7 +1151,7 @@ class TexMcpWebServer:
         """The reviewer's choice for a file that stopped: which text stands."""
         follower = self.overleaf_sync or self.overleaf_hand
         if follower is None:
-            return web.json_response({"error": "no file here is brought together with Overleaf"}, status=409)
+            return web.json_response({"error": "no file here is synced with Overleaf"}, status=409)
         data, err = await self._read_json(request)
         if err is not None:
             return err
@@ -1248,8 +1248,8 @@ class TexMcpWebServer:
         that top for the two to name a file alike."""
         link = await self._overleaf_git_link()
         where = await overleaf_git.prefix(link) if link is not None else ""
-        return (f"this folder is {where.rstrip('/')} inside a git clone of the project, so its files and "
-                "Overleaf's are not named alike. Open the clone's top folder to follow Overleaf live."
+        return (f"this folder is {where.rstrip('/')} inside a git clone of the project, so its file paths "
+                "don't match Overleaf's. Open the clone's top folder to use live sync."
                 if where else None)
 
     async def _handle_overleaf_git(self, request: web.Request) -> web.Response:
@@ -1280,7 +1280,8 @@ class TexMcpWebServer:
                 followed = [doc.path for doc in self.overleaf_sync.docs.values() if doc.status == "synced"]
             elif action not in ("fetch", "state"):
                 apart = self._overleaf_apart()
-                return web.json_response({"error": f"Not yet the same as on Overleaf: {', '.join(apart)}. Settle it first."
+                return web.json_response({"error": f"Out of sync with Overleaf: {', '.join(apart)}. "
+                                          "Wait for sync or choose a version first."
                                           if apart else "The files are still being read from Overleaf. Try again in a moment."},
                                          status=409)
         since = time.time()
@@ -1390,7 +1391,7 @@ class TexMcpWebServer:
         Get or a Send the reviewer asked for, in a folder brought together with Overleaf by hand."""
         hand = self.overleaf_hand
         if hand is None:
-            return web.json_response({"error": "this folder follows Overleaf by git or live, not by Get and Send"},
+            return web.json_response({"error": "this folder syncs with Overleaf through git or live sync, not Get and Send"},
                                      status=409)
         action = request.match_info["action"]
         try:
@@ -1410,7 +1411,7 @@ class TexMcpWebServer:
         here must be on overleaf.com (or this machine): the reviewer's cookie goes to it."""
         path = self.config.config_path
         if path is None:
-            return web.json_response({"error": "this paper has no .tex-mcp-web.yaml to keep it in"}, status=409)
+            return web.json_response({"error": "this paper has no .tex-mcp-web.yaml to save the setting in"}, status=409)
         try:
             body = await request.json()
             if not isinstance(body, dict):
@@ -1435,7 +1436,7 @@ class TexMcpWebServer:
             _set_config_keys(path, changes)
             await self.apply_config()
         except (OSError, TypeError, ValueError, yaml.YAMLError) as error:
-            return web.json_response({"error": f"could not keep it in {path.name}: {error}"}, status=500)
+            return web.json_response({"error": f"could not save {path.name}: {error}"}, status=500)
         return web.json_response(await self._overleaf_status())
 
     async def _handle_overleaf_cookie(self, request: web.Request) -> web.Response:
@@ -1473,7 +1474,7 @@ class TexMcpWebServer:
         has it."""
         if not self.config.overleaf:
             return web.json_response(
-                {"error": "name the project in .tex-mcp-web.yaml as overleaf: <its link>"}, status=409)
+                {"error": "set overleaf: <project link> in .tex-mcp-web.yaml"}, status=409)
         cookie = overleaf.read_cookie()
         if cookie is None:
             return web.json_response({"error": "paste your Overleaf session cookie first"}, status=401)
@@ -1488,15 +1489,15 @@ class TexMcpWebServer:
             if now["apart"]:
                 count = now["behind"] or now["ahead"]
                 commits = f"{count} commit{'' if count == 1 else 's'}"
-                return web.json_response({"error": f"Overleaf has {commits} this folder lacks. Press git pull first."
-                                          if now["behind"] else f"This folder has {commits} Overleaf lacks. "
-                                          "Press commit & push first, so the comments sit on the text Overleaf has."}, status=409)
+                return web.json_response({"error": f"This folder is {commits} behind Overleaf. Press git pull first."
+                                          if now["behind"] else f"This folder is {commits} ahead of Overleaf. "
+                                          "Press commit & push first, so comments match the text on Overleaf."}, status=409)
         elif self.overleaf_sync is not None:
             # Files kept the same both ways stand in for the commit: every one in step first.
             apart = self._overleaf_apart()
             if apart:
-                return web.json_response({"error": f"Not yet the same as on Overleaf: {', '.join(apart)}. "
-                                                   "Settle it first."}, status=409)
+                return web.json_response({"error": f"Out of sync with Overleaf: {', '.join(apart)}. "
+                                                   "Wait for sync or choose a version first."}, status=409)
         elif self.overleaf_hand is not None:
             # Files brought together by hand stand in for the commit: nothing left to Get or
             # Send, read afresh as a git clone reads Overleaf's branch.
@@ -1508,11 +1509,11 @@ class TexMcpWebServer:
                 return web.json_response({"error": "The connection to Overleaf closed before it answered. "
                                                    "Try again."}, status=502)
             if now["get"] or now["choose"]:
-                return web.json_response({"error": f"Overleaf has edits this folder lacks: "
+                return web.json_response({"error": f"Overleaf has new edits to "
                                                    f"{', '.join(now['get'] + now['choose'])}. Press Get first."}, status=409)
             if now["send"]:
-                return web.json_response({"error": f"Edits here are not on Overleaf: {', '.join(now['send'])}. "
-                                                   "Press Send first, so the comments sit on the text Overleaf has."},
+                return web.json_response({"error": f"Edits here are not on Overleaf yet: {', '.join(now['send'])}. "
+                                                   "Press Send first, so comments match the text on Overleaf."},
                                          status=409)
         try:
             async with self._overleaf_import:
@@ -1568,8 +1569,8 @@ class TexMcpWebServer:
             if doc is None or doc.status != "synced" or check["text"] not in doc.server:
                 return (self._changed_since_drafted(check)
                         or f"The edit to {check['file']} this reply describes is not on Overleaf"
-                        + ("." if self.overleaf_sync is not None else ", and nothing here follows Overleaf: "
-                           "this folder is not a git clone of the project, and keeping the files the same is off."),
+                        + ("." if self.overleaf_sync is not None else ", and this folder does not sync with "
+                           "Overleaf: it is not a git clone of the project, and live sync is off."),
                         "")
         return None, ""
 
@@ -1644,7 +1645,7 @@ class TexMcpWebServer:
             if thread is None and not opening:
                 return web.json_response({"error": "this comment did not come from Overleaf"}, status=409), ""
             if not self.config.overleaf:
-                return web.json_response({"error": "name the Overleaf project in .tex-mcp-web.yaml first"}, status=409), ""
+                return web.json_response({"error": "set overleaf: <project link> in .tex-mcp-web.yaml first"}, status=409), ""
             try:
                 if opening:
                     lacking, commit = await self._overleaf_lacks(checks)
@@ -2008,7 +2009,7 @@ class TexMcpWebServer:
                     return web.Response(
                         text="[moved] this session listens for Call agent with a newer waiter, so this one ends"
                         if own else "[moved] another session took over listening for Call agent, so "
-                        "presses no longer come here; listen() takes them back",
+                        "presses go to that session; call listen() to take them back",
                         headers={"X-Moved": "1"})
                 self.review_listener_pid = pid
                 if self.review_calls > self.review_consumed:
@@ -2445,7 +2446,7 @@ class TexMcpWebServer:
         # A thread for Overleaf sits on source lines, as Overleaf puts a thread on words.
         for_overleaf = data.get("overleaf") is True
         if for_overleaf and (not self.config.overleaf or not isinstance(anchor, SourceRangeAnchor)):
-            return web.json_response({"error": "a thread for Overleaf sits on source lines of a paper that names its "
+            return web.json_response({"error": "a thread for Overleaf must be on source lines, in a paper with an "
                                                "Overleaf project"}, status=400)
         if draft and not for_overleaf:
             return web.json_response({"error": "a first message for Overleaf starts a thread for Overleaf"}, status=400)
@@ -2601,7 +2602,7 @@ class TexMcpWebServer:
         if entry.name is not None or entry.overleaf is not None:
             return await self._change_own_on_overleaf(cid, index, None)
         if entry.author != "human" or entry.applied or entry.rejected:
-            return web.json_response({"error": "only what you wrote is deleted"}, status=409)
+            return web.json_response({"error": "you can only delete your own messages"}, status=409)
         if index == 0:
             self.comments.delete(cid)
             await self.broadcast({"type": "comment_deleted", "id": cid})
@@ -2622,13 +2623,13 @@ class TexMcpWebServer:
             return web.json_response({"error": f"no such entry in {cid}"}, status=404)
         me = self.overleaf_live.me if self.overleaf_live is not None else ""
         if entry.overleaf is None and (entry.name is None or entry.name != me):
-            return web.json_response({"error": "only a message you wrote on Overleaf is changed there: "
+            return web.json_response({"error": "you can only edit your own messages on Overleaf; "
                                                "reply instead"}, status=409)
         cookie = overleaf.read_cookie()
         if cookie is None:
             return web.json_response({"error": "paste your Overleaf session cookie first"}, status=401)
         if not self.config.overleaf:
-            return web.json_response({"error": "name the Overleaf project in .tex-mcp-web.yaml first"}, status=409)
+            return web.json_response({"error": "set overleaf: <project link> in .tex-mcp-web.yaml first"}, status=409)
         link, wanted = self.config.overleaf, entry.id
 
         def place() -> tuple[Comment | None, ThreadEntry | None, str | None, str | None]:
@@ -2644,7 +2645,7 @@ class TexMcpWebServer:
             async with self._overleaf_import:
                 comment, entry, thread, message = place()
                 if comment is None or entry is None or entry.id != wanted:
-                    return web.json_response({"error": "the thread changed: look again"}, status=409)
+                    return web.json_response({"error": "the thread has changed; try again"}, status=409)
                 if thread is None:
                     return web.json_response({"error": "this comment did not come from Overleaf"}, status=409)
                 if message is None:
@@ -2692,7 +2693,7 @@ class TexMcpWebServer:
         """
         suggestion = comment.suggestion
         if suggestion is None:
-            raise ValueError("the comment carries no suggestion")
+            raise ValueError("this comment has no suggestion")
 
         path = self._resolve_source_path(suggestion.file)
         text, _ = self._read_source(path)
@@ -2702,7 +2703,7 @@ class TexMcpWebServer:
         for start, end, replacement in reversed(spans):
             updated_text = updated_text[:start] + replacement + updated_text[end:]
         if updated_text == text:
-            raise ValueError("the suggestion leaves the source as it is")
+            raise ValueError("the suggestion makes no change to the source")
 
         # The comment is anchored to text this edit may have just rewritten. Carrying its
         # range across the edit keeps it attached; leaving it would mark the reviewer's
@@ -2828,7 +2829,7 @@ class TexMcpWebServer:
         """A thread from Overleaf is as Overleaf has it, which has no archive and deletes a
         thread only there, so it is not archived or deleted here."""
         if any(known["comment"] == cid for known in self._overleaf_ledger().values()):
-            return web.json_response({"error": "this thread follows Overleaf, which has no archive: "
+            return web.json_response({"error": "this thread comes from Overleaf, which has no archive: "
                                                "resolve it, or delete it on Overleaf"}, status=409)
         return None
 
@@ -2842,7 +2843,7 @@ class TexMcpWebServer:
             if cookie is None:
                 return web.json_response({"error": "paste your Overleaf session cookie first"}, status=401)
             if not self.config.overleaf:
-                return web.json_response({"error": "name the Overleaf project in .tex-mcp-web.yaml first"}, status=409)
+                return web.json_response({"error": "set overleaf: <project link> in .tex-mcp-web.yaml first"}, status=409)
             try:
                 async for thread in overleaf.set_resolved(self.config.overleaf, cookie, list(threads), resolved):
                     for follower in (self.overleaf_sync, self.overleaf_hand):
@@ -3069,8 +3070,8 @@ class TexMcpWebServer:
             self.last_result.output_file, selection, self.watch_dir)
         if resolved is None:
             return web.json_response(
-                {"error": "SyncTeX places these lines in no single source file of the paper, "
-                          "as it does for a bibliography built from the .bib"}, status=404)
+                {"error": "SyncTeX cannot map these lines to a single source file, "
+                          "as with a bibliography built from the .bib"}, status=404)
         return web.json_response(
             {"file": resolved.file, "line_start": resolved.line_start, "line_end": resolved.line_end})
 
@@ -3082,7 +3083,7 @@ class TexMcpWebServer:
         pdf = self.last_result.output_file
         if not has_synctex_record(pdf):
             return web.json_response({"error": (
-                f"{pdf.name} was built without SyncTeX, so it records no source places. "
+                f"{pdf.name} was built without SyncTeX, so it has no source locations. "
                 "Press Compile to build it with SyncTeX, then try again")}, status=409)
         return None
 
@@ -3107,7 +3108,7 @@ class TexMcpWebServer:
             None, source_lines_to_boxes, pdf, source, line_start, line_end)
         if not boxes:
             return web.json_response(
-                {"error": "SyncTeX places none of these lines in the PDF"}, status=404)
+                {"error": "SyncTeX found none of these lines in the PDF"}, status=404)
         page = boxes[0][0]
         rects = [box for number, box in boxes if number == page]
         hint = PageSelection(page, (min(r[0] for r in rects) - 2, min(r[1] for r in rects) - 2,

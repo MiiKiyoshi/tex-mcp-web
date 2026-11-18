@@ -526,7 +526,7 @@ async def test_apply_refuses_a_comment_with_nothing_to_apply(client, project):
     )
 
     assert response.status == 409
-    assert "carries no suggestion" in (await response.json())["error"]
+    assert "has no suggestion" in (await response.json())["error"]
     assert path.read_text(encoding="utf-8") == before
 
 
@@ -758,7 +758,7 @@ async def test_apply_source_suggestion_is_single_use_under_concurrency(client, p
         json={"updated": stored["updated"]},
     )
     assert duplicate.status == 409
-    assert "carries no suggestion" in (await duplicate.json())["error"]
+    assert "has no suggestion" in (await duplicate.json())["error"]
 
 
 @pytest.mark.asyncio
@@ -1204,11 +1204,11 @@ async def test_mcp_contract_is_typed_and_nonduplicative(tmp_path: Path):
     assert "compile() once" in mcp.instructions
     assert "Within the user's editing scope" in mcp.instructions
     assert "Respect read-only or discussion-only requests" in mcp.instructions
-    assert "with a reply in its thread, with or without an edit, on a thread from Overleaf too" in mcp.instructions
-    assert "its dir can name the paper's folder anywhere" in mcp.instructions
+    assert "with a reply in its thread, with or without an edit, including on a thread from Overleaf" in mcp.instructions
+    assert "its dir can point to the paper's folder anywhere" in mcp.instructions
     assert "write in chat only what no thread carries" in mcp.instructions
-    assert "not the replies or the edits they report" in mcp.instructions
-    for needed in ("asks to listen", "follow how", "Do not poll", "stay queued", "init.md"):
+    assert "do not repeat the replies or the edits they report" in mcp.instructions
+    for needed in ("asks you to listen", "follow its how", "Do not poll", "stay queued", "init.md"):
         assert needed in mcp.instructions, needed
     assert "state()" not in mcp.instructions
 
@@ -1661,7 +1661,7 @@ async def test_a_search_finds_threads_by_what_was_said_in_them_and_when(bound_pr
     # Both, and the bounds and words are each checked.
     assert [h["id"] for h in (await call("read_comments", find="table", since=at("03T10:00"), status="all"))["comments"]] == []
     assert "find needs" in (await call("read_comments", find="  "))["error"]
-    assert "on their own" in (await call("read_comments", find="table", new=True))["error"]
+    assert "cannot be combined with new" in (await call("read_comments", find="table", new=True))["error"]
 
 
 @pytest.mark.asyncio
@@ -2874,7 +2874,7 @@ async def test_listen_hands_the_waiter_to_the_plugin_monitor(bound_project, proj
             clientInfo=SimpleNamespace(name="claude-code"))))
         monkeypatch.setattr(mcp, "get_context", lambda: context)
         result = json.loads((await mcp.call_tool("listen", {}))[0].text)
-        assert "plugin's monitor now runs the command" in result["how"]
+        assert "plugin's monitor runs the command" in result["how"]
         assert "Monitor(" not in result["how"] and "On [review]" in result["how"]
         handed = (plugin_monitor.DIRECTORY / f"{session.pid}.command").read_text(encoding="utf-8").splitlines()
         assert handed[1] == result["command"]
@@ -2935,7 +2935,7 @@ async def test_a_session_with_the_plugin_listens_from_its_start(bound_project, p
             clientInfo=SimpleNamespace(name="claude-code"))))
         monkeypatch.setattr(mcp, "get_context", lambda: context)
         told = json.loads((await mcp.call_tool("listen", {}))[0].text)
-        assert "plugin's monitor now runs the command" in told["how"]
+        assert "plugin's monitor runs the command" in told["how"]
         async with aiohttp.ClientSession() as client:
             async with client.post(f"{base}/review-request") as response:
                 assert (await response.json())["calls"] == 2
@@ -3290,7 +3290,7 @@ async def test_new_gives_what_the_reviewer_wrote_since_it_last_answered(
     whole = await call(ids=[asked.id])
     assert [e["text"] for e in whole["comments"][0]["replies"]] == ["on it", "and one more thing"]
 
-    assert "new answers on its own" in (await call(new=True, ids=[asked.id]))["error"]
+    assert "new cannot be combined with ids" in (await call(new=True, ids=[asked.id]))["error"]
 
 
 @pytest.mark.asyncio
@@ -3369,7 +3369,7 @@ async def test_a_replaced_suggestion_can_be_applied_again(client, project):
     spent = await tc.post(
         f"/comments/{comment['id']}/apply-suggestion", json={"updated": applied["updated"]}
     )
-    assert spent.status == 409 and "carries no suggestion" in (await spent.json())["error"]
+    assert spent.status == 409 and "has no suggestion" in (await spent.json())["error"]
 
     second = server.comments.suggest(
         comment["id"], applied["updated"], "tighter still",
@@ -3727,7 +3727,7 @@ async def test_a_message_from_overleaf_goes_by_its_writers_name_and_is_answered_
 
     refused = await http.post(f"/comments/{older.id}/edit", json={"index": 0, "text": "Mine now."})
     assert refused.status == 409
-    assert (await refused.json())["error"] == "only a message you wrote on Overleaf is changed there: reply instead"
+    assert (await refused.json())["error"] == "you can only edit your own messages on Overleaf; reply instead"
     assert server.comments.get(older.id).thread[0].text == "Which prose?"
 
 

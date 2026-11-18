@@ -432,8 +432,8 @@ class ProjectSync(_Records):
             if doc is not None:
                 doc.inflight, doc.inflight_ids = None, []
                 self._save(doc)
-                self._set(doc, "stopped", f"Overleaf turned away an edit to this file ({event[2]}). "
-                                          "Choose which text stands.")
+                self._set(doc, "stopped", f"Overleaf rejected an edit to this file ({event[2]}). "
+                                          "Choose which version to keep.")
         elif kind == "rejoin":
             doc = self.docs.get(event[1])
             if doc is not None and self._session is not None:
@@ -505,7 +505,7 @@ class ProjectSync(_Records):
         lines, version, ops = reply[1], reply[2], reply[3] if len(reply) > 3 else []
         ranges, kind = (reply[4] if len(reply) > 4 else None) or {}, reply[5] if len(reply) > 5 else KIND
         if kind != KIND:
-            self._set(doc, "unsupported", f"Overleaf keeps this file as {kind}, which is not followed here.")
+            self._set(doc, "unsupported", f"Overleaf stores this file as {kind}, which this page does not sync.")
             return
         theirs = "\n".join(_decode(str(line)) for line in lines)
         comments = [{"t": str((c.get("op") or {}).get("t")), "p": int((c.get("op") or {}).get("p", 0)),
@@ -533,8 +533,8 @@ class ProjectSync(_Records):
             self._set(doc, "synced")
         else:
             doc.local = disk
-            self._set(doc, "differs", "This file and Overleaf's differ, and nothing says which changed. "
-                                      "Choose which stands.")
+            self._set(doc, "differs", "This file and Overleaf's version differ, and it is unclear which one "
+                                      "changed. Choose which version to keep.")
 
     async def _catch_up(self, doc: Doc, ops: list, theirs: str, version: int, comments: list,
                         disk: str | None) -> None:
@@ -554,8 +554,8 @@ class ProjectSync(_Records):
             if ops and _overlap(doc.server, theirs, disk):
                 doc.local = disk
                 self._set_first(doc, theirs, version, comments)
-                self._set(doc, "differs", "This file and Overleaf changed the same place while apart. "
-                                          "Choose which stands.")
+                self._set(doc, "differs", "This file and Overleaf changed the same text while out of sync. "
+                                          "Choose which version to keep.")
                 return
             doc.pending = doc.pending + ot.diff(doc.local, disk)
             doc.local = disk
@@ -566,7 +566,8 @@ class ProjectSync(_Records):
                 self._take(doc, update.get("op") or [], write=False)
         doc.comments = comments
         if doc.version != version or doc.server != theirs:
-            self._set(doc, "differs", "Overleaf's text is not what this file followed. Choose which stands.")
+            self._set(doc, "differs", "Overleaf's text no longer matches the last synced version. "
+                                      "Choose which version to keep.")
             return
         if disk is None or doc.local != disk:
             try:
@@ -586,21 +587,21 @@ class ProjectSync(_Records):
             doc.local = mine
             self._set_first(doc, theirs, version, comments)
             self._set(doc, "differs", "An edit sent before the connection dropped may or may not have reached "
-                                      "Overleaf. Choose which text stands.")
+                                      "Overleaf. Choose which version to keep.")
             return
         together = merge(base, theirs, mine)
         self._set_first(doc, theirs, version, comments)
         doc.local = mine
         if together is None:
-            self._set(doc, "differs", "This file and Overleaf changed the same place while apart. "
-                                      "Choose which stands.")
+            self._set(doc, "differs", "This file and Overleaf changed the same text while out of sync. "
+                                      "Choose which version to keep.")
             return
         merged, doc.pending = together
         if merged != mine:
             try:
                 self._write(doc, merged)
             except _ChangedMeanwhile:
-                self._set(doc, "differs", "The file changed while it was being brought together. Choose which stands.")
+                self._set(doc, "differs", "The file changed while it was being merged. Choose which version to keep.")
                 return
         self._save(doc)
         self._set(doc, "synced")
@@ -643,8 +644,8 @@ class ProjectSync(_Records):
             self._take(doc, op, write=True)
             doc.busy_since_check = True
         except ot.Mismatch as error:
-            self._set(doc, "stopped", f"An edit from Overleaf did not fit this file's copy ({error}). "
-                                      "Choose which text stands.")
+            self._set(doc, "stopped", f"An edit from Overleaf could not be applied to this file ({error}). "
+                                      "Choose which version to keep.")
 
     def _take(self, doc: Doc, op: ot.Op, *, write: bool) -> None:
         text_op = ot.text_only(op)
@@ -705,8 +706,8 @@ class ProjectSync(_Records):
                                  if c["t"] not in self.resolved_threads]
                 lost = ot.comments_removed(open_comments, doc.pending)
                 if lost:
-                    self._set(doc, "held", "This edit deletes every word of an open Overleaf comment, so it was "
-                                           "not sent. Send it anyway, or put Overleaf's text back.", lost)
+                    self._set(doc, "held", "This edit deletes all the text of an open Overleaf comment, so it was "
+                                           "not sent. Send it anyway, or restore Overleaf's version.", lost)
                     return
             op, ids = doc.pending, []
             doc.inflight, doc.pending = op, []
@@ -726,15 +727,15 @@ class ProjectSync(_Records):
             error = reply[0].get("message") if isinstance(reply[0], dict) else reply[0]
             doc.inflight, doc.inflight_ids = None, []
             self._save(doc)
-            self._set(doc, "stopped", f"Overleaf did not take an edit to this file ({error}). Choose which text stands.")
+            self._set(doc, "stopped", f"Overleaf rejected an edit to this file ({error}). Choose which version to keep.")
 
     async def _comment(self, path: str, words: str, line: int, thread: str,
                        opened: Callable[[], Awaitable[None]]) -> str | None:
         doc = next((doc for doc in self.docs.values() if doc.path == path), None)
         if doc is None or not doc.known:
-            return f"{path} is not followed on Overleaf."
+            return f"{path} is not synced with Overleaf."
         if self._session is None or doc.status != "synced" or doc.inflight is not None or doc.pending:
-            return f"{path} is still being brought in step with Overleaf. Send again in a moment."
+            return f"{path} is still syncing with Overleaf. Send again in a moment."
         at = ot.nearest(doc.server, words, line)
         if at is None:
             return f"The lines this thread is on are not in {path} on Overleaf yet."
@@ -748,19 +749,19 @@ class ProjectSync(_Records):
     async def _reject(self, doc_id: str, changes: list[str]) -> str | None:
         doc = self.docs.get(doc_id)
         if doc is None or not doc.known:
-            return "This file is not followed on Overleaf."
+            return "This file is not synced with Overleaf."
         if doc.status == "unsupported":
             return doc.message
         self._absorb(doc)
         if self._session is None or doc.status != "synced" or doc.inflight is not None or doc.pending:
-            return f"{doc.path} is still being brought in step with Overleaf. Try again in a moment."
+            return f"{doc.path} is still syncing with Overleaf. Try again in a moment."
         # The suggestions where Overleaf has them now, read with the text they are in.
         reply = await self._session.call("joinDoc", [doc.doc_id, -1, _JOIN])
         if not reply or reply[0] is not None:
             return f"Overleaf would not open {doc.path}: {reply[0] if reply else 'no answer'}"
         theirs = "\n".join(_decode(str(line)) for line in reply[1])
         if reply[2] != doc.version or theirs != doc.server:
-            return f"{doc.path} is still being brought in step with Overleaf. Try again in a moment."
+            return f"{doc.path} is still syncing with Overleaf. Try again in a moment."
         chosen = _suggestions((reply[4] if len(reply) > 4 else None) or {}, changes)
         if not chosen:
             return "Overleaf no longer has these suggestions."
@@ -794,8 +795,8 @@ class ProjectSync(_Records):
             if not reply or reply[0] is not None or reply[2] != doc.version:
                 continue
             if "\n".join(_decode(str(line)) for line in reply[1]) != doc.server:
-                self._set(doc, "differs", "A check found Overleaf's text is not what this file followed. "
-                                          "Choose which stands.")
+                self._set(doc, "differs", "A check found that Overleaf's text no longer matches the last synced "
+                                          "version. Choose which version to keep.")
 
     # ----- The reviewer's choice -----
 
@@ -856,7 +857,7 @@ class ProjectSync(_Records):
             return None
         doc = next((doc for doc in self.docs.values() if doc.path == path), None)
         if doc is None or not doc.known:
-            return f"{path} is not followed on Overleaf"
+            return f"{path} is not synced with Overleaf"
         if doc.status not in ("differs", "stopped", "held"):
             return f"{path} needs no choice"
         if self._session is None:
@@ -1024,11 +1025,11 @@ class Uploads:
                 if agreed != there:
                     self._agree(path, there)
             elif agreed is None:
-                upload.status, upload.message = "differs", ("This file and Overleaf's differ, and nothing says "
-                                                            "which changed. Choose which stands.")
+                upload.status, upload.message = "differs", ("This file and Overleaf's version differ, and it is "
+                                                            "unclear which one changed. Choose which version to keep.")
             elif there != agreed and here != agreed:
-                upload.status, upload.message = "differs", ("This file and Overleaf's were both replaced. "
-                                                            "Choose which stands.")
+                upload.status, upload.message = "differs", ("This file and Overleaf's version were both replaced. "
+                                                            "Choose which version to keep.")
             else:
                 upload.status, upload.message = ("get" if there != agreed else "send"), ""
 
@@ -1074,7 +1075,7 @@ class Uploads:
             if only is None and self._hash_here(upload.path) != upload.here:
                 continue
             if blob_sha(data) != ref["hash"]:
-                upload.status, upload.message = "differs", "Overleaf sent other bytes than it names. Choose again."
+                upload.status, upload.message = "differs", "The file from Overleaf does not match its checksum. Choose again."
                 continue
             self._write(upload.path, data)
             self._agree(upload.path, ref["hash"])
@@ -1089,7 +1090,8 @@ class Uploads:
             data = self._file(upload.path).read_bytes()
             answer = await overleaf.upload_file(link, cookie, folders[folder], name, data)
             if answer.get("hash") != blob_sha(data):
-                upload.status, upload.message = "differs", "Overleaf holds other bytes than were sent. Choose which stands."
+                upload.status, upload.message = "differs", ("Overleaf's copy does not match what was sent. "
+                                                            "Choose which version to keep.")
                 continue
             self._agree(upload.path, answer["hash"])
             self._sent[upload.path] = ({"id": str(answer.get("entity_id", "")), "hash": answer["hash"]},
@@ -1358,7 +1360,7 @@ class HandSync(_Records):
             return f"Overleaf would not open this file: {reply[0] if reply else 'no answer'}"
         kind = reply[5] if len(reply) > 5 else KIND
         if kind != KIND:
-            return f"Overleaf keeps this file as {kind}, which is not brought together here."
+            return f"Overleaf stores this file as {kind}, which this page does not sync."
         ranges = (reply[4] if len(reply) > 4 else None) or {}
         comments = [{"t": str((c.get("op") or {}).get("t")), "p": int((c.get("op") or {}).get("p", 0)),
                      "n": ot.js_len(_decode(str((c.get("op") or {}).get("c", ""))))}
@@ -1425,8 +1427,8 @@ class HandSync(_Records):
                     self._save(doc)
                     self._set(doc, "same")
                 else:
-                    self._set(doc, "differs", "This file and Overleaf's differ, and nothing says which "
-                                              "changed. Choose which stands.")
+                    self._set(doc, "differs", "This file and Overleaf's version differ, and it is unclear "
+                                              "which one changed. Choose which version to keep.")
                 continue
             base = doc.server
             there, here = theirs != base, disk is not None and disk != base
@@ -1434,7 +1436,7 @@ class HandSync(_Records):
                 self._set(doc, "gone", "Deleted here, and still on Overleaf.")
             elif there and here:
                 if merge(base, theirs, disk) is None:
-                    self._set(doc, "differs", "This file and Overleaf changed the same place. Choose which stands.")
+                    self._set(doc, "differs", "This file and Overleaf changed the same text. Choose which version to keep.")
                 else:
                     self._set(doc, "both")
             elif there:
@@ -1443,8 +1445,8 @@ class HandSync(_Records):
                 open_comments = [c for c in comments if c["t"] not in self.resolved_threads]
                 lost = ot.comments_removed(open_comments, ot.diff(base, disk, open_comments))
                 if lost:
-                    self._set(doc, "held", "This edit deletes every word of an open Overleaf comment, so Send "
-                                           "leaves it. Send it anyway, or put Overleaf's text back.", lost)
+                    self._set(doc, "held", "This edit deletes all the text of an open Overleaf comment, so Send "
+                                           "skips it. Send it anyway, or restore Overleaf's version.", lost)
                 else:
                     self._set(doc, "send")
             else:
@@ -1471,8 +1473,8 @@ class HandSync(_Records):
         reply = await session.call("applyOtUpdate", [doc.doc_id, update])
         if reply and reply[0] is not None:
             error = reply[0].get("message") if isinstance(reply[0], dict) else reply[0]
-            self._set(doc, "stopped", f"Overleaf did not take the edit to this file ({error}). Nothing was "
-                                      "changed there. Send again, or choose which text stands.")
+            self._set(doc, "stopped", f"Overleaf rejected the edit to this file ({error}). Nothing was "
+                                      "changed there. Send again, or choose which version to keep.")
             return
         # Overleaf took it: read it back, so the record says only what Overleaf holds.
         _, _, kept = self._editor()

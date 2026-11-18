@@ -572,7 +572,7 @@ async function initializePdfViewer(pdfView) {
   state.viewer.registerIcon("tex-source", { viewBox: "0 0 24 24", path: "M8 7l-5 5 5 5 M16 7l5 5-5 5", strokeWidth: 2 });
   commands.registerCommand({
     id: "tex-web:selection-source",
-    label: "Source",
+    label: "Show in Source",
     icon: "tex-source",
     action: () => openSelectionInSource().catch((error) => alert(`Could not open the source: ${error.message}`)),
   });
@@ -843,7 +843,7 @@ function openCompose(anchor, label, heading = null, forOverleaf = false) {
   $("#compose-text").required = !forOverleaf;
   $("#compose-text").rows = forOverleaf ? 3 : 6;
   $("#compose-text").placeholder = forOverleaf
-    ? "a private note for the agent. With the box above empty, it drafts the message…"
+    ? "a private note for the agent. If you leave the message empty, the agent drafts it…"
     : "leave a private comment for the coding agent…";
   $("#compose-anchor").textContent = label;
   $("#compose-message").value = "";
@@ -1235,16 +1235,17 @@ function renderOverleafStatus({ project, cookie, sync = false, live = false, set
     return copy;
   }), word];
   $("#overleaf-mode-hand-note").replaceChildren(...(git
-    ? ["Files change only when you press git pull or commit & push, which show in the top bar when there are commits or edits to move. Overleaf gets nothing until you commit & push. A new comment thread on Overleaf comes in when you press "]
+    ? ["Files change only when you press git pull or commit & push, which appear in the top bar when there is something to pull or push. Nothing reaches Overleaf until you commit & push. New Overleaf comment threads appear here when you press "]
     : ["Files change only when you press ", ...drawn("#git-pull-btn", " Get"), " or ", ...drawn("#git-push-btn", " Send"),
-      ", which show in the top bar when there are edits to move. Overleaf gets nothing until you Send. A new comment thread on Overleaf comes in when you press "]),
+      ", which appear in the top bar when there are edits to get or send. Nothing reaches Overleaf until you press Send. New Overleaf comment threads appear here when you press "]),
   ...syncDrawing, " in the ", leafIcon(), " Comments tab.");
   $("#overleaf-mode-live-note").textContent = git
-    ? "While this review page is open, text files such as .tex change both ways within a second, and a new comment thread on Overleaf comes in by itself. Figures and other uploaded files go by git: one changed here goes with commit & push, and one added on Overleaf comes in by itself, or with git pull when the top bar shows it."
-    : "While this review page is open, text files such as .tex change both ways within a second, and a new comment thread on Overleaf comes in by itself. Figures and other uploaded files are copied whole when one side replaces them, and a new figure or source file here goes up by itself.";
+    ? "While this page is open, text files such as .tex sync both ways within a second, and new Overleaf comment threads appear here automatically. Figures and other uploaded files sync through git: changes made here go with commit & push, and files added on Overleaf arrive automatically, or with git pull when the top bar shows it."
+    : "While this page is open, text files such as .tex sync both ways within a second, and new Overleaf comment threads appear here automatically. Figures and other uploaded files are copied in full when either side replaces them, and new figures or source files added here are uploaded automatically.";
   $("#overleaf-direct").hidden = !project;
   $("#overleaf-tracking-git").hidden = !git;
   $("#overleaf-git").hidden = !git && !state.overleafFiles;
+  $("#overleaf-git-way").textContent = git ? OVERLEAF_BY_GIT : OVERLEAF_BY_HAND;
   state.overleafRemote = git;
   if (!git) {
     state.overleafGit = null;
@@ -1275,10 +1276,10 @@ function renderOverleafCookie() {
   $("#overleaf-cookie-help").hidden = !asked;
   $("#overleaf-signed").hidden = !cookie;
   $("#overleaf-signed-text").textContent = cookie === "environment"
-    ? (refused ? "Overleaf turned away the cookie in the environment variable TEX_MCP_WEB_OVERLEAF_COOKIE. "
+    ? (refused ? "Overleaf rejected the cookie in the environment variable TEX_MCP_WEB_OVERLEAF_COOKIE. "
       + "Set a new one there and restart the agent."
       : "Signed in with the cookie in the environment variable TEX_MCP_WEB_OVERLEAF_COOKIE.")
-    : refused ? "Overleaf turned this cookie away. Paste a new one." : "Signed in with your saved cookie.";
+    : refused ? "Overleaf rejected this cookie. Paste a new one." : "Signed in with your saved cookie.";
   $("#overleaf-cookie-forget").hidden = cookie !== "file";
 }
 
@@ -1305,21 +1306,21 @@ function renderOverleafThreadSync() {
   const git = state.overleafGit;
   const gitWhy = git !== null && git.state !== "same" && git.apart
     ? {
-      behind: `Overleaf has ${commits(git.behind)} this folder lacks. git pull first, in the top bar or a terminal, and comments sync after that.`,
-      ahead: `This folder has ${commits(git.ahead)} Overleaf lacks. commit & push first, in the top bar or a terminal, and comments sync after that.`,
-      diverged: "Overleaf and this folder each have commits the other lacks. git pull, then commit & push, and comments sync after that.",
+      behind: `This folder is ${commits(git.behind)} behind Overleaf. Comments sync after you run git pull, from the top bar or a terminal.`,
+      ahead: `This folder is ${commits(git.ahead)} ahead of Overleaf. Comments sync after you run commit & push, from the top bar or a terminal.`,
+      diverged: "This folder and Overleaf have diverged. Comments sync after you run git pull, then commit & push.",
     }[git.state]
     : "";
   // Live, new threads come in by themselves once every file is the same as on Overleaf.
   const why = state.overleafFullSync
-    ? (waiting ? `${waiting} new thread${waiting === 1 ? " on Overleaf comes" : "s on Overleaf come"} in once every file is settled.` : "")
+    ? (waiting ? `${waiting} new Overleaf thread${waiting === 1 ? "" : "s"} will appear once every file is in sync.` : "")
     : !state.overleafCookie ? OVERLEAF_COOKIE_WANTED
     : state.overleafGitTrouble || gitWhy || (files === null ? ""
       : !files.read ? "Reading Overleaf's files…"
       : files.get.length + files.send.length > 0
-        ? "This folder and Overleaf hold different files. Get or Send in the top bar first, and comments sync after that."
+        ? "This folder and Overleaf have different files. Comments sync after you press Get or Send in the top bar."
       : files.choose.length > 0
-        ? "A file differs from Overleaf's and waits for your choice, in the band above. Comments sync after that."
+        ? "A file differs from Overleaf's version. Use the banner above to choose which version to keep, and comments will sync."
       : "");
   side.disabled = state.syncingComments || why !== "";
   side.classList.toggle("busy", state.syncingComments);
@@ -1366,16 +1367,23 @@ function renderOverleafGit(now) {
   const then = state.overleafFullSync ? "" : ", and comments sync after that";
   $("#overleaf-git-state").textContent = {
     same: `This folder is at Overleaf's commit (${now.there}).`,
-    ahead: `This folder has ${commits(now.ahead)} Overleaf lacks. commit & push in the top bar sends them${then}.`,
-    behind: `Overleaf has ${commits(now.behind)} this folder lacks. git pull in the top bar brings them in${then}.`,
-    diverged: `Overleaf and this folder each have commits the other lacks (${now.ahead} here, ${now.behind} on Overleaf). `
-      + `git pull in the top bar merges them, commit & push sends the result${then}.`,
+    ahead: `This folder is ${commits(now.ahead)} ahead of Overleaf. Press commit & push in the top bar to send `
+      + `${now.ahead === 1 ? "it" : "them"}${then}.`,
+    behind: `This folder is ${commits(now.behind)} behind Overleaf. Press git pull in the top bar to get `
+      + `${now.behind === 1 ? "it" : "them"}${then}.`,
+    diverged: `This folder and Overleaf have diverged (${now.ahead} here, ${now.behind} on Overleaf). `
+      + `Press git pull in the top bar to merge them, then commit & push to send the result${then}.`,
   }[now.state];
   $("#overleaf-git-uncommitted").hidden = !now.uncommitted.length;
-  $("#overleaf-git-uncommitted").textContent = `Not committed yet, so commit & push in the top bar commits them first: ${now.uncommitted.join(", ")}`;
+  $("#overleaf-git-uncommitted").textContent = `Not committed yet (commit & push commits them first): ${now.uncommitted.join(", ")}`;
   renderGitButtons();
   renderOverleafThreadSync();
 }
+
+// What Settings says of how a connected folder syncs: a git clone, live or not, or a folder
+// synced by hand with Get and Send.
+const OVERLEAF_BY_GIT = "This folder is a git clone of the Overleaf project.";
+const OVERLEAF_BY_HAND = "This folder syncs with Overleaf by hand, with Get and Send.";
 
 function fileCount(count) {
   return `${count} file${count === 1 ? "" : "s"}`;
@@ -1386,11 +1394,12 @@ function renderOverleafFiles(now) {
   state.overleafFiles = now;
   const counts = [now.get.length, now.send.length];
   $("#overleaf-git").hidden = false;
+  $("#overleaf-git-way").textContent = OVERLEAF_BY_HAND;
   $("#overleaf-git-state").textContent = !now.read ? "Reading Overleaf's files…"
-    : counts[0] && counts[1] ? `Overleaf has edits to ${fileCount(counts[0])} this folder lacks, and this folder has edits to ${fileCount(counts[1])} Overleaf lacks. Get brings them in and Send makes them there, and comments sync after that.`
-    : counts[0] ? `Overleaf has edits to ${fileCount(counts[0])} this folder lacks. Get in the top bar brings them in, and comments sync after that.`
-    : counts[1] ? `This folder has edits to ${fileCount(counts[1])} Overleaf lacks. Send in the top bar makes them there, and comments sync after that.`
-    : "This folder and Overleaf hold the same files.";
+    : counts[0] && counts[1] ? `Overleaf has new edits to ${fileCount(counts[0])}, and this folder has new edits to ${fileCount(counts[1])}. Comments sync after you press Get and Send.`
+    : counts[0] ? `Overleaf has new edits to ${fileCount(counts[0])}. Comments sync after you press Get in the top bar.`
+    : counts[1] ? `This folder has new edits to ${fileCount(counts[1])}. Comments sync after you press Send in the top bar.`
+    : "This folder is in sync with Overleaf.";
   $("#overleaf-git-uncommitted").hidden = true;
   renderGitButtons();
   renderOverleafThreadSync();
@@ -1540,12 +1549,13 @@ function readOverleafGitSoon(delay) {
 // Connecting names the project in the paper's config, as a line written there by hand
 // would. Keeping the files the same asks once before it starts, since it changes what
 // everyone in the project sees.
-const OVERLEAF_SYNC_QUESTION = "The paper's files and the Overleaf project will be kept the same both ways while a "
-  + "page is open: edits here are sent to Overleaf, and edits there are written into the files. "
-  + "A file that differs at the start waits for your choice. New comment threads on Overleaf come in "
-  + "by themselves whenever every file is the same. Figures and other uploaded files are copied whole when one "
-  + "side replaces them, and a new figure or source file here goes up by itself, except in a folder cloned by git, "
-  + "where they go by git pull and git push as before, and those never put older text over Overleaf's. Turn this on?";
+const OVERLEAF_SYNC_QUESTION = "While a review page is open, the paper's files and the Overleaf project stay in sync "
+  + "both ways: edits here are sent to Overleaf, and edits there are written to the files. "
+  + "If a file differs at the start, you choose which version to keep. New Overleaf comment threads appear here "
+  + "automatically whenever every file is in sync. Figures and other uploaded files are copied in full when either "
+  + "side replaces them, and new figures or source files added here are uploaded automatically. In a git clone, "
+  + "these files still move only with git pull and git push, which never overwrite newer text on Overleaf. "
+  + "Turn on live sync?";
 
 async function connectOverleaf(change, done) {
   const response = await fetch("/overleaf/connect", {
@@ -1554,7 +1564,7 @@ async function connectOverleaf(change, done) {
     body: JSON.stringify(change),
   });
   if (!response.ok) {
-    showSettings(`Could not change it: ${await responseError(response)}`);
+    showSettings(`Could not save the change: ${await responseError(response)}`);
     await loadOverleafStatus();
     return false;
   }
@@ -1570,7 +1580,7 @@ async function switchOverleafMode(live) {
     $('#overleaf-mode input[value="hand"]').checked = true;
     return;
   }
-  await connectOverleaf({ sync: live }, live ? "The files now follow Overleaf live." : "The files now follow Overleaf by hand.");
+  await connectOverleaf({ sync: live }, live ? "Files now sync live with Overleaf." : "Files now sync with Overleaf by hand.");
 }
 
 async function saveOverleafCookie() {
@@ -1581,7 +1591,7 @@ async function saveOverleafCookie() {
     body: JSON.stringify({ cookie: input.value }),
   });
   if (!response.ok) {
-    showSettings(`Could not keep it: ${await responseError(response)}`);
+    showSettings(`Could not save the cookie: ${await responseError(response)}`);
     return;
   }
   input.value = "";
@@ -1594,13 +1604,13 @@ async function saveOverleafCookie() {
 async function forgetOverleafCookie() {
   const response = await fetch("/overleaf/cookie", { method: "DELETE" });
   if (response.ok) renderOverleafStatus(await response.json());
-  showSettings(response.ok ? "Cookie forgotten." : `Could not forget it: ${await responseError(response)}`);
+  showSettings(response.ok ? "Cookie removed." : `Could not remove the cookie: ${await responseError(response)}`);
 }
 
 function overleafBroughtIn(done) {
   const parts = [`${done.added} new comments`, `${done.replies} new replies`];
-  if (done.resolved) parts.push(`${done.resolved} resolved threads left out`);
-  if (done.unplaced) parts.push(`${done.unplaced} not found in the source, put on the paper`);
+  if (done.resolved) parts.push(`${done.resolved} resolved threads skipped`);
+  if (done.unplaced) parts.push(`${done.unplaced} not found in the source and attached to the whole paper`);
   return `Synced: ${parts.join(", ")}.`;
 }
 
@@ -1616,7 +1626,7 @@ async function syncOverleafComments() {
         state.overleafCookieRefused = true;
         renderOverleafCookie();
       }
-      showSettings(`Could not sync them: ${await responseError(response)}`);
+      showSettings(`Could not sync comments: ${await responseError(response)}`);
       return;
     }
     const done = overleafBroughtIn(await response.json());
@@ -1697,18 +1707,18 @@ function overleafItem(dot, text, where, onClick) {
 
 // Files kept in step with Overleaf: how many are, and a choice for each that stopped.
 const OVERLEAF_CHOICES = {
-  differs: [["overleaf", "Use Overleaf's"], ["here", "Send this file's"]],
-  stopped: [["overleaf", "Use Overleaf's"], ["here", "Send this file's"]],
-  held: [["anyway", "Send it anyway"], ["overleaf", "Put Overleaf's back"]],
-  gone: [["delete-there", "Delete on Overleaf"], ["restore", "Get it back"]],
-  dropped: [["delete-here", "Delete here"], ["restore", "Send it back"]],
+  differs: [["overleaf", "Use Overleaf's version"], ["here", "Send this file's version"]],
+  stopped: [["overleaf", "Use Overleaf's version"], ["here", "Send this file's version"]],
+  held: [["anyway", "Send it anyway"], ["overleaf", "Restore Overleaf's version"]],
+  gone: [["delete-there", "Delete on Overleaf"], ["restore", "Restore here"]],
+  dropped: [["delete-here", "Delete here"], ["restore", "Restore on Overleaf"]],
 };
 
 // What a file waiting for a choice says, by why it waits.
 const OVERLEAF_WAITS = {
   held: "Not sent to Overleaf",
-  differs: "Not in step with Overleaf",
-  stopped: "Stopped following Overleaf",
+  differs: "Out of sync with Overleaf",
+  stopped: "Sync stopped",
   gone: "Deleted here",
   dropped: "Deleted on Overleaf",
 };
@@ -1732,7 +1742,7 @@ function overleafChoiceItem(file, withOpen) {
     choose.addEventListener("click", () => (choice === "open"
       ? goToOverleafPlace(file.path, null)
       : chooseOverleafText(file.path, choice, label)).catch(
-      (error) => alert(`Could not settle ${file.path}: ${error.message}`)));
+      (error) => alert(`Could not apply your choice for ${file.path}: ${error.message}`)));
     item.append(choose);
   }
   return item;
@@ -1742,10 +1752,10 @@ function renderOverleafChoices(files, choosing) {
   const head = $("#overleaf-sync-head");
   const followed = files.filter((file) => file.status !== "unsupported").length;
   head.hidden = !files.length || (Boolean(state.overleafFiles) && !choosing.length);
-  head.textContent = state.overleafFiles ? `${choosing.length} file${choosing.length === 1 ? "" : "s"} wait for your choice.`
+  head.textContent = state.overleafFiles ? `${choosing.length} file${choosing.length === 1 ? " needs" : "s need"} a decision.`
     : choosing.length
-    ? `${choosing.length} file${choosing.length === 1 ? "" : "s"} wait for your choice; the others stay in step with Overleaf.`
-    : `${followed} file${followed === 1 ? "" : "s"} kept in step with Overleaf.`;
+    ? `${choosing.length} file${choosing.length === 1 ? " needs" : "s need"} a decision; the rest are in sync with Overleaf.`
+    : `${followed} file${followed === 1 ? "" : "s"} in sync with Overleaf.`;
   $("#overleaf-sync-files").replaceChildren(...choosing.map((file) => overleafChoiceItem(file, false)));
   // A file that waits is said across the top of the page until it is settled, since edits
   // to it go nowhere meanwhile.
@@ -1753,16 +1763,16 @@ function renderOverleafChoices(files, choosing) {
   const wasHidden = alertBox.hidden;
   alertBox.hidden = !choosing.length;
   $("#overleaf-sync-alert-head").textContent = choosing.length === 1
-    ? "A file waits for your choice. Edits to it stay here until you choose."
-    : `${choosing.length} files wait for your choice. Edits to them stay here until you choose.`;
+    ? "A file needs a decision. Edits to it won't sync until you choose."
+    : `${choosing.length} files need a decision. Edits to them won't sync until you choose.`;
   $("#overleaf-sync-alert-files").replaceChildren(...choosing.map((file) => overleafChoiceItem(file, true)));
   if (wasHidden !== alertBox.hidden) requestAnimationFrame(() => state.editor?.resize());
 }
 
 async function chooseOverleafText(path, choice, label) {
   const asked = {
-    overleaf: `${label} for ${path}? This file's text is kept in .tex-mcp-web/overleaf-sync/kept/.`,
-    here: `${label} for ${path}? Overleaf's text is kept in .tex-mcp-web/overleaf-sync/kept/.`,
+    overleaf: `${label} for ${path}? A copy of this file's text is saved in .tex-mcp-web/overleaf-sync/kept/.`,
+    here: `${label} for ${path}? A copy of Overleaf's text is saved in .tex-mcp-web/overleaf-sync/kept/.`,
     "delete-there": `Delete ${path} on Overleaf, for everyone in the project? Overleaf keeps it in its history.`,
     "delete-here": `Delete ${path} here? A copy is kept in .tex-mcp-web/overleaf-sync/kept/.`,
   }[choice];
@@ -1785,6 +1795,7 @@ function renderOverleafLive(snapshot) {
   if (snapshot.by_hand) renderOverleafFiles(snapshot.by_hand);
   else if (state.overleafFiles) {
     state.overleafFiles = null;
+    $("#overleaf-git").hidden = !state.overleafRemote;
     renderGitButtons();
   }
   const { status, users = [], changes = [] } = snapshot;
@@ -1804,12 +1815,12 @@ function renderOverleafLive(snapshot) {
   button.classList.toggle("off", off);
   button.classList.toggle("trouble", trouble);
   button.hidden = !off && !trouble;
-  button.title = off ? "Connect this paper to its Overleaf project" : "Overleaf: something needs a look";
+  button.title = off ? "Connect this paper to its Overleaf project" : "Overleaf needs your attention";
   renderOverleafChoices(files, choosing);
   renderOverleafThreadSync();
   $("#overleaf-live-label").textContent = off ? "Connect Overleaf"
     : choosing.length ? `${choosing.length} waiting`
-    : commentsTrouble ? "Comments not coming in"
+    : commentsTrouble ? "Comments not syncing"
     : { signed_out: "Signed out", reconnecting: "Reconnecting" }[status] ?? "";
   $("#overleaf-live").hidden = off;
   $("#overleaf-tracking").hidden = snapshot.tracking !== true;
@@ -1833,7 +1844,7 @@ function renderOverleafLive(snapshot) {
       onclick: () => goToOverleafPlace(user.file, user.row).catch((error) => alert(error.message)),
     }, overleafInitials(user.name));
   }));
-  $("#overleaf-live-status").textContent = commentsTrouble ? `Overleaf comments are not coming in: ${commentsTrouble}` : {
+  $("#overleaf-live-status").textContent = commentsTrouble ? `Overleaf comments are not syncing: ${commentsTrouble}` : {
     live: users.length ? "In the Overleaf project now:" : "No one else is in the Overleaf project.",
     connecting: "Joining the Overleaf project…",
   }[status] ?? (snapshot.message || "Not connected to Overleaf.");
@@ -1895,7 +1906,7 @@ function renderOverleafCursors() {
   const notice = waiting
     ? `${OVERLEAF_WAITS[waiting.status]}: ${waiting.message}`
     : change
-    ? `${change.by} edited this file on Overleaf ${overleafWhen(change.at)} (${change.count} ${change.count === 1 ? "edit" : "edits"}). Bring those in before saving here.`
+    ? `${change.by} edited this file on Overleaf ${overleafWhen(change.at)} (${change.count} ${change.count === 1 ? "edit" : "edits"}). Update this file from Overleaf before you save.`
     : "";
   $("#overleaf-file-notice").classList.toggle("waiting", !!waiting);
   if (notice !== overleafLive.notice) {
@@ -2387,7 +2398,7 @@ function attachDefinitionBack(editor) {
 async function backFromDefinition() {
   const back = definitionTrail.pop();
   if (back === undefined) {
-    setSourceStatus("No jump to go back from");
+    setSourceStatus("Nothing to go back to");
     return;
   }
   if (await openSource(back.path, back.row + 1)) state.editor.moveCursorTo(back.row, back.column);
@@ -2644,7 +2655,7 @@ async function handleSourceChanged(message) {
       || message.revision === state.sourceRevision) return;
   if (state.sourceDirty) {
     const followed = (overleafLive.snapshot?.files ?? []).some((file) => file.path === message.path);
-    setSourceStatus(followed ? "Edited on Overleaf · saving takes both" : "Changed on disk · reload",
+    setSourceStatus(followed ? "Edited on Overleaf · saving merges both" : "Changed on disk · reload",
       followed ? "" : "conflict");
     return;
   }
@@ -2956,16 +2967,16 @@ function renderComments() {
   clear(list);
   if (state.comments.length === 0) {
     const view = $("#comment-filter").value;
-    list.appendChild(placeholder(searchQuery().length > 0 ? "No comment here holds these words."
+    list.appendChild(placeholder(searchQuery().length > 0 ? "No comments match your search."
       : view === "todo" ? "Nothing is left to do here."
       : view === "changes" && state.commentTab === "overleaf-comments" ? "No suggested edits on Overleaf."
-      : "No comments at this filter."));
+      : "No comments in this view."));
   } else {
     for (const comment of state.comments) {
       list.appendChild(comment.suggested ? renderSuggestedEdit(comment) : renderCommentItem(comment));
     }
     if (state.searchMore > 0) {
-      list.appendChild(placeholder(`${state.searchMore} more hold these words. Type more to find fewer.`));
+      list.appendChild(placeholder(`${state.searchMore} more match. Add words to narrow the search.`));
     }
   }
   list.scrollTop = scrollTop;
@@ -3009,8 +3020,8 @@ function renderPickedActions() {
   const clearing = shown > 0 && pickedShown === shown;
   all.checked = clearing;
   all.indeterminate = pickedShown > 0 && !clearing;
-  all.setAttribute("aria-label", clearing ? "Clear" : "Select all");
-  all.title = clearing ? "Let go of every picked comment" : "Pick every comment in this view";
+  all.setAttribute("aria-label", clearing ? "Clear selection" : "Select all");
+  all.title = clearing ? "Clear selection" : `Select all ${tabNoun()}s in this view`;
   // A button with nothing to do stays in place, greyed out: buttons that came and went
   // moved everything beside them. The count shows only when there is one.
   // One button resolves or reopens, as R does: it resolves the open ones while any picked
@@ -3027,7 +3038,7 @@ function renderPickedActions() {
   resolve.querySelector(".wide-label").textContent = word;
   resolve.querySelector(".count").textContent = settled.length > 0 ? String(settled.length) : "";
   resolve.setAttribute("aria-label", settled.length > 0 ? `${word} ${settled.length}` : word);
-  resolve.title = `${word} the picked comments`;
+  resolve.title = `${word} the selected ${tabNoun()}s`;
   resolve.dataset.status = reopening ? "open" : "resolved";
   resolve.dataset.ids = settled.join(" ");
   const archive = $("#archive-picked-btn");
@@ -3045,7 +3056,7 @@ function renderPickedActions() {
   send.classList.toggle("busy", state.sending.size > 0);
   send.querySelector(".count").textContent = sendable.length > 0 ? String(sendable.length) : "";
   send.setAttribute("aria-label", sendable.length > 0 ? `Send ${replies(sendable.length)} to Overleaf` : "Send to Overleaf");
-  send.title = state.overleafCookie ? "Send the picked public replies to Overleaf, for everyone in the project"
+  send.title = state.overleafCookie ? "Send the selected public replies to Overleaf, for everyone in the project"
     : OVERLEAF_COOKIE_WANTED;
   send.dataset.ids = sendable.join(" ");
   // A view of suggested edits accepts or rejects the picked ones: the suggested edits view, in
@@ -3106,7 +3117,7 @@ function renderFoldAction() {
   button.querySelector(".icon-expand").classList.toggle("hidden", folding);
   button.querySelector(".icon-collapse").classList.toggle("hidden", !folding);
   button.setAttribute("aria-label", folding ? "Collapse all" : "Expand all");
-  button.title = folding ? "Close every comment in this view" : "Open every comment in this view";
+  button.title = `${folding ? "Collapse" : "Expand"} all ${tabNoun()}s in this view`;
 }
 
 function foldAll() {
@@ -3156,6 +3167,11 @@ function counted(count, noun) {
   return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }
 
+// What the shown tab calls one of its entries: a thread in the Overleaf tab, a comment in the other.
+function tabNoun() {
+  return state.commentTab === "overleaf-comments" ? "thread" : "comment";
+}
+
 // A change of status made on the page, from the row, a card or a key, and the list drawn again
 // once. The comments it changed are kept for Undo, each with the status it had in the list
 // just before, and the line above the list says what was done. A change that changed nothing
@@ -3163,7 +3179,7 @@ function counted(count, noun) {
 async function setStatus(ids, status) {
   const before = new Map(state.comments.filter((comment) => ids.includes(comment.id) && comment.status !== status)
     .map((comment) => [comment.id, comment.status]));
-  const noun = state.commentTab === "overleaf-comments" ? "thread" : "comment";
+  const noun = tabNoun();
   try {
     const { took, why } = await postStatus(ids, status);
     const changed = took.filter((id) => before.has(id));
@@ -3213,7 +3229,7 @@ function renderUndo() {
   $("#undo-line").hidden = undo === null;
   if (undo === null) return;
   $("#undo-text").textContent = undo.why
-    ? `${counted(undo.before.size, undo.noun)} could not be put back: ${undo.why}` : undo.said;
+    ? `${counted(undo.before.size, undo.noun)} could not be undone: ${undo.why}` : undo.said;
 }
 
 // A reply sent to its thread on Overleaf: null once sent, or why not, with the files its
@@ -3308,7 +3324,7 @@ async function sendPickedToOverleaf(ids) {
 
 // The box that picks a card, in its head, which opens the card: picking is not opening.
 function pickBox(comment) {
-  const box = h("input", { class: "comment-pick", type: "checkbox", title: "Pick this comment" });
+  const box = h("input", { class: "comment-pick", type: "checkbox", title: `Select this ${tabNoun()}` });
   box.checked = state.picked.has(comment.id);
   // A checkbox has already taken its new value by the time the click arrives, so the
   // whole decision is made here and nothing listens for the change.
@@ -3346,7 +3362,7 @@ function renderCommentItem(comment) {
   };
   const head = h("div", {
     class: "cmt-head",
-    title: expanded ? "collapse" : "expand thread",
+    title: expanded ? "Collapse thread" : "Expand thread",
     onclick: toggle,
   },
   box,
@@ -3366,7 +3382,7 @@ function renderCommentItem(comment) {
   const unplaced = state.overleafUnplaced[comment.id];
   if (unplaced && comment.status === "open") {
     children.push(h("div", { class: "cmt-unplaced" }, leafIcon(), h("span", {
-      text: `On Overleaf at ${unplaced}. Those words are not in the file here, so this sits on the paper until they are.`,
+      text: `On Overleaf at ${unplaced}. That text is not in the file here yet, so the comment is shown on the whole paper for now.`,
     })));
   }
   if (!expanded && comment.thread.length > 0) {
@@ -3381,7 +3397,7 @@ function renderCommentItem(comment) {
     const latest = comment.thread[comment.thread.length - 1];
     if (comment.thread.length > 1) {
       children.push(h("div", { class: `cmt-latest author-${latest.author}`,
-                               title: "expand thread",
+                               title: "Expand thread",
                                onclick: toggle,
                                text: `${writer(latest)}  ${latest.text}` }));
     }
@@ -3535,12 +3551,12 @@ function renderSuggestion(comment) {
       h("div", { class: "sugg-old", title: "current text" },
         h("span", { class: "sugg-marker", text: "−" }),
         h("span", { class: "sugg-text", text: change.old })),
-      h("div", { class: "sugg-new", title: "proposed replacement" },
+      h("div", { class: "sugg-new", title: "suggested replacement" },
         h("span", { class: "sugg-marker", text: "+" }),
         h("span", { class: "sugg-text", text: change.new })),
     ]),
     unfit?.suggestion === JSON.stringify(comment.suggestion)
-      ? h("p", { class: "sugg-unfit", role: "status", text: "The file changed since this was proposed, so it no longer fits. "
+      ? h("p", { class: "sugg-unfit", role: "status", text: "The file has changed since this was suggested, so it no longer applies. "
         + `Reject it, or reply to ask the agent for a new one. (${unfit.why})` })
       : null,
     applyButton ? h("div", { class: "sugg-actions" }, rejectButton, applyButton) : null,
@@ -3583,7 +3599,7 @@ function renderOverleafReply(comment) {
     text: sending ? "Sending…" : kept?.error ?? (state.overleafCookie ? "" : OVERLEAF_COOKIE_WANTED) });
   const send = h("button", {
     class: `overleaf-send${sending ? " busy" : ""}`, type: "button",
-    title: state.overleafCookie ? `Send to Overleaf as public, for everyone in the project${keyHint("overleaf-send")}`
+    title: state.overleafCookie ? `Send to Overleaf as a public reply, for everyone in the project${keyHint("overleaf-send")}`
       : OVERLEAF_COOKIE_WANTED,
   }, "Send to ", leafIcon());
   send.disabled = !state.overleafCookie || sending;
@@ -3653,7 +3669,7 @@ function reachMark(entry) {
     return h("span", { class: "entry-overleaf", title: "Written on Overleaf, for everyone in the project" },
       leafIcon(), "public");
   }
-  return h("span", { class: "entry-overleaf here", text: "private", title: "Stays here, for you and the agent" });
+  return h("span", { class: "entry-overleaf here", text: "private", title: "Only you and the agent can see this" });
 }
 
 function renderThreadEntry(entry, commentId, index, onOverleaf) {
@@ -4159,7 +4175,7 @@ function renderErrorBanner() {
   }
   for (const line of short) {
     item("warning", "SHORT LINE", line,
-      `A paragraph on ${place(line)} ends in a line ${line.width} of the column wide: “${line.text}”`);
+      `A paragraph on ${place(line)} ends with a short line (${line.width} of the column width): “${line.text}”`);
   }
   if (layout.more_short_lines) {
     banner.appendChild(placeholder(`${layout.more_short_lines} more short lines.`));
@@ -4294,7 +4310,7 @@ function showCommentSort() {
   const select = $("#comment-sort");
   select.value = commentSort();
   $("#comment-sort-name").textContent = select.selectedOptions[0].textContent;
-  select.title = `Order of the list: ${select.selectedOptions[0].textContent} (o)`;
+  select.title = `Sort by ${select.selectedOptions[0].textContent} (o)`;
 }
 
 // The order chosen for the shown tab, which this browser keeps for it.
@@ -4496,7 +4512,7 @@ function applyCompileResult(result) {
   renderErrorBanner();
   // Until a build makes a PDF, the Preview says why there is none and where to read it.
   if (!result.success && !state.viewer) {
-    $("#pdf-viewer").replaceChildren(h("p", { class: "placeholder" }, "The build failed. Problems lists why. ",
+    $("#pdf-viewer").replaceChildren(h("p", { class: "placeholder" }, "The build failed. See Problems for details. ",
       h("button", { type: "button", onclick: () => { setSidebarCollapsed(false); switchTab("compile"); } }, "Show Problems")));
   }
 }
@@ -4806,16 +4822,16 @@ function showAgentWaiting(waiters) {
   button.classList.toggle("agent-offline", !waiting);
   button.setAttribute("aria-label", waiting ? "Call agent" : "Queue call for agent");
   button.title = state.serverGone ? "The review page's server cannot be reached"
-    : waiting ? "Call the waiting agent now (Ctrl+Alt+Enter)"
-    : "Agent is not waiting; queue this call until it reconnects (Ctrl+Alt+Enter)";
+    : waiting ? "Call the agent (Ctrl+Alt+Enter)"
+    : "No agent is listening. The call will be queued until one connects (Ctrl+Alt+Enter)";
   if (waiting) state.callWaits = false;
   renderCallWaits();
 }
 
 function renderCallWaits() {
   const note = $("#call-agent-why");
-  note.textContent = "No agent is listening yet, so the call waits. Claude Code listens when started in the "
-    + "paper's folder. In Codex, say do tex listen.";
+  note.textContent = "No agent is listening yet, so the call is queued. Claude Code listens when started in the "
+    + "paper's folder. In Codex, send “do tex listen”.";
   note.hidden = !state.callWaits;
 }
 
@@ -4869,7 +4885,7 @@ async function readUpdate() {
   button.textContent = `Update to v${told.latest}`;
   button.dataset.selfUpdate = String(told.self_update);
   if (told.version !== state.pageVersion) {
-    sayUpdate(`tex-mcp-web v${told.version} runs now. Reload this page to use it.`, { reload: true });
+    sayUpdate(`tex-mcp-web v${told.version} is now running. Reload this page to use it.`, { reload: true });
   } else if (told.on_disk !== told.version) {
     sayUpdate(`Updated to v${told.on_disk}. Reconnect tex-mcp in your agent to start using it.`, { how: true });
   }
@@ -4893,7 +4909,7 @@ async function runUpdate() {
       sayUpdate(`This install is still v${told.version} after the update. Ask your agent to update tex-mcp-web.`, { how: true });
     }
   } catch (error) {
-    sayUpdate(`The update did not go through.\n${error.message}`, { how: true });
+    sayUpdate(`The update failed.\n${error.message}`, { how: true });
   } finally {
     button.disabled = false;
   }
@@ -5147,19 +5163,19 @@ const COMMENT_KEYS = [
       run: () => moveFocus((at) => Math.max(at - 1, 0)) },
     { keys: ["gg", "Home"], does: "First comment", inRange: true, run: () => moveFocus(() => 0) },
     { keys: ["G", "End"], does: "Last comment", inRange: true, run: () => moveFocus((at, last) => last) },
-    { keys: [" "], does: "Open or close it, opening it showing where it is in the paper or the source",
+    { keys: [" "], does: "Expand or collapse it; expanding also shows its place in the paper or source",
       inRange: true, run: () => foldFocused() },
-    { keys: ["Shift+Space"], does: "Open or close every comment", run: () => foldAll() },
-    { keys: ["K", "Ctrl+Alt+K"], does: "Go into the source at its words, the keys with the cursor. "
-      + "K there, Ctrl+Alt+K without Vim keys, comes back", run: () => enterSource() },
+    { keys: ["Shift+Space"], does: "Expand or collapse all comments", run: () => foldAll() },
+    { keys: ["K", "Ctrl+Alt+K"], does: "Jump to its text in the source and move keyboard focus there. "
+      + "Press K (Ctrl+Alt+K without Vim keys) to come back", run: () => enterSource() },
   ]],
   ["Write", [
-    { keys: ["r"], does: "Reply privately, where the agent reads it and Overleaf does not", button: ["cmt-reply"],
+    { keys: ["r"], does: "Write a private reply that the agent sees and Overleaf does not", button: ["cmt-reply"],
       run: () => pressCard(".cmt-reply") },
     { keys: ["i"], does: "Write its reply for Overleaf", marks: ".cmt-overleaf", run: () => writeForOverleaf() },
-    { keys: ["e"], does: "Edit the last thing you wrote in it, here or on Overleaf", marks: ".cmt-edit", run: () => pressCard(".cmt-edit") },
-    { keys: ["c"], does: "Add a paper note", run: () => $("#paper-comment-btn").click() },
-    { keys: ["Escape"], does: "Leave a box: a reply or an edit being written is dropped, a reply for Overleaf keeps its words" },
+    { keys: ["e"], does: "Edit your last message in it, here or on Overleaf", marks: ".cmt-edit", run: () => pressCard(".cmt-edit") },
+    { keys: ["c"], does: "Comment on the whole paper", run: () => $("#paper-comment-btn").click() },
+    { keys: ["Escape"], does: "Leave the text box. An unsent private reply or edit is discarded; a reply for Overleaf is kept" },
   ]],
   ["Change", [
     { keys: ["R"], does: "Resolve it, or reopen it when it is not open", button: ["cmt-resolve", "cmt-reopen"], picked: true,
@@ -5169,11 +5185,11 @@ const COMMENT_KEYS = [
     { keys: ["A"], does: "Archive it", button: ["cmt-archive"], picked: true,
       run: () => pressPickedOr(["#archive-picked-btn"], ".cmt-archive"),
       range: () => pressForRange(["#archive-picked-btn"]) },
-    { keys: ["u"], does: "Undo the last change of status, while the line above the list offers it", button: ["undo-go"],
+    { keys: ["u"], does: "Undo the last status change, while Undo is shown above the list", button: ["undo-go"],
       run: () => undoStatus().catch((error) => console.error(error)) },
     { keys: ["aa"], does: "Apply its suggestion to the file, or accept a suggested edit on Overleaf",
       button: ["sugg-apply", "change-accept"], run: () => pressCard(".sugg-apply, .change-accept") },
-    { keys: ["nn"], does: "Reject its suggestion, or with none its draft for Overleaf",
+    { keys: ["nn"], does: "Reject its suggestion, or its Overleaf draft if there is none",
       button: ["sugg-reject", "overleaf-reject"],
       run: () => {
         const card = focusedCard();
@@ -5182,27 +5198,27 @@ const COMMENT_KEYS = [
     { keys: ["ss"], does: "Send its public reply to Overleaf, for everyone in the project", button: ["overleaf-send"], picked: true,
       run: () => pressPickedOr(["#send-picked-btn"], ".overleaf-send"),
       range: () => pressForRange(["#send-picked-btn"]) },
-    { keys: ["dd"], does: "Delete it, once you say yes, or reject a suggested edit on Overleaf",
+    { keys: ["dd"], does: "Delete it (after confirmation), or reject a suggested edit on Overleaf",
       button: ["cmt-delete", "change-reject"], run: () => pressCard(".cmt-delete, .change-reject") },
-    { keys: ["D"], does: "Delete the last thing you wrote in it, here or on Overleaf, once you say yes",
+    { keys: ["D"], does: "Delete your last message in it, here or on Overleaf (after confirmation)",
       marks: ".entry-delete", run: () => pressCard(".entry-delete") },
   ]],
-  ["Pick and range", [
-    { keys: ["x"], does: "Pick it, or let it go, and with a range held the whole range", marks: ".cmt-head",
+  ["Selection", [
+    { keys: ["x"], does: "Select or deselect it, or the whole range while one is marked", marks: ".cmt-head",
       run: () => pickFocused(), range: () => pickRange() },
-    { keys: ["v"], does: "Hold a range from it, or from the first comment, which the moving keys stretch: R, A, ss "
-      + "and x then act on the whole range, and Escape or v lets it go", run: () => holdRange(), range: () => letRangeGo() },
-    { keys: ["*"], does: "Pick every comment, or let them all go", run: () => $("#pick-all-btn").click() },
+    { keys: ["v"], does: "Start a range at it (or at the first comment) and extend it with the movement keys. R, A, ss "
+      + "and x then act on the whole range; Escape or v clears it", run: () => holdRange(), range: () => letRangeGo() },
+    { keys: ["*"], does: "Select all comments, or clear the selection", run: () => $("#pick-all-btn").click() },
   ]],
   ["View", [
-    { keys: ["/"], does: "Search the tab's comments, whatever their status. Enter goes to those found, Escape puts the search away",
+    { keys: ["/"], does: "Search this tab's comments in any status. Enter jumps to the results; Escape closes the search",
       run: () => openCommentSearch() },
-    { keys: ["f"], does: "Next view in the list atop the tab: to do, open, …", run: () => cycleStatus(1) },
+    { keys: ["f"], does: "Next view (to do, open, …)", run: () => cycleStatus(1) },
     { keys: ["F"], does: "Previous view", run: () => cycleStatus(-1) },
-    { keys: ["o"], does: "Next order of the list: paper order, latest first, oldest first", run: () => cycleSort() },
+    { keys: ["o"], does: "Next sort order (paper order, latest first, oldest first)", run: () => cycleSort() },
     { keys: ["t"], does: "Next tab", scope: "sidebar", run: () => cycleTab(1) },
     { keys: ["T"], does: "Previous tab", scope: "sidebar", run: () => cycleTab(-1) },
-    { keys: ["?"], does: "These keys", scope: "page", run: () => showCommentKeys() },
+    { keys: ["?"], does: "Show keyboard shortcuts", scope: "page", run: () => showCommentKeys() },
   ]],
 ];
 
@@ -5417,7 +5433,7 @@ function showCommentKeys() {
     ]));
   }
   const picked = COMMENT_KEYS.flatMap(([, group]) => group).filter((entry) => entry.picked).map((entry) => entry.keys[0]);
-  $("#keys-picked").textContent = `With comments picked, ${picked.slice(0, -1).join(", ")} and ${picked.at(-1)} act on them.`;
+  $("#keys-picked").textContent = `With comments selected, ${picked.slice(0, -1).join(", ")} and ${picked.at(-1)} act on the selection.`;
   $("#keys-dialog").showModal();
 }
 
@@ -5554,7 +5570,7 @@ function attachSidebarToggle() {
   $("#overleaf-connect-btn").addEventListener("click", async () => {
     const link = $("#overleaf-link").value.trim();
     if (!link) return;
-    if (await connectOverleaf({ project: link }, "Connected. Who is on Overleaf shows in the top bar.")) {
+    if (await connectOverleaf({ project: link }, "Connected. The top bar shows who is on Overleaf.")) {
       $("#overleaf-link").value = "";
     }
   });
@@ -5562,7 +5578,7 @@ function attachSidebarToggle() {
     if (event.key === "Enter") { event.preventDefault(); $("#overleaf-connect-btn").click(); }
   });
   $("#overleaf-disconnect-btn").addEventListener("click", () => {
-    if (confirm("Disconnect this paper from its Overleaf project? Nothing is sent or followed until it is connected again.")) {
+    if (confirm("Disconnect this paper from its Overleaf project? Nothing will sync until you connect it again.")) {
       connectOverleaf({ project: null }, "Disconnected.");
     }
   });
@@ -6247,7 +6263,7 @@ async function init() {
       renderPickedActions();
     });
   }
-  $("#undo-btn").title = `Put back what was just changed${keyHint("undo-go")}`;
+  $("#undo-btn").title = `Undo the last status change${keyHint("undo-go")}`;
   $("#undo-btn").addEventListener("click", () => undoStatus().catch((error) => console.error(error)));
   $("#undo-close").addEventListener("click", () => {
     state.undo = null;

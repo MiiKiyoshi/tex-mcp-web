@@ -236,10 +236,10 @@ class ProjectBinding:
         shared = self.connect()
         if shared is None:
             raise RuntimeError(
-                f"this folder is not set up for review: {DEFAULT_CONFIG_NAME} was not found "
-                f"from {self.start_dir}. A config written here can name the paper's folder anywhere with dir. "
-                f"Ask the user whether to set it up now; if they agree, "
-                f"follow {INIT_GUIDE} with {CLI}."
+                f"this folder is not set up for review: no {DEFAULT_CONFIG_NAME} was found in "
+                f"{self.start_dir} or its parents. A config written here can point to the paper's folder "
+                f"anywhere with dir. Ask the user whether to set it up now; if they agree, "
+                f"follow {INIT_GUIDE}, using {CLI} as the tex-mcp-web command."
             )
         return shared
 

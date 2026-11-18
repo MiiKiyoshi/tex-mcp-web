@@ -1760,7 +1760,7 @@ class CommentStore:
                 if comment.updated != expected_updated:
                     raise ValueError("stale thread: comment changed since it was read")
                 if comment.suggestion is None:
-                    raise ValueError("the comment carries no suggestion")
+                    raise ValueError("this comment has no suggestion")
                 now = _now()
                 comment.thread.append(ThreadEntry(author="agent", at=now, text=text.strip()))
                 comment.suggestion = None
@@ -1808,7 +1808,7 @@ class CommentStore:
                 if comment.status != "open":
                     raise ValueError("suggestion belongs to a comment that is not open")
                 if comment.suggestion is None:
-                    raise ValueError("the comment carries no suggestion")
+                    raise ValueError("this comment has no suggestion")
 
                 edits = write_to_source(comment)
                 now = _now()
@@ -1834,7 +1834,7 @@ class CommentStore:
                 if comment.updated != expected_updated:
                     raise ValueError("stale thread: comment changed since it was read")
                 if comment.suggestion is None:
-                    raise ValueError("the comment carries no suggestion")
+                    raise ValueError("this comment has no suggestion")
                 pieces = "".join(f"\n− {old}\n+ {new}" for old, new in comment.suggestion.changes)
                 now = _now()
                 comment.thread.append(
@@ -1862,7 +1862,7 @@ class CommentStore:
                     raise ValueError("stale thread: comment changed since it was read")
                 draft = comment.overleaf_draft
                 if draft is None:
-                    raise ValueError("the comment carries no draft for Overleaf")
+                    raise ValueError("this comment has no draft for Overleaf")
                 if draft.thread is not None:
                     raise ValueError("this thread was begun on Overleaf: send it to finish it there")
                 now = _now()

@@ -41,8 +41,8 @@ OPEN_TOOLS = ("guide", "setup_info", "image")
 REMINDER = ("tex-mcp: before using tex-mcp tools in this context, call guide() and read every "
             "file in its read list in full. Use Read without offset or limit. tex-mcp tools other "
             "than guide(), setup_info() and image() are blocked until guide() and the required Read calls "
-            "are recorded. A [review] notification from the tex-mcp monitor is the user pressing "
-            "Call agent on the review page: it is the user's request to handle the review now, so "
+            "are recorded. A [review] notification from the tex-mcp monitor means the user pressed "
+            "Call agent on the review page. It is the user's request to handle the review now, so "
             "handle it without asking first.")
 NO_GUIDE = ("guide() has not succeeded in this context. Call it, then use Read without offset or "
             "limit for every file in its read list. Read each file in full before retrying this call.")

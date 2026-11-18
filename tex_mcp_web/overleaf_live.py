@@ -538,7 +538,7 @@ class LivePresence:
             if not reply or reply[0] is not None:
                 return f"Overleaf did not open {path}: {reply[0] if reply else 'no answer'}."
             if len(reply) > 5 and reply[5] != "sharejs-text-ot":
-                return f"Overleaf keeps {path} in a form ({reply[5]}) this page puts no thread on."
+                return f"Overleaf stores {path} in a format ({reply[5]}) that this page cannot add threads to."
             at = ot.nearest("\n".join(_decode(str(row)) for row in reply[1]), words, line)
             if at is None:
                 return f"The lines this thread is on are not in {path} on Overleaf yet."
@@ -546,7 +546,7 @@ class LivePresence:
             answer = await api.call("applyOtUpdate", [doc, {"doc": doc, "op": [{"c": words, "p": at, "t": thread}],
                                                             "v": reply[2]}])
             if answer and answer[0] is not None:
-                return f"Overleaf took the thread's message but did not put it on its words ({answer[0]}). Send again."
+                return f"Overleaf saved the thread's message but could not attach it to the text ({answer[0]}). Send again."
             return None
         finally:
             await self._leave(api, doc)
@@ -568,7 +568,7 @@ class LivePresence:
             if not reply or reply[0] is not None:
                 return f"Overleaf did not open {path}: {reply[0] if reply else 'no answer'}."
             if len(reply) > 5 and reply[5] != "sharejs-text-ot":
-                return f"Overleaf keeps {path} in a form ({reply[5]}) this page does not edit. Do it on Overleaf."
+                return f"Overleaf stores {path} in a format ({reply[5]}) that this page cannot edit. Do this on Overleaf."
             return None
         finally:
             await self._leave(api, doc)
@@ -595,7 +595,7 @@ class LivePresence:
             if not reply or reply[0] is not None:
                 return f"Overleaf did not open {path}: {reply[0] if reply else 'no answer'}."
             if len(reply) > 5 and reply[5] != "sharejs-text-ot":
-                return f"Overleaf keeps {path} in a form ({reply[5]}) this page does not edit. Do it on Overleaf."
+                return f"Overleaf stores {path} in a format ({reply[5]}) that this page cannot edit. Do this on Overleaf."
             chosen = _suggestions((reply[4] if len(reply) > 4 else None) or {}, changes)
             if not chosen:
                 return "Overleaf no longer has these suggested edits."
@@ -608,7 +608,7 @@ class LivePresence:
                 update["meta"] = {"tc": change_seed()}
             answer = await api.call("applyOtUpdate", [doc, update])
             if answer and answer[0] is not None:
-                return f"Overleaf did not take it ({answer[0]}), so nothing was changed there."
+                return f"Overleaf rejected it ({answer[0]}), so nothing was changed there."
             return None
         finally:
             await self._leave(api, doc)

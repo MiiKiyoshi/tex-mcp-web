@@ -243,7 +243,7 @@ async def _write_token(read: _Reader, project: str) -> str:
             found = re.search(r"""content=["']([^"']+)["']""", tag)
             if found:
                 return unescape(found.group(1))
-    raise OverleafError("Overleaf's page no longer gives a token to write with; nothing was changed there")
+    raise OverleafError("Overleaf's page no longer provides a write token; nothing was changed there")
 
 
 async def post_reply(link: str, cookie: tuple[str, str], thread: str, content: str, *, timeout: float = 30) -> None:
@@ -287,7 +287,7 @@ async def delete_thread(link: str, cookie: tuple[str, str], thread: str, *, time
                     for comment in (doc.get("ranges") or {}).get("comments") or []
                     if str(((comment or {}).get("op") or {}).get("t")) == thread), None)
         if doc is None:
-            raise OverleafError("Overleaf has this thread on no file, so nothing was changed there")
+            raise OverleafError("Overleaf has not attached this thread to any file, so nothing was changed there")
         await read.delete(f"/project/{project}/doc/{doc}/thread/{thread}", await _write_token(read, project))
 
 
@@ -430,7 +430,7 @@ async def set_resolved(link: str, cookie: tuple[str, str], threads: list[str], r
         token = await _write_token(read, project)
         for thread in threads:
             if thread not in doc_of:
-                raise OverleafError("Overleaf has this thread on no file, so nothing was changed there")
+                raise OverleafError("Overleaf has not attached this thread to any file, so nothing was changed there")
             await read.post(f"/project/{project}/doc/{doc_of[thread]}/thread/{thread}/{'resolve' if resolved else 'reopen'}",
                             token, {})
             yield thread
@@ -448,7 +448,7 @@ async def fetch_export(link: str, cookie: tuple[str, str], *, timeout: float = 3
         resolved = await read.get(f"/project/{project}/resolved-thread-ids", missing_ok=True)
         ranges = await read.get(f"/project/{project}/ranges")
         if not isinstance(raw_threads, dict):
-            raise OverleafError("Overleaf's thread list has changed shape")
+            raise OverleafError("Overleaf's thread list is in an unexpected format")
         resolved_ids = set(resolved.get("resolvedThreadIds", []) if isinstance(resolved, dict) else resolved or [])
         docs = ranges.get("docs", []) if isinstance(ranges, dict) else ranges or []
         commented, changed = {}, {}

@@ -46,7 +46,7 @@
       <span class="more">
         <button id="more-btn" type="button" title="More" aria-label="More" aria-haspopup="menu" aria-expanded="false"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg></button>
         <div id="more-menu" class="more-menu" role="menu" hidden>
-          <button id="paper-comment-btn" type="button" role="menuitem">Add a paper note…</button>
+          <button id="paper-comment-btn" type="button" role="menuitem">Comment on the whole paper…</button>
           <!-- The source translated, under the Preview or the editor: a check mark once a language
                is configured, and with none the pane all the same. -->
           <button id="translation-btn" type="button" role="menuitem">Translation…</button>
@@ -62,7 +62,7 @@
   </header>
   <div id="update-alert" class="update-alert" role="status" hidden>
     <span id="update-alert-text"></span>
-    <a id="update-alert-how" href="https://github.com/MiiKiyoshi/tex-mcp-web/blob/main/docs/reviewing.md#updating" target="_blank" rel="noopener">How</a>
+    <a id="update-alert-how" href="https://github.com/MiiKiyoshi/tex-mcp-web/blob/main/docs/reviewing.md#updating" target="_blank" rel="noopener">How to update</a>
     <button id="update-reload-btn" type="button" hidden>Reload</button>
   </div>
   <!-- Shown while the page cannot reach its server, which stops with the agent. -->
@@ -94,7 +94,7 @@
           <!-- Pressed, a comment on the selected source text starts a thread for Overleaf: what is
                written is for the agent, which drafts the thread's first message there. Shown
                once the paper names its Overleaf project. -->
-          <button id="source-leaf-btn" type="button" hidden aria-pressed="false" title="Comments from here start a public thread on Overleaf" aria-label="Comments from here start a public thread on Overleaf"><svg class="leaf-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 13C3 7 7 3 13 3c0 6-4 10-10 10z"/><path d="M3 13l6-6"/></svg></button>
+          <button id="source-leaf-btn" type="button" hidden aria-pressed="false" title="Post new comments as public threads on Overleaf" aria-label="Post new comments as public threads on Overleaf"><svg class="leaf-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 13C3 7 7 3 13 3c0 6-4 10-10 10z"/><path d="M3 13l6-6"/></svg></button>
           <button id="source-pdf-btn" type="button" disabled title="Select source text to show it in the Preview (Ctrl+Alt+P, gs with Vim keys)" aria-label="Select source text to show it in the Preview (Ctrl+Alt+P, gs with Vim keys)"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button>
           <button id="source-reload-btn" type="button" disabled title="Reload the file from disk" aria-label="Reload the file from disk"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 2.6-6.4L3 8"/><path d="M3 3v5h5"/></svg></button>
           <button id="source-save-btn" type="button" disabled title="Save (Ctrl+S)" aria-label="Save (Ctrl+S)"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg></button>
@@ -120,7 +120,7 @@
            aria-valuemin="15" aria-valuemax="85" aria-valuenow="64" title="Drag to resize"></div>
       <section id="translation-pane" class="off" aria-label="Translation of the source">
         <div class="translation-head"><b id="translation-language">Translation</b>
-          <select id="translation-file" aria-label="Source file to read translated">
+          <select id="translation-file" aria-label="Source file to translate">
             <option value="">Auto</option>
           </select>
           <span id="translation-page"></span><span id="translation-status"></span><span id="translation-tool"></span>
@@ -132,9 +132,9 @@
 
     <aside id="sidebar">
       <div id="sidebar-grip" class="sidebar-grip" role="separator" tabindex="0" aria-orientation="horizontal"
-           aria-controls="workspace sidebar" aria-label="Resize the review panel" title="Drag to resize"></div>
+           aria-controls="workspace sidebar" aria-label="Resize the sidebar" title="Drag to resize"></div>
       <div id="sidebar-width-grip" class="sidebar-width-grip" role="separator" tabindex="0" aria-orientation="vertical"
-           aria-controls="workspace sidebar" aria-label="Resize the review panel width" title="Drag to resize"></div>
+           aria-controls="workspace sidebar" aria-label="Resize the sidebar width" title="Drag to resize"></div>
       <div class="sidebar-tabs">
         <button class="tab-btn" data-tab="sections"><span class="tab-label">Sections</span></button>
         <button class="tab-btn active" data-tab="comments"><span class="tab-label">Comments</span><span id="comments-tab-count" class="tab-count hidden"></span></button>
@@ -153,14 +153,14 @@
         <div class="filter-row">
           <span class="row-group">
             <!-- The page fills the list with the shown tab's views. -->
-            <span class="pick"><span id="comment-filter-name" class="pick-name" aria-hidden="true">to do</span><select id="comment-filter" aria-label="Comment status">
+            <span class="pick"><span id="comment-filter-name" class="pick-name" aria-hidden="true">to do</span><select id="comment-filter" aria-label="View">
               <option value="todo" selected>to do</option>
             </select></span>
             <!-- The order of the list, kept for each comment tab. In a row short of room it is its
                  icon alone, with the list lying clear over it. -->
             <span id="comment-sort-pick" class="pick sort-pick"><span class="icon-btn sort-icon" aria-hidden="true">
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4h6M2 8h4.5M2 12h3M12 3v10M9.5 10.5 12 13l2.5-2.5"/></svg>
-              </span><span id="comment-sort-name" class="pick-name" aria-hidden="true">paper order</span><select id="comment-sort" aria-label="Order" title="Order of the list: paper order (o)">
+              </span><span id="comment-sort-name" class="pick-name" aria-hidden="true">paper order</span><select id="comment-sort" aria-label="Sort by" title="Sort by paper order (o)">
               <option value="paper" selected>paper order</option>
               <option value="latest">latest first</option>
               <option value="oldest">oldest first</option>
@@ -183,25 +183,25 @@
           </span>
           <span class="row-group">
             <!-- Resolve while a picked comment is open, Reopen while every picked one is closed. -->
-            <button id="resolve-picked-btn" class="icon-btn" type="button" disabled data-status="resolved" aria-label="Resolve" title="Resolve the picked comments">
+            <button id="resolve-picked-btn" class="icon-btn" type="button" disabled data-status="resolved" aria-label="Resolve" title="Resolve the selected comments">
               <svg class="icon-resolve" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M5 8l2 2 4-4"/></svg>
               <svg class="icon-reopen hidden" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.5-3.5"/><path d="M13 3v3h-3"/></svg>
               <span class="wide-label">Resolve</span><span class="count"></span>
             </button>
-            <button id="archive-picked-btn" class="icon-btn" type="button" disabled data-status="archived" aria-label="Archive" title="Archive the picked comments">
+            <button id="archive-picked-btn" class="icon-btn" type="button" disabled data-status="archived" aria-label="Archive" title="Archive the selected comments">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 3h12v3H2z"/><path d="M3 6v7h10V6M6 9h4"/></svg><span class="count"></span>
             </button>
             <!-- Shown in the leaf tab's suggested edits view, in place of Resolve and Send: the picked
                  suggested edits are accepted or rejected on Overleaf. -->
-            <button id="accept-picked-btn" class="icon-btn" type="button" hidden disabled aria-label="Accept" title="Accept the picked suggested edits on Overleaf">
+            <button id="accept-picked-btn" class="icon-btn" type="button" hidden disabled aria-label="Accept" title="Accept the selected suggested edits on Overleaf">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5l3.5 3.5L13 4.5"/></svg><span class="count"></span>
             </button>
-            <button id="reject-picked-btn" class="icon-btn" type="button" hidden disabled aria-label="Reject" title="Reject the picked suggested edits on Overleaf">
+            <button id="reject-picked-btn" class="icon-btn" type="button" hidden disabled aria-label="Reject" title="Reject the selected suggested edits on Overleaf">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg><span class="count"></span>
             </button>
             <!-- Shown in the leaf Comments tab: each picked thread sends what its reply box holds
                  to its own thread on Overleaf. -->
-            <button id="send-picked-btn" class="icon-btn" type="button" hidden disabled aria-label="Send to Overleaf" title="Send the picked public replies to Overleaf">
+            <button id="send-picked-btn" class="icon-btn" type="button" hidden disabled aria-label="Send to Overleaf" title="Send the selected public replies to Overleaf">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2L7 9"/><path d="M14 2l-4.5 12L7 9 2 6.5z"/></svg>
               <svg class="leaf-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 13C3 7 7 3 13 3c0 6-4 10-10 10z"/><path d="M3 13l6-6"/></svg>
               <span class="count"></span>
@@ -215,7 +215,7 @@
               <svg class="leaf-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 13C3 7 7 3 13 3c0 6-4 10-10 10z"/><path d="M3 13l6-6"/></svg>
               <span class="count"></span>
             </button>
-            <button id="call-agent-btn" class="icon-btn agent-offline" type="button" aria-label="Queue call for agent" title="Agent is not waiting; queue this call until it reconnects (Ctrl+Alt+Enter)">
+            <button id="call-agent-btn" class="icon-btn agent-offline" type="button" aria-label="Queue call for agent" title="No agent is listening. The call will be queued until one connects (Ctrl+Alt+Enter)">
               <span id="agent-waiting-dot" class="agent-dot"></span>
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11V7a4 4 0 0 1 8 0v4l1.5 1.5h-11z"/><path d="M6.5 14a1.5 1.5 0 0 0 3 0"/></svg>
               <span id="call-agent-word" class="count"></span>
@@ -228,14 +228,14 @@
         <!-- Shown while the search box has the focus: a click puts the condition into the box at
              the cursor. The list under them offers the tab's writers for from: and its files for file:. -->
         <div id="search-terms" class="search-terms" hidden>
-          <button type="button" tabindex="-1" data-insert="from:" title="Written by: a name, or part of one. from:me is you, from:agent is the agent">from:</button>
-          <button type="button" tabindex="-1" data-insert="file:" title="On a file: its name, or part of it">file:</button>
-          <button type="button" tabindex="-1" data-insert='""' title="These words together, exactly as written">"phrase"</button>
-          <button type="button" tabindex="-1" data-insert="-" title="Leave out the comments that hold the next word">-not</button>
-          <button type="button" tabindex="-1" data-insert="OR" title="Either the word before or the word after">OR</button>
-          <button type="button" tabindex="-1" data-insert="after:" title="Written on or after a day: 11-13, 2026-11-13 or 11-13T09:30">after:</button>
-          <button type="button" tabindex="-1" data-insert="before:" title="Written before a day: 11-13, 2026-11-13 or 11-13T09:30">before:</button>
-          <div id="search-pick" class="search-pick" role="listbox" aria-label="Pick one" hidden></div>
+          <button type="button" tabindex="-1" data-insert="from:" title="Show comments with a message from a person. Type a name or part of one, or use from:me or from:agent.">from:</button>
+          <button type="button" tabindex="-1" data-insert="file:" title="Show comments on a file. Type its name or part of it.">file:</button>
+          <button type="button" tabindex="-1" data-insert='""' title="Match the exact phrase">"phrase"</button>
+          <button type="button" tabindex="-1" data-insert="-" title="Exclude comments that contain the next word">-not</button>
+          <button type="button" tabindex="-1" data-insert="OR" title="Match either the word before or the word after">OR</button>
+          <button type="button" tabindex="-1" data-insert="after:" title="Show comments written on or after a date, such as 11-13, 2026-11-13 or 11-13T09:30">after:</button>
+          <button type="button" tabindex="-1" data-insert="before:" title="Show comments written before a date, such as 11-13, 2026-11-13 or 11-13T09:30">before:</button>
+          <div id="search-pick" class="search-pick" role="listbox" aria-label="Suggestions" hidden></div>
         </div>
         <!-- Said after a call to the agent that no agent heard, until one listens. -->
         <p id="call-agent-why" class="sync-why" role="status" hidden></p>
@@ -271,7 +271,7 @@
         <button id="overleaf-connect-btn" type="button">Connect</button>
       </div>
       <p id="overleaf-connected" hidden>Connected to <a id="overleaf-project" target="_blank" rel="noopener"></a> <button id="overleaf-disconnect-btn" type="button" class="overleaf-forget">Disconnect</button></p>
-      <p id="overleaf-settable" class="overleaf-unset" hidden>This paper has no <code>.tex-mcp-web.yaml</code>, so the project is named there by hand.</p>
+      <p id="overleaf-settable" class="overleaf-unset" hidden>This paper has no <code>.tex-mcp-web.yaml</code>. Create one and add the project link to it.</p>
     </section>
     <section id="overleaf-direct" class="overleaf-direct" hidden>
       <div id="overleaf-cookie-row" class="overleaf-cookie">
@@ -280,38 +280,39 @@
       </div>
       <details id="overleaf-cookie-help" class="overleaf-help">
         <summary>Where to find the cookie</summary>
-        <p>On Overleaf, signed in, open the browser's developer tools: Application (Chrome, Edge) or Storage (Safari, Firefox), then Cookies, then overleaf.com. Copy the value of <code>overleaf_session2</code>. It signs in as you, so it is kept in your own config folder, readable by you alone, and is not shown here again.</p>
+        <p>Sign in to Overleaf and open the browser's developer tools: Application (Chrome, Edge) or Storage (Safari, Firefox), then Cookies, then overleaf.com. Copy the value of <code>overleaf_session2</code>. Anyone with this value can sign in as you, so it is stored in your own config folder, readable only by you, and is not shown here again.</p>
       </details>
-      <p id="overleaf-signed" class="overleaf-signed" hidden><span id="overleaf-signed-text"></span> <button id="overleaf-cookie-forget" type="button" class="overleaf-forget">Forget it</button></p>
+      <p id="overleaf-signed" class="overleaf-signed" hidden><span id="overleaf-signed-text"></span> <button id="overleaf-cookie-forget" type="button" class="overleaf-forget">Remove</button></p>
     </section>
     <!-- How the files follow Overleaf: by hand unless the live way is chosen. Each choice
          says what it changes in this folder, which depends on whether it is a git clone. -->
     <fieldset id="overleaf-mode" class="overleaf-mode" hidden>
-      <legend>How the files follow Overleaf</legend>
+      <legend>How files sync with Overleaf</legend>
       <label><input type="radio" name="overleaf-mode" value="hand"><span><b>By hand</b> <span id="overleaf-mode-hand-note" class="overleaf-mode-note"></span></span></label>
       <label><input type="radio" name="overleaf-mode" value="live"><span><b>Live</b> <span id="overleaf-mode-live-note" class="overleaf-mode-note"></span></span></label>
     </fieldset>
     <!-- What the others on Overleaf see of the reviewer's cursor, kept by this browser. -->
     <fieldset id="overleaf-cursor" class="overleaf-mode" hidden>
       <legend>Your cursor on Overleaf</legend>
-      <label><input type="radio" name="overleaf-cursor" value="show"><span><b>Show my cursor</b> <span class="overleaf-mode-note">Your co-authors see your cursor where it is in this page's editor, in the file open there, and you see their cursors as they move.</span></span></label>
-      <label><input type="radio" name="overleaf-cursor" value="hidden"><span><b>Hidden</b> <span class="overleaf-mode-note">Your co-authors see no cursor of yours, and Overleaf does not show you as there. You still see who is in the project, and their cursors may be up to five minutes old.</span></span></label>
+      <label><input type="radio" name="overleaf-cursor" value="show"><span><b>Show my cursor</b> <span class="overleaf-mode-note">Your co-authors see your cursor in this page's editor, and you see theirs as they move.</span></span></label>
+      <label><input type="radio" name="overleaf-cursor" value="hidden"><span><b>Hidden</b> <span class="overleaf-mode-note">Your co-authors don't see your cursor, and Overleaf doesn't show you as online. You can still see who is in the project, but their cursors may be up to five minutes old.</span></span></label>
     </fieldset>
     <!-- Who is in the project, and the files edited there that this folder does not hold yet. -->
     <section id="overleaf-live" class="overleaf-direct" hidden>
       <p id="overleaf-live-status" class="overleaf-live-status"></p>
       <!-- Only a git clone of the project sends edits to Overleaf by git push; a folder in a
            git repository of its own pushes elsewhere. -->
-      <p id="overleaf-tracking" class="overleaf-live-status" hidden>Track changes is on for you on Overleaf, so the edits this page makes there are suggested edits.<span id="overleaf-tracking-git" hidden> git push makes them as they are.</span></p>
+      <p id="overleaf-tracking" class="overleaf-live-status" hidden>Track changes is on for you on Overleaf, so the edits this page makes there are suggested edits.<span id="overleaf-tracking-git" hidden> git push applies them directly.</span></p>
       <ul id="overleaf-live-users" class="overleaf-live-list"></ul>
       <p id="overleaf-live-changes-head" class="overleaf-live-head" hidden>Edited on Overleaf, not yet here</p>
       <ul id="overleaf-live-changes" class="overleaf-live-list"></ul>
       <p id="overleaf-sync-head" class="overleaf-live-head" hidden></p>
       <ul id="overleaf-sync-files" class="overleaf-live-list"></ul>
     </section>
-    <!-- A folder cloned from the project by git: where it stands against Overleaf's branch. -->
+    <!-- A folder cloned from the project by git, or one synced by hand with Get and Send: how it
+         syncs, and where it stands against Overleaf. -->
     <section id="overleaf-git" class="overleaf-direct" hidden>
-      <p>This folder follows Overleaf by git.</p>
+      <p id="overleaf-git-way"></p>
       <p id="overleaf-git-state" role="status"></p>
       <p id="overleaf-git-uncommitted" class="overleaf-unset" hidden></p>
     </section>
@@ -336,12 +337,12 @@
       <button type="button" role="radio" data-send-choice="enter" aria-checked="false">Enter</button>
     </div>
     <h4>Shortcut letters on a comment's buttons</h4>
-    <div class="theme-choice" role="radiogroup" aria-label="Key letters on the ringed comment's buttons while the keys move through the comments">
+    <div class="theme-choice" role="radiogroup" aria-label="Show shortcut letters on the current comment's buttons while you navigate with the keyboard">
       <button type="button" role="radio" data-letters-choice="on" aria-checked="true">On</button>
       <button type="button" role="radio" data-letters-choice="off" aria-checked="false">Off</button>
     </div>
     <h4>Editor cursor position</h4>
-    <div class="theme-choice" role="radiogroup" aria-label="How far down the source editor keeps the cursor's line as the keys move it">
+    <div class="theme-choice" role="radiogroup" aria-label="Where the editor keeps the cursor line as you move through the text">
       <button type="button" role="radio" data-cursor-choice="free" aria-checked="true" title="The cursor moves over the text, which scrolls only at the editor's edges">Anywhere</button>
       <button type="button" role="radio" data-cursor-choice="third" aria-checked="false" title="The cursor's line stays 1/3 of the way down the editor, and the text moves under it">1/3 down</button>
       <button type="button" role="radio" data-cursor-choice="half" aria-checked="false" title="The cursor's line stays in the middle of the editor, and the text moves under it">1/2 down</button>
@@ -382,8 +383,8 @@
 <dialog id="keys-dialog">
   <form method="dialog" id="keys-form">
     <h3>Keyboard shortcuts</h3>
-    <p>They act on the comment with the ring around it while the Comments tab is shown and nothing
-      is being typed in. A doubled letter is pressed twice.</p>
+    <p>These shortcuts act on the current comment when the Comments tab is open and you are not
+      typing. For a doubled letter such as dd, press the key twice.</p>
     <div id="keys-list"></div>
     <p id="keys-picked"></p>
     <div class="dialog-actions">

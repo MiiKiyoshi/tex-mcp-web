@@ -123,7 +123,7 @@ if HAS_MCP:
     class FragmentInput(_InputModel):
         """One piece of the comment's anchored text and what it becomes."""
 
-        old: Annotated[str, Field(min_length=1, description="Exact text from the file the comment sits in; it must occur there once")]
+        old: Annotated[str, Field(min_length=1, description="Exact text from the file the comment is on; it must occur there exactly once")]
         new: str
 
 
@@ -550,10 +550,10 @@ def _overleaf_thread_add(store, watch_dir: Path, text: str, anchor: "CommentAnch
     from .comments import OverleafDraft, ResolvedSource, SourceRangeAnchor, capture_source_selector
 
     if anchor.kind != "source_range":
-        return _err("a thread on Overleaf is on words in a file: give a source_range anchor")
+        return _err("a thread on Overleaf is anchored on words in a file: give a source_range anchor")
     held = _range_text(watch_dir, f"{anchor.file}:{anchor.start}-{anchor.end}")
     if not held["text"].strip():
-        return _err("those lines are blank, and a thread on Overleaf is on words")
+        return _err("those lines are blank, and a thread on Overleaf must be anchored on words")
     selector = capture_source_selector(watch_dir / anchor.file, anchor.start, anchor.end)
     if selector is None:
         return _err("source_range does not identify readable source lines")
@@ -578,15 +578,15 @@ def _wait_method(ctx: "Context", command: str) -> str:
     if "claude" in name:
         if plugin_monitor.hand_over(command):
             return (
-                "The tex-mcp plugin's monitor now runs the command for this session and turns each "
-                "line it prints into a notification, for as long as the session lasts. Do not "
-                "start it yourself, and end the turn."
+                "The tex-mcp plugin's monitor runs the command for this session and turns each "
+                "line it prints into a notification for as long as the session lasts. Do not "
+                "start the command yourself, and end the turn."
             )
         return (
             'Run the command with Monitor(command=<command>, description="tex-mcp review", '
             "timeout_ms=1800000), then end the turn. When it expires, leave it stopped and tell the "
-            "user in one line that listening stopped and that asking again resumes it. Nothing is "
-            "lost while it is stopped: new "
+            "user in one line that listening has stopped and that they can ask again to resume it. "
+            "Nothing is lost while it is stopped: new "
             "comments wait for read_comments(new=True), and a Call agent press waits for the next "
             "waiter. Stop an active Monitor when the review is finished or the user asks. "
             "Start another copy only after the previous process has ended."
@@ -596,18 +596,18 @@ def _wait_method(ctx: "Context", command: str) -> str:
             'Run <command> --codex "$CODEX_THREAD_ID" with '
             'exec_command(yield_time_ms=1000, sandbox_permissions="require_escalated", '
             'justification="Allow the TeX review waiter to deliver events to this Codex thread?"). '
-            "Once running, end the turn; do not poll. "
+            "Once it is running, end the turn and do not poll. "
             "The waiter uses codex queue to deliver events as labeled user messages, "
-            "including while idle. Delivery may take about 10 seconds. "
-            "Requires codex queue on PATH and CODEX_THREAD_ID in the agent shell. "
+            "even while the thread is idle; delivery may take about 10 seconds. "
+            "It requires codex queue on PATH and CODEX_THREAD_ID in the agent's shell. "
             "Run one waiter at a time. "
             "Stop its process when the review is finished or the user asks. "
             "Start another copy only after the previous process has ended."
         )
     return (
         "Run the command with your shell tool and read its output. If the tool returns a "
-        "running session, read what follows with the tool that reads subsequent output. "
-        "After handling an event, stop it; listening resumes when the user asks again. "
+        "running session, read the later output with the tool that reads from that session. "
+        "After handling an event, stop the command; listening resumes when the user asks again. "
         "Start another copy only after the previous process has ended."
     )
 
@@ -629,24 +629,26 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         "tex-mcp-web",
         instructions=(
             "Before editing the paper, call guide() and read every file in its read list in full. "
-            "Work from read_comments(new=True), which gives what the reviewer has "
-            "written since you last asked, each thread with the rev a write quotes back. "
-            "read_comments(ids=[...]) gives a thread whole when its conversation is no "
-            "longer in mind. Read source with your own file tools. "
-            "Within the user's editing scope, correct what a thread reports, compile() once "
-            "after the batch, verify, and reply with edits naming the ranges you changed. When the wording "
-            "is the reviewer's to decide, put a suggestion on their own thread rather than "
+            "Work from read_comments(new=True), which returns what the reviewer has "
+            "written since you last called it, each thread with the rev that a write passes back. "
+            "read_comments(ids=[...]) returns whole threads, for when you no longer remember "
+            "a conversation. Read source with your own file tools. "
+            "Within the user's editing scope, fix what a thread reports, call compile() once "
+            "after the batch, verify, and reply with edits naming the ranges you changed. When the "
+            "reviewer should decide the wording, put a suggestion on their thread instead of "
             "opening another comment. Respect read-only or discussion-only requests. "
             "Answer a question or a request to explain with a reply in its thread, with or "
-            "without an edit, on a thread from Overleaf too. "
-            "What is said in a thread is private or public. A private entry stays on the review "
-            "page, for the reviewer and you: your replies, your suggestions and what the reviewer "
-            "writes here. A public entry is on Overleaf, for everyone in the project. You send "
-            "nothing public: write_comments with action=\"overleaf\" drafts what should be, and "
-            "only the reviewer sends it. "
-            "After replying, write in chat only what no thread carries, such as a failed tool or a choice left to the user, not the replies or the edits they report. Call listen() when the user asks to listen and follow "
-            "how. Do not poll or duplicate it. Unacknowledged presses stay queued. "
-            "The config sits in the startup directory, and its dir can name the paper's folder anywhere. "
+            "without an edit, including on a thread from Overleaf. "
+            "Each entry in a thread is private or public. A private entry stays on the review "
+            "page for the reviewer and you: your replies, your suggestions and what the reviewer "
+            "writes on the page. A public entry is on Overleaf, for everyone in the project. You "
+            "never send anything public: write_comments with action=\"overleaf\" drafts what should "
+            "be public, and only the reviewer sends it. "
+            "After replying, write in chat only what no thread carries, such as a failed tool or a "
+            "choice left to the user, and do not repeat the replies or the edits they report. "
+            "When the user asks you to listen, call listen() and follow its how. "
+            "Do not poll or duplicate it. Unacknowledged presses stay queued. "
+            "The config is in the startup directory, and its dir can point to the paper's folder anywhere. "
             f"To set up review or translation, read {INIT_GUIDE}."
         ),
     )
@@ -655,9 +657,9 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
     # would wrap the answer in {"result": ...} and the hook reads the answer as written.
     @mcp.tool(structured_output=False)
     async def guide() -> str:
-        """Paths to files to read in full before editing the paper: its guideline and the ones that
-        guideline extends, base first, when guideline is set, and the terms its reference papers
-        use, when references is set."""
+        """Paths of the files to read in full before editing the paper: the paper's guideline and
+        the guidelines it extends, base first, when guideline is set, and the terms its reference
+        papers use, when references is set."""
         from .config import get_guideline_files
         from .terms import refresh
 
@@ -672,57 +674,58 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
     @mcp.tool(structured_output=False)
     async def read_comments(
         ids: list[str] | None = None,
-        new: Annotated[bool, Field(description="Only what the reviewer has written since this call last answered; excludes ids.")] = False,
+        new: Annotated[bool, Field(description="Only what the reviewer has written since the last call with new; cannot be combined with ids.")] = False,
         status: Literal["open", "resolved", "archived", "all"] = "open",
         unanswered: Annotated[bool, Field(description="Only threads where the reviewer wrote to you after the thread's last answer: your reply, your Overleaf draft, or a reply sent to Overleaf.")] = False,
         since: Annotated[str | None, Field(description="A time this server printed, like '09-19 00:52'; only what came after it.")] = None,
-        until: Annotated[str | None, Field(description="A time this server printed; a search looks only at what came up to that minute.")] = None,
-        find: Annotated[str | None, Field(description="Words a search looks for, case ignored, in what was said in a thread and in its draft for Overleaf.")] = None,
-        on_overleaf: Annotated[bool | None, Field(description="true: only threads from Overleaf or started for it. false: only the page's own, private throughout. Left out: both. For a listing or a search.")] = None,
-        file: Annotated[str | None, Field(description="A source file's name or path, like 'intro.tex' or 'tex/intro.tex'; only the threads on it. For a listing or a search.")] = None,
+        until: Annotated[str | None, Field(description="A time this server printed; a search covers only what came up to the end of that minute.")] = None,
+        find: Annotated[str | None, Field(description="Words to search for, ignoring case, in a thread's entries and its draft for Overleaf.")] = None,
+        on_overleaf: Annotated[bool | None, Field(description="true keeps only threads from Overleaf or started for it, false only the page's own threads, which are entirely private, and leaving it out keeps both. For a listing or a search.")] = None,
+        file: Annotated[str | None, Field(description="A source file's name or path, like 'intro.tex' or 'tex/intro.tex', to keep only the threads on that file. For a listing or a search.")] = None,
         limit: Annotated[int, Field(ge=1, le=200)] = 50,
         save: bool = False,
     ) -> str:
         """Read review threads: what is new, selected threads in full, or a listing.
 
-        ``new`` answers a Call agent in one step: on open threads, what the reviewer has
-        written that this has neither carried before nor already taken up, thread by
-        thread, each with the rev a write quotes back. A thread's last answer takes up
-        what came before it: your reply, your Overleaf draft, or a public reply the reviewer
-        sent to Overleaf. A suggestion the reviewer applied comes
-        once, as an entry marked applied with the lines it changed: your wording is in the
-        file, and it asks for no reply, but on a thread from Overleaf with no draft it asks
-        for the reply the change calls for. A suggestion or an Overleaf draft the reviewer
-        rejected comes once too, as an entry marked rejected that holds what was turned
-        down, and stays in the thread for a later read by id: it asks for no reply, and
-        the same proposal is not put up again unless the reviewer asks. Why, when they say,
-        is in a reply of theirs. It reports the moment
-        it read ``from`` and the one it moved to, so a turn that went wrong is taken again
-        with since=<from>; to see again what was already answered, ask for the thread by id.
-        A thread from Overleaf comes marked on_overleaf, and one the reviewer started for
-        Overleaf and not yet sent there new_thread, with the draft for Overleaf when there is one.
-        An entry is public, on Overleaf for everyone in the project, when it carries ``name``,
-        written there, or ``overleaf``, sent there from the page, and so is ``comment``, the
+        ``new`` answers a Call agent press in one call. For each open thread it returns what
+        the reviewer has written that no earlier call with ``new`` returned and no answer has
+        covered yet, with the thread's rev, which a write passes back. A thread's last answer
+        covers everything before it; an answer is your reply, your Overleaf draft, or a public
+        reply the reviewer sent to Overleaf. A suggestion the reviewer applied is returned
+        once, as an entry marked applied with the lines it changed. Your wording is then in the
+        file, and the entry needs no reply, except on a thread from Overleaf with no draft,
+        where the change calls for a reply. A suggestion or an Overleaf draft the reviewer
+        rejected is also returned once, as an entry marked rejected with the rejected text,
+        and it stays in the thread for a later read by id. It needs no reply. Do not propose
+        the same thing again unless the reviewer asks; if they give a reason, it is in one of
+        their replies. The answer gives the moment the read started from (``from``) and the
+        one it moved to (``cursor``), so a turn that went wrong can be repeated with
+        since=<from>; to see again what was already answered, read the thread by id. A thread from Overleaf is marked on_overleaf, and one the reviewer
+        started for Overleaf but has not sent there yet is marked new_thread; a thread with a
+        draft for Overleaf comes with that draft.
+        An entry is public, on Overleaf for everyone in the project, when it has ``name``
+        (written there) or ``overleaf`` (sent there from the page), and so is ``comment``, the
         first message, of a thread marked on_overleaf. Every other entry is private, for the
-        reviewer and you, and so is everything in a thread not on Overleaf.
+        reviewer and you, and so is everything in a thread that is not on Overleaf.
 
-        ``ids`` gives those threads whole, which is what to ask for when the conversation
-        is no longer in mind; with ``since`` it gives only the entries after that time.
+        ``ids`` returns those threads in full, for when you no longer remember a
+        conversation; with ``since`` it returns only the entries after that time.
 
-        Without either, a listing: each request cut to its opening, the newest ``limit``
-        threads with the rest counted in ``older``, narrowed by status, unanswered or
-        since. With ``find`` or ``until`` it is a search, entry by entry: a thread is listed
-        when something said in it between ``since`` and ``until`` holds ``find``'s words, the
-        reviewer's, yours, a public reply sent to Overleaf, which carries ``overleaf``, or its
-        draft for Overleaf, and it comes with those entries and where it is. A long entry comes
-        as the words around what was found, marked ``cut``, and a thread's entries past the
-        first few as a count in ``more_matches``: ask for the thread by id to read it whole.
-        Each bound and the words may be left out, and status="all" searches closed threads
-        too. ``on_overleaf`` keeps a listing or a search to Overleaf's threads or to the
-        page's own, which are private throughout. ``file`` keeps either to the threads on one
-        source file, each with the lines it is on in ``source``. Times read and are written back as ``MM-DD HH:MM`` on this server's
-        clock.
-        ``save`` needs ids; edit only the draft's Reply and Edit blocks.
+        With neither, it returns a listing: the newest ``limit`` threads, each request
+        shortened to its beginning and the rest counted in ``older``, narrowed by status,
+        unanswered or since. With ``find`` or ``until`` it is a search instead, entry by
+        entry: a thread is listed when something said in it between ``since`` and ``until``
+        contains ``find``'s words, whether the reviewer's, yours, a public reply sent to
+        Overleaf (marked ``overleaf``) or its draft for Overleaf, and it comes with those
+        entries and its location. A long entry is shortened to the words around the match and
+        marked ``cut``, and only a thread's newest few matches are shown, with the rest counted
+        in ``more_matches``; read the thread by id to see it in full. The bounds and the words
+        are each optional, and status="all" also searches closed threads. ``on_overleaf``
+        limits a listing or a search to Overleaf's threads or to the page's own, which are
+        entirely private, and ``file`` limits either to the threads on one source file, each
+        with its lines in ``source``. Times are shown and passed back as ``MM-DD HH:MM`` on
+        this server's clock. ``save`` requires ids; edit only the Reply and Edit blocks of the
+        saved draft.
         """
         cfg, watch_dir, store = _load_project(binding)
         try:
@@ -732,14 +735,14 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         except ValueError as error:
             return _err(str(error))
         if (find is not None or until is not None) and (new or ids is not None or save):
-            return _err("find and until search on their own; they take no new, ids or save")
+            return _err("find and until run a search and cannot be combined with new, ids or save")
 
         if file is not None and (new or ids is not None or save):
-            return _err("file narrows a listing or a search; it takes no new, ids or save")
+            return _err("file narrows a listing or a search and cannot be combined with new, ids or save")
 
         if new:
             if ids is not None or save:
-                return _err("new answers on its own; it takes no ids and writes no draft")
+                return _err("new cannot be combined with ids or save")
             previous = read_cursor(watch_dir)
             # The cursor is the server's own note to itself, kept exact; only what it
             # shows an agent is cut to the minute.
@@ -910,15 +913,15 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
 
     @mcp.tool(structured_output=False)
     async def overleaf(action: Literal["state", "get", "push"] = "state") -> str:
-        """This folder against its Overleaf project. state reads Overleaf again and names only
-        what differs: get, Overleaf's edits not here, send, edits here not on Overleaf, choose,
-        files waiting for the reviewer, and in a git clone the commits behind and ahead.
-        suggested lists the edits made on Overleaf with track changes on, which wait for the
-        reviewer to accept or reject them from the page: Overleaf's text holds a suggested
-        insertion's words and not a suggested deletion's. get brings Overleaf's edits here
-        (git pull in a git clone, Get otherwise), changing only files here, and a clash changes
-        nothing. push sends a git clone's commits (git push). Sending edits without git is the
-        reviewer's, from the page."""
+        """Compare this folder with its Overleaf project. state reads Overleaf again and reports only what differs: get (Overleaf's edits
+        not here), send (edits here not on Overleaf), choose (files waiting for the reviewer to
+        choose), and, in a git clone, the commits behind and ahead. suggested lists the edits
+        made on Overleaf with track changes on, which wait for the reviewer to accept or reject
+        them on the page; Overleaf's text contains the words of a suggested insertion but not
+        those of a suggested deletion. get brings Overleaf's edits into this folder (git pull in
+        a git clone, Get otherwise); it changes only files here, and a conflict changes nothing.
+        push sends a git clone's commits (git push). Without git, only the reviewer sends
+        edits, from the page."""
         import httpx
 
         cfg, _, _ = _load_project(binding)
@@ -933,9 +936,9 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         if upstream.get("git"):
             route = {"get": "git/pull", "push": "git/push"}[action]
         elif action == "push":
-            return _err("only a git clone pushes. Without git, the reviewer sends from the page")
+            return _err("only a git clone can push. Without git, the reviewer sends edits from the page")
         elif upstream.get("by") == "live":
-            return _ok({"by": "live", "note": "Overleaf's edits come into the files by themselves"})
+            return _ok({"by": "live", "note": "Overleaf's edits arrive in the files automatically"})
         elif "unread" in upstream:
             return _err(upstream["unread"])
         else:
@@ -960,15 +963,16 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
 
         Call once after a batch of source edits. ``pages_changed``
         compares extracted PDF text and excludes visual-only changes. Read the log
-        yourself for warnings and for an error's surroundings.
+        yourself for warnings and for the context around an error.
 
-        A build that succeeded also says where the paper stands against a page limit, as
-        the page's Problems tab does. ``body_end`` is the last line before the
-        bibliography: its page, its column of how many, the room under it to the end of
-        the text block in points and in lines, once the paper has full columns to measure
-        by, and its source. ``short_lines`` are the paragraphs whose last line is narrower than a
-        quarter of its column, in a list item or centered text as a table's caption too, each with its page, column, words, width and source: a
-        shorter paragraph pulls such a line up. A source is the line that holds a
+        A successful build also reports how the paper fits a page limit, as the page's
+        Problems tab does. ``body_end`` is the last line before the bibliography, with its
+        page, its column and the number of columns, the space below it to the end of the text
+        block in points and in lines (once the paper has full columns to measure by), and its
+        source. ``short_lines`` lists the paragraphs whose last line is narrower than a quarter
+        of its column, including those in a list item or in centered text such as a table's
+        caption, each with its page, column, words, width and source; shortening such a
+        paragraph removes that line. A source is the line that contains a
         paragraph's last words.
         """
         import httpx
@@ -1024,38 +1028,40 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         rev: str | None = None,
     ) -> str:
         """Write to a comment thread. What you write is private, on the review page for the
-        reviewer and you. overleaf drafts what becomes public, on Overleaf for everyone in the
-        project, once the reviewer sends it.
+        reviewer and you. overleaf drafts what becomes public, on Overleaf for everyone
+        in the project, once the reviewer sends it.
 
-        add: text, anchor, and changes, quoted as for suggest, when the reviewer has asked
-        for proposals left as comments: the thread opens carrying that proposal. reply: id,
-        text, or a saved draft alone. suggest: id, text, changes, rev; each change's old is
-        quoted from the file that comment sits in and must occur there once, the way an
-        editing tool takes it, never a line or a column. It replaces the thread's one live
-        proposal and adds text as a reply, so the conversation stays whole, and it is
-        refused on a thread the reviewer has not written in: propose on theirs rather than
-        opening your own beside it. withdraw: id, text, rev. overleaf: id, text, rev, and
-        edits naming the source ranges the reply
-        describes, as their lines are now: later edits move them as they move a comment, so
-        a draft is not written again when lines shift. On a thread that came from Overleaf (on_overleaf), it drafts the public reply the
-        reviewer may send there: a thread holds one draft, which this replaces, and only
-        the reviewer sends it, asked first when a file those ranges are in is not the same
-        here as on Overleaf. The draft is public once sent, so it is worded for the people on
-        Overleaf. What the reviewer asks you in the thread is answered with reply, which is
-        private. With anchor, a source_range, instead of id and rev, overleaf drafts a
-        new public thread for Overleaf on those lines, text being its first message: a thread with
-        that draft and not on Overleaf, which id and rev then redraft and only the reviewer
-        sends, once what those ranges now hold is on Overleaf. The reviewer may talk the draft
-        over with you in the thread before sending it, and those entries are private. A thread
-        the reviewer started for Overleaf (new_thread) waits for its first message there: what
-        they wrote is private, for you, and overleaf with id and rev drafts the message they asked for,
-        in their words' meaning and the register they asked for. edit: id,
-        entry, text, rev, rewriting an entry you wrote. delete: id,
-        refused once the reviewer has written in the thread.
+        add: text and anchor, plus changes, quoted as for suggest, when the reviewer has asked
+        for proposals left as comments; the new thread then carries that proposal. reply: id
+        and text, or a saved draft on its own. suggest: id, text, changes, rev. Each change's
+        old is quoted from the file the comment is on and must occur there exactly once, as an
+        editing tool expects; never give a line or a column. It replaces the thread's single
+        current proposal and adds text as a reply, so the conversation stays complete. It is
+        refused on a thread the reviewer has not written in: propose on their thread instead
+        of opening your own beside it. withdraw: id, text, rev. overleaf: id, text, rev, and
+        edits naming the source ranges the reply describes, by their current lines; later
+        edits move these ranges as they move a comment, so the draft does not need rewriting
+        when lines shift. On a thread that came from Overleaf (on_overleaf), it drafts the
+        public reply that the reviewer may send there. A thread has one draft, which this
+        replaces, and only the reviewer sends it; the reviewer is asked first when a file that
+        contains those ranges differs between here and Overleaf. Since the draft is public
+        once sent, word it for the people on Overleaf, and answer what the reviewer asks you
+        in the thread with reply, which is private. With anchor (a source_range) instead of
+        id and rev, overleaf drafts a new public thread for Overleaf on those lines, with text
+        as its first message. The result is a thread that has the draft and is not on
+        Overleaf. Call overleaf with its id and rev to redraft it. Only the reviewer sends it,
+        and only once the current text of those ranges is on Overleaf. The reviewer may discuss the draft with you in the
+        thread before sending it, and those entries are private. A thread the reviewer started
+        for Overleaf (new_thread) is waiting for its first message there. What they wrote in
+        it is private and meant for you, and overleaf with id and rev drafts the message they
+        asked for, keeping the meaning of their words and using the register they asked for.
+        edit: id, entry, text, rev; rewrites an entry you wrote. delete: id; refused once the
+        reviewer has written in the thread.
 
-        rev is the thread's token from read_comments; a thread that moved on refuses the
-        write. edits names the source ranges a reply changed. A field the action does not
-        take is refused. The reviewer resolves threads, not you. Returns id, status and rev.
+        rev is the thread's token from read_comments; if the thread has changed since, the
+        write is refused. edits names the source ranges a reply changed. A field the action
+        does not take is refused. The reviewer resolves threads, not you. Returns id, status
+        and rev.
         """
         # What each action reads, so a field it would not use is refused rather than dropped.
         takes = {
@@ -1106,8 +1112,8 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
 
                 if (where := _unplaced(watch_dir, id)) is not None:
                     return _err(f"this thread is on Overleaf at {where}, and those words are not in the "
-                                "file here yet. Once they are (a pull brings Overleaf's edits), the thread "
-                                "moves onto them and takes a suggestion")
+                                "file here yet. Once they are (a pull brings in Overleaf's edits), the thread "
+                                "moves onto them and accepts a suggestion")
                 pairs = [(change.old, change.new) for change in changes]
                 return receipt(store.suggest(
                     id, stamp_for(id), text,
@@ -1162,7 +1168,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             str, Field(pattern=r"^.+:\d+(?:-\d+)?$")
         ] | None = None,
         comment: str | None = None,
-        dpi: Annotated[int, Field(description="96 reads text. 150 or more shows fine detail at more tokens.")] = 96,
+        dpi: Annotated[int, Field(description="96 is enough to read text. 150 or more shows fine detail and costs more tokens.")] = 96,
         margin: Annotated[float, Field(ge=0)] = 12.0,
         grayscale: Annotated[bool, Field(description="Set false when colour itself is being checked.")] = True,
     ) -> list[ImageContent | TextContent]:
@@ -1234,17 +1240,18 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
 
     @mcp.tool(structured_output=False)
     async def listen(ctx: Context) -> str:
-        """Return a command and client-specific instructions for listening for Call agent.
+        """Return a command and client-specific instructions for listening for Call agent
+        presses.
 
-        Run the returned command using the how field, selected for the connected
-        client. Stop it when the review is finished or the user asks.
+        Run the returned command as its how field describes; how is written for the
+        connected client. Stop it when the review is finished or the user asks.
         """
         try:
             shared = binding.require_shared()
         except ProjectSetupError as error:
             raise RuntimeError(
-                f"{error}. If another project holds the port, propose a free port to the user, "
-                "edit port in that config after they agree, and call listen() again."
+                f"{error}. If another project uses the port, propose a free port to the user, "
+                "change port in that config once they agree, and call listen() again."
             ) from error
         _, watch_dir, _ = _load_project(binding)
         import httpx
@@ -1261,8 +1268,8 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                 _wait_method(ctx, command)
                 + " On [review], call read_comments(new=True) and handle the review. "
                 "[gone] means the review server is unreachable; the waiter keeps retrying. "
-                "[back] means it is reachable again. [moved] means a newer waiter, in another "
-                "session or in this one as the line says, took over listening, and the waiter has ended."
+                "[back] means it is reachable again. [moved] means a newer waiter took over "
+                "listening, in another session or in this one as the line says, and this waiter has ended."
             ),
         })
 

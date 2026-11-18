@@ -224,7 +224,7 @@ def run_command(command: list[str], prompt: str, cwd: Path, system: str) -> str:
     executable = shutil.which(command[0])
     if executable is None:
         raise RuntimeError(f"{command[0]} was not found on the server's PATH, "
-                           "the short one the server was registered with")
+                           "which is the shorter PATH it was registered with")
     request = f"{system}\n\n--- Request ---\n\n{prompt}"
     in_arguments = any(PROMPT in word for word in command[1:])
     env = {key: value for key, value in os.environ.items() if key not in _SESSION_ENV}
