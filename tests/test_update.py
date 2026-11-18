@@ -73,12 +73,14 @@ def test_on_windows_an_update_is_refused_while_the_installs_own_program_runs(tmp
     scripts = tmp_path / "Scripts"
     scripts.mkdir()
     running = [SimpleNamespace(info={"exe": str(scripts / "tex-mcp.exe")}),
+               SimpleNamespace(info={"exe": str(scripts / "tex-web.exe")}),
                SimpleNamespace(info={"exe": str(tmp_path / "elsewhere" / "tex-mcp.exe")}),
                SimpleNamespace(info={"exe": str(scripts / "python.exe")}),
                SimpleNamespace(info={"exe": None})]
     monkeypatch.setattr(update.sys, "prefix", str(tmp_path))
     monkeypatch.setattr(update.psutil, "process_iter", lambda attrs: running)
-    assert update.running_launchers() == ["tex-mcp.exe"]
+    # Every command the package installs counts, whatever its name.
+    assert update.running_launchers() == ["tex-mcp.exe", "tex-web.exe"]
 
     ran = []
 
@@ -88,9 +90,9 @@ def test_on_windows_an_update_is_refused_while_the_installs_own_program_runs(tmp
     monkeypatch.setattr(update, "way", lambda: "checkout")
     monkeypatch.setattr(update, "_run", record)
     monkeypatch.setattr(update.sys, "platform", "win32")
-    with pytest.raises(update.UpdateError, match="tex-mcp.exe is running"):
+    with pytest.raises(update.UpdateError, match="tex-mcp.exe and tex-web.exe are running"):
         asyncio.run(update.run())
     assert ran == []
-    del running[0]
+    del running[:2]
     asyncio.run(update.run())
     assert len(ran) == 2

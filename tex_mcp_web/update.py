@@ -8,6 +8,7 @@ connects again, by comparing the version on disk with the one running.
 from __future__ import annotations
 
 import asyncio
+import importlib.metadata
 import importlib.util
 import os
 import re
@@ -87,7 +88,10 @@ async def _run(*command: str) -> None:
     are the agent's connection."""
     process = await asyncio.create_subprocess_exec(
         *command, stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT, env={**os.environ, "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"})
+        stderr=asyncio.subprocess.STDOUT,
+        # pip is Python: in UTF-8 mode it writes Windows' own error messages as UTF-8, which
+        # is how what it says is read below, whatever the system's code page.
+        env={**os.environ, "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C", "PYTHONUTF8": "1"})
     try:
         out, _ = await asyncio.wait_for(process.communicate(), TIMEOUT)
     except asyncio.TimeoutError:
@@ -95,19 +99,21 @@ async def _run(*command: str) -> None:
         await process.wait()
         raise UpdateError(f"{Path(command[0]).name} took longer than {TIMEOUT:.0f} s") from None
     if process.returncode != 0:
-        said = out.decode(errors="replace").strip().splitlines()[-6:]
+        said = out.decode("utf-8", errors="replace").strip().splitlines()[-6:]
         raise UpdateError("\n".join(said) or f"{Path(command[0]).name} failed")
 
 
 def running_launchers() -> list[str]:
-    """The programs of this install that are running: tex-mcp.exe and its kin in the
-    environment's Scripts folder. Windows locks a running program's file, and an update
-    replaces these files."""
+    """The programs of this install that are running: the commands the package installs
+    into the environment's Scripts folder, tex-mcp.exe among them. Windows locks a running
+    program's file, and an update replaces these files."""
     scripts = (Path(sys.prefix) / "Scripts").resolve()
+    ours = {script.name.lower() for script in importlib.metadata.distribution("tex-mcp-web").entry_points
+            if script.group == "console_scripts"}
     found = set()
     for process in psutil.process_iter(["exe"]):
         exe = Path(process.info["exe"] or "")
-        if exe.name.lower().startswith("tex-mcp") and exe.parent.resolve() == scripts:
+        if exe.stem.lower() in ours and exe.parent.resolve() == scripts:
             found.add(exe.name)
     return sorted(found)
 
@@ -118,9 +124,9 @@ async def run() -> str:
     if how is None:
         raise UpdateError("This install cannot update itself. Ask your agent to update tex-mcp-web.")
     if sys.platform == "win32" and (held := running_launchers()):
-        raise UpdateError(f"{' and '.join(held)} is running, and Windows does not let a running program be "
-                          "replaced. Ask your agent to update tex-mcp-web: it registers the server so that "
-                          "later updates work from this page.")
+        raise UpdateError(f"{' and '.join(held)} {'is' if len(held) == 1 else 'are'} running, and Windows "
+                          "does not let a running program be replaced. Ask your agent to update "
+                          "tex-mcp-web: it registers the server so that later updates work from this page.")
     pip = (sys.executable, "-m", "pip", "install", "-q", "--disable-pip-version-check")
     if how == "checkout":
         await _run(shutil.which("git") or "git", "-C", str(ROOT), "pull", "-q", "--ff-only")
