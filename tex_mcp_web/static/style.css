@@ -697,23 +697,36 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 
 /* ----- comments list ----- */
+/* The dots' menu hangs from the row's left edge. */
 .filter-row {
+  --row-gap: 0.4rem;
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: var(--row-gap);
   margin-bottom: 0.5rem;
 }
-/* Too narrow even with the less pressed buttons behind the dots, the row takes two lines
-   rather than going past its edge: the list and the sync button on the first, the other
-   buttons together on the second, at its right. The break between is a line of its own,
-   as tall as the gap. */
-.filter-row.wrapped { flex-wrap: wrap; row-gap: 0; }
-.filter-row.wrapped .pick, .filter-row.wrapped #overleaf-sync-comments-btn { order: -1; }
+/* The groups, a thin line before each but the first, and none for a group with nothing shown.
+   The view list at the left edge, the other groups at the right: the first group takes the
+   room between, so the buttons keep their places whatever the row's width. */
+.row-group { flex: none; display: flex; align-items: center; gap: var(--row-gap); }
+.row-group + .row-group { padding-left: var(--row-gap); border-left: 1px solid var(--border); }
+.row-group:not(:has(> :not([hidden]))) { display: none; }
+.filter-row > .row-group:first-child { margin-right: auto; }
+.filter-row.wordless :is(.wide-label, #call-agent-word) { display: none; }
+/* Narrow, the gaps and paddings narrow as on a phone. Squeezed, the view list gives up the
+   room its longest view needs, down to what "to do" takes. */
+.filter-row.narrow { --row-gap: 3px; }
+.filter-row.narrow .icon-btn { padding: 4px; }
+.filter-row.squeezed > .row-group:first-child { flex: 0 1 auto; }
+.filter-row.squeezed .pick { flex: 0 1 auto; min-width: 66px; }
+.filter-row.squeezed .pick select { width: 100%; text-overflow: ellipsis; }
+/* Too narrow even then, the row takes two lines rather than going past its edge. */
+.filter-row.wrapped { flex-wrap: wrap; row-gap: var(--row-gap); }
 .comment-search {
   flex: none; margin-bottom: 0.5rem; padding: 0.2rem 0.5rem; font: inherit; font-size: 0.857rem;
   border: 1px solid var(--border); border-radius: 3px; background: var(--bg); color: var(--fg);
 }
-.filter-row.wrapped::before { content: ""; flex-basis: 100%; height: 0.4rem; }
 .filter-row select {
   padding: 0.25rem 0.5rem;
   border: 1px solid var(--border);
@@ -722,7 +735,7 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 /* A phone's width holds the whole row once the gaps and paddings narrow. */
 @media (max-width: 560px) {
-  .filter-row { gap: 3px; }
+  .filter-row { --row-gap: 3px; }
   .filter-row .icon-btn { padding: 4px 4px; }
 }
 .icon-btn {
@@ -731,9 +744,6 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
   border: 1px solid var(--border); border-radius: 3px; background: var(--bg);
 }
 .icon-btn:hover:not(:disabled) { background: var(--accent-soft); }
-/* The select at the left edge, the buttons at the right: the first button takes the room
-   between, so the buttons keep their places whatever the row's width. */
-#pick-all-btn { margin-left: auto; }
 .icon-btn svg { display: block; }
 .icon-btn .count:empty { display: none; }
 .icon-btn:disabled { opacity: .45; }
@@ -743,22 +753,21 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 .sync-why[hidden] { display: none; }
 .sync-why-go { padding: 0; border: 0; background: none; font: inherit; color: var(--accent); text-align: left; text-decoration: underline; cursor: pointer; }
 .filter-row .icon-btn[hidden] { display: none; }
-/* The less pressed buttons sit in the row while it has room for them, and otherwise behind
-   the dots, each named by its label. */
-.comment-rare, .comment-rare-group { position: relative; display: flex; align-items: center; gap: inherit; }
-#comment-rare-btn { display: none; }
-.filter-row.narrow #comment-rare-btn { display: inline-flex; }
-.filter-row.narrow .comment-rare-group {
-  position: absolute; top: calc(100% + 4px); right: 0; z-index: 50;
-  flex-direction: column; align-items: stretch; gap: 0; min-width: 12rem; padding: 0.25rem;
+/* The dots show once the row is narrow, and the buttons behind them show when they are
+   opened, each named by its label. */
+.comment-rare { display: none; }
+.filter-row.narrow .comment-rare { display: flex; }
+.comment-rare-group {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 50;
+  display: none; flex-direction: column; align-items: stretch; min-width: 12rem; max-width: 100%; padding: 0.25rem;
   border: 1px solid var(--border); border-radius: 4px; background: var(--bg-elev);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
 }
-.filter-row.narrow .comment-rare:not(.open) .comment-rare-group { display: none; }
-.filter-row.narrow .comment-rare-group .icon-btn { border: 0; background: transparent; padding: 0.35rem 0.6rem; gap: 6px; }
-.filter-row.narrow .comment-rare-group .icon-btn:hover:not(:disabled) { background: var(--accent-soft); }
-.filter-row.narrow .comment-rare-group .icon-btn::after { content: attr(aria-label); }
-.filter-row.narrow .comment-rare-group .count { display: none; }
+.comment-rare.open .comment-rare-group { display: flex; }
+.filter-row .comment-rare-group .icon-btn { border: 0; background: transparent; padding: 0.35rem 0.6rem; gap: 6px; white-space: normal; text-align: left; }
+.comment-rare-group .icon-btn:hover:not(:disabled) { background: var(--accent-soft); }
+.comment-rare-group .icon-btn::after { content: attr(aria-label); }
+.comment-rare-group .count { display: none; }
 .comment-pick { flex: none; margin: 0; width: 14px; height: 14px; cursor: pointer; }
 #call-agent-btn.agent-ready { color: var(--ok); border-color: var(--ok); background: #eef7ef; }
 #call-agent-btn.agent-ready .agent-dot { background: var(--ok); }

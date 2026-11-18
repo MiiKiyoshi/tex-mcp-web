@@ -64,7 +64,8 @@ last line of the PDF. Running heads, page numbers and the words inside an includ
   open comment of the tab, whatever the list shows.
 - The search box above the comments, which `/` goes to, lists the tab's comments that hold
   every word typed, in any letter case and whatever their status: in a comment or a reply,
-  the words it is on, its file, its suggestion or its draft for Overleaf. Enter gives the
+  the name of whoever wrote in it on Overleaf, the words it is on, its file, its suggestion
+  or its draft for Overleaf. Enter gives the
   keys to the comments found, and Escape in the box, or choosing a view, puts the search
   away.
 - What you wrote in a thread carries **Edit** and **Delete**. **Delete** on a thread's first
@@ -81,9 +82,14 @@ last line of the PDF. Running heads, page numbers and the words inside an includ
   and deleting all of them leaves it where they were. A paragraph moved elsewhere takes its
   comments along. The card says **EDITED** once its words changed, and **STALE** only when
   its file is gone.
-- The row above the comments acts on the threads picked by their boxes. The buttons pressed
-  less often, **Expand all**, **Archive** and **Reopen**, sit at the row's end, and behind
-  **⋯** with their names when the panel is too narrow for the whole row.
+- The row above the comments acts on the threads picked by their boxes. From the left: the
+  view list and **Expand all**; the box that picks every thread listed or lets them all go;
+  **Resolve**, which reads **Reopen** when the picked threads are resolved or archived and,
+  as `R` does, resolves the open ones of a mix; **Archive**, or in the Overleaf tab **Accept**,
+  **Reject** and **Send to Overleaf**; then the sync button and **Call agent**. On a narrow
+  panel the word **Resolve** goes first, then **Expand all**, the sync button and **Call
+  agent** wait behind **⋯** with their names. What acts on the picked threads stays in the
+  row, which takes two lines only when even that does not fit.
 
 ## Comment keys
 

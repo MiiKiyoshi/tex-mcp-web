@@ -41,7 +41,8 @@ address, so on the shared machine's own browser, open no page another account se
   **answered**. The list atop the tab also shows the new threads, the suggested edits, and
   the open, resolved and all threads. A comment opened from its mark in the PDF or the
   editor, when to do leaves it out, shows in **open**.
-- The sync button with the leaf atop the tab brings Overleaf's open threads in as comments
+- The sync button with the leaf atop the tab, behind **⋯** when the panel is too narrow for
+  it, brings Overleaf's open threads in as comments
   on the words they were written about, with their replies. While a page is open, a new
   thread on Overleaf is counted on that button within seconds, and threads already here
   follow theirs by themselves. In a git clone the button waits until the folder is at

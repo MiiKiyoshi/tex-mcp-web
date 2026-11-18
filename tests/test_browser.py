@@ -1689,7 +1689,7 @@ def test_shift_picks_the_run_between_two_boxes(tmp_path: Path) -> None:
         browser.navigate(base)
         show_view(browser, "open")
         wait_until(lambda: browser.execute_script(
-            "return document.querySelectorAll('.comment-pick').length === 5 || false;"))
+            "return document.querySelectorAll('#comments-list .comment-pick').length === 5 || false;"))
 
         def click(comment_id, shift):
             browser.execute_script(f"""
@@ -1724,22 +1724,49 @@ def test_shift_picks_the_run_between_two_boxes(tmp_path: Path) -> None:
         click(ids[3], shift=False)
         assert picked() == [ids[0], ids[3]]
 
-        # A narrow panel keeps the less pressed buttons behind the dots, each with its words,
-        # and a wide one has them back in the row.
-        rare = '''const button = document.querySelector("#archive-picked-btn");
-          return [document.querySelector(".filter-row").classList.contains("narrow"),
-                  button.getBoundingClientRect().width > 0, getComputedStyle(button, "::after").content];'''
+        # The box atop the list is a card's box: half checked while some comments are picked,
+        # checked once all are, and empty once none is. A click picks all, or lets all go.
+        every = '''const box = document.querySelector("#pick-all-btn");
+          return [box.type, box.className, box.checked, box.indeterminate, box.getAttribute("aria-label")];'''
+        assert browser.execute_script(every) == ["checkbox", "comment-pick", False, True, "Select all"]
+        browser.find_element("css selector", "#pick-all-btn").click()
+        assert picked() == ids
+        assert browser.execute_script(every)[2:] == [True, False, "Clear"]
+        browser.find_element("css selector", "#pick-all-btn").click()
+        assert picked() == []
+        assert browser.execute_script(every)[2:] == [False, False, "Select all"]
+        click(ids[0], shift=False)
+        click(ids[3], shift=False)
+
+        # However narrow the panel, the row stays one line inside it. The words beside the
+        # icons go first, then Expand all waits behind the dots, named there by its words,
+        # while Archive and the rest of what acts on the picked comments stay in the row.
+        row = '''const row = document.querySelector(".filter-row");
+          const edge = row.getBoundingClientRect();
+          const archive = document.querySelector("#archive-picked-btn").getBoundingClientRect();
+          const fold = document.querySelector("#fold-all-btn");
+          return [row.scrollWidth <= row.clientWidth && edge.height < 40,
+                  archive.width > 0 && archive.right <= edge.right + 0.5,
+                  getComputedStyle(document.querySelector("#resolve-picked-btn .wide-label")).display !== "none",
+                  fold.closest(".comment-rare-group") !== null, fold.getBoundingClientRect().width > 0,
+                  getComputedStyle(fold, "::after").content];'''
         width = lambda pixels: browser.execute_script(
             f'document.querySelector(".layout").style.setProperty("--tex-mcp-sidebar-width", "{pixels}px")')
-        assert browser.execute_script(rare) == [False, True, "none"]
-        width(240)
-        wait_until(lambda: browser.execute_script(rare) == [True, False, '"Archive 2"'])
-        browser.find_element("css selector", "#comment-rare-btn").click()
-        assert browser.execute_script(rare) == [True, True, '"Archive 2"']
-        browser.find_element("css selector", "#comments-list").click()
-        assert browser.execute_script(rare)[1] is False
         width(700)
-        wait_until(lambda: browser.execute_script(rare) == [False, True, "none"])
+        wait_until(lambda: browser.execute_script(row) == [True, True, True, False, True, "none"])
+        assert browser.execute_script('return document.querySelector("#comment-rare").offsetWidth') == 0
+        width(240)
+        wait_until(lambda: browser.execute_script(row) == [True, True, False, True, False, '"Expand all"'])
+        browser.find_element("css selector", "#comment-rare-btn").click()
+        assert browser.execute_script(row)[4] is True
+        # The opened dots hang inside the panel.
+        assert browser.execute_script('''const menu = document.querySelector(".comment-rare-group").getBoundingClientRect();
+          const panel = document.querySelector("#sidebar").getBoundingClientRect();
+          return menu.left >= panel.left && menu.right <= panel.right;''') is True
+        browser.find_element("css selector", "#comments-list").click()
+        assert browser.execute_script(row)[4] is False
+        width(700)
+        wait_until(lambda: browser.execute_script(row) == [True, True, True, False, True, "none"])
     finally:
         if browser is not None:
             browser.quit()
@@ -1944,6 +1971,7 @@ def test_each_comment_tab_opens_on_what_waits_for_the_reviewer(tmp_path: Path) -
         script('document.querySelector("#comments-list").focus()')
         type_keys(browser, ["/", *"NEXT one"])
         assert script('return document.activeElement.id') == "comment-search"
+        assert script('return document.activeElement.placeholder') == "Search words, a file or a name…"
         wait_until(lambda: listed() == [asked["id"]])
         script('const box = document.querySelector("#comment-search"); box.value = "line 10 keep";'
                ' box.dispatchEvent(new Event("input"))')
@@ -2609,13 +2637,23 @@ def test_archived_threads_have_their_own_view_and_picked_archive_action(tmp_path
 
         assert expanded_actions(kept) == ["[archived]", ["Reply privately", "Reopen", "Resolve", "Delete"]]
 
+        # One button atop the list resolves or reopens, with its word beside its icon. With
+        # nothing picked it offers what the view's comments take, greyed out: Reopen in the
+        # archived view, Resolve in the open one.
+        slot = '''const button = document.querySelector("#resolve-picked-btn");
+          return [button.getAttribute("aria-label"), button.querySelector(".wide-label").textContent, button.disabled,
+                  button.querySelector(".icon-reopen").getBoundingClientRect().width > 0];'''
+        assert browser.execute_script(slot) == ["Reopen", "Reopen", True, True]
+
         # An open card calls the action Archive, and the archive-box button moves only the
         # picked thread while leaving the other open thread alone.
         assert shown("open", [working, untouched]) == [working, untouched]
+        assert browser.execute_script(slot) == ["Resolve", "Resolve", True, False]
         assert expanded_actions(working) == ["[open]", ["Reply privately", "Resolve", "Archive", "Delete"]]
-        browser.execute_script(f'''
-          document.querySelector("[data-comment-id='{working}'] .comment-pick").click();
-        ''')
+        pick = lambda comment_id: browser.execute_script(
+            f'document.querySelector("[data-comment-id=\'{comment_id}\'] .comment-pick").click();')
+        pick(working)
+        assert browser.execute_script(slot) == ["Resolve 1", "Resolve", False, False]
         assert browser.execute_script('''
           const button = document.querySelector("#archive-picked-btn");
           return [button.disabled, button.getAttribute("aria-label"), button.title];
@@ -2627,6 +2665,27 @@ def test_archived_threads_have_their_own_view_and_picked_archive_action(tmp_path
             f' && document.querySelector("[data-comment-id=\'{untouched}\']") !== null;'))
         assert get_json(f"{base}/comments/{untouched}")["status"] == "open"
         assert set(shown("archived", [working, kept])) == {working, kept}
+
+        # Picked, an archived thread reopens from the same button, which greys out once done.
+        status = lambda comment_id: get_json(f"{base}/comments/{comment_id}")["status"]
+        pick(kept)
+        assert browser.execute_script(slot) == ["Reopen 1", "Reopen", False, True]
+        browser.find_element("css selector", "#resolve-picked-btn").click()
+        wait_until(lambda: status(kept) == "open")
+        wait_until(lambda: browser.execute_script(slot) == ["Reopen", "Reopen", True, True])
+        # A mix of open and closed picked is resolved, as R does: the open one closes, and the
+        # archived one stays picked and as it was, for the button to reopen next.
+        shown("all", [kept, working, untouched])
+        pick(untouched)
+        pick(working)
+        assert browser.execute_script(slot) == ["Resolve 1", "Resolve", False, False]
+        browser.find_element("css selector", "#resolve-picked-btn").click()
+        wait_until(lambda: status(untouched) == "resolved")
+        assert status(working) == "archived"
+        wait_until(lambda: browser.execute_script(slot) == ["Reopen 1", "Reopen", False, True])
+        # The resolved view offers Reopen too, greyed out while nothing is picked.
+        shown("resolved", [untouched])
+        assert browser.execute_script(slot) == ["Reopen", "Reopen", True, True]
     finally:
         if browser is not None:
             browser.quit()
@@ -3708,21 +3767,30 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
         wait_until(lambda: browser.execute_script(
             'return document.querySelector("#overleaf-sync-comments-btn").title') == "Sync comments from Overleaf (1 new)", timeout=15)
         assert text("#overleaf-sync-comments-btn .count") == "1"
-        # However narrow the panel, the row over the threads keeps every button inside it and
-        # none over another or over the list: past the dots it takes two lines.
+        # However narrow the panel, the row over the threads stays one line inside it, with no
+        # control over another: the buttons it has no room for wait behind the dots. At the
+        # panel's own width the sync button and Call agent are in the row, and at the narrowest
+        # Resolve and Send still are.
         fits = '''
           const row = document.querySelector(".filter-row");
           const box = row.getBoundingClientRect();
-          const items = [...row.children].filter((node) => node.offsetWidth > 0).map((node) => node.getBoundingClientRect());
-          const list = document.querySelector("#comment-filter");
-          const apart = (a, b) => a.right <= b.left + 0.5 || b.right <= a.left + 0.5 || a.bottom <= b.top + 0.5 || b.bottom <= a.top + 0.5;
-          return items.length === 7 && items.every((a, i) => a.left >= box.left - 0.5 && a.right <= box.right + 0.5
-              && items.every((b, j) => i === j || apart(a, b)))
-            && list.getBoundingClientRect().right <= list.parentElement.getBoundingClientRect().right + 0.5;'''
+          const shown = [...row.querySelectorAll("select, input, .icon-btn")]
+            .filter((node) => node.offsetWidth > 0 && !node.closest(".comment-rare-group"));
+          const items = shown.map((node) => node.getBoundingClientRect());
+          const apart = (a, b) => a.right <= b.left + 0.5 || b.right <= a.left + 0.5;
+          return box.height < 40 && items.every((a, i) => a.left >= box.left - 0.5 && a.right <= box.right + 0.5
+              && items.every((b, j) => i === j || apart(a, b))) && shown.map((node) => node.id);'''
+        def in_row(*ids):
+            shown = browser.execute_script(fits)
+            return shown and set(ids) <= set(shown)
+
+        wait_until(lambda: in_row("comment-filter", "pick-all-btn", "resolve-picked-btn", "send-picked-btn",
+                                  "overleaf-sync-comments-btn", "call-agent-btn"), timeout=5)
         for width in (520, 240):
             browser.execute_script(
                 f'document.querySelector(".layout").style.setProperty("--tex-mcp-sidebar-width", "{width}px")')
-            wait_until(lambda: browser.execute_script(fits), timeout=5)
+            wait_until(lambda: in_row("comment-filter", "comment-rare-btn" if width == 240 else "fold-all-btn",
+                                      "pick-all-btn", "resolve-picked-btn", "send-picked-btn"), timeout=5)
         browser.execute_script('document.querySelector(".layout").style.removeProperty("--tex-mcp-sidebar-width")')
         assert not browser.execute_script('return document.body.textContent.includes("Came in when asked.")')
         # The button atop the comment list syncs them in place, with no dialog.

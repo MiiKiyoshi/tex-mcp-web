@@ -2971,31 +2971,40 @@ function renderPickedActions() {
   const archivable = picked.filter((comment) => comment.status !== "archived"
     && !state.overleafImported.has(comment.id)).map((comment) => comment.id);
   const closed = picked.filter((comment) => comment.status !== "open").map((comment) => comment.id);
+  // The box is checked when every comment listed is picked, and half checked when some are.
   const shown = state.comments.length;
+  const pickedShown = state.comments.filter((comment) => state.picked.has(comment.id)).length;
   const all = $("#pick-all-btn");
   all.disabled = shown === 0;
-  const clearing = shown > 0 && state.comments.every((comment) => state.picked.has(comment.id));
-  all.querySelector(".icon-select").classList.toggle("hidden", clearing);
-  all.querySelector(".icon-clear").classList.toggle("hidden", !clearing);
+  const clearing = shown > 0 && pickedShown === shown;
+  all.checked = clearing;
+  all.indeterminate = pickedShown > 0 && !clearing;
   all.setAttribute("aria-label", clearing ? "Clear" : "Select all");
   all.title = clearing ? "Let go of every picked comment" : "Pick every comment in this view";
   // A button with nothing to do stays in place, greyed out: buttons that came and went
   // moved everything beside them. The count shows only when there is one.
+  // One button resolves or reopens, as R does: it resolves the open ones while any picked
+  // comment is open, and reopens the picked ones once none is. With none picked it offers
+  // what the view's comments take: Reopen in the resolved and archived views.
+  const reopening = open.length === 0
+    && (closed.length > 0 || ["resolved", "archived"].includes($("#comment-filter").value));
+  const word = reopening ? "Reopen" : "Resolve";
+  const settled = reopening ? closed : open;
   const resolve = $("#resolve-picked-btn");
-  resolve.disabled = open.length === 0;
-  resolve.querySelector(".count").textContent = open.length > 0 ? String(open.length) : "";
-  resolve.setAttribute("aria-label", open.length > 0 ? `Resolve ${open.length}` : "Resolve");
-  resolve.dataset.ids = open.join(" ");
+  resolve.disabled = settled.length === 0;
+  resolve.querySelector(".icon-resolve").classList.toggle("hidden", reopening);
+  resolve.querySelector(".icon-reopen").classList.toggle("hidden", !reopening);
+  resolve.querySelector(".wide-label").textContent = word;
+  resolve.querySelector(".count").textContent = settled.length > 0 ? String(settled.length) : "";
+  resolve.setAttribute("aria-label", settled.length > 0 ? `${word} ${settled.length}` : word);
+  resolve.title = `${word} the picked comments`;
+  resolve.dataset.status = reopening ? "open" : "resolved";
+  resolve.dataset.ids = settled.join(" ");
   const archive = $("#archive-picked-btn");
   archive.disabled = archivable.length === 0;
   archive.querySelector(".count").textContent = archivable.length > 0 ? String(archivable.length) : "";
   archive.setAttribute("aria-label", archivable.length > 0 ? `Archive ${archivable.length}` : "Archive");
   archive.dataset.ids = archivable.join(" ");
-  const reopen = $("#reopen-picked-btn");
-  reopen.disabled = closed.length === 0;
-  reopen.querySelector(".count").textContent = closed.length > 0 ? String(closed.length) : "";
-  reopen.setAttribute("aria-label", closed.length > 0 ? `Reopen ${closed.length}` : "Reopen");
-  reopen.dataset.ids = closed.join(" ");
   // A picked thread from Overleaf sends what its reply box holds, each to its own thread there.
   const sendable = state.comments.filter((comment) => state.picked.has(comment.id)
     && forOverleaf(comment) && comment.status === "open"
@@ -3026,16 +3035,28 @@ function renderPickedActions() {
   fitCommentRow();
 }
 
-// The less pressed buttons stay in the row while it has room for every button, and go
-// behind the dots once the row would spill over.
+// How the row gives way, one step at a time while it would spill over: the words beside the
+// icons go, Expand all waits behind the dots as the gaps narrow, the view list gives up the room
+// its longest view needs, and the sync button and then Call agent wait behind the dots too.
+// What acts on the picked comments stays in the row, which takes two lines when even that is
+// too wide.
+const ROW_STEPS = [["wordless"], ["narrow", "#fold-all-btn"], ["squeezed"],
+  ["unsynced", "#overleaf-sync-comments-btn"], ["uncalled", "#call-agent-btn"], ["wrapped"]];
+
 function fitCommentRow() {
   const row = $(".filter-row");
-  row.classList.remove("narrow", "wrapped");
-  const over = () => row.scrollWidth > row.clientWidth;
-  const narrow = over();
-  row.classList.toggle("narrow", narrow);
-  row.classList.toggle("wrapped", narrow && over());
-  if (!narrow) closeCommentRare();
+  // Each button back in its place in the row. One already there stays put, keeping the focus.
+  const [fold, sync, call] = [$("#fold-all-btn"), $("#overleaf-sync-comments-btn"), $("#call-agent-btn")];
+  if (fold.nextElementSibling !== $("#comment-rare")) $("#comment-rare").before(fold);
+  if (sync.parentElement !== $("#comment-fetch")) $("#comment-fetch").prepend(sync);
+  if (call.parentElement !== $("#comment-fetch")) $("#comment-fetch").append(call);
+  row.classList.remove(...ROW_STEPS.map(([step]) => step));
+  for (const [step, behind] of ROW_STEPS) {
+    if (row.scrollWidth <= row.clientWidth) break;
+    row.classList.add(step);
+    if (behind) $(".comment-rare-group").append($(behind));
+  }
+  if (!row.classList.contains("narrow")) closeCommentRare();
 }
 
 function closeCommentRare() {
@@ -4486,7 +4507,8 @@ async function callAgent() {
     word.textContent = "Failed";
     console.error(error);
   } finally {
-    setTimeout(() => { word.textContent = ""; button.disabled = false; }, 2000);
+    // The word gone, the row fits itself again: a word hidden or behind the dots changes no width it sees.
+    setTimeout(() => { word.textContent = ""; button.disabled = false; fitCommentRow(); }, 2000);
   }
 }
 
@@ -4780,8 +4802,8 @@ const COMMENT_KEYS = [
   ["Change", [
     { keys: ["R"], does: "Resolve it, or reopen it when it is not open", button: ["cmt-resolve", "cmt-reopen"], picked: true,
       marks: (comment) => resolveOrReopen(comment),
-      run: () => pressPickedOr(["#resolve-picked-btn", "#reopen-picked-btn"], resolveOrReopen(focused())),
-      range: () => pressForRange(["#resolve-picked-btn", "#reopen-picked-btn"]) },
+      run: () => pressPickedOr(["#resolve-picked-btn"], resolveOrReopen(focused())),
+      range: () => pressForRange(["#resolve-picked-btn"]) },
     { keys: ["A"], does: "Archive it", button: ["cmt-archive"], picked: true,
       run: () => pressPickedOr(["#archive-picked-btn"], ".cmt-archive"),
       range: () => pressForRange(["#archive-picked-btn"]) },
@@ -5799,11 +5821,11 @@ async function init() {
       await refreshComments();
     }
   });
-  // The row is fitted again whenever it, or a button that is always in it, changes width.
+  // The row is fitted again whenever it, or one of its groups, changes width.
   const row = $(".filter-row");
   const refit = new ResizeObserver(() => fitCommentRow());
   refit.observe(row);
-  for (const node of row.children) if (node.id !== "comment-rare") refit.observe(node);
+  for (const group of row.children) refit.observe(group);
   $("#comment-rare-btn").addEventListener("click", (event) => {
     event.stopPropagation();
     const open = !$("#comment-rare").classList.contains("open");
@@ -5814,11 +5836,13 @@ async function init() {
   document.addEventListener("click", (event) => {
     if (!event.target.closest("#comment-rare") || event.target.closest(".comment-rare-group button")) closeCommentRare();
   });
-  // The buttons carry the ids they were drawn with, so a press acts on what its label counted.
-  for (const [id, status] of [["#resolve-picked-btn", "resolved"], ["#archive-picked-btn", "archived"], ["#reopen-picked-btn", "open"]]) {
+  // The buttons carry the ids they were drawn with and the status they set, so a press acts on
+  // what its label counted. Once done, each is drawn for what is picked then.
+  for (const id of ["#resolve-picked-btn", "#archive-picked-btn"]) {
     $(id).addEventListener("click", async () => {
       const button = $(id);
       const ids = button.dataset.ids ? button.dataset.ids.split(" ") : [];
+      const status = button.dataset.status;
       if (ids.length === 0) return;
       button.disabled = true;
       try {
@@ -5826,7 +5850,7 @@ async function init() {
       } catch (error) {
         alert(`Could not save: ${error.message}`);
       } finally {
-        button.disabled = false;
+        renderPickedActions();
       }
     });
   }
