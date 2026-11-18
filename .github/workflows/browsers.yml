@@ -19,7 +19,7 @@ jobs:
         with:
           python-version: "3.13"
       # The page shows a PDF only once the paper builds, so most of these tests need LaTeX.
-      - uses: teatimeguest/setup-texlive-action@v3
+      - uses: TeX-Live/setup-texlive-action@v4
         with:
           packages: |
             scheme-basic
