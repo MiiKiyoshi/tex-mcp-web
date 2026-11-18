@@ -1,5 +1,6 @@
 """Who is in the Overleaf project, where their cursors are, and what they changed, read from
-Overleaf's editor session, which is sent no edit and no cursor: only a question about who is there."""
+Overleaf's editor session, which is sent no edit: a question about who is there, and the
+reviewer's cursor where the page's editor has it."""
 
 import asyncio
 import json
@@ -262,6 +263,7 @@ async def test_the_project_shows_who_is_there_where_they_are_and_what_they_chang
     fake, link = realtime
     changes = []
     live = LivePresence(link, lambda: ("overleaf_session2", fake.cookie), lambda: changes.append(1))
+    live.place(("main.tex", 2, 5))     # the page's editor, before the session is up
     await live.start()
     try:
         await wait_for(lambda: live.snapshot()["users"])
@@ -301,12 +303,14 @@ async def test_the_project_shows_who_is_there_where_they_are_and_what_they_chang
         assert changes
     finally:
         await live.stop()
-    # No edit and no cursor, which the others would see standing in their editors: a question
-    # about who is there, the main file opened, and heartbeats.
+    # No edit: a question about who is there, the main file opened, the reviewer's cursor in it
+    # once it is open, and heartbeats.
     events = [json.loads(re.match(r"^5:\d*\+?:[^:]*:(.*)$", frame, re.S).group(1))
               for frame in fake.sent if frame != "2::"]
-    assert [e["name"] for e in events] == ["clientTracking.getConnectedUsers", "joinDoc"]
+    assert [e["name"] for e in events] == ["clientTracking.getConnectedUsers", "joinDoc",
+                                           "clientTracking.updatePosition"]
     assert events[1]["args"][0] == "d-main" and events[1]["args"][2]["supportsHistoryOT"] is True
+    assert events[2]["args"] == [{"row": 2, "column": 5, "doc_id": "d-main"}]
     assert live.snapshot()["status"] == "off"
 
 
@@ -349,9 +353,85 @@ async def test_a_dropped_connection_comes_back(realtime) -> None:
     await live.start()
     try:
         await wait_for(lambda: live.snapshot()["status"] == "live")
+        live.place(("tex/body.tex", 0, 2))
+        await wait_for(lambda: positions(fake))
+        before = len(fake.sent)
         await fake.sockets[-1].close()
         await wait_for(lambda: len(fake.handshakes) == 2)
         await wait_for(lambda: live.snapshot()["status"] == "live")
+        # The cursor that had not moved is where it was, its file opened again.
+        await wait_for(lambda: positions(fake, before) == [{"row": 0, "column": 2, "doc_id": "d-body"}])
+        assert ("joinDoc", ["d-body", -1, {"encodeRanges": True, "supportsHistoryOT": True}]) in told(fake, before)
+    finally:
+        await live.stop()
+
+
+def told(fake, start=0):
+    """What the session sent the fake from frame *start* on, heartbeats left out: (name, args)."""
+    events = [json.loads(re.match(r"^5:\d*\+?:[^:]*:(.*)$", frame, re.S).group(1))
+              for frame in fake.sent[start:] if frame != "2::"]
+    return [(e["name"], e["args"]) for e in events]
+
+
+def positions(fake, start=0):
+    """The places sent as the reviewer's cursor from frame *start* on."""
+    return [args[0] for name, args in told(fake, start) if name == "clientTracking.updatePosition"]
+
+
+async def test_the_reviewers_cursor_goes_where_the_page_has_it_in_the_file_it_is_in(realtime) -> None:
+    fake, link = realtime
+    live = LivePresence(link, lambda: ("overleaf_session2", fake.cookie), lambda: None)
+    await live.start()
+    try:
+        await wait_for(lambda: live.snapshot()["doc_type"])
+        # A file besides the main one is opened first, once, and kept open while the cursor is in it.
+        live.place(("tex/body.tex", 0, 3))
+        await wait_for(lambda: positions(fake))
+        live.place(("tex/body.tex", 0, 4))
+        await wait_for(lambda: len(positions(fake)) == 2)
+        assert positions(fake) == [{"row": 0, "column": 3, "doc_id": "d-body"}, {"row": 0, "column": 4, "doc_id": "d-body"}]
+        names = [name if name != "joinDoc" else (name, args[0]) for name, args in told(fake)]
+        assert names.count(("joinDoc", "d-body")) == 1
+        assert names.index(("joinDoc", "d-body")) < names.index("clientTracking.updatePosition")
+        # A read of that file leaves it open for the cursor.
+        assert await live.reviewable("d-body") is None
+        assert ("leaveDoc", ["d-body"]) not in told(fake)
+        # A file that is not on Overleaf shows nothing.
+        before = len(fake.sent)
+        live.place(("notes/draft.txt", 1, 1))
+        await asyncio.sleep(0.2)
+        assert told(fake, before) == []
+        # In the main file, which the session keeps open, nothing is joined, and the other file is let go.
+        live.place(("main.tex", 1, 0))
+        await wait_for(lambda: ("leaveDoc", ["d-body"]) in told(fake, before))
+        assert [name for name, _ in told(fake, before)] == ["clientTracking.updatePosition", "leaveDoc"]
+        assert positions(fake, before) == [{"row": 1, "column": 0, "doc_id": "d-main"}]
+    finally:
+        await live.stop()
+
+
+async def test_the_cursor_hidden_goes_with_the_session_which_joins_again_without_it(realtime) -> None:
+    fake, link = realtime
+    live = LivePresence(link, lambda: ("overleaf_session2", fake.cookie), lambda: None)
+    await live.start()
+    try:
+        await wait_for(lambda: live.snapshot()["doc_type"])
+        # Hidden before any place was sent: the session stays.
+        await live.hide()
+        assert len(fake.handshakes) == 1 and positions(fake) == []
+        live.place(("tex/body.tex", 0, 3))
+        await wait_for(lambda: positions(fake))
+        # Hidden once sent: the session that sent it ends, and the one that joins sends none.
+        before = len(fake.sent)
+        await live.hide()
+        await wait_for(lambda: len(fake.handshakes) == 2 and ("joinDoc", [
+            "d-main", -1, {"encodeRanges": True, "supportsHistoryOT": True}]) in told(fake, before))
+        assert fake.sockets[0].closed
+        await asyncio.sleep(0.2)
+        assert positions(fake, before) == []
+        # Shown again, the place goes to the new session.
+        live.place(("main.tex", 2, 0))
+        await wait_for(lambda: positions(fake, before) == [{"row": 2, "column": 0, "doc_id": "d-main"}])
     finally:
         await live.stop()
 
@@ -399,6 +479,38 @@ async def test_an_open_page_is_live_on_overleaf_and_a_closed_one_is_not(review) 
     await page.close()
     await wait_for(lambda: server.overleaf_live is None)
     assert (await (await client.get("/overleaf/live")).json())["status"] == "off"
+
+
+async def test_the_page_whose_cursor_moved_last_puts_the_reviewers_cursor_on_overleaf(review) -> None:
+    client, server, fake = review
+    first = await opened(client, fake)
+    await wait_for(lambda: server.overleaf_live is not None and server.overleaf_live.snapshot()["doc_type"])
+    await first.send_json({"type": "cursor", "path": "tex/body.tex", "row": 1, "column": 2})
+    await wait_for(lambda: positions(fake) == [{"row": 1, "column": 2, "doc_id": "d-body"}])
+    second = await client.ws_connect("/ws")
+    await second.send_json({"type": "cursor", "path": "main.tex", "row": 0, "column": 1})
+    await wait_for(lambda: len(positions(fake)) == 2)
+    assert positions(fake)[-1] == {"row": 0, "column": 1, "doc_id": "d-main"}
+    # The page that did not tell last goes, and the place stays the other page's.
+    await first.close()
+    await asyncio.sleep(0.1)
+    assert server._cursor == ("main.tex", 0, 1)
+    # Hidden takes the cursor off Overleaf: the session joins again and sends no place.
+    before = len(fake.sent)
+    await second.send_json({"type": "cursor", "hidden": True})
+    await wait_for(lambda: len(fake.handshakes) == 2 and any(name == "joinDoc" for name, _ in told(fake, before)))
+    await asyncio.sleep(0.1)
+    assert positions(fake, before) == [] and server._cursor is None
+    # Shown again, the page's place goes to the new session.
+    await second.send_json({"type": "cursor", "path": "main.tex", "row": 3, "column": 0})
+    await wait_for(lambda: positions(fake, before) == [{"row": 3, "column": 0, "doc_id": "d-main"}])
+    # The page that told last goes while another stays: its place stays on Overleaf, and is not
+    # sent again should the session join anew.
+    third = await client.ws_connect("/ws")
+    await second.close()
+    await wait_for(lambda: server._cursor is None)
+    assert len(fake.handshakes) == 2 and server.overleaf_live._place is None
+    await third.close()
 
 
 # ----- Comments coming in by themselves -----

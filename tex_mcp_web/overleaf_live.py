@@ -4,10 +4,15 @@ read from the session Overleaf's own editor keeps open, signed in with the revie
 Overleaf's editor talks to its real-time service over socket.io 0.9: a handshake names the
 project, the service answers with the project's files, and from then on it tells the editor
 who moved where (clientTracking.*) and every edit applied to any file (otUpdateApplied).
-This reads that and sends no edit to the text and no cursor: the reviewer has no place in
-the others' editors. It asks once who is connected, and opens the main file (joinDoc) to
-learn what kind of file it is. An editor that sees no cursor but its own sends its place
-every five minutes, so a collaborator who works alone is shown where they were then.
+This reads that and sends no edit to the text. It asks once who is connected, and opens the
+main file (joinDoc) to learn what kind of file it is. The reviewer's cursor in the others'
+editors is where the cursor is in the page's editor, in the file open there, which the page
+tells: the session opens that file and keeps it open while the cursor is in it, as Overleaf's
+editor does, and sends the place (clientTracking.updatePosition). An editor that sees another's
+cursor sends its own twice a second, and one that sees none every five minutes. A file that is
+not on Overleaf shows nothing. Only a session's end takes a cursor from the others' editors, so
+hiding the cursor joins the project anew, and a page that goes leaves its last place standing
+until the session ends.
 The service also says when a comment changes, and when an edit made with track changes on
 comes or a suggested edit is accepted, which is passed on for the server to read.
 When the reviewer sends a new thread, the session puts it on its words with an edit that
@@ -169,6 +174,14 @@ class LivePresence:
         self._track_state: Any = None
         self._permission = ""
         self._user_id = ""
+        # The reviewer's cursor: the place the page tells (path, row, column), the one this
+        # session sent, the file opened for it besides the main one, and the sending under way.
+        # Places wait until the main file is open.
+        self._place: tuple[str, int, int] | None = None
+        self._shown: tuple[str, int, int] | None = None
+        self._cursor_doc = ""
+        self._placing: asyncio.Task | None = None
+        self._main_open = False
 
     # ----- What the page shows -----
 
@@ -225,6 +238,8 @@ class LivePresence:
             self._task = asyncio.create_task(self._run())
 
     async def stop(self) -> None:
+        if self._placing is not None:
+            self._placing.cancel()
         task, self._task = self._task, None
         if task is not None:
             task.cancel()
@@ -291,6 +306,7 @@ class LivePresence:
                     await self._listen(ws, heartbeat)
                 finally:
                     api, self._session_api = self._session_api, None
+                    self._shown = None
                     if api is not None:
                         api.closed()
                         if self.sync is not None:
@@ -331,6 +347,8 @@ class LivePresence:
                         self.doc_type = str(reply[5]) if len(reply) > 5 else ""
                     else:
                         logger.info("Overleaf presence: could not open the main file: %s", reply[0] if reply else "")
+                    self._main_open = True
+                    self._show()
 
     async def _event(self, ws: aiohttp.ClientWebSocketResponse, name: str, args: list) -> None:
         first = args[0] if args else None
@@ -350,6 +368,7 @@ class LivePresence:
             self._track_state = project.get("trackChangesState")
             self._permission = str(first.get("permissionsLevel") or "")
             self._user_id = ""
+            self._cursor_doc, self._main_open = "", False
             self._docs = {}
             self._uploads, self._folders = {}, {}
             for root in project.get("rootFolder") or []:
@@ -430,12 +449,68 @@ class LivePresence:
         if here:
             self._notify()
 
-    def editor(self) -> tuple[_Session | None, dict[str, str], str]:
-        """The open session, the project's documents by path, and the main one, which the
-        session keeps open. No session while the page is not in the project."""
+    def editor(self) -> tuple[_Session | None, dict[str, str], set[str]]:
+        """The open session, the project's documents by path, and those the session keeps
+        open. No session while the page is not in the project."""
         if self.status != "live" or self._session_api is None:
-            return None, {}, ""
-        return self._session_api, dict(self._docs), self._main_doc
+            return None, {}, set()
+        return self._session_api, dict(self._docs), self._kept()
+
+    def _kept(self) -> set[str]:
+        """The documents the session keeps open: the main one, and the one the reviewer's cursor is in."""
+        return {doc for doc in (self._main_doc, self._cursor_doc) if doc}
+
+    def place(self, place: tuple[str, int, int] | None) -> None:
+        """Where the cursor is in the page's editor, (path, row, column) in the file open there,
+        shown to the others as the reviewer's cursor on Overleaf. None while no page tells one:
+        the place last sent stays until the session ends."""
+        self._place = place
+        self._show()
+
+    async def hide(self) -> None:
+        """Take the reviewer's cursor off Overleaf: a session that sent one joins the project
+        anew, as only a session's end takes a cursor from the others' editors."""
+        self._place = None
+        if self._placing is not None:
+            self._placing.cancel()
+        if self._shown is not None:
+            await self.stop()
+            await self.start()
+
+    def _show(self) -> None:
+        if self._place is not None and self._main_open and (self._placing is None or self._placing.done()):
+            self._placing = asyncio.create_task(self._send_place())
+
+    async def _send_place(self) -> None:
+        """Send the latest place until it is sent. Its file is opened first unless the session
+        or the files following Overleaf live hold it open, and the file opened for the place
+        before is let go."""
+        api = self._session_api
+        try:
+            while api is not None and api is self._session_api and self._place not in (None, self._shown):
+                place = self._place
+                path, row, column = place
+                doc = next((doc for doc, name in self._docs.items() if name == path), None)
+                if doc is None:
+                    return
+                held = doc in self._kept() or self.sync is not None and doc in self.sync.docs
+                if not held:
+                    reply = await api.call("joinDoc", [doc, -1, {"encodeRanges": True, "supportsHistoryOT": True}])
+                    if not reply or reply[0] is not None:
+                        logger.info("Overleaf presence: could not open %s for the cursor: %s", path,
+                                    reply[0] if reply else "no answer")
+                        return
+                    before, self._cursor_doc = self._cursor_doc, doc
+                    if before:
+                        await self._leave(api, before)
+                    continue    # the place may have moved meanwhile
+                self._shown = place
+                await api.emit("clientTracking.updatePosition", [{"row": row, "column": column, "doc_id": doc}])
+                if self._cursor_doc and self._cursor_doc != doc:
+                    before, self._cursor_doc = self._cursor_doc, ""
+                    await self._leave(api, before)
+        except (ConnectionError, asyncio.TimeoutError):
+            pass
 
     def tree(self) -> tuple[dict[str, dict[str, str]], dict[str, str]]:
         """The project's uploaded files by path, each with its id and the hash of its bytes, and
@@ -539,8 +614,8 @@ class LivePresence:
             await self._leave(api, doc)
 
     async def _leave(self, api: _Session, doc: str) -> None:
-        """Let a document go again, unless it is the main file, which the presence keeps open."""
-        if doc != self._main_doc:
+        """Let a document go again, unless the presence keeps it open."""
+        if doc not in self._kept():
             try:
                 await api.call("leaveDoc", [doc], timeout=5)
             except (ConnectionError, asyncio.TimeoutError):

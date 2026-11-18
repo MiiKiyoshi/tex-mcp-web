@@ -542,6 +542,10 @@ class TexMcpWebServer:
         self.overleaf_live: LivePresence | None = None
         self._overleaf_live_stop: asyncio.TimerHandle | None = None
         self._overleaf_live_push: asyncio.TimerHandle | None = None
+        # Where the editor's cursor is, (path, row, column), as the page whose cursor moved
+        # last told it, and that page: the reviewer's cursor on Overleaf.
+        self._cursor: tuple[str, int, int] | None = None
+        self._cursor_page: web.WebSocketResponse | None = None
         # One look at a time at whether the session should be open: two at once would each
         # find none open and open one.
         self._overleaf_live_turn = asyncio.Lock()
@@ -842,12 +846,15 @@ class TexMcpWebServer:
             await ws.send_json({"type": "overleaf_live", **self.overleaf_live.snapshot()})
         await self._sync_overleaf_live()
         try:
-            async for _ in ws:
-                # The viewer is read-only; we don't accept any client-sent
-                # messages.  Iteration just keeps the socket alive.
-                pass
+            async for message in ws:
+                # The page says where its editor's cursor is, or that Settings hides it.
+                if message.type == web.WSMsgType.TEXT:
+                    said = json.loads(message.data)
+                    if said.get("type") == "cursor":
+                        await self._overleaf_cursor(ws, said)
         finally:
             self.websockets.discard(ws)
+            await self._overleaf_cursor(ws, None)
             # A handler cancelled as its page goes must still schedule the session's stop.
             await asyncio.shield(self._sync_overleaf_live())
         return ws
@@ -891,6 +898,7 @@ class TexMcpWebServer:
                 self.overleaf_live = LivePresence(self.config.overleaf, overleaf.read_cookie,
                                                   self._overleaf_live_changed, comments=self._overleaf_comment_news,
                                                   sync=self.overleaf_sync)
+                self.overleaf_live.place(self._cursor)
                 if self.overleaf_sync is not None:
                     self.overleaf_sync.tracking = self.overleaf_live.tracking
                 # Without a git clone the uploaded files, figures and the like, follow Overleaf
@@ -912,6 +920,26 @@ class TexMcpWebServer:
             loop = asyncio.get_running_loop()
             self._overleaf_live_stop = loop.call_later(
                 self.OVERLEAF_LIVE_GRACE, lambda: asyncio.ensure_future(self._stop_overleaf_live(idle=True)))
+
+    async def _overleaf_cursor(self, page: web.WebSocketResponse, said: dict | None) -> None:
+        """The reviewer's cursor on Overleaf, from what the page *page* says: where its editor's
+        cursor is ({"path", "row", "column"}), or that Settings hides it ({"hidden": true}),
+        which takes it off Overleaf. None when the page goes, which ends what it told, if it
+        told last, and leaves the place on Overleaf until the session ends."""
+        if said is not None and said.get("hidden"):
+            self._cursor = self._cursor_page = None
+            async with self._overleaf_live_turn:
+                if self.overleaf_live is not None:
+                    await self.overleaf_live.hide()
+            return
+        if said is not None:
+            self._cursor, self._cursor_page = (str(said["path"]), int(said["row"]), int(said["column"])), page
+        elif self._cursor_page is page:
+            self._cursor = self._cursor_page = None
+        else:
+            return
+        if self.overleaf_live is not None:
+            self.overleaf_live.place(self._cursor)
 
     async def _stop_overleaf_live(self, idle: bool = False) -> None:
         if idle and self.websockets:

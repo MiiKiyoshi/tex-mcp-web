@@ -31,7 +31,7 @@ import stat
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Protocol
+from typing import Any, Awaitable, Callable, Collection, Protocol
 
 from . import overleaf, overleaf_ot as ot
 
@@ -1149,7 +1149,7 @@ class HandSync(_Records):
     deleted here; unsupported, a document of Overleaf's newer kind."""
 
     def __init__(self, root: Path, changed: Callable[[], Any],
-                 editor: Callable[[], tuple[Session | None, dict[str, str], str]],
+                 editor: Callable[[], tuple[Session | None, dict[str, str], Collection[str]]],
                  written: Callable[[str], Awaitable[None]] | None = None,
                  adding: Callable[[], tuple[list[str], set[str]]] = lambda: ([], set())) -> None:
         super().__init__(root, written)
@@ -1312,11 +1312,11 @@ class HandSync(_Records):
     async def text_of(self, path: str) -> str | None:
         """Overleaf's text of the file at *path*, read now, or None when it is no document."""
         async with self._turn:
-            session, docs, main = self._editor()
+            session, docs, kept = self._editor()
             doc_id = next((key for key, name in docs.items() if name == path), None)
             if session is None or doc_id is None:
                 return None
-            read = await self._open(session, doc_id, main)
+            read = await self._open(session, doc_id, kept)
             return None if read is None else read[0]
 
     def local_changed(self) -> None:
@@ -1345,11 +1345,11 @@ class HandSync(_Records):
             await asyncio.sleep(0.1)
         raise NotConnected("The page does not know yet whether Overleaf tracks your edits. Try again in a moment.")
 
-    async def _open(self, session: Session, doc_id: str, main: str) -> tuple[str, int, list[dict]] | str | None:
+    async def _open(self, session: Session, doc_id: str, kept: Collection[str]) -> tuple[str, int, list[dict]] | str | None:
         """A document's text, version and comments, or why it cannot be followed, opened and
-        let go again unless it is the main file, which the session keeps open."""
+        let go again unless it is among *kept*, the documents the session keeps open."""
         reply = await session.call("joinDoc", [doc_id, -1, _JOIN])
-        if doc_id != main:
+        if doc_id not in kept:
             try:
                 await session.call("leaveDoc", [doc_id], timeout=5)
             except (ConnectionError, asyncio.TimeoutError):
@@ -1367,7 +1367,7 @@ class HandSync(_Records):
 
     async def _read_all(self) -> None:
         session = await self._session()
-        _, docs, main = self._editor()
+        _, docs, kept = self._editor()
         for doc_id, path in docs.items():
             doc = self.docs.get(doc_id)
             if doc is None or doc.path != path:
@@ -1378,7 +1378,7 @@ class HandSync(_Records):
                     continue
                 self._load(doc)
                 self.docs[doc_id] = doc
-            read = await self._open(session, doc_id, main)
+            read = await self._open(session, doc_id, kept)
             if isinstance(read, tuple):
                 self._theirs[doc_id] = read
                 if doc.status in ("unsupported", "stopped"):
@@ -1475,8 +1475,8 @@ class HandSync(_Records):
                                       "changed there. Send again, or choose which text stands.")
             return
         # Overleaf took it: read it back, so the record says only what Overleaf holds.
-        _, _, main = self._editor()
-        read = await self._open(session, doc.doc_id, main)
+        _, _, kept = self._editor()
+        read = await self._open(session, doc.doc_id, kept)
         if not isinstance(read, tuple):
             self._set(doc, "stopped", read or "Overleaf could not be read after the edit.")
             return
