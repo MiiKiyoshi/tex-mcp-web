@@ -134,13 +134,22 @@ async def state(link: Link, followed: Collection[str] = ()) -> dict:
     how many each has that the other lacks, the files Overleaf's commits changed that this
     folder lacks, named from the top of the repository as Overleaf names them, and the files
     with changes not committed, leaving out the *followed* ones, which are on Overleaf as
-    they are here, and the page's records, which never go there."""
+    they are here, and the page's records, which never go there. *apart* says whether the two
+    commits hold different files. Overleaf makes commits that change none: a folder behind
+    by those alone has every file as Overleaf has it, and is moved to Overleaf's commit
+    here, which writes no file, so they are never left to pull."""
     branch = await _tracking(link)
     _, here = await _git(link.folder, "rev-parse", "--short", "HEAD")
     _, there = await _git(link.folder, "rev-parse", "--short", branch)
     _, counts = await _git(link.folder, "rev-list", "--left-right", "--count", f"HEAD...{branch}")
     _, incoming = await _git(link.folder, "diff", "--name-only", "-z", f"HEAD...{branch}")
     ahead, behind = (int(count) for count in counts.split())
+    _, trees = await _git(link.folder, "rev-parse", "HEAD^{tree}", f"{branch}^{{tree}}")
+    apart = len(set(trees.split())) > 1
+    if behind and not ahead and not apart:
+        code, _ = await _git(link.folder, "merge", "--ff-only", "--quiet", branch, check=False)
+        if code == 0:
+            return await state(link, followed)
     _, porcelain = await _git(link.folder, "status", "--porcelain", "-z", "--untracked-files=no", "--", ".",
                               f":(exclude){RECORDS}")
     uncommitted, records = [], iter(_paths(porcelain))
@@ -151,6 +160,7 @@ async def state(link: Link, followed: Collection[str] = ()) -> dict:
             uncommitted.append(record[3:])
     return {"remote": link.remote, "branch": branch, "here": here.strip(), "there": there.strip(),
             "ahead": ahead, "behind": behind, "incoming": _paths(incoming),
+            "apart": apart,
             "state": "same" if not ahead and not behind else "ahead" if not behind
             else "behind" if not ahead else "diverged",
             "uncommitted": uncommitted}

@@ -71,6 +71,36 @@ async def test_the_state_counts_commits_each_side_lacks_and_names_uncommitted_fi
     assert (now["state"], now["ahead"], now["behind"]) == ("diverged", 1, 1)
 
 
+async def test_commits_that_change_no_file_are_taken_in_without_a_pull(sides) -> None:
+    """Overleaf makes commits that change nothing. A folder behind by those alone has every
+    file as Overleaf has it, and reading where it stands moves it to Overleaf's commit, an
+    edit not committed left as it is. Ahead as well, it is not apart and stays where it is."""
+    paper, coauthor = sides
+    link = await overleaf_git.link_of(paper, PROJECT)
+    assert (await overleaf_git.state(link))["apart"] is False
+    git(coauthor, "commit", "-q", "--allow-empty", "-m", "nothing")
+    git(coauthor, "push", "-q", "origin", "HEAD:main")
+    await overleaf_git.fetch(link)
+    (paper / "paper.tex").write_text("an edit not committed\n", encoding="utf-8", newline="")
+    now = await overleaf_git.state(link)
+    assert (now["state"], now["behind"], now["apart"], now["uncommitted"]) == ("same", 0, False, ["paper.tex"])
+    assert git(paper, "rev-parse", "HEAD") == git(coauthor, "rev-parse", "HEAD")
+    assert (paper / "paper.tex").read_text(encoding="utf-8") == "an edit not committed\n"
+    git(paper, "checkout", "-q", "--", "paper.tex")
+    git(coauthor, "commit", "-q", "--allow-empty", "-m", "nothing again")
+    git(coauthor, "push", "-q", "origin", "HEAD:main")
+    git(paper, "commit", "-q", "--allow-empty", "-m", "nothing here")
+    await overleaf_git.fetch(link)
+    now = await overleaf_git.state(link)
+    assert (now["state"], now["apart"]) == ("diverged", False)
+    git(paper, "reset", "-q", "--hard", "HEAD~1")
+    commit(coauthor, "notes.tex", "a note\n", "there")
+    git(coauthor, "push", "-q", "origin", "HEAD:main")
+    await overleaf_git.fetch(link)
+    now = await overleaf_git.state(link)
+    assert (now["state"], now["behind"], now["apart"]) == ("behind", 2, True)
+
+
 async def test_pull_fast_forwards_and_refuses_to_write_over_an_uncommitted_change(sides) -> None:
     paper, coauthor = sides
     link = await overleaf_git.link_of(paper, PROJECT)

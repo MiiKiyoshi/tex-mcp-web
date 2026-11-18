@@ -90,7 +90,7 @@ from . import overleaf_ot
 from .overleaf_live import TRACKED, LivePresence
 from .overleaf_sync import HandSync, NotConnected, ProjectSync, Uploads
 from .completion import bib_entries, defined_commands, defined_environments, labels
-from .translate import Translator, TranslationStore, load_glossary, split_paragraphs, store_name
+from .translate import MODEL, Translator, TranslationStore, load_glossary, split_paragraphs, store_name
 from .watcher import Watcher, is_watched_source, matches_patterns
 
 logger = logging.getLogger(__name__)
@@ -1067,7 +1067,7 @@ class TexMcpWebServer:
                               "line": _line_column(held["text"], group["at"])[0],
                               "inserted": group["inserted"], "deleted": group["deleted"],
                               "user_id": group["user_id"], "name": group["name"],
-                              "when": _suggested_when(group["ts"]), "here": start})
+                              "at": group["ts"], "when": _suggested_when(group["ts"]), "here": start})
         return shown
 
     def _suggested_lines(self) -> list[str]:
@@ -1482,7 +1482,8 @@ class TexMcpWebServer:
                     now = await self._read_overleaf_git(link)
                 except overleaf_git.GitError as error:
                     return web.json_response({"error": str(error)}, status=409)
-            if now["state"] != "same":
+            # Commits that change no file leave the comments on the text Overleaf has.
+            if now["apart"]:
                 count = now["behind"] or now["ahead"]
                 commits = f"{count} commit{'' if count == 1 else 's'}"
                 return web.json_response({"error": f"Overleaf has {commits} this folder lacks. Press git pull first."
@@ -3006,19 +3007,19 @@ class TexMcpWebServer:
         return web.json_response(body)
 
     def _translator(self, language: str) -> Translator:
-        """The translator for the configured language and instructions. Its store is kept
+        """The translator for the configured language, instructions and model. Its store is kept
         beside the comments; the reference term list it keeps as written is the one
         guide() reads, beside the configuration file."""
-        instructions = self.config.translation_instructions
+        instructions, model = self.config.translation_instructions, self.config.translation_model or MODEL
         current = self.translator
-        if current is None or (current.language, current.instructions) != (language, instructions):
+        if current is None or (current.language, current.instructions, current.model) != (language, instructions, model):
             state = self.watch_dir / ".tex-mcp-web"
             config_dir = (self.config.config_path.resolve().parent
                           if self.config.config_path is not None else self.watch_dir)
             current = self.translator = Translator(
                 TranslationStore(state / store_name(language)),
                 load_glossary(config_dir / ".tex-mcp-web" / "terms.md"), state,
-                language=language, instructions=instructions)
+                language=language, instructions=instructions, model=model)
         return current
 
     async def _handle_synctex_backward(self, request: web.Request) -> web.Response:

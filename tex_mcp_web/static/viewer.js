@@ -78,10 +78,12 @@ const state = {
   rangeFrom: null,
   // Whether a press in the editor is held down, which moves the cursor with the text in place.
   editorPointing: false,
-  // The words typed in the comment search, which lists the tab's comments holding them all,
-  // and how many it found beyond those drawn.
+  // What is typed in the comment search, which lists the tab's comments that meet it, and how
+  // many it found beyond those drawn.
   commentSearch: "",
   searchMore: 0,
+  // The order each comment tab's list is in, as its sort list was last set: paper, latest or oldest.
+  commentSorts: {},
   // How many things are not done yet in each comment tab, as the to do view lists them.
   todoCounts: {},
   // The open comments of the tab shown, whatever its view lists: the PDF and the editor mark these.
@@ -1293,10 +1295,11 @@ function renderOverleafThreadSync() {
   side.title = words;
   side.setAttribute("aria-label", words);
   const files = state.overleafFiles;
-  // Comments sync once the folder and Overleaf hold the same: until then the tab says what
+  // Comments sync once the folder and Overleaf hold the same files: until then the tab says what
   // stands in the way and which button in the top bar clears it, since a greyed button says nothing.
+  // Commits that change no file, which Overleaf makes many of, stand in no one's way.
   const git = state.overleafGit;
-  const gitWhy = git !== null && git.state !== "same"
+  const gitWhy = git !== null && git.state !== "same" && git.apart
     ? {
       behind: `Overleaf has ${commits(git.behind)} this folder lacks. git pull first, in the top bar or a terminal, and comments sync after that.`,
       ahead: `This folder has ${commits(git.ahead)} Overleaf lacks. commit & push first, in the top bar or a terminal, and comments sync after that.`,
@@ -1919,8 +1922,7 @@ function sourceWraps() {
 
 function applySourceWrap() {
   const on = sourceWraps();
-  $("#source-wrap-btn").classList.toggle("active", on);
-  $("#source-wrap-btn").setAttribute("aria-pressed", String(on));
+  $("#source-wrap-btn").setAttribute("aria-checked", String(on));
   state.editor?.session.setUseWrapMode(on);
 }
 
@@ -1982,8 +1984,7 @@ function holdCursorLine() {
 
 function applyVimKeys() {
   const on = vimKeys();
-  $("#source-vim-btn").classList.toggle("active", on);
-  $("#source-vim-btn").setAttribute("aria-pressed", String(on));
+  $("#source-vim-btn").setAttribute("aria-checked", String(on));
   state.editor?.setKeyboardHandler(on ? "ace/keyboard/vim" : null, () => {
     // Leaving Vim keys keeps Vim's block cursor, under which a click takes the character
     // before the one clicked.
@@ -2747,8 +2748,8 @@ async function readComments() {
   // stands: an answer that comes back after a later one is dropped.
   const asked = ++state.commentsAsked;
   // A search looks through every comment of the tab, whatever view the list atop names.
-  const words = searchWords();
-  const status = words.length > 0 ? "all" : $("#comment-filter").value;
+  const query = searchQuery();
+  const status = query.length > 0 ? "all" : $("#comment-filter").value;
   const url = status === "all" ? "/comments"
     : `/comments?status=${["todo", "unanswered", "answered", "new", "changes"].includes(status) ? "open" : status}`;
   const [response, overleaf] = await Promise.all([fetch(url), fetch("/overleaf")]);
@@ -2784,9 +2785,10 @@ async function readComments() {
     : status === "new" ? [...onOverleaf.filter(draftedThread), ...onOverleaf.filter(openedHere)]
     : status === "changes" ? state.overleafSuggested.map(suggestedItem)
     : onOverleaf;
-  if (words.length > 0) data.comments = data.comments.filter((comment) => holdsWords(comment, words));
+  if (query.length > 0) data.comments = data.comments.filter((comment) => meetsSearch(comment, query, state.overleafMe));
   renderOverleafThreadSync();
-  // The open view, and the unanswered and answered ones, keep the server's order: the
+  // In paper order, the sort list's first choice, the open view, and the unanswered and
+  // answered ones, keep the server's order: the
   // comments written here in the order they were written, and Overleaf's threads in the
   // order the paper reads them, as Overleaf's review panel has them. The new-thread view puts the drafts still to send above the
   // threads already opened from them, each in the paper's order. The resolved view leads
@@ -2795,19 +2797,24 @@ async function readComments() {
   // was last touched: closing a comment touches it, so by that measure every closed comment
   // stood above every open one.
   // The archive view leads with the thread touched last: what was kept to be read
-  // again is read again when something is added to it.
+  // again is read again when something is added to it. A search lists as the mixed view does.
+  // Latest first and oldest first order every view, and a search, by when each thread was
+  // last written in, which j, k, v and Shift+click then follow as they follow the list.
   const moment = status === "resolved"
     ? (comment) => comment.resolved ?? comment.created
     : status === "archived" ? (comment) => comment.updated
     : (comment) => comment.created;
   const before = state.comments;
-  state.comments = ["todo", "open", "unanswered", "answered", "new", "changes"].includes(status) ? data.comments
+  const sort = commentSort();
+  state.comments = sort !== "paper"
+    ? [...data.comments].sort((first, second) => ((lastWritten(first) - lastWritten(second)) || 0) * (sort === "latest" ? -1 : 1))
+    : ["todo", "open", "unanswered", "answered", "new", "changes"].includes(status) ? data.comments
     : [...data.comments].sort((first, second) => (moment(first) < moment(second) ? 1
       : moment(first) > moment(second) ? -1 : 0));
-  // A search for a word most comments hold finds hundreds, which take a second to draw at
-  // every key: the first ones show, with how many more there are.
+  // A search most comments meet finds hundreds, which take a second to draw at every key: the
+  // first ones show, with how many more there are.
   state.searchMore = 0;
-  if (words.length > 0 && state.comments.length > SEARCH_SHOWN) {
+  if (query.length > 0 && state.comments.length > SEARCH_SHOWN) {
     state.searchMore = state.comments.length - SEARCH_SHOWN;
     state.comments = state.comments.slice(0, SEARCH_SHOWN);
   }
@@ -2924,6 +2931,7 @@ function renderCommentFilter() {
     changes.textContent = count ? `suggested edits (${count})` : "suggested edits";
     if (filter.value === "changes") $("#comment-filter-name").textContent = changes.textContent;
   }
+  showCommentSort();
   $("#archive-picked-btn").hidden = state.commentTab === "overleaf-comments";
 }
 
@@ -2944,7 +2952,7 @@ function renderComments() {
   clear(list);
   if (state.comments.length === 0) {
     const view = $("#comment-filter").value;
-    list.appendChild(placeholder(searchWords().length > 0 ? "No comment here holds these words."
+    list.appendChild(placeholder(searchQuery().length > 0 ? "No comment here holds these words."
       : view === "todo" ? "Nothing is left to do here."
       : view === "changes" && state.commentTab === "overleaf-comments" ? "No suggested edits on Overleaf."
       : "No comments at this filter."));
@@ -3054,18 +3062,19 @@ function renderPickedActions() {
 }
 
 // How the row gives way, one step at a time while it would spill over: the words beside the
-// icons go, Expand all waits behind the dots as the gaps narrow, the view list gives up the room
-// its longest view needs, and the sync button and then Call agent wait behind the dots too.
-// What acts on the picked comments stays in the row, which takes two lines when even that is
-// too wide.
-const ROW_STEPS = [["wordless"], ["narrow", "#fold-all-btn"], ["squeezed"],
+// icons go and the sort list shrinks to its icon, the sort list waits behind the dots as the
+// gaps narrow, then Expand all, the view list gives up the room its longest view needs, and
+// the sync button and then Call agent wait behind the dots too. What acts on the picked
+// comments stays in the row, which takes two lines when even that is too wide.
+const ROW_STEPS = [["wordless"], ["narrow", "#comment-sort-pick"], ["foldless", "#fold-all-btn"], ["squeezed"],
   ["unsynced", "#overleaf-sync-comments-btn"], ["uncalled", "#call-agent-btn"], ["wrapped"]];
 
 function fitCommentRow() {
   const row = $(".filter-row");
   // Each button back in its place in the row. One already there stays put, keeping the focus.
-  const [fold, sync, call] = [$("#fold-all-btn"), $("#overleaf-sync-comments-btn"), $("#call-agent-btn")];
+  const [sort, fold, sync, call] = [$("#comment-sort-pick"), $("#fold-all-btn"), $("#overleaf-sync-comments-btn"), $("#call-agent-btn")];
   if (fold.nextElementSibling !== $("#comment-rare")) $("#comment-rare").before(fold);
+  if (sort.nextElementSibling !== fold) fold.before(sort);
   if (sync.parentElement !== $("#comment-fetch")) $("#comment-fetch").prepend(sync);
   if (call.parentElement !== $("#comment-fetch")) $("#comment-fetch").append(call);
   row.classList.remove(...ROW_STEPS.map(([step]) => step));
@@ -4117,21 +4126,192 @@ function renderSections() {
 // How many of the comments a search finds are drawn.
 const SEARCH_SHOWN = 100;
 
-// The words a search is for: each must be somewhere in a comment, in any letter case.
-function searchWords() {
-  return state.commentSearch.toLowerCase().split(/\s+/).filter(Boolean);
+// What the search box asks for, its dates without a year in this year.
+function searchQuery() {
+  return parseSearch(state.commentSearch, new Date().getFullYear());
 }
 
-// Whether a comment holds every word: in what was said in it and by whom, in the words it is
-// on, in its file, its id, its suggestion or its draft for Overleaf.
-function holdsWords(comment, words) {
-  const held = [
-    comment.id, comment.anchor?.quote, comment.anchor?.file, comment.anchor?.title, comment.resolved_source?.file,
-    comment.source_selector?.exact, comment.overleaf_draft?.text,
-    ...comment.thread.flatMap((entry) => [entry.text, entry.name]),
-    ...(comment.suggestion?.changes ?? []).flatMap((change) => [change.old, change.new]),
-  ].filter(Boolean).join("\n").toLowerCase();
-  return words.every((word) => held.includes(word));
+// What a search asks for, in the conventions of mail and code search:
+//   query = group ("OR" group)*      OR, in capitals, binds looser than the spaces
+//   group = term*                     a comment meets a group when it meets every term
+//   term  = ["-"] [field ":"] value   "-" asks for the comments that do not meet it
+//   value = '"' text '"' | text       quotes hold words together, spaces and all
+//   field = from | file | after | before
+// after: and before: take YYYY-MM-DD, or MM-DD in `year`, and may go on to a minute as
+// T09, T09:30 or, quoted, "11-13 09:30", in local time. A field followed by anything else,
+// and any other word with a colon, is an ordinary word. A term with nothing to look for, as
+// a field not yet typed, and a group with no term are left out. Each term comes as
+// { not, field, value }: the field is "" for a word or a phrase, whose value is in lower case,
+// and the value of after: and before: is the moment they name, in milliseconds.
+export function parseSearch(text, year) {
+  const groups = [[]];
+  for (const [, not, field = "", quoted, bare] of text.matchAll(/(-?)(?:(from|file|after|before):)?(?:"([^"]*)"?|([^\s"]+))?/g)) {
+    const raw = (quoted ?? bare ?? "").replace(/\s+/g, " ").trim();
+    if (raw === "") continue;
+    if (raw === "OR" && bare !== undefined && !not && !field) {
+      groups.push([]);
+      continue;
+    }
+    const moment = field === "after" || field === "before" ? searchMoment(raw, year) : undefined;
+    groups.at(-1).push(moment === null ? { not: Boolean(not), field: "", value: `${field}:${raw}`.toLowerCase() }
+      : { not: Boolean(not), field, value: moment ?? raw.toLowerCase() });
+  }
+  return groups.filter((group) => group.length > 0);
+}
+
+// The first moment of a day, or of a minute in it, in local time, in milliseconds, or null
+// when the words name none.
+function searchMoment(text, year) {
+  const read = /^(?:(\d{4})-)?(\d{1,2})-(\d{1,2})(?:[Tt ](\d{1,2})(?::(\d{2}))?)?$/.exec(text);
+  if (read === null) return null;
+  const [y, month, day, hour, minute] = [read[1] ?? year, read[2], read[3], read[4] ?? 0, read[5] ?? 0].map(Number);
+  const moment = new Date(y, month - 1, day, hour, minute);
+  return moment.getMonth() === month - 1 && moment.getDate() === day && hour < 24 && minute < 60
+    ? moment.getTime() : null;
+}
+
+// Whether a comment meets a search parseSearch read: every term of one of its groups. A word
+// or a phrase is held in what was said in it and by whom, in the words it is on, its file,
+// its id, its suggestion or its draft for Overleaf. from: is someone who wrote in the thread,
+// file: the file the comment is on, after: an entry written at that moment or later, and
+// before: one written earlier. Each term is met by the thread on its own, so from: and
+// after: may be met by two entries. `me` is the reviewer's name on Overleaf.
+export function meetsSearch(comment, query, me) {
+  let held = null;
+  const meets = ({ field, value }) => field === "from"
+    ? comment.thread.some((entry) => writerNames(entry, me).some((name) => name.toLowerCase().includes(value)))
+    : field === "file" ? [comment.anchor?.file, comment.resolved_source?.file].some((file) => file?.toLowerCase().includes(value))
+    : field === "after" ? comment.thread.some((entry) => Date.parse(entry.at) >= value)
+    : field === "before" ? comment.thread.some((entry) => Date.parse(entry.at) < value)
+    : (held ??= [
+      comment.id, comment.anchor?.quote, comment.anchor?.file, comment.anchor?.title, comment.resolved_source?.file,
+      comment.source_selector?.exact, comment.overleaf_draft?.text,
+      ...comment.thread.flatMap((entry) => [entry.text, entry.name]),
+      ...(comment.suggestion?.changes ?? []).flatMap((change) => [change.old, change.new]),
+    ].filter(Boolean).map((words) => words.replace(/\s+/g, " ")).join("\n").toLowerCase()).includes(value);
+  return query.some((group) => group.every((term) => meets(term) !== term.not));
+}
+
+// The names from: knows an entry's writer by: the name Overleaf gives them, "agent" for the
+// agent, and "me" for the reviewer, whose entries here have no name and whose name on
+// Overleaf is `me`.
+function writerNames(entry, me) {
+  if (entry.name !== undefined) return entry.name === me ? [entry.name, "me"] : [entry.name];
+  return [entry.author === "agent" ? "agent" : "me"];
+}
+
+// When a thread was last written in, which latest first and oldest first order by: its last
+// entry, or for one with none, as a suggested edit on Overleaf, when it was made.
+function lastWritten(comment) {
+  return Date.parse(comment.thread.at(-1)?.at ?? comment.at ?? comment.created);
+}
+
+// The order the shown tab's list is in.
+function commentSort() {
+  const sort = state.commentSorts[state.commentTab];
+  return sort === "latest" || sort === "oldest" ? sort : "paper";
+}
+
+// The order shown in the list's words, and in its title for the icon it shrinks to.
+function showCommentSort() {
+  const select = $("#comment-sort");
+  select.value = commentSort();
+  $("#comment-sort-name").textContent = select.selectedOptions[0].textContent;
+  select.title = `Order of the list: ${select.selectedOptions[0].textContent} (o)`;
+}
+
+// The order chosen for the shown tab, which this browser keeps for it.
+function setCommentSort(sort) {
+  state.commentSorts[state.commentTab] = sort;
+  try { localStorage.setItem(`texMcpCommentSort-${state.commentTab}`, sort); } catch { /* the choice lasts this visit */ }
+  showCommentSort();
+}
+
+function cycleSort() {
+  const select = $("#comment-sort");
+  select.value = select.options[(select.selectedIndex + 1) % select.options.length].value;
+  select.dispatchEvent(new Event("change"));
+}
+
+// The writers and the files of the tab's comments, whatever their status, which the list
+// under the search box offers for a from: or a file: being typed. Read when the list opens,
+// and null while it is closed. The one the arrows are on.
+let searchChoices = null;
+let choiceAt = 0;
+
+async function readSearchChoices() {
+  const response = await fetch("/comments");
+  if (!response.ok) throw new Error(await responseError(response));
+  const leaf = state.commentTab === "overleaf-comments";
+  const comments = (await response.json()).comments.filter((comment) => forOverleaf(comment) === leaf);
+  const listed = (values) => [...new Set(values.filter(Boolean))].sort((first, second) => first.localeCompare(second));
+  return { from: listed(comments.flatMap((comment) => comment.thread.map((entry) => writerNames(entry, state.overleafMe)[0]))),
+           file: listed(comments.map((comment) => comment.resolved_source?.file ?? comment.anchor?.file)) };
+}
+
+// The from: or the file: the cursor is in: its field, what is typed after the colon, and where
+// its value starts and ends in the box, a closing quote included.
+function conditionAtCursor(box) {
+  if (box.selectionStart !== box.selectionEnd) return null;
+  const typed = /(?:^|\s)-?(from|file):(?:"([^"]*)|([^\s"]*))$/.exec(box.value.slice(0, box.selectionStart));
+  if (typed === null) return null;
+  const rest = box.value.slice(box.selectionStart);
+  return { field: typed[1], value: (typed[2] ?? typed[3]).toLowerCase(),
+           start: typed.index + typed[0].indexOf(":") + 1,
+           end: box.selectionStart + (typed[2] !== undefined ? /^[^"]*"?/ : /^[^\s"]*/).exec(rest)[0].length };
+}
+
+// The list under the box, open while the cursor is in a from: or a file:, with the names or
+// the files that hold what is typed after the colon.
+function offerChoices() {
+  const box = $("#comment-search");
+  const pick = $("#search-pick");
+  const condition = document.activeElement === box ? conditionAtCursor(box) : null;
+  if (condition === null) {
+    closeChoices();
+    return;
+  }
+  if (searchChoices === null) {
+    searchChoices = { from: [], file: [] };
+    readSearchChoices().then((read) => {
+      if (searchChoices === null) return;
+      searchChoices = read;
+      offerChoices();
+    }).catch((error) => console.error(error));
+  }
+  const shown = searchChoices[condition.field].filter((choice) => choice.toLowerCase().includes(condition.value));
+  choiceAt = Math.max(0, Math.min(choiceAt, shown.length - 1));
+  pick.replaceChildren(...shown.map((choice, index) => h("div", {
+    class: "search-choice", role: "option", "aria-selected": String(index === choiceAt), text: choice,
+    onclick: () => takeChoice(choice) })));
+  pick.hidden = shown.length === 0;
+  pick.children[choiceAt]?.scrollIntoView({ block: "nearest" });
+}
+
+function closeChoices() {
+  $("#search-pick").hidden = true;
+  searchChoices = null;
+  choiceAt = 0;
+}
+
+// A name or a file picked completes the from: or the file: at the cursor, in quotes when it
+// has a space, and the cursor goes on after it.
+function takeChoice(choice) {
+  const box = $("#comment-search");
+  const condition = conditionAtCursor(box);
+  if (condition === null) return;
+  const after = /\s/.test(box.value.charAt(condition.end)) ? "" : " ";
+  box.setRangeText(`${/\s/.test(choice) ? `"${choice}"` : choice}${after}`, condition.start, condition.end, "end");
+  box.dispatchEvent(new Event("input"));
+}
+
+// A condition put into the box at the cursor, apart from the word before it, with the cursor
+// where its value goes: after the colon or the -, between the quotes, or after OR.
+function insertCondition(box, text) {
+  const joins = (text === "OR" ? /\S$/ : /[^\s:-]$/).test(box.value.slice(0, box.selectionStart));
+  box.setRangeText(`${joins ? " " : ""}${text}${text === "OR" ? " " : ""}`, box.selectionStart, box.selectionEnd, "end");
+  if (text === '""') box.setSelectionRange(box.selectionStart - 1, box.selectionStart - 1);
+  box.dispatchEvent(new Event("input"));
 }
 
 function openCommentSearch() {
@@ -4150,15 +4330,45 @@ function closeCommentSearch() {
 
 function attachCommentSearch() {
   const box = $("#comment-search");
+  const terms = $("#search-terms");
   let timer = null;
   const list = () => refreshComments().catch((error) => console.error(error));
   box.addEventListener("input", () => {
     state.commentSearch = box.value;
     clearTimeout(timer);
     timer = setTimeout(list, 150);
+    choiceAt = 0;
+    offerChoices();
   });
+  // A click in the box may put the cursor in a from: or a file:, or take it out of one.
+  box.addEventListener("click", () => offerChoices());
+  // The conditions show while the box has the focus, which a press on them or on the list
+  // under them leaves in the box.
+  box.addEventListener("focus", () => { terms.hidden = false; });
+  box.addEventListener("blur", () => {
+    terms.hidden = true;
+    closeChoices();
+  });
+  terms.addEventListener("mousedown", (event) => event.preventDefault());
+  for (const button of terms.querySelectorAll("[data-insert]")) {
+    button.addEventListener("click", () => insertCondition(box, button.dataset.insert));
+  }
   // Enter goes to the comments found, for the keys to go on, and Escape puts the search away.
+  // While the list of names or files is open, the arrows go through it, Enter picks the one
+  // they are on, and Escape closes the list first.
   box.addEventListener("keydown", (event) => {
+    if (!$("#search-pick").hidden && ["ArrowDown", "ArrowUp", "Enter", "Escape"].includes(event.key)) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.key === "Escape") closeChoices();
+      else if (event.key === "Enter") $("#search-pick").children[choiceAt]?.click();
+      else {
+        choiceAt = (choiceAt + (event.key === "ArrowDown" ? 1 : -1) + $("#search-pick").children.length)
+          % $("#search-pick").children.length;
+        offerChoices();
+      }
+      return;
+    }
     if (event.key !== "Escape" && event.key !== "Enter") return;
     event.preventDefault();
     event.stopPropagation();
@@ -4885,6 +5095,7 @@ const COMMENT_KEYS = [
       run: () => openCommentSearch() },
     { keys: ["f"], does: "Next view in the list atop the tab: to do, open, …", run: () => cycleStatus(1) },
     { keys: ["F"], does: "Previous view", run: () => cycleStatus(-1) },
+    { keys: ["o"], does: "Next order of the list: paper order, latest first, oldest first", run: () => cycleSort() },
     { keys: ["t"], does: "Next tab", scope: "sidebar", run: () => cycleTab(1) },
     { keys: ["T"], does: "Previous tab", scope: "sidebar", run: () => cycleTab(-1) },
     { keys: ["?"], does: "These keys", scope: "page", run: () => showCommentKeys() },
@@ -5229,7 +5440,7 @@ function attachSidebarToggle() {
   });
   // A choice in the menu closes it.
   document.addEventListener("click", (event) => {
-    if (!event.target.closest(".more") || event.target.closest(".more-menu button")) closeMore();
+    if (!event.target.closest(".topbar .more") || event.target.closest(".more-menu button")) closeMore();
   });
   $("#settings-btn").addEventListener("click", () => showSettings());
   $("#settings-menu-btn").addEventListener("click", () => showSettings());
@@ -5809,6 +6020,28 @@ async function init() {
   $("#source-reload-btn").addEventListener("click", () => {
     reloadSource().catch((error) => alert(`Could not reload: ${error.message}`));
   });
+  // The editor's ⋯ menu stays open as the text size steps. It closes on ⋯, on Wrap long lines
+  // or Vim keys, on a click outside it, or on Escape, which it takes before the editor and
+  // the comment keys do.
+  const closeSourceMore = () => {
+    $("#source-more-menu").hidden = true;
+    $("#source-more-btn").setAttribute("aria-expanded", "false");
+  };
+  $("#source-more-btn").addEventListener("click", () => {
+    const open = $("#source-more-menu").hidden;
+    $("#source-more-menu").hidden = !open;
+    $("#source-more-btn").setAttribute("aria-expanded", String(open));
+  });
+  document.addEventListener("click", (event) => {
+    if (!$("#source-more-btn").parentElement.contains(event.target)
+        || event.target.closest('[role="menuitemcheckbox"]')) closeSourceMore();
+  }, { capture: true });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || $("#source-more-menu").hidden) return;
+    event.preventDefault();
+    event.stopPropagation();
+    closeSourceMore();
+  }, { capture: true });
   $("#source-font-smaller-btn").addEventListener("click", () => stepSourceFontSize(-1));
   $("#source-font-larger-btn").addEventListener("click", () => stepSourceFontSize(1));
   $("#source-wrap-btn").addEventListener("click", () => {
@@ -5923,6 +6156,9 @@ async function init() {
     $("#compose-dialog").close();
     clearPendingSelection();
   });
+  for (const tab of ["comments", "overleaf-comments"]) {
+    try { state.commentSorts[tab] = localStorage.getItem(`texMcpCommentSort-${tab}`); } catch { /* paper order */ }
+  }
   renderCommentFilter();
   // A view chosen in the list, and a comment tab chosen, give the comment keys back to the
   // comments: the list would keep them, and Safari focuses no button it clicks.
@@ -5941,6 +6177,14 @@ async function init() {
       if ($("#tab-comments").classList.contains("active")) $("#comments-list").focus({ preventScroll: true });
     });
   }
+  // An order chosen gives the keys back to the comments too. It keeps the search, which it
+  // orders as well, and closes the dots it may wait behind.
+  $("#comment-sort").addEventListener("change", () => {
+    setCommentSort($("#comment-sort").value);
+    closeCommentRare();
+    $("#comments-list").focus({ preventScroll: true });
+    refreshComments().catch((error) => console.error(error));
+  });
 
   await refreshPaper();
   await refreshComments();

@@ -1346,7 +1346,7 @@ def test_browser_source_selection_and_split_resize(tmp_path: Path) -> None:
           const page = window.wrappedJSObject || window;
           return page.ace?.edit("source-editor").getValue().includes("SELECTED");
         '''))
-        # A− and A+ step the editor's type by a pixel and keep the size for the next visit.
+        # − and + in the editor's ⋯ menu step its type by a pixel and keep the size for the next visit.
         font_size = 'return (window.wrappedJSObject || window).ace.edit("source-editor").getFontSize();'
         assert browser.execute_script(font_size) == "13px"
         for button in ("larger", "larger", "smaller"):
@@ -1442,8 +1442,8 @@ def test_browser_source_selection_and_split_resize(tmp_path: Path) -> None:
             .key_up("\ue007").key_up("\ue009").perform()
         assert wait_until(lambda: browser.execute_script("return window.compiles;", sandbox=None)) == 1
         wait_until(lambda: not browser.execute_script('return document.querySelector("#compile-btn").disabled'))
-        # Long lines wrap until the wrap button turns it off, and the Vim button gives the
-        # editor Vim keys, with Ctrl+[ as Escape and :w saving.
+        # Long lines wrap until Wrap long lines in the editor's ⋯ menu turns it off, and Vim keys
+        # there gives the editor Vim keys, with Ctrl+[ as Escape and :w saving.
         editor = '(window.wrappedJSObject || window).ace.edit("source-editor")'
         assert browser.execute_script(f"return {editor}.session.getUseWrapMode();") is True
         browser.execute_script('document.querySelector("#source-wrap-btn").click()')
@@ -2016,6 +2016,418 @@ def test_each_comment_tab_opens_on_what_waits_for_the_reviewer(tmp_path: Path) -
         shared.stop()
 
 
+def local_moment(month: int, day: int, hour: int = 12, minute: int = 0, year: int | None = None) -> str:
+    """A moment on this machine's clock, which the browser's is, written as the store writes
+    one. Without a year, this year, which a date in a search names when it has none."""
+    from datetime import datetime
+    return datetime(year or datetime.now().year, month, day, hour, minute).astimezone().isoformat()
+
+
+def stamp(store: Path, moments: dict[str, list[str]]) -> None:
+    """The stored comments written at the moments given, entry by entry: each one made at its
+    first entry and touched last at its last."""
+    data = json.loads(store.read_text(encoding="utf-8"))
+    for comment in data["comments"]:
+        if comment["id"] in moments:
+            for entry, at in zip(comment["thread"], moments[comment["id"]]):
+                entry["at"] = at
+            comment["created"], comment["updated"] = moments[comment["id"]][0], moments[comment["id"]][-1]
+    store.write_text(json.dumps(data), encoding="utf-8")
+
+
+@needs_chrome
+def test_the_search_reads_the_conditions_mail_and_code_search_have(tmp_path: Path) -> None:
+    """Each word typed is held somewhere in a comment, in any letter case. OR in capitals takes
+    either side and binds looser than the spaces, quotes hold a phrase together, and a minus
+    asks for what does not meet the term after it. from: is someone who wrote in the thread,
+    the agent as agent and the reviewer as me; file: the comment's file; after: and before: a
+    day, or a minute of it. Each condition is met by the thread, not by one entry. Any other
+    word with a colon is a word."""
+    from datetime import datetime
+
+    (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    browser = None
+    on = lambda month, day, hour=12, minute=0: local_moment(month, day, hour, minute, year=2026)
+    entry = lambda at, text, **writer: {"author": "human", "at": at, "text": text, **writer}
+    # The reviewer is Dana Cho on Overleaf.
+    comments = [
+        {"id": "t1", "anchor": {"kind": "source_range", "file": "sections/2_main.tex"},
+         "resolved_source": {"file": "sections/2_main.tex"},
+         "thread": [entry(on(11, 10, 9), "The bound is loose."), entry(on(11, 11), "Tightened the bound.", author="agent")]},
+        {"id": "t2", "anchor": {"kind": "paper"},
+         "thread": [entry(on(11, 12, 9, 30), "Please cite the survey.", name="Ann Lee"),
+                    entry(on(11, 13, 17, 45), "Agreed, cite it.", name="Bo Park")]},
+        {"id": "t3", "anchor": {"kind": "source_range", "file": "my file.tex"}, "resolved_source": {"file": "my file.tex"},
+         "thread": [entry(on(11, 14), "Loose ends in the proof sketch.")]},
+        {"id": "t4", "anchor": {"kind": "paper"}, "thread": [entry(on(11, 9), "A note: see the appendix.", name="Dana Cho")]},
+    ]
+    cases = [
+        ("bound", ["t1"]),
+        ("BOUND Tightened", ["t1"]),
+        ("loose", ["t1", "t3"]),
+        ("cite OR sketch", ["t2", "t3"]),
+        ("cite or sketch", []),
+        ("loose OR cite agreed", ["t1", "t2", "t3"]),
+        ("bound loose OR cite", ["t1", "t2"]),
+        ('"cite the"', ["t2"]),
+        ('"the cite"', []),
+        ("the cite", ["t2"]),
+        ('"loose  ends"', ["t3"]),
+        ("loose -sketch", ["t1"]),
+        ('loose -"the bound"', ["t3"]),
+        ("from:ann", ["t2"]),
+        ('from:"ann lee"', ["t2"]),
+        ("from:LEE", ["t2"]),
+        ("from:agent", ["t1"]),
+        ("from:me", ["t1", "t3", "t4"]),
+        ("-from:agent", ["t2", "t3", "t4"]),
+        ("from:me -from:agent", ["t3", "t4"]),
+        ("file:2_main", ["t1"]),
+        ('file:"my file"', ["t3"]),
+        ("-file:main", ["t2", "t3", "t4"]),
+        ("from:ann OR file:my", ["t2", "t3"]),
+        ("note:", ["t4"]),
+        ("after:11-12", ["t2", "t3"]),
+        ("before:11-10", ["t4"]),
+        ("after:11-10 before:11-11", ["t1"]),
+        ("after:2026-11-13", ["t2", "t3"]),
+        ("after:11-13T17:45", ["t2", "t3"]),
+        ("after:11-13T17:46", ["t3"]),
+        ('after:"11-13 17:45"', ["t2", "t3"]),
+        ("after:11-12T09", ["t2", "t3"]),
+        ("before:11-12T09:30", ["t1", "t4"]),
+        ("before:11-12T09:31", ["t1", "t2", "t4"]),
+        ("-after:11-12", ["t1", "t4"]),
+        ("from:ann after:11-13", ["t2"]),
+        ("after:13-45", []),
+        ("after:02-30", []),
+        ("after:yesterday", []),
+    ]
+    word = lambda value, no=False: {"not": no, "field": "", "value": value}
+    moment = lambda *at: datetime(*at).timestamp() * 1000
+    readings = [
+        ("", []),
+        ("OR", []),
+        ("from: - \"\" after:", []),
+        ("a OR OR b OR", [[word("a")], [word("b")]]),
+        ("size:10", [[word("size:10")]]),
+        ("-From:Ann", [[word("from:ann", True)]]),
+        ('-file:"My File"', [[{"not": True, "field": "file", "value": "my file"}]]),
+        ("after:11-12", [[{"not": False, "field": "after", "value": moment(2026, 11, 12)}]]),
+        ('before:"2026-11-13 09:30"', [[{"not": False, "field": "before", "value": moment(2026, 11, 13, 9, 30)}]]),
+        ("after:11-13T9", [[{"not": False, "field": "after", "value": moment(2026, 11, 13, 9)}]]),
+    ]
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        browser = chrome.launch()
+        browser.navigate(base)
+        wait_until(lambda: browser.execute_script('return document.querySelector("#comment-search") !== null'))
+        found, read, loads = browser.execute_script('''const [comments, queries, texts] = arguments;
+          return import("/static/viewer.js").then(({ parseSearch, meetsSearch }) => [
+            queries.map((query) => comments.filter((comment) => meetsSearch(comment, parseSearch(query, 2026), "Dana Cho"))
+              .map((comment) => comment.id)),
+            texts.map((text) => parseSearch(text, 2026)),
+            performance.getEntriesByType("resource").filter((entry) => new URL(entry.name).pathname === "/static/viewer.js").length]);''',
+            script_args=[comments, [query for query, _ in cases], [text for text, _ in readings]])
+        # The page's own module answers: importing it read it no second time.
+        assert loads == 1
+        assert dict(zip([query for query, _ in cases], found)) == dict(cases)
+        assert read == [reading for _, reading in readings]
+    finally:
+        if browser is not None:
+            browser.quit()
+        shared.stop()
+
+
+@needs_chrome
+def test_the_sort_list_orders_each_tab_and_its_search_and_the_keys_follow(tmp_path: Path) -> None:
+    """Beside the views, the sort list puts the list in paper order, latest first or oldest
+    first, by when each thread was last written in, in a view and in a search alike. j, k and a
+    range follow the order shown, o steps to the next order, and each comment tab keeps its own
+    across a reload. The row stays one line: the list shrinks to its icon with the row's words,
+    then waits behind the dots before Expand all does."""
+    from tex_mcp_web.comments import CommentStore, PaperAnchor
+
+    (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
+    store = tmp_path / ".tex-mcp-web" / "comments.json"
+    kept = CommentStore(store)
+    first = kept.add(PaperAnchor(), "First request, on the abstract.")
+    kept.reply(first.id, "Still waiting on this request.", "human")
+    second = kept.add(PaperAnchor(), "Second request, on the figures.")
+    third = kept.add(PaperAnchor(), "Third request, on the tables.")
+    leaf = kept.add(PaperAnchor(), "A co-author's note.", name="Ann Lee")
+    # The first was written first and answered last, so the three orders all differ.
+    stamp(store, {first.id: [local_moment(11, 1), local_moment(11, 12)], second.id: [local_moment(11, 5)],
+                  third.id: [local_moment(11, 8)], leaf.id: [local_moment(11, 2)]})
+    (tmp_path / ".tex-mcp-web" / "overleaf-imported.json").write_text(
+        json.dumps({"t1": {"comment": leaf.id, "entries": {}}}), encoding="utf-8")
+    ids = {first.id: "first", second.id: "second", third.id: "third", leaf.id: "leaf"}
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    browser = None
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        browser = chrome.launch()
+        browser.set_window_rect(x=0, y=0, width=1500, height=1000)
+        browser.navigate(base)
+        script = lambda code, *args: browser.execute_script(code, script_args=args)
+        listed = lambda: [ids[card] for card in script(
+            'return [...document.querySelectorAll("#comments-list .cmt")].map((c) => c.dataset.commentId)')]
+        sorted_by = lambda value: script('const s = document.querySelector("#comment-sort"); s.value = arguments[0];'
+                                         ' s.dispatchEvent(new Event("change"));', value)
+        shown_sort = lambda: script('return [document.querySelector("#comment-sort").value,'
+                                    ' document.querySelector("#comment-sort-name").textContent]')
+        show_view(browser, "open")
+        wait_until(lambda: listed() == ["first", "second", "third"])
+        assert shown_sort() == ["paper", "paper order"]
+        sorted_by("latest")
+        wait_until(lambda: listed() == ["first", "third", "second"])
+        sorted_by("oldest")
+        wait_until(lambda: listed() == ["second", "third", "first"])
+        # A search is ordered by the same list, and keeps its words while the order changes. In
+        # paper order it leads with the thread written last, as the all view does.
+        script('const box = document.querySelector("#comment-search"); box.value = "request";'
+               ' box.dispatchEvent(new Event("input"))')
+        wait_until(lambda: listed() == ["second", "third", "first"]
+                   and script('return document.querySelector("#comment-filter").value') == "open")
+        sorted_by("latest")
+        wait_until(lambda: listed() == ["first", "third", "second"])
+        sorted_by("paper")
+        wait_until(lambda: listed() == ["third", "second", "first"])
+        assert script('return document.querySelector("#comment-search").value') == "request"
+        # The keys go down the list as it is shown: j rings the first and the second, and a range
+        # from the first stretched by j picks the two at the top.
+        sorted_by("latest")
+        wait_until(lambda: listed() == ["first", "third", "second"])
+        ringed = lambda: ids.get(script('return document.querySelector(".cmt.is-focused")?.dataset.commentId ?? ""'))
+        script('document.querySelector("#comments-list").focus()')
+        type_keys(browser, ["j"])
+        wait_until(lambda: ringed() == "first")
+        type_keys(browser, ["j"])
+        wait_until(lambda: ringed() == "third")
+        type_keys(browser, ["k", "v", "j", "x"])
+        wait_until(lambda: sorted(ids[card] for card in script(
+            'return [...document.querySelectorAll(".cmt")].filter((c) => c.querySelector(".comment-pick").checked)'
+            '.map((c) => c.dataset.commentId)')) == ["first", "third"])
+        # o steps through the orders, round to the first, and the keys dialog lists it.
+        for order, name, shown in [("oldest", "oldest first", ["second", "third", "first"]),
+                                   ("paper", "paper order", ["third", "second", "first"]),
+                                   ("latest", "latest first", ["first", "third", "second"])]:
+            type_keys(browser, ["o"])
+            wait_until(lambda: shown_sort() == [order, name] and listed() == shown)
+        type_keys(browser, ["?"])
+        wait_until(lambda: script('return document.querySelector("#keys-dialog").open'))
+        assert "Next order of the list: paper order, latest first, oldest first" in script(
+            'return document.querySelector("#keys-list").textContent')
+        script('document.querySelector("#keys-dialog").close()')
+        # The leaf tab keeps an order of its own, and a reload brings each tab's back.
+        script('document.querySelector(\'.tab-btn[data-tab="overleaf-comments"]\').click()')
+        wait_until(lambda: shown_sort() == ["paper", "paper order"])
+        sorted_by("oldest")
+        browser.refresh()
+        wait_until(lambda: shown_sort() == ["latest", "latest first"])
+        show_view(browser, "open")
+        wait_until(lambda: listed() == ["first", "third", "second"])
+        script('document.querySelector(\'.tab-btn[data-tab="overleaf-comments"]\').click()')
+        wait_until(lambda: shown_sort() == ["oldest", "oldest first"])
+        script('document.querySelector(\'.tab-btn[data-tab="comments"]\').click()')
+        wait_until(lambda: shown_sort() == ["latest", "latest first"])
+        # However narrow the panel, the row stays one line. The sort list shows its words, then
+        # its icon alone once the row's words are gone, with the list lying over the icon, then
+        # waits behind the dots, and Expand all goes there only after it.
+        steps = script('''return (async () => {
+          const layout = document.querySelector(".layout");
+          const row = document.querySelector(".filter-row");
+          const sort = document.querySelector("#comment-sort-pick");
+          const frame = () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+          const seen = [];
+          for (let width = 700; width >= 240; width -= 5) {
+            layout.style.setProperty("--tex-mcp-sidebar-width", `${width}px`);
+            await frame();
+            const icon = sort.querySelector(".sort-icon").getBoundingClientRect();
+            const list = sort.querySelector("select").getBoundingClientRect();
+            seen.push({
+              width, line: row.scrollWidth <= row.clientWidth && row.getBoundingClientRect().height < 40,
+              sort: sort.closest(".comment-rare-group") ? "behind" : icon.width > 0 ? "icon" : "words",
+              over: icon.width > 0 && Math.abs(icon.left - list.left) < 1 && Math.abs(icon.right - list.right) < 1
+                && getComputedStyle(sort.querySelector("select")).opacity === "0",
+              fold: document.querySelector("#fold-all-btn").closest(".comment-rare-group") !== null,
+              words: getComputedStyle(document.querySelector("#resolve-picked-btn .wide-label")).display !== "none",
+            });
+          }
+          layout.style.removeProperty("--tex-mcp-sidebar-width");
+          return seen;
+        })();''')
+        assert all(step["line"] for step in steps), steps
+        states = [step["sort"] for step in steps]
+        assert states[0] == "words" and states[-1] == "behind" and "icon" in states, states
+        assert states == sorted(states, key=["words", "icon", "behind"].index), states
+        assert all(step["over"] for step in steps if step["sort"] == "icon"), steps
+        assert all(not step["words"] for step in steps if step["sort"] != "words"), steps
+        assert all(step["sort"] == "behind" for step in steps if step["fold"]) and steps[-1]["fold"], steps
+        assert any(step["sort"] == "behind" and not step["fold"] for step in steps), steps
+        # Behind the dots it is the list with its words, and an order chosen there closes them.
+        script('document.querySelector(".layout").style.setProperty("--tex-mcp-sidebar-width", "240px")')
+        wait_until(lambda: script('return document.querySelector("#comment-sort-pick").closest(".comment-rare-group") !== null'))
+        browser.find_element("css selector", "#comment-rare-btn").click()
+        assert script('return document.querySelector("#comment-sort").getBoundingClientRect().width > 60')
+        sorted_by("oldest")
+        wait_until(lambda: listed() == ["second", "third", "first"])
+        assert script('return document.querySelector("#comment-rare").classList.contains("open")') is False
+    finally:
+        if browser is not None:
+            browser.quit()
+        shared.stop()
+
+
+@needs_chrome
+def test_a_reviewer_finds_a_co_authors_thread_by_its_writer_file_and_day(tmp_path: Path) -> None:
+    """Several co-authors wrote threads on Overleaf. The reviewer remembers that one of them
+    wrote about a step in 2_main.tex around a certain day: in the search box, focused, the
+    conditions show under it. from: offers the tab's writers, file: typed by hand its files,
+    and after: waits for a day. The thread found, the reviewer opens it and asks about it in a
+    private reply."""
+    from tex_mcp_web.comments import CommentStore, ResolvedSource, SourceRangeAnchor, capture_source_selector
+
+    (tmp_path / "paper.tex").write_text(
+        "\\documentclass{article}\n\\begin{document}\n\\input{1_intro}\n\\input{2_main}\n\\end{document}\n",
+        encoding="utf-8")
+    (tmp_path / "1_intro.tex").write_text("We open with a question.\nIt is old.\n", encoding="utf-8")
+    (tmp_path / "2_main.tex").write_text(
+        "Theorem one holds.\nBy induction on n, the claim follows.\nThe second display ends here.\n", encoding="utf-8")
+    store = tmp_path / ".tex-mcp-web" / "comments.json"
+    kept = CommentStore(store)
+
+    def thread(file, line, name, text):
+        return kept.add(SourceRangeAnchor(file=file, line_start=line, line_end=line), text,
+                        resolved_source=ResolvedSource(file=file, line_start=line, line_end=line),
+                        source_selector=capture_source_selector(tmp_path / file, line, line), name=name)
+
+    early = thread("2_main.tex", 1, "Mina Seo", "Is the constant in Theorem one tight?")
+    sought = thread("2_main.tex", 2, "Mina Seo", "This step skips the induction base.")
+    elsewhere = thread("1_intro.tex", 1, "Mina Seo", "Shorten the opening.")
+    other = thread("2_main.tex", 3, "Jun Ito", "Typo in the second display.")
+    replied = thread("1_intro.tex", 2, "Leo Park", "Which question?")
+    kept.reply(replied.id, "The old one, I think.", "human", name="Jun Ito")
+    stamp(store, {early.id: [local_moment(11, 4)], sought.id: [local_moment(11, 12, 10, 15)],
+                  elsewhere.id: [local_moment(11, 12, 11)], other.id: [local_moment(11, 13, 9)],
+                  replied.id: [local_moment(11, 6), local_moment(11, 7)]})
+    (tmp_path / ".tex-mcp-web" / "overleaf-imported.json").write_text(json.dumps(
+        {f"t{n}": {"comment": comment.id, "entries": {}} for n, comment in enumerate([early, sought, elsewhere, other, replied])}),
+        encoding="utf-8")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    browser = None
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        browser = chrome.launch()
+        browser.set_window_rect(x=0, y=0, width=1500, height=1000)
+        browser.navigate(base)
+        script = lambda code: browser.execute_script(code)
+        listed = lambda: script('return [...document.querySelectorAll("#comments-list .cmt")].map((c) => c.dataset.commentId)')
+        box = lambda: script('const box = document.querySelector("#comment-search");'
+                             ' return [box.value, box.selectionStart, document.activeElement === box];')
+        terms = 'return getComputedStyle(document.querySelector("#search-terms")).display !== "none"'
+        offered = lambda: script('const pick = document.querySelector("#search-pick"); return pick.hidden ? null'
+                                 ' : [...pick.children].map((choice) => choice.textContent)')
+        leaf_tab = '.tab-btn[data-tab="overleaf-comments"]'
+        wait_until(lambda: script(f"return !document.querySelector('{leaf_tab}').hidden"))
+        script(f"document.querySelector('{leaf_tab}').click()")
+        show_view(browser, "all")
+        wait_until(lambda: len(listed()) == 5)
+        # Nothing shows under the box until it has the focus.
+        assert script(terms) is False
+        browser.find_element("css selector", "#comment-search").click()
+        wait_until(lambda: script(terms))
+        assert script('return [...document.querySelectorAll("#search-terms button")].map((b) => b.textContent)') \
+            == ["from:", "file:", '"phrase"', "-not", "OR", "after:", "before:"]
+        # from: typed by hand lists the tab's writers. The arrows go through them, round from the
+        # last to the first, and Enter completes the name, the focus kept and the list closed.
+        type_keys(browser, list("from:"))
+        wait_until(lambda: offered() == ["Jun Ito", "Leo Park", "Mina Seo"])
+        type_keys(browser, ["", "", "", ""])
+        assert script('return [...document.querySelectorAll("#search-pick [aria-selected=true]")]'
+                      '.map((choice) => choice.textContent)') == ["Mina Seo"]
+        type_keys(browser, [""])
+        assert box() == ['from:"Mina Seo" ', 16, True] and offered() is None
+        wait_until(lambda: sorted(listed()) == sorted([early.id, sought.id, elsewhere.id]))
+        type_keys(browser, [""])
+        wait_until(lambda: len(listed()) == 5 and script(terms) is False)
+        # A click on "phrase" puts the quotes in with the cursor between them, the focus kept.
+        browser.find_element("css selector", "#comment-search").click()
+        browser.find_element("css selector", '#search-terms [data-insert=\'""\']').click()
+        assert box() == ['""', 1, True]
+        type_keys(browser, list("induction base"))
+        wait_until(lambda: listed() == [sought.id])
+        # Escape puts the search away, and the conditions go with the focus.
+        type_keys(browser, ["\ue00c"])
+        wait_until(lambda: len(listed()) == 5 and script(terms) is False)
+        # from: offers the tab's writers, and a click on one completes it, in quotes.
+        browser.find_element("css selector", "#comment-search").click()
+        browser.find_element("css selector", '#search-terms [data-insert="from:"]').click()
+        assert box() == ["from:", 5, True]
+        wait_until(lambda: offered() == ["Jun Ito", "Leo Park", "Mina Seo"])
+        type_keys(browser, list("se"))
+        wait_until(lambda: offered() == ["Mina Seo"])
+        browser.find_element("css selector", "#search-pick .search-choice").click()
+        assert box() == ['from:"Mina Seo" ', 16, True]
+        assert offered() is None
+        wait_until(lambda: sorted(listed()) == sorted([early.id, sought.id, elsewhere.id]))
+        # file: typed by hand offers the files; Escape closes the list and keeps the search, and
+        # what is typed next filters it again.
+        type_keys(browser, list("file:"))
+        wait_until(lambda: offered() == ["1_intro.tex", "2_main.tex"])
+        type_keys(browser, ["\ue00c"])
+        assert offered() is None and box() == ['from:"Mina Seo" file:', 21, True]
+        type_keys(browser, list("2_m"))
+        wait_until(lambda: offered() == ["2_main.tex"])
+        type_keys(browser, ["\ue00c"])
+        type_keys(browser, list("ain"))
+        wait_until(lambda: offered() == ["2_main.tex"])
+        type_keys(browser, ["\ue00c"])
+        wait_until(lambda: sorted(listed()) == sorted([early.id, sought.id]))
+        # after: waits after its colon for the day, and lists no names.
+        browser.find_element("css selector", '#search-terms [data-insert="after:"]').click()
+        assert box() == ['from:"Mina Seo" file:2_main after:', 34, True]
+        assert offered() is None
+        type_keys(browser, list("11-12"))
+        wait_until(lambda: listed() == [sought.id])
+        # Enter gives the keys to the thread found: it opens, and r writes a private reply to it.
+        type_keys(browser, ["\ue007"])
+        assert script('return document.activeElement.id') == "comments-list" and script(terms) is False
+        type_keys(browser, ["j", " "])
+        wait_until(lambda: script(f'return document.querySelector(\'[data-comment-id="{sought.id}"] .cmt-reply\') !== null'))
+        # Space shows its line in the source, here with no PDF yet, and gives the keys back.
+        wait_until(lambda: script('const editor = ace.edit("source-editor"); return editor.getValue().startsWith("Theorem one")'
+                                  ' && editor.getCursorPosition().row === 1'))
+        type_keys(browser, ["r"])
+        wait_until(lambda: script('return document.activeElement.classList.contains("cmt-form-input")'))
+        type_keys(browser, list("Do you mean the case n = 0?"))
+        browser.actions("key", "keyboard").key_down(chrome.SHIFT).key_down(chrome.ENTER) \
+            .key_up(chrome.ENTER).key_up(chrome.SHIFT).perform()
+        wait_until(lambda: shared.server.comments.get(sought.id).thread[-1].text == "Do you mean the case n = 0?")
+        asked = shared.server.comments.get(sought.id).thread[-1]
+        assert (asked.author, asked.name, asked.overleaf) == ("human", None, None)
+    finally:
+        if browser is not None:
+            browser.quit()
+        shared.stop()
+
+
 @needs_chrome
 def test_applying_a_suggestion_keeps_the_ring_where_it_is(tmp_path: Path) -> None:
     """A comment on PDF words opened earlier leaves its highlight selected. The highlights are
@@ -2152,6 +2564,93 @@ def test_the_editor_holds_the_cursor_line_a_third_down_when_chosen(tmp_path: Pat
         assert browser.execute_script(
             'return [...document.querySelectorAll("[data-cursor-choice]")].map((button) => button.textContent)') \
             == ["Anywhere", "1/3 down", "1/2 down"]
+    finally:
+        if browser is not None:
+            browser.quit()
+        shared.stop()
+
+
+@needs_chrome
+def test_the_editors_menu_holds_text_size_wrap_and_vim_keys(tmp_path: Path) -> None:
+    """The editor's bar keeps the text size, wrapping and Vim keys in its ⋯ menu, named there
+    and checked as remembered. The menu stays open as the size steps, and Vim keys, Escape or
+    a click outside closes it."""
+    import pymupdf
+
+    (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
+    with pymupdf.open() as pdf:
+        pdf.new_page().insert_text((72, 72), "Hello world.")
+        pdf.save(tmp_path / "paper.pdf")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    browser = None
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        browser = chrome.launch()
+        browser.set_window_rect(x=0, y=0, width=1500, height=900)
+        browser.navigate(base)
+        browser.execute_script('localStorage.setItem("texMcpSourceWrap", "0"); localStorage.setItem("texMcpVimKeys", "1");')
+        browser.navigate(base)
+        browser.execute_script('document.querySelector("[data-view=source]").click()')
+        editor = '(window.wrappedJSObject || window).ace.edit("source-editor")'
+        wait_until(lambda: browser.execute_script(f'return {editor}.getValue().includes("Hello")'))
+        vim_on = lambda: browser.execute_script(f"return Boolean({editor}.$vimModeHandler);")
+        wait_until(vim_on)
+        script = browser.execute_script
+        shown = lambda selector: script(f'return document.querySelector("{selector}").getClientRects().length > 0')
+        menu_open = lambda: not script('return document.querySelector("#source-more-menu").hidden')
+        assert shown("#source-more-btn")
+        assert not any(shown(f"#source-{name}-btn") for name in ("font-smaller", "font-larger", "wrap", "vim"))
+        # The leaf shows only once the paper names its Overleaf project, which this one does not.
+        assert not shown("#source-leaf-btn")
+        browser.find_element("css selector", "#source-more-btn").click()
+        assert menu_open() and script(
+            'return document.querySelector("#source-more-btn").getAttribute("aria-expanded")') == "true"
+        assert script('''
+          const menu = document.querySelector("#source-more-menu");
+          return [menu.innerText.includes("Text size"),
+                  ...[...menu.querySelectorAll("[role^=menuitem]")].map((item) => item.getAttribute("aria-label") || item.textContent)];
+        ''') == [True, "Smaller text", "Larger text", "Wrap long lines", "Vim keys"]
+        # The check marks show the remembered choices: wrapping off, Vim keys on.
+        marks = '''return ["#source-wrap-btn", "#source-vim-btn"].map((id) => [document.querySelector(id).getAttribute("aria-checked"),
+                    getComputedStyle(document.querySelector(id), "::after").content]);'''
+        assert script(marks) == [["false", "none"], ["true", '"✓"']]
+        # The size steps by a pixel at each press, the menu open throughout.
+        for size in ("14px", "15px"):
+            browser.find_element("css selector", "#source-font-larger-btn").click()
+            assert script(f"return {editor}.getFontSize();") == size and menu_open()
+        # Vim keys there turns them off and on, closing the menu.
+        browser.find_element("css selector", "#source-vim-btn").click()
+        assert wait_until(lambda: not vim_on()) and not menu_open()
+        assert script(marks)[1] == ["false", "none"]
+        browser.find_element("css selector", "#source-more-btn").click()
+        browser.find_element("css selector", "#source-vim-btn").click()
+        assert wait_until(vim_on) and not menu_open()
+        assert script(marks)[1] == ["true", '"✓"']
+        assert script('return localStorage.getItem("texMcpVimKeys")') == "1"
+        # Escape closes the menu before the editor, which has the focus, takes it, and once the
+        # menu is closed Escape is the editor's again.
+        browser.find_element("css selector", "#source-more-btn").click()
+        script(f"{editor}.focus();")
+        assert menu_open()
+        escape = lambda: browser.actions("key", "keyboard").key_down(chrome.ESCAPE).key_up(chrome.ESCAPE).perform()
+        escape()
+        assert not menu_open() and script(
+            'return document.querySelector("#source-more-btn").getAttribute("aria-expanded")') == "false"
+        field = f"return {editor}.textInput.getElement().readOnly;"
+        type_keys(browser, ["i"])
+        assert script(field) is False
+        escape()
+        assert wait_until(lambda: script(field))
+        # A click outside closes it too.
+        browser.find_element("css selector", "#source-more-btn").click()
+        assert menu_open()
+        browser.find_element("css selector", "#source-editor").click()
+        assert not menu_open()
     finally:
         if browser is not None:
             browser.quit()
@@ -3451,6 +3950,15 @@ def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path
         git(paper, "pull", "-q")
         wait_until(lambda: why() == "" and not disabled("#overleaf-sync-comments-btn"), timeout=15)
         assert said().startswith("This folder is at Overleaf's commit")
+        # A commit on Overleaf that changes no file is taken in by itself: nothing to pull,
+        # and no comment held back.
+        git(coauthor, "commit", "-q", "--allow-empty", "-m", "nothing")
+        git(coauthor, "push", "-q", "origin", "HEAD:main")
+        git(paper, "fetch", "-q")
+        # The page reads the folder's standing again when a source file is written.
+        (paper / "paper.tex").write_text((paper / "paper.tex").read_text(encoding="utf-8"), encoding="utf-8", newline="")
+        wait_until(lambda: git(paper, "rev-parse", "HEAD") == git(coauthor, "rev-parse", "HEAD"), timeout=15)
+        assert why() == "" and not disabled("#overleaf-sync-comments-btn") and hidden("#git-pull-btn")
         browser.execute_script('document.querySelector(\'.tab-btn[data-tab="comments"]\').click()')
 
         # The sync button sits in the leaf Comments tab, with the threads it brings.
@@ -3782,7 +4290,7 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
         fits = '''
           const row = document.querySelector(".filter-row");
           const box = row.getBoundingClientRect();
-          const shown = [...row.querySelectorAll("select, input, .icon-btn")]
+          const shown = [...row.querySelectorAll("select, input, .icon-btn:not(.sort-icon)")]
             .filter((node) => node.offsetWidth > 0 && !node.closest(".comment-rare-group"));
           const items = shown.map((node) => node.getBoundingClientRect());
           const apart = (a, b) => a.right <= b.left + 0.5 || b.right <= a.left + 0.5;
@@ -4517,7 +5025,7 @@ def test_translation_numbers_its_source_lines_and_follows_the_editor(tmp_path: P
     cursor is marked and brought into view, and the type size steps and is kept."""
     import pymupdf
 
-    def translated(prompt, cwd, system):
+    def translated(prompt, cwd, system, model):
         blocks = json.loads(prompt.split("Paragraphs (JSON):\n", 1)[1])
         return json.dumps({"t": {pid: "T " + text for pid, text in blocks.items()}})
 

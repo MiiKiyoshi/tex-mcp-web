@@ -62,12 +62,30 @@ last line of the PDF. Running heads, page numbers and the words inside an includ
   tab counts them. **open** lists every open comment, and one opened from its mark in the
   PDF or the editor shows there when to do leaves it out. The PDF and the editor mark every
   open comment of the tab, whatever the list shows.
-- The search box above the comments, which `/` goes to, lists the tab's comments that hold
-  every word typed, in any letter case and whatever their status: in a comment or a reply,
-  the name of whoever wrote in it on Overleaf, the words it is on, its file, its suggestion
-  or its draft for Overleaf. Enter gives the
-  keys to the comments found, and Escape in the box, or choosing a view, puts the search
-  away.
+- The search box above the comments, which `/` goes to, lists the tab's comments that meet
+  what is typed, in any letter case and whatever their status. A word is looked for in a
+  comment or a reply, the name of whoever wrote in it on Overleaf, the words it is on, its
+  file, its suggestion or its draft for Overleaf. While the box has the focus, the
+  conditions below show under it, and a click puts one in at the cursor. `from:` and
+  `file:`, clicked or typed, list the tab's writers or files to pick from with a click, or
+  with the arrow keys and Enter; Escape closes the list. Enter gives the keys to the
+  comments found, and Escape in the box, or choosing a view, puts the search away.
+
+  | Type | Finds the threads that | Example |
+  |---|---|---|
+  | words | hold every word | `bound loose` |
+  | `OR` | meet either side; the spaces bind first | `cite OR survey` |
+  | `"…"` | hold the words together, as written | `"induction base"` |
+  | `-` | do not meet what follows | `loose -"the bound"` |
+  | `from:` | someone whose name holds the word wrote in; you are `me`, the agent `agent` | `from:"Ann Lee"` |
+  | `file:` | are on a file whose path holds the word | `file:2_main` |
+  | `after:` | have an entry written on that day or later | `after:11-12` |
+  | `before:` | have an entry written before that day, or that minute | `before:"11-13 09:30"` |
+
+  Each condition is met by the thread, so `from:` and `after:` may be met by two of its
+  entries. A day is `MM-DD` of this year or `YYYY-MM-DD`, read in your computer's time. A
+  minute follows it as `11-13T09` or `11-13T09:30`, or in quotes as the cards show it,
+  `"11-13 09:30"`. Any other word with a colon is an ordinary word.
 - What you wrote in a thread carries **Edit** and **Delete**. **Delete** on a thread's first
   message deletes the thread.
 - **Resolve** a thread whose edit satisfies you, or **Reply privately** in it when it does not.
@@ -82,13 +100,20 @@ last line of the PDF. Running heads, page numbers and the words inside an includ
   and deleting all of them leaves it where they were. A paragraph moved elsewhere takes its
   comments along. The card says **EDITED** once its words changed, and **STALE** only when
   its file is gone.
+- The sort list beside the view list orders the list. **paper order** keeps each view's own
+  order: the comments here as they were written, Overleaf's threads as the paper reads
+  them, the last closed first in **resolved**, the last touched first in **archived**, and
+  the newest thread first in **all** and in a search. **latest first** and **oldest first**
+  order any view, and a search, by when each thread was last written in. Each comment tab
+  keeps its own choice, and `o` steps to the next.
 - The row above the comments acts on the threads picked by their boxes. From the left: the
-  view list and **Expand all**; the box that picks every thread listed or lets them all go;
+  view list, the sort list and **Expand all**; the box that picks every thread listed or lets them all go;
   **Resolve**, which reads **Reopen** when the picked threads are resolved or archived and,
   as `R` does, resolves the open ones of a mix; **Archive**, or in the Overleaf tab **Accept**,
   **Reject** and **Send to Overleaf**; then the sync button and **Call agent**. On a narrow
-  panel the word **Resolve** goes first, then **Expand all**, the sync button and **Call
-  agent** wait behind **⋯** with their names. What acts on the picked threads stays in the
+  panel the word **Resolve** goes first and the sort list shrinks to its icon, then the sort
+  list, **Expand all**, the sync button and **Call agent** wait behind **⋯** with their
+  names. What acts on the picked threads stays in the
   row, which takes two lines only when even that does not fit.
 
 ## Comment keys
@@ -124,17 +149,20 @@ typing.
 | `v` | Hold a range, which the moving keys stretch. `R`, `A`, `ss` and `x` then act on the whole range, and Escape or `v` lets it go |
 | `/` | Search the tab's comments, whatever their status |
 | `f` `F` | Next and previous view in the list atop the tab: to do, open, … |
+| `o` | Next order of the list: paper order, latest first, oldest first |
 | `t` `T` | Next and previous tab |
 | `?` | These keys |
 
 With comments picked, `R`, `A` and `ss` act on them. A click on a card puts the ring on it,
-and choosing a comment tab or a view in the list atop gives the keys back to the comments.
+and choosing a comment tab, a view or an order in the lists atop gives the keys back to the comments.
 With a Korean input method on, a letter key is read by where it sits on the keyboard, so the
 keys work as they are.
 
 ## Editor keys
 
-The Vim button in the editor's bar turns on Vim keys, and the page remembers the choice.
+**Vim keys** in the ⋯ menu at the end of the editor's bar turns on Vim keys, and the page
+remembers the choice. The same menu steps the editor's text size and turns the wrapping of
+long lines on or off, each remembered too.
 
 - `:w` saves and `:make` compiles. `jj` typed quickly, Escape or Ctrl+[ leaves Insert mode.
 - `gc` comments on the text a motion or a visual selection covers, and `gs` marks that text

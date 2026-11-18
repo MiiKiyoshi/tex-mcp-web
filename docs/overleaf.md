@@ -32,7 +32,8 @@ address, so on the shared machine's own browser, open no page another account se
 
 - The threads come into the leaf **Comments** tab beside **Comments**, kept as Overleaf has
   them. The editor and the PDF mark the open comments of the tab shown. The tab lists the
-  threads in the order the paper reads them and opens on **to do**, what waits for you
+  threads in the order the paper reads them, or latest or oldest first as its sort list
+  says (see [Threads](reviewing.md#threads)), and opens on **to do**, what waits for you
   alone: a thread whose last message on Overleaf is someone else's, a suggestion to apply,
   a draft to send, a reply or a new thread, and the suggested edits to accept or reject. Each leaves it once done, so an empty to do is nothing left,
   and the number on the tab counts what is in it.
@@ -190,8 +191,10 @@ Overleaf's commit, with commits Overleaf lacks, lacking commits Overleaf has, or
   token in the remote's address never reaches the page, and git push refuses a commit that
   holds the page's own records.
 
-Comments sync once the folder and Overleaf are at the same commit. Until then the leaf
-Comments tab says what is in the way above its list, and its sync button stays greyed. A
+Comments sync once the folder and Overleaf hold the same files. Until then the leaf
+Comments tab says what is in the way above its list, and its sync button stays greyed.
+Overleaf makes many commits that change no file: the page takes those in by itself, which
+writes nothing in the folder, so they are never shown to pull and hold no comment back. A
 git pull or git push made in a terminal counts as the buttons do: the page sees it within
 a few seconds.
 
