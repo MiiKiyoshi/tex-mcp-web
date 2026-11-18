@@ -2125,7 +2125,11 @@ def test_the_top_bar_fits_a_phone_at_every_text_size(tmp_path: Path) -> None:
         assert script(bar)["steps"] == []
         script('document.querySelector(\'[data-text-choice="150"]\').click()')
         script(FITTED)
-        assert script(bar)["steps"] == ["one-face", "tight"]
+        # At the largest size the bar takes its steps in their order, as many as the fonts
+        # of the system need, starting with the second face.
+        order = ["one-face", "tight", "faceless", "countless", "tabs-cut"]
+        steps = script(bar)["steps"]
+        assert steps and steps == order[:len(steps)]
     finally:
         if browser is not None:
             browser.quit()
