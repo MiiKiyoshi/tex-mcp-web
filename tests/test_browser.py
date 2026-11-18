@@ -179,7 +179,7 @@ def test_browser_comment_actions(tmp_path: Path) -> None:
         # The comment box holds the words to the agent and nothing else to fill in.
         assert browser.execute_script('''
           return [document.querySelector("#compose-anchor").textContent,
-            document.querySelectorAll("#compose-form textarea").length];
+            [...document.querySelectorAll("#compose-form textarea")].filter((box) => box.offsetParent !== null).length];
         ''') == ["Source: paper.tex:4-4", 1]
         browser.execute_script('''
           const input = document.querySelector("#compose-text");
@@ -4002,32 +4002,35 @@ def test_suggested_edits_from_overleaf_have_their_own_view_and_marks_in_the_edit
 @needs_chrome
 def test_the_leaf_beside_comment_starts_a_thread_for_overleaf(tmp_path: Path, monkeypatch) -> None:
     """With the leaf pressed beside + Comment, a comment on source text starts a thread for
-    Overleaf: the dialog says so and offers no rewrite, and the thread waits among the new
-    threads of the leaf tab, what was written marked as private."""
+    Overleaf, in two boxes, either of which will do. The top one is the thread's first
+    message, posted at once; the one below is a private note, which waits for the agent, and
+    alone has the agent draft that message, as the thread waits among the new threads of the
+    leaf tab. A first message Overleaf refuses stays on the thread's card as its draft, saying
+    why."""
     import asyncio
     import threading
     from aiohttp.test_utils import TestServer
-    from tests.test_overleaf_live import FIGURE, PROJECT_ID, FakeRealtime
+    from tests.test_overleaf_sync import BODY, FIGURE, MAIN, PROJECT_ID, FakeOverleaf
     from tex_mcp_web import overleaf
 
     loop = asyncio.new_event_loop()
     threading.Thread(target=loop.run_forever, daemon=True).start()
-    fake = FakeRealtime()
-    realtime = TestServer(fake.app, loop=loop)
-    asyncio.run_coroutine_threadsafe(realtime.start_server(), loop).result(10)
+    fake = FakeOverleaf()
+    site = TestServer(fake.app, loop=loop)
+    asyncio.run_coroutine_threadsafe(site.start_server(), loop).result(10)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config-home"))
     monkeypatch.delenv(overleaf.COOKIE_ENV, raising=False)
     overleaf.save_cookie(fake.cookie)
-    main = "\\documentclass{article}\n\\begin{document}\nHello world.\n\\end{document}\n"
-    (tmp_path / "main.tex").write_text(main, encoding="utf-8")
+    # The fourth line is here only, not on Overleaf yet.
+    (tmp_path / "main.tex").write_text(MAIN.replace("fast.\n", "fast.\nOnly here.\n"), encoding="utf-8")
     (tmp_path / "tex").mkdir()
-    (tmp_path / "tex" / "body.tex").write_text("Body text.\n", encoding="utf-8")
-    (tmp_path / "a.png").write_bytes(FIGURE)
-    fake.texts = {"d-main": main, "d-body": "Body text.\n"}
+    (tmp_path / "tex" / "body.tex").write_text(BODY, encoding="utf-8")
+    (tmp_path / "fig").mkdir()
+    (tmp_path / "fig" / "plot.png").write_bytes(FIGURE)
     port = available_port()
     config_path = tmp_path / ".tex-mcp-web.yaml"
     config_path.write_text(f"main: main.tex\nport: {port}\n"
-                           f"overleaf: http://127.0.0.1:{realtime.port}/project/{PROJECT_ID}\n", encoding="utf-8")
+                           f"overleaf: http://127.0.0.1:{site.port}/project/{PROJECT_ID}\n", encoding="utf-8")
     shared = SharedProjectServer(load_config(config_path))
     browser = None
     try:
@@ -4037,37 +4040,141 @@ def test_the_leaf_beside_comment_starts_a_thread_for_overleaf(tmp_path: Path, mo
         browser = chrome.launch()
         browser.set_window_rect(x=0, y=0, width=1500, height=900)
         browser.navigate(base)
-        script = lambda code: browser.execute_script(code, sandbox=None)
+        script = lambda code, *args: browser.execute_script(code, script_args=list(args), sandbox=None)
         script('document.querySelector("[data-view=source]").click()')
         wait_until(lambda: script('return !document.querySelector("#source-leaf-btn").hidden'), timeout=20)
-        wait_until(lambda: script('return Boolean(window.ace) && ace.edit("source-editor").getValue().includes("Hello world.")'))
+        wait_until(lambda: script('return Boolean(window.ace) && ace.edit("source-editor").getValue().includes("Only here.")'))
+        wait_until(lambda: shared.server.overleaf_live is not None and shared.server.overleaf_live.status == "live",
+                   timeout=20)
         script('document.querySelector("#source-leaf-btn").click()')
         assert script('return document.querySelector("#source-leaf-btn").getAttribute("aria-pressed")') == "true"
-        script('const e = ace.edit("source-editor"); const Range = ace.require("ace/range").Range;'
-               ' e.selection.setRange(new Range(2, 0, 2, 5));')
-        wait_until(lambda: not script('return document.querySelector("#source-comment-btn").disabled'))
-        script('document.querySelector("#source-comment-btn").click()')
-        wait_until(lambda: script('return document.querySelector("#compose-dialog").open'))
-        assert script('return [document.querySelector("#compose-title").textContent,'
-                      ' document.querySelectorAll("#compose-form textarea").length]') == ["New public thread on Overleaf", 1]
-        script('const box = document.querySelector("#compose-text"); box.value = "ask if hello is too short, politely";'
-               ' box.dispatchEvent(new Event("input", {bubbles: true}));'
-               ' document.querySelector("#compose-form").requestSubmit();')
+        store = shared.server.comments
+        boxes = '[...document.querySelectorAll("#compose-form textarea")].filter((box) => box.offsetParent !== null)'
+
+        def compose(row: int) -> None:
+            script('const e = ace.edit("source-editor"); const Range = ace.require("ace/range").Range;'
+                   ' e.selection.setRange(new Range(arguments[0], 0, arguments[0], 10));', row)
+            wait_until(lambda: not script('return document.querySelector("#source-comment-btn").disabled'))
+            script('document.querySelector("#source-comment-btn").click()')
+            wait_until(lambda: script('return document.querySelector("#compose-dialog").open'))
+
+        def fill(message: str, note: str) -> None:
+            script('const [top, bottom] = [document.querySelector("#compose-message"), document.querySelector("#compose-text")];'
+                   ' top.value = arguments[0]; bottom.value = arguments[1];'
+                   ' for (const box of [top, bottom]) box.dispatchEvent(new Event("input", {bubbles: true}));',
+                   message, note)
+
+        def started():
+            known = {comment.id for comment in made}
+            return wait_until(lambda: next((comment for comment in store.list() if comment.id not in known), None))
+
+        made = []
+        compose(2)
+        # Two boxes, the public message above, where the cursor starts, with what becomes of it
+        # said under it, and the private note below.
+        assert script(f'return [document.querySelector("#compose-title").textContent, {boxes}.map((box) => box.id),'
+                      ' document.querySelector(".compose-public-note").textContent,'
+                      f' {boxes}.some((box) => box.required)]') == [
+            "New public thread on Overleaf", ["compose-message", "compose-text"],
+            "What you write here is posted to Overleaf at once, for everyone in the project.", False]
+        wait_until(lambda: script('return document.activeElement.id') == "compose-message")
+        # Both empty, nothing is posted.
+        script('document.querySelector("#compose-form").requestSubmit()')
+        time.sleep(0.5)
+        assert script('return document.querySelector("#compose-dialog").open') is True and store.list() == []
+
+        # The note alone waits for the agent's draft among the new threads, private.
+        fill("", "ask if the placer is fast enough, politely")
+        script('document.querySelector("#compose-form").requestSubmit()')
+        note_only = started()
+        made.append(note_only)
+        assert note_only.for_overleaf and note_only.overleaf_draft is None
+        assert [entry.text for entry in note_only.waiting()] == ["ask if the placer is fast enough, politely"]
         wait_until(lambda: script('return document.querySelector(".tab-btn.active")?.dataset.tab') == "overleaf-comments")
         wait_until(lambda: script('return document.querySelector("#comment-filter").value') == "new")
-        card = 'document.querySelector("#comments-list .cmt")'
+        card = f'document.querySelector(\'[data-comment-id="{note_only.id}"]\')'
         wait_until(lambda: script(f'return {card}?.textContent.includes("New public thread on Overleaf") ?? false'))
         script(f'{card}.querySelector(".cmt-head").click()')
         wait_until(lambda: script(f'return {card}.querySelector(".entry-overleaf.here") !== null'))
-        assert script(f'return {card}.querySelector(".thread-text").textContent') == "ask if hello is too short, politely"
-        # The next comment from the editor goes the same way until the leaf is let go.
+        assert script(f'return {card}.querySelector(".thread-text").textContent') == "ask if the placer is fast enough, politely"
+        assert fake.threads == {}
+
+        # The message alone, sent with the control key and Enter from its box, opens the thread
+        # on Overleaf at once, and nothing in it waits for the agent.
+        compose(2)
+        fill("Is the placer fast enough here?", "")
+        script('document.querySelector("#compose-message").dispatchEvent(new KeyboardEvent("keydown",'
+               ' {key: "Enter", ctrlKey: true, bubbles: true, cancelable: true}))')
+        message_only = started()
+        made.append(message_only)
+        wait_until(lambda: len(fake.threads) == 1)
+        assert [m["content"] for m in next(iter(fake.threads.values()))["messages"]] == ["Is the placer fast enough here?"]
+        sent = wait_until(lambda: (kept := store.get(message_only.id)).thread and kept)
+        assert [(entry.text, entry.overleaf is not None) for entry in sent.thread] == [("Is the placer fast enough here?", True)]
+        assert sent.overleaf_draft is None and sent.waiting(on_overleaf=True) == []
+        assert script('return document.querySelector("#compose-dialog").open') is False
+
+        # Both: the thread opens with the message, and the note stays in it, private, waiting
+        # for the agent.
+        compose(2)
+        fill("Could this sentence be shorter?", "keep an eye on her answer")
+        script('document.querySelector("#compose-submit").click()')
+        both = started()
+        made.append(both)
+        wait_until(lambda: len(fake.threads) == 2)
+        sent = wait_until(lambda: (kept := store.get(both.id)) and len(kept.thread) == 2 and kept)
+        assert [(entry.text, entry.overleaf is not None) for entry in sent.thread] == [
+            ("keep an eye on her answer", False), ("Could this sentence be shorter?", True)]
+        assert [entry.text for entry in sent.waiting(on_overleaf=True)] == ["keep an eye on her answer"]
+        card = f'document.querySelector(\'[data-comment-id="{both.id}"]\')'
+        wait_until(lambda: script(f'return {card}?.textContent.includes("Could this sentence be shorter?") ?? false'))
+        script(f'{card}.querySelector(".cmt-head").click()')
+        wait_until(lambda: script(f'return {card}?.querySelector(".entry-overleaf.sent") !== null'
+                                  f' && {card}.querySelector(".entry-overleaf.here") !== null'))
+
+        # On words Overleaf does not have yet, the message is refused: it stays on the card,
+        # opened, as the thread's draft, saying why, and nothing reaches Overleaf.
+        compose(3)
+        fill("Is this new line right?", "")
+        script('document.querySelector("#compose-submit").click()')
+        refused = started()
+        card = f'document.querySelector(\'[data-comment-id="{refused.id}"]\')'
+        wait_until(lambda: script(f'return {card}?.querySelector(".overleaf-reply-note")?.textContent ?? ""')
+                   == "The lines this thread is on are not in main.tex on Overleaf yet.")
+        assert script(f'return {card}.querySelector(".overleaf-reply-input").value') == "Is this new line right?"
+        kept = store.get(refused.id)
+        assert kept.thread == [] and kept.overleaf_draft.text == "Is this new line right?"
+        assert len(fake.threads) == 2
+        # Refused with a note, the note is in the thread all the same, waiting for the agent.
+        made.append(refused)
+        compose(3)
+        fill("Should this line stay?", "ask her once it is on Overleaf")
+        script('document.querySelector("#compose-submit").click()')
+        refused = started()
+        card = f'document.querySelector(\'[data-comment-id="{refused.id}"]\')'
+        wait_until(lambda: script(f'return {card}?.querySelector(".overleaf-reply-note")?.textContent ?? ""')
+                   == "The lines this thread is on are not in main.tex on Overleaf yet.")
+        assert script(f'return {card}.querySelector(".overleaf-reply-input").value') == "Should this line stay?"
+        kept = store.get(refused.id)
+        assert [entry.text for entry in kept.thread] == ["ask her once it is on Overleaf"]
+        assert kept.overleaf_draft.text == "Should this line stay?"
+        assert [entry.text for entry in kept.waiting()] == ["ask her once it is on Overleaf"]
+        assert len(fake.threads) == 2
+
+        # The next comment from the editor goes the same way until the leaf is let go, and then
+        # the dialog is the private comment's, with its one box.
         script('document.querySelector("#source-leaf-btn").click()')
         assert script('return document.querySelector("#source-leaf-btn").getAttribute("aria-pressed")') == "false"
+        compose(2)
+        assert script(f'return [document.querySelector("#compose-title").textContent, {boxes}.map((box) => box.id),'
+                      ' document.querySelector("#compose-text").required]') == [
+            "New private comment", ["compose-text"], True]
+        script('document.querySelector("#compose-cancel").click()')
     finally:
         if browser is not None:
             browser.quit()
         shared.stop()
-        asyncio.run_coroutine_threadsafe(realtime.close(), loop).result(10)
+        asyncio.run_coroutine_threadsafe(site.close(), loop).result(10)
         loop.call_soon_threadsafe(loop.stop)
 
 

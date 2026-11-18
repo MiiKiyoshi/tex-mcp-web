@@ -1495,11 +1495,13 @@ class CommentStore:
         resolved_source: ResolvedSource,
         source_selector: SourceSelector,
         texts: dict[str, str],
+        for_overleaf: bool = False,
     ) -> Comment:
         """A new thread drafted for Overleaf on source lines: a comment with no entries, since
         nothing has been said until the reviewer sends the draft. *texts* are the files' texts
         its lines and the draft's ranges were read from, by file, which later edits carry
-        them from."""
+        them from. *for_overleaf* marks one the reviewer started, the draft being the first
+        message they wrote."""
         if not draft.text.strip():
             raise ValueError("a draft must not be empty")
         now = _now()
@@ -1511,6 +1513,7 @@ class CommentStore:
             resolved_source=resolved_source,
             source_selector=source_selector,
             overleaf_draft=OverleafDraft(draft.text.strip(), draft.ranges, at=now),
+            for_overleaf=for_overleaf,
             created=now,
             updated=now,
         )

@@ -340,6 +340,10 @@
   <form method="dialog" id="compose-form">
     <h3 id="compose-title">New private comment</h3>
     <p id="compose-anchor" class="compose-anchor"></p>
+    <div id="compose-public" class="compose-public" hidden>
+      <textarea id="compose-message" rows="4" placeholder="the thread's first public message…"></textarea>
+      <p class="compose-public-note">What you write here is posted to Overleaf at once, for everyone in the project.</p>
+    </div>
     <textarea id="compose-text" rows="4" required placeholder="leave a private comment for the coding agent…"></textarea>
     <div class="dialog-actions">
       <button type="button" id="compose-cancel">Cancel</button>

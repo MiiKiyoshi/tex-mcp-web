@@ -112,9 +112,10 @@ Keeping the paper's files in step with Overleaf, by git, by hand or live, is in
 </picture>
 
 Press the leaf beside the comment button (the speech bubble) in the editor's bar, select the words in the source, as
-Overleaf puts a thread on source words, and tell the agent what to say, as roughly as you
+Overleaf puts a thread on source words, and tell the agent what to say in the dialog's private box, as roughly as you
 like. It drafts the thread's first message, worded for your co-authors, and you send it. It
-opens on Overleaf on those words, public, and your note stays private. Asked in any thread, the agent
+opens on Overleaf on those words, public, and your note stays private. A first message you write
+yourself, in the box above the note, goes to Overleaf at once. Asked in any thread, the agent
 drafts a new thread of its own the same way.
 
 ## Accept or reject your co-authors' suggested edits

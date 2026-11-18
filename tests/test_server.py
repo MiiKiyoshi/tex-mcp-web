@@ -1686,6 +1686,9 @@ async def test_the_reviewer_starts_a_thread_for_overleaf_and_the_agent_drafts_it
         server.config = load_config(config)
         refused = await client.post("/comments", json={"anchor": {"kind": "paper"}, "text": "Everywhere.", "overleaf": True})
         assert refused.status == 400
+        # A first message for Overleaf starts a thread for Overleaf only.
+        refused = await client.post("/comments", json={"anchor": lines, "draft": "Is this the right cite?"})
+        assert refused.status == 400 and "thread for Overleaf" in (await refused.json())["error"]
         made = await client.post("/comments", json={"anchor": lines, "text": "ask whether this cite is the right one, politely",
                                                     "overleaf": True})
         assert made.status == 201, await made.text()

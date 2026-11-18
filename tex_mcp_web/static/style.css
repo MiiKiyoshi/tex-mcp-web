@@ -1242,7 +1242,10 @@ dialog { zoom: calc(1 / var(--text-scale)); }
   white-space: pre-wrap;
   word-wrap: break-word;
 }
-#compose-text {
+.compose-public { display: flex; flex-direction: column; gap: 0.25rem; }
+.compose-public[hidden] { display: none; }
+.compose-public-note { margin: 0; font-size: 0.8rem; color: var(--fg-dim); }
+#compose-text, #compose-message {
   font-family: var(--sans);
   font-size: 0.95rem;
   padding: 0.5rem;

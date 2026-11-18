@@ -93,9 +93,14 @@ address, so on the shared machine's own browser, open no page another account se
   as said here.
 - You can start a thread for Overleaf yourself. With the leaf beside the comment button (the speech bubble) in the
   editor's bar pressed, a comment on the selected source text starts one, since Overleaf puts
-  a thread on source words: what you write is for the agent, say a rough note to be put
-  politely, and it drafts the thread's first message. You edit that and send it, or write
-  the message yourself and send it with no draft. What you told the agent is private.
+  a thread on source words. The dialog has two boxes, and either will do. What you write in
+  the first is the thread's first message, posted to Overleaf at once, for everyone in the
+  project. The second is a private note for the agent. With the first box empty, the note
+  tells the agent what to say, as roughly as you like, and the agent drafts the first
+  message, which you edit and send from the thread's card, or replace with your own. With
+  both filled, the thread opens on Overleaf and the note waits in it for the agent, private.
+  A first message Overleaf refuses stays on the card as the thread's draft, saying why, to
+  send again.
 - The agent can also draft a new thread on source lines (`write_comments` with
   `action="overleaf"` and an `anchor` instead of an `id`). It waits in the tab as a card
   whose draft is its first message on Overleaf. **Reply privately** talks the draft over with the

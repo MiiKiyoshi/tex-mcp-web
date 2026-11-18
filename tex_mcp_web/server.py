@@ -2343,13 +2343,12 @@ class TexMcpWebServer:
         if err is not None:
             return err
 
-        if "anchor" not in data or "text" not in data:
-            return web.json_response(
-                {"error": "anchor and text are required"}, status=400
-            )
-        anchor_d = data["anchor"]
-        text = str(data["text"]).strip()
-        if not anchor_d or not text:
+        anchor_d = data.get("anchor")
+        text = str(data.get("text", "")).strip()
+        # A thread for Overleaf may come with its first message there, which the page sends
+        # next, and then *text*, the reviewer's note for the agent, may be empty.
+        draft = str(data.get("draft", "")).strip()
+        if not anchor_d or not (text or draft):
             return web.json_response(
                 {"error": "anchor and text are required"}, status=400
             )
@@ -2417,15 +2416,26 @@ class TexMcpWebServer:
         if for_overleaf and (not self.config.overleaf or not isinstance(anchor, SourceRangeAnchor)):
             return web.json_response({"error": "a thread for Overleaf sits on source lines of a paper that names its "
                                                "Overleaf project"}, status=400)
-        comment = self.comments.add(
-            anchor=anchor,
-            text=text,
-            author="human",
-            resolved_source=resolved,
-            source_selector=source_selector,
-            base_text=self._base_text(anchor, resolved),
-            for_overleaf=for_overleaf,
-        )
+        if draft and not for_overleaf:
+            return web.json_response({"error": "a first message for Overleaf starts a thread for Overleaf"}, status=400)
+        if draft:
+            # The first message is kept as the thread's draft until it is sent, and the note
+            # comes after it, so that sending it leaves the note waiting for the agent.
+            comment = self.comments.add_overleaf_thread(
+                anchor, OverleafDraft(draft), resolved, source_selector,
+                {resolved.file: self._base_text(anchor, resolved)}, for_overleaf=True)
+            if text:
+                comment = self.comments.reply(comment.id, text, author="human")
+        else:
+            comment = self.comments.add(
+                anchor=anchor,
+                text=text,
+                author="human",
+                resolved_source=resolved,
+                source_selector=source_selector,
+                base_text=self._base_text(anchor, resolved),
+                for_overleaf=for_overleaf,
+            )
         await self.broadcast({"type": "comment_added", "comment": _comment_to_dict(comment)})
         return web.json_response(_comment_to_dict(comment), status=201)
 

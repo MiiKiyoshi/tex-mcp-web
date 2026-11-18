@@ -823,21 +823,25 @@ function selectQuoteInLines(quote, first, last) {
 }
 
 // A section comment names the heading it was pressed on too, since headings can share a title.
-// A comment *forOverleaf* starts a thread for Overleaf: what is written goes to the agent, which
-// drafts the message there.
+// A comment *forOverleaf* starts a thread for Overleaf, in two boxes, either of which will do:
+// the first holds its first message there, posted at once, and the second a private note for
+// the agent, which drafts that message when the first box is left empty.
 function openCompose(anchor, label, heading = null, forOverleaf = false) {
   state.pendingAnchor = anchor;
   state.pendingSourceRevision = anchor.kind === "source_range" ? state.sourceRevision : null;
   state.pendingHeading = heading;
   state.pendingForOverleaf = forOverleaf;
   $("#compose-title").textContent = forOverleaf ? "New public thread on Overleaf" : "New private comment";
+  $("#compose-public").hidden = !forOverleaf;
+  $("#compose-text").required = !forOverleaf;
   $("#compose-text").placeholder = forOverleaf
-    ? "a private note: tell the agent what to say on Overleaf; it drafts the public message, and you send it…"
+    ? "a private note for the agent, if you like; with the box above empty, it drafts the public message, and you send it…"
     : "leave a private comment for the coding agent…";
   $("#compose-anchor").textContent = label;
+  $("#compose-message").value = "";
   $("#compose-text").value = "";
   $("#compose-dialog").showModal();
-  setTimeout(() => $("#compose-text").focus(), 50);
+  setTimeout(() => $(forOverleaf ? "#compose-message" : "#compose-text").focus(), 50);
 }
 
 function clearPendingSelection() {
@@ -2672,13 +2676,17 @@ async function submitCompose(event) {
   event.preventDefault();
   if (state.composeSubmitting) return;
   const text = $("#compose-text").value.trim();
-  if (!text || !state.pendingAnchor) return;
+  const message = state.pendingForOverleaf ? $("#compose-message").value.trim() : "";
+  if (!(text || message) || !state.pendingAnchor) return;
   const body = { anchor: state.pendingAnchor, text };
   if (state.pendingSourceRevision !== null) body.source_revision = state.pendingSourceRevision;
   if (state.pendingHeading !== null) body.heading = state.pendingHeading;
   if (state.pendingForOverleaf) body.overleaf = true;
+  // The first message is kept with the thread as its draft, and sent from there.
+  if (message) body.draft = message;
 
   applyComposeSubmitting(true);
+  let started;
   try {
     const response = await fetch("/comments", {
       method: "POST",
@@ -2689,19 +2697,23 @@ async function submitCompose(event) {
       alert(`Could not save comment: ${await responseError(response)}`);
       return;
     }
+    started = await response.json();
     $("#compose-dialog").close();
     clearPendingSelection();
-    // A thread started for Overleaf waits among the new threads for the agent's draft, and a
-    // comment for the agent among the open ones.
+    // A thread started for Overleaf is among the new threads, waiting for the agent's draft
+    // or opened there, and a comment for the agent among the open ones.
     const tab = state.pendingForOverleaf ? "overleaf-comments" : "comments";
     if (state.commentTab !== tab) switchTab(tab);
     // A comment for the agent is in to do as well, so a reader there stays there.
     if (state.pendingForOverleaf) setCommentFilter("new");
     else if ($("#comment-filter").value !== "todo") setCommentFilter("open");
-    await refreshComments();
   } finally {
     applyComposeSubmitting(false);
   }
+  // A first message goes as one sent from its card goes: refused, it stays there as the
+  // thread's draft, saying why.
+  if (message) await sendToOverleaf(started.id, message, message);
+  else await refreshComments();
 }
 
 // The list read again. A reading overtaken by a later one ends when that one does, so
@@ -3097,6 +3109,35 @@ async function sendOverleafReply(id, text, anyway = false) {
   }
 }
 
+// A thread's reply, or a new thread's first message, sent to Overleaf, from its card or from
+// the dialog that starts the thread. The
+// thread leaves the to do and the unanswered views at once, and elsewhere its card shows the
+// reply on its way until the list shows it sent, or why not: refused, the card keeps *text*
+// in its box, opened, over the draft *from*.
+async function sendToOverleaf(id, text, from) {
+  state.sending.add(id);
+  renderComments();
+  refreshComments().catch((error) => console.error(error));
+  try {
+    let answer = await sendOverleafReply(id, text.trim());
+    if (answer?.apart.length && confirm(`${answer.error} Send it anyway?`)) {
+      answer = await sendOverleafReply(id, text.trim(), true);
+    }
+    if (answer === null) {
+      state.overleafReplies.delete(id);
+    } else {
+      state.overleafReplies.set(id, { text, from, error: answer.error });
+      state.expanded.add(id);
+    }
+  } catch (error) {
+    state.overleafReplies.set(id, { text, from, error: `Could not send: ${error.message}` });
+    state.expanded.add(id);
+  } finally {
+    state.sending.delete(id);
+    await refreshComments();
+  }
+}
+
 // Each picked reply goes to its own thread on Overleaf, one after another. Those whose
 // files are not the same here as on Overleaf wait for one question at the end and go
 // anyway when it is answered yes. One that is refused keeps its words and says why on
@@ -3421,32 +3462,8 @@ function renderOverleafReply(comment) {
       : OVERLEAF_COOKIE_WANTED,
   }, "Send to ", leafIcon());
   send.disabled = !state.overleafCookie || sending;
-  // The thread leaves the to do and the unanswered views at the press, and elsewhere its
-  // card shows the reply on its way until the list shows it sent, or why not.
-  send.addEventListener("click", async () => {
-    const text = textarea.value.trim();
-    if (!text) return;
-    state.sending.add(comment.id);
-    renderComments();
-    refreshComments().catch((error) => console.error(error));
-    try {
-      let answer = await sendOverleafReply(comment.id, text);
-      if (answer?.apart.length && confirm(`${answer.error} Send it anyway?`)) {
-        answer = await sendOverleafReply(comment.id, text, true);
-      }
-      if (answer === null) {
-        state.overleafReplies.delete(comment.id);
-      } else {
-        state.overleafReplies.set(comment.id, { text: textarea.value, from: draft?.text, error: answer.error });
-        state.expanded.add(comment.id);
-      }
-    } catch (error) {
-      state.overleafReplies.set(comment.id, { text: textarea.value, from: draft?.text, error: `Could not send: ${error.message}` });
-      state.expanded.add(comment.id);
-    } finally {
-      state.sending.delete(comment.id);
-      await refreshComments();
-    }
+  send.addEventListener("click", () => {
+    if (textarea.value.trim()) sendToOverleaf(comment.id, textarea.value, draft?.text);
   });
   // The agent's draft, turned down: it leaves the card with what was typed over it, and
   // the thread says what it was. Nothing goes to Overleaf, where it never was. A new thread
