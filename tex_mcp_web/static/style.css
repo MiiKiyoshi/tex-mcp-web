@@ -1382,10 +1382,11 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
 .help-table th, .help-table td { padding: 0.25rem 0.75rem 0.25rem 0; border-bottom: 1px solid var(--border); vertical-align: top; }
 .help-table td:first-child { white-space: nowrap; }
 .help-nowrap, .help-page p code { white-space: nowrap; }
-/* The Keys page is one grid, so the keys of every section line up in one column. */
+/* The Keys page is one grid, so the keys of every section line up in one column. In a narrow
+   dialog both columns may shrink: a row's keys wrap between keys, and its words anywhere. */
 .keys-grid {
   display: grid;
-  grid-template-columns: max-content 1fr;
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
   gap: 0.25rem 0.75rem;
   align-items: start;
 }
@@ -1393,7 +1394,8 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
 .keys-grid > h4, .keys-grid > p, .keys-grid h5 { grid-column: 1 / -1; }
 .keys-grid > :first-child { margin-top: 0.25rem; }
 .keys-grid h5 { margin: 0.4rem 0 0; font-size: var(--text-small); color: var(--fg-dim); }
-.keys-of { display: flex; gap: 0.25rem; white-space: nowrap; }
+.keys-of { display: flex; flex-wrap: wrap; gap: 0.25rem; white-space: nowrap; }
+.keys-grid > span:not(.keys-of), #keys-list > span:not(.keys-of) { overflow-wrap: anywhere; }
 .keys-of kbd {
   font-family: var(--mono);
   font-size: var(--text-small);

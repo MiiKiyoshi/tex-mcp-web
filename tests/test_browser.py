@@ -3398,7 +3398,8 @@ def test_the_search_examples_in_help_find_what_help_says(tmp_path: Path) -> None
 @needs_browser
 def test_help_fits_a_narrow_window_on_every_page(tmp_path: Path) -> None:
     """At 480 pixels wide, every page of Help fits the dialog at the default text size and at
-    the largest: nothing sticks out of it, and nothing in it scrolls sideways."""
+    the largest, with the key names of this system and, in Chrome, with a Mac's, which are
+    longer: nothing sticks out of it, and nothing in it scrolls sideways."""
     (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
     port = available_port()
     config_path = tmp_path / ".tex-mcp-web.yaml"
@@ -3411,10 +3412,13 @@ def test_help_fits_a_narrow_window_on_every_page(tmp_path: Path) -> None:
         wait_until(lambda: get_json(f"{base}/paper") is not None)
         browser = chrome.launch()
         browser.set_window_rect(width=480, height=700)
-        browser.navigate(base)
         script = lambda code, *args: browser.execute_script(code, script_args=args)
-        wait_until(lambda: script('return document.querySelector("#comments-list") !== null'))
-        for size in ("100", "150"):
+        for system, size in [(None, "100"), (None, "150")] + (
+                [] if chrome.KIND == "safari" else [("MacIntel", "100"), ("MacIntel", "150")]):
+            if system is not None:
+                browser.platform(system)
+            browser.navigate(base)
+            wait_until(lambda: script('return document.querySelector("#comments-list") !== null'))
             script('document.querySelector(`[data-text-choice="${arguments[0]}"]`).click()', size)
             for page in ("start", "search", "overleaf", "keys"):
                 script('document.querySelector("#help-dialog").open || document.querySelector("#help-btn").click();'
@@ -3429,7 +3433,7 @@ def test_help_fits_a_narrow_window_on_every_page(tmp_path: Path) -> None:
                     && node.scrollWidth > node.clientWidth + 1 && getComputedStyle(node).overflowX !== "visible")
                     .map((node) => node.id || node.tagName);
                   return [out, sideways, box.right <= innerWidth, document.documentElement.scrollWidth <= innerWidth];''')
-                assert spill == [[], [], True, True], (size, page, spill)
+                assert spill == [[], [], True, True], (system, size, page, spill)
     finally:
         if browser is not None:
             browser.quit()
