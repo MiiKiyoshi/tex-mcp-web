@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "tex-mcp-web"
 version = "0.10.1"
-description = "Write a LaTeX paper in the coding-agent session that did the research, and review it from the PDF while the agent edits the source. MCP server with Overleaf sync."
+description = "Comment on a LaTeX paper's PDF and have Claude Code or Codex edit the source, with Overleaf sync."
 dynamic = ["readme"]
 license = "MIT"
 requires-python = ">=3.10"
@@ -14,7 +14,7 @@ authors = [
 ]
 keywords = ["tex", "latex", "pdf", "watcher", "viewer", "review", "annotation", "agent", "mcp", "mcp-server", "overleaf"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Environment :: Console",
     "Intended Audience :: Science/Research",
     "Operating System :: Microsoft :: Windows",

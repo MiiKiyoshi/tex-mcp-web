@@ -9,165 +9,187 @@
 
 **Your coding agent already did the research. Let it write, review and fix the paper in the same session.**
 
-You comment on the rendered PDF, on a desktop, tablet, or phone, and Claude Code or Codex edits the LaTeX source. It runs on Windows, macOS and Linux.
+tex-mcp-web is an MCP server that adds a review page for LaTeX papers to Claude Code and Codex.
+You comment on the compiled PDF from a desktop, tablet or phone, and the agent edits the LaTeX
+source. It runs on Windows, macOS and Linux.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/from-work-dark.webp">
-  <img alt="In a project folder a coding agent analyses logs and prints a table, writes what it found up as LaTeX in a folder of the paper's own, and at do tex init shows the settings it proposes and asks whether others can log in to the machine. Told it is a shared server, it turns the page token on. On the review page three sentences of the PDF each take a comment, and one Call agent sends them. The agent answers all three from the logs with wordings to apply. Applied and resolved by keys, and the paper compiled, the PDF shows the three sentences with their numbers." src="docs/images/from-work.webp">
+  <img alt="A coding agent analyzes logs, writes up the findings as a LaTeX paper, and during do tex init turns on the page token because the machine is a shared server. On the review page, three sentences in the PDF each get a comment, one press of Call agent sends them all, and once the agent's new wording is applied and compiled, the PDF shows the three sentences with their numbers." src="docs/images/from-work.webp">
 </picture>
 
-The agent that ran your analysis, wrote your code or worked through your data already holds
-what the paper has to say. Have it write the paper in a folder you name, and say
-`do tex init`: from where it is working, the agent shows the settings it proposes, the port
-and whether the page opens only from your link among them, and sets the review page up for
-that folder once you agree. Nothing is carried over to another tool by hand. Comment on as
-many places as you like, then press **Call agent** once: the agent takes them all in one
-turn and answers each from the work it did.
+The agent session that produced your results already has the context needed to write about
+them. Ask the agent to write the paper in a folder you choose, then say `do tex init`. The agent proposes settings for the review page, including the port and
+whether the page should open only from a private link, and sets the page up for that folder
+once you agree. Because the paper is written in the same session as the research, nothing has
+to be copied into another tool. Comment on as many places as you like, then press
+**Call agent** once. The agent handles all the comments in one turn and answers each one from
+the work it has already done.
 
 ## Review from the PDF
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/pdf-review-dark.webp">
-  <img alt="A sentence selected in the PDF takes a comment asking for a number. Called, the agent proposes a wording as a −/+ pair, which waits in to do, and the source marks the words it would replace. Applied with aa, it leaves to do empty, and once the paper is compiled, the PDF shows the new sentence." src="docs/images/pdf-review.webp">
+  <img alt="A sentence selected in the PDF gets a comment asking for a number, and the agent proposes new wording as a −/+ pair while the source editor marks the words it would replace. Applying the proposal with aa clears the to do list, and after compiling, the PDF shows the new sentence." src="docs/images/pdf-review.webp">
 </picture>
 
 Select words in the PDF, or draw a box over part of a figure, and write what should change.
-Press **Call agent**, the bell above the comments, when they are ready. The agent edits the
-source, compiles, and answers in the thread, at times with a wording to apply, which you
-apply or reject. The keys at the bottom right are the ones pressed.
+When your comments are ready, press **Call agent**, the bell icon above the comment list. The
+agent edits the source, compiles the paper and replies in each thread. Where the wording is
+yours to decide, it proposes a change instead, which you can apply or reject. In the
+recordings on this page, the keys being pressed appear in the bottom right corner.
 
 > ⭐ **If this helps your writing, please give it a star.** It helps others find the project.
 
 ## Quick start
 
-1. Paste this into Claude Code or Codex, and start the agent again once it is done:
+1. Paste this into Claude Code or Codex, and restart the agent when it is done:
 
    ```
    Install tex-mcp-web by following https://raw.githubusercontent.com/MiiKiyoshi/tex-mcp-web/main/INSTALL.md
    ```
 
-   The agent sets up everything it needs on your machine, Windows, macOS or Linux, and
-   installs once you agree.
+   The agent checks your machine, tells you what it will do, and installs once you agree. This
+   works the same way on Windows, macOS and Linux.
 
-2. Say `do tex init` to the agent, right where it is working. The paper can be in any
-   folder, one you have or one you ask the agent to make. It finds the main `.tex` file
-   and a free port, shows you the settings, and writes `.tex-mcp-web.yaml` once you agree.
+2. In the session where you are working, say `do tex init`. The paper can be in any folder,
+   either one you already have or one you ask the agent to create. The agent finds the main
+   `.tex` file and a free port, shows you the settings it proposes, and writes
+   `.tex-mcp-web.yaml` once you agree.
 
 3. Open the address the agent gives you, comment on the PDF, and press **Call agent**.
 
-On a later day, a Claude Code session started in that folder waits for **Call agent** by
-itself. In Codex, say `do tex listen` after the agent starts.
+In later sessions, Claude Code started in the same folder listens for **Call agent** on its
+own. In Codex, say `do tex listen` after the agent starts.
 
-## Point at what words cannot
+## Comment on figures and tables
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/pdf-area-dark.webp">
-  <img alt="On the PDF's second page, the box tool draws a box over a bare table, and the comment asks for rules. Called, the agent rules the table with booktabs and names the lines it changed, the paper compiles, and the PDF shows the ruled table." src="docs/images/pdf-area.webp">
+  <img alt="On the second page of the PDF, a box drawn over a table without horizontal lines gets a comment asking for them. The agent adds booktabs rules, lists the lines it changed and compiles, and the PDF shows the updated table." src="docs/images/pdf-area.webp">
 </picture>
 
-For a figure, a table or a page's layout, take the box tool beside pan and pointer in the PDF's
-toolbar, draw a box over it, and say what is wrong. The agent works from the box as from any
-comment.
+A figure, a table or a page's layout often has no text you can select. For these, pick the box
+tool next to the pan and pointer tools in the PDF toolbar, draw a box over the area and
+describe the problem. The agent treats a box like any other comment.
 
 ## Fit the page limit
 
-The **Problems** tab lists, under the build's errors and warnings, where the body ends, its
-page and column and how many more lines fit under it, and each paragraph, list item or
-caption whose last line is a word or two. A click marks the line in the PDF. The agent's
-`compile()` reports the same list, so `we are four lines over, pull up the short lines`
-is a request it can carry out and check by itself.
+The **Problems** tab lists the build's errors and warnings, and below them shows where the body
+of the paper ends, just before the bibliography: the page, the column, and how many more lines
+fit in that column. It also lists each paragraph, list item or caption whose last line is
+shorter than a quarter of the column. Clicking an entry marks that line in the PDF. The
+agent's `compile()` tool reports the same list, so the agent can carry out a request like
+`we are four lines over, pull up the short lines` and check the result itself.
 
-## Answer your co-authors' Overleaf comments, with the agent
+## Answer your co-authors' Overleaf comments with the agent
 
-Press **Connect Overleaf** in the top bar and paste the project's link. Its comment threads
-come into a tab of their own, **Comments** with a leaf, beside the comments you write here. In
-a thread you talk with the agent, which drafts the reply for Overleaf under it, and you send
-that reply once it reads right. Each tab opens on **to do**, what is not done yet: a
-comment the agent has yet to answer, a suggestion to apply, a reply to send, a suggested edit
-to accept. The number on the tab counts them, and once it is gone, nothing is left.
+Press **Connect Overleaf** in the top bar. Settings opens and asks for the project's link and,
+the first time, your Overleaf session cookie. The project's comment threads then appear in a
+tab of their own, **Comments** with a leaf icon, next to the tab for the comments you write on
+the page. Within a thread you talk with the agent, which drafts the public reply in the box
+below the thread, and you send that reply once you are happy with it.
+
+Each tab opens on its **to do** view, which lists what is still pending: a comment the agent
+has not answered, a suggestion to apply, a reply to send or a suggested edit to accept. The
+number on the tab counts these items, and when it disappears, you are done.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/overleaf-thread-dark.webp">
-  <img alt="A co-author's thread from Overleaf, where the agent misread the request and drafted a gushing reply. A reply to the agent sets it right, and once called, the agent fixes the sentence, the PDF shows it, and the draft for Overleaf becomes one short line, sent with ss." src="docs/images/overleaf-thread.webp">
+  <img alt="In a co-author's thread from Overleaf, the agent has misread the request and drafted a gushing reply. After a private reply corrects it, the agent fixes the sentence, the PDF shows the change, and the draft for Overleaf shrinks to one short line, which is sent with ss." src="docs/images/overleaf-thread.webp">
 </picture>
 
-What is said in a thread is **private** or **public**. A private entry stays on the page,
-for you and the agent. A public entry is on Overleaf, for everyone in the project. Your talk
-with the agent is private and sits in the thread between your co-authors' public messages,
-so the whole exchange reads in order. Overleaf gets only the replies you send.
+Every entry in a thread is either **private** or **public**. A private entry stays on the page,
+between you and the agent. A public entry is on Overleaf, where everyone in the project can
+read it. Your conversation with the agent is private and appears in the thread between your
+co-authors' public messages, so the whole exchange reads in order. Only the replies you send
+reach Overleaf.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/overleaf-thread-split-dark.png">
-  <img alt="The same thread twice. On the review page it holds the co-author's comment, the talk with the agent, each entry of it marked private, and the reply sent, marked public. On Overleaf it holds the comment and the reply sent, and nothing else." src="docs/images/overleaf-thread-split.png">
+  <img alt="The same thread on the review page and on Overleaf. The review page shows the co-author's comment, the conversation with the agent marked private and the sent reply marked public, while Overleaf shows only the comment and the sent reply." src="docs/images/overleaf-thread-split.png">
 </picture>
 
-Keeping the paper's files in step with Overleaf, by git, by hand or live, is in
-[Working with Overleaf](docs/overleaf.md).
+While a page is open, your co-authors on Overleaf appear in the top bar and their cursors show
+in the editor. Your cursor in the page's editor also appears on Overleaf, unless you choose
+**Hidden** under **Your cursor on Overleaf** in Settings. [Working with Overleaf](docs/overleaf.md) covers
+this and the ways to keep the paper's files in sync with Overleaf: through git, by hand or
+live.
 
 ## Raise a point with your co-authors on Overleaf
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/new-thread-dark.webp">
-  <img alt="With the leaf beside the comment button pressed, the room temperature is selected in the source with v and gc, and a rough note tells the agent what to ask the co-author. The note waits in the leaf Comments tab under new thread. Called, the agent drafts a polite question, sent with ss: it opens on Overleaf alone, and the note stays on the page, marked private." src="docs/images/new-thread.webp">
+  <img alt="With the leaf button pressed, the words room temperature are selected in the source with v and gc, and a rough private note tells the agent what to ask the co-author. The agent drafts a polite question, which is sent with ss, so only the question appears on Overleaf while the note stays on the page, marked private." src="docs/images/new-thread.webp">
 </picture>
 
-Press the leaf beside the comment button (the speech bubble) in the editor's bar, select the words in the source, as
-Overleaf puts a thread on source words, and tell the agent what to say in the dialog's private box, as roughly as you
-like. It drafts the thread's first message, worded for your co-authors, and you send it. It
-opens on Overleaf on those words, public, and your note stays private. A first message you write
-yourself, in the box above the note, goes to Overleaf at once. Asked in any thread, the agent
-drafts a new thread of its own the same way.
+To start a thread, turn on the leaf button next to the comment button (the speech bubble) in
+the editor toolbar, select words in the source, and press the comment button. Threads start
+from the source because Overleaf attaches each thread to source text. The dialog that opens
+has two boxes. In the lower one, a private note to the agent, describe what you want to raise,
+as roughly as you like. The agent drafts the thread's first message in wording suited to your
+co-authors, and you send it. The thread then appears on Overleaf, attached to those words, and
+your note stays private. If you write the first message yourself in the upper box, it is
+posted to Overleaf right away. You can also ask the agent, in any thread, to start a new
+thread, and it drafts that one the same way.
 
 ## Accept or reject your co-authors' suggested edits
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/suggested-edits-dark.webp">
-  <img alt="The co-author's edits made on Overleaf with track changes on wait in the leaf tab's to do: a word written over another, words put in, words taken out. Each opened with Space shows in the source, underlined or marked where words went. Two are accepted with aa and one rejected with dd, Get takes the rejection into the file, and to do is empty." src="docs/images/suggested-edits.webp">
+  <img alt="A co-author's tracked changes from Overleaf appear in the leaf tab's to do list: a replaced word, an insertion and a deletion, each shown in the source when opened with Space. Two are accepted with aa and one is rejected with dd, Get brings the rejection into the file, and the to do list is empty." src="docs/images/suggested-edits.webp">
 </picture>
 
-Edits your co-authors make on Overleaf with track changes on come in as suggested edits, each
-a card of what went and what came, and the editor marks them in the source. **Accept** and
-**Reject**, or `aa` and `dd`, act on Overleaf for everyone in the project.
+Edits your co-authors make on Overleaf with track changes on arrive as suggested edits. Each
+one appears as a card showing the removed and inserted text, and the editor marks it in the
+source. **Accept** and **Reject**, or `aa` and `dd`, act on Overleaf for everyone in the
+project.
 
-## Go through the comments by keyboard
+## Work through comments from the keyboard
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/keyboard-dark.webp">
-  <img alt="All without the mouse: gd into the introduction's file, v and gc to comment on a sentence, Ctrl+Alt+Enter to call the agent, K to its comment, Space and aa to apply its proposal, K back to the words, :make to compile, gss to find the sentence in the PDF, Ctrl+O back to main.tex, and R to resolve." src="docs/images/keyboard.webp">
+  <img alt="Everything done without the mouse: gd opens the introduction's file, v and gc comment on a sentence, Ctrl+Alt+Enter calls the agent, K jumps to its comment, Space and aa apply its proposal, K returns to the text, :make compiles, gss finds the sentence in the PDF, Ctrl+O goes back to main.tex, and R resolves the comment." src="docs/images/keyboard.webp">
 </picture>
 
-The comment list goes by keys, as a notebook's cells do, and the editor has Vim keys. A ring
-marks the comment the keys act on, and the list moves under it, so the eye stays put. `K` goes
-between a comment and its words in the source, both ways.
+You can move through the comment list with the keyboard, much as you move through the cells of
+a notebook.
+The editor also has Vim keys, which you turn on in the ⋯ menu of the editor toolbar. A ring
+marks the comment the keys act on, and the list scrolls beneath it so your eyes can stay in
+one place. `K` jumps between a comment and its words in the source, in either direction.
 
-| Key | Does |
+| Key | Action |
 |---|---|
 | `j` `k` | Next and previous comment |
-| Space | Open the comment and show its words |
-| `K` | Into the source at its words, and `K` there back |
-| `r` | Reply to the agent |
-| `R` | Resolve |
+| Space | Open the comment and show where it is in the PDF or the source |
+| `K` | Jump to the comment's words in the source; press it there to come back |
+| `r` | Reply privately to the agent |
+| `R` | Resolve, or reopen a comment that is not open |
+| `u` | Undo the last resolve, reopen or archive |
 | `aa` | Apply the suggestion, or accept a suggested edit |
 | `ss` | Send the reply to Overleaf |
-| `?` | Every key |
+| `/` | Search the comments |
+| `?` | Show every key |
 
-Keys that change the file, post to Overleaf or delete are pressed twice. Once you move by keys,
-the ringed comment's buttons show their letters. Every key, and the editor's Vim keys, are in
-[Reviewing in detail](docs/reviewing.md).
+`nn` rejects a suggestion and `dd` deletes; like `aa` and `ss`, they are pressed twice. Once you
+start moving with the keys, the buttons on the marked comment show their key letters. The search
+box understands `from:`, `file:`, `after:` and `before:`, quoted phrases, `-` to exclude a
+word, and `OR`. [Reviewing in detail](docs/reviewing.md) lists every key, including the
+editor's Vim keys.
 
 ## Review on a tablet or phone
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/mobile-dark.png">
-  <img alt="The review page at a tablet's width and at a phone's, each on the same comment: the PDF above, zoomed to the commented sentence, and the thread with the agent's proposal below." src="docs/images/mobile.png">
+  <img alt="The review page at tablet width and at phone width, both on the same comment: the PDF on top, zoomed to the commented sentence, and below it the thread with the agent's proposal." src="docs/images/mobile.png">
 </picture>
 
-The page is served where the agent runs. On your own computer that is all: open
-`http://localhost:8765`, or the port `do tex init` chose, and skip the rest of this part.
-When the agent runs on a server you reach over SSH, forward the page's port to your own
-computer. On Windows, macOS and Linux alike, name the server once
-in `~/.ssh/config` (on Windows `C:\Users\<you>\.ssh\config`), with the port `do tex init`
-wrote into `.tex-mcp-web.yaml`:
+The page is served from the machine where the agent runs. If that is your own computer, open
+`http://localhost:8765`, or the port `do tex init` chose, and skip the rest of this section.
+If the agent runs on a server you reach over SSH, forward the page's port to your computer.
+On Windows, macOS and Linux alike, add the server once to `~/.ssh/config` (on Windows,
+`C:\Users\<you>\.ssh\config`), using the port that `do tex init` wrote to
+`.tex-mcp-web.yaml`:
 
 ```
 Host paper-server
@@ -178,38 +200,40 @@ Host paper-server
 
 Then, each time you work:
 
-1. Run `ssh paper-server` in a terminal. The forward is up for as long as that connection
-   stays open.
+1. Run `ssh paper-server` in a terminal. The port stays forwarded as long as that connection
+   is open.
 2. Open `http://localhost:8765` in your computer's browser.
 
-A paper on another port takes another `LocalForward` line.
+If you review papers on other ports, add a `LocalForward` line for each.
 
-When the server sits behind a network you cannot reach from outside, as at home or in an
-office, [Tailscale](https://tailscale.com/docs/how-to/connect-to-devices) is the easy way in:
-installed on the server and on your computer, it gives the server a name that reaches it
-from anywhere. Put that name in `HostName`, and the steps above stay the same.
+If the server is on a network you cannot reach from outside, such as at home or in an office,
+[Tailscale](https://tailscale.com/docs/how-to/connect-to-devices) is an easy way in.
+Install it on the server and on your computer, and the server gets a name you can reach from
+anywhere. Put that name in `HostName`, and the steps above stay the same.
 
-A phone takes the same two steps. Termux on Android reads the same `~/.ssh/config`, and in
-Termius on iOS the forward is a Local rule in its Port Forwarding screen. With the page token
-on, open the link `tex-mcp-web link` prints on the server instead, once.
+A phone works the same way. Termux on Android reads the same `~/.ssh/config`, and in Termius
+on iOS you add the forward as a Local rule on the Port Forwarding screen. If the page token is
+on, open the link that `tex-mcp-web link` prints on the server instead, once in each browser;
+after that, the plain address works.
 
-## Writes by your rules, in your field's terms
+## Teach the agent your writing rules and terms
 
-Rules told to an agent in conversation do not last. After its context is compacted a few
-times it writes as if never told, and what Claude Code remembers for one paper's folder does
-not reach the next paper in the same field. Kept in files, your writing rules and your
-field's terms serve every paper that names them, and in Claude Code the agent cannot use
-tex-mcp's tools until it has read them, again after every compaction (Codex does not hold
-the tools back like this yet).
+Rules you give an agent in conversation do not last. After its context has been compacted a
+few times, it writes as if it had never heard them, and what Claude Code remembers for one
+paper's folder does not carry over to the next paper in the same field. Rules and terminology
+kept in files apply to every paper whose configuration points to them. In Claude Code, the agent cannot use
+tex-mcp's tools until it has read these files, and it has to read them again after every
+compaction. Codex does not enforce this yet.
 
-Write the rules you hold a paper to in a `GUIDELINE.md`, in a folder of its own under
-`~/.config/tex-mcp-web/guidelines/`, and set `guideline` to the folder's name. A guideline can
-build on another, so the rules for every paper and those of one field stay apart:
+Put your writing rules in a `GUIDELINE.md` file, in a folder of its own under
+`~/.config/tex-mcp-web/guidelines/`, and set `guideline` to that folder's name. One guideline
+can extend another, which keeps the rules for every paper separate from those for a single
+field:
 
 ```
 ~/.config/tex-mcp-web/guidelines/
 ├── plain-writing/GUIDELINE.md    rules for every paper
-└── my-field/GUIDELINE.md         a field's own, opening with the lines below
+└── my-field/GUIDELINE.md         rules for one field, starting with the lines below
 ```
 
 ```markdown
@@ -218,16 +242,17 @@ extends: plain-writing
 ---
 ```
 
-With `guideline: my-field`, the agent reads plain-writing first and my-field after it.
+With `guideline: my-field`, the agent reads plain-writing first and then my-field.
 
-Left alone, an agent also describes a concept in words of its own where the papers of your
-field use one term. Convert the papers yours builds on to Markdown with
+Left to itself, an agent also tends to describe a concept in its own words where the papers in
+your field use an established term. Convert the papers your work builds on to Markdown with
 [marker](https://github.com/datalab-to/marker), keep them in one folder, and set `references`
-to it.
+to that folder. The agent then reads the terms those papers use before it edits.
 
 ## Configuration
 
-`do tex init` writes `.tex-mcp-web.yaml` at the paper's root:
+`do tex init` writes `.tex-mcp-web.yaml` in the folder where the agent was started. A typical
+file looks like this:
 
 ```yaml
 main: main.tex
@@ -241,18 +266,22 @@ port: 8765
 guideline: my-field
 translation:
   language: Korean
-  instructions: Keep cell names in English.
+  instructions: Keep technical terms in English.
 overleaf: https://www.overleaf.com/project/0123456789abcdef01234567
 ```
 
-Every field is in [Configuration](docs/configuration.md).
+With `translation` set, **Translation: Korean** in the ⋯ menu at the top of the page shows each
+paragraph of the source in that language. The translation runs through a command line you
+choose, set as `translation.command` here or, for every paper, in
+`~/.config/tex-mcp-web/config.yaml`. If you ask your agent to set up translation, it proposes
+a command and tests it. [Configuration](docs/configuration.md) describes every field.
 
 ## See also
 
-[html-mcp-web](https://github.com/MiiKiyoshi/html-mcp-web) reviews an AI agent's HTML slides or report the same way and hands finished slides over as an editable PowerPoint deck.
+[html-mcp-web](https://github.com/MiiKiyoshi/html-mcp-web) reviews an AI agent's HTML slides or reports the same way, and exports finished slides as an editable PowerPoint deck.
 
 ## Acknowledgements
 
-tex-mcp-web is a hard fork of [queelius/scholia at commit `e6c7454`](https://github.com/queelius/scholia/commit/e6c745400d2ad70fb43eca053e31183d48765f89) (version 0.6.1), independently developed since under the MIT license. See [`LICENSE`](LICENSE). PDF viewing uses [EmbedPDF](https://github.com/embedpdf/embed-pdf-viewer) and its PDFium WebAssembly engine, whose notices are in [`tex_mcp_web/static/embedpdf/LICENSE`](tex_mcp_web/static/embedpdf/LICENSE) and [`tex_mcp_web/static/embedpdf/LICENSE.pdfium`](tex_mcp_web/static/embedpdf/LICENSE.pdfium). The bundled viewer differs from its release only in its zoom gesture, described in [Reviewing in detail](docs/reviewing.md#the-pdf). Source highlighting and completion use [Ace Editor builds 1.44.0](https://github.com/ajaxorg/ace-builds/tree/v1.44.0) under the BSD-3-Clause license, and its notice is in [`tex_mcp_web/static/ace/LICENSE`](tex_mcp_web/static/ace/LICENSE).
+tex-mcp-web is a hard fork of [queelius/scholia at commit `e6c7454`](https://github.com/queelius/scholia/commit/e6c745400d2ad70fb43eca053e31183d48765f89) (version 0.6.1) and has been developed independently since then under the MIT license; see [`LICENSE`](LICENSE). The PDF viewer is [EmbedPDF](https://github.com/embedpdf/embed-pdf-viewer) with its PDFium WebAssembly engine, whose notices are in [`tex_mcp_web/static/embedpdf/LICENSE`](tex_mcp_web/static/embedpdf/LICENSE) and [`tex_mcp_web/static/embedpdf/LICENSE.pdfium`](tex_mcp_web/static/embedpdf/LICENSE.pdfium). The bundled viewer differs from the release only in its zoom gesture, which is described in [Reviewing in detail](docs/reviewing.md#the-pdf). Syntax highlighting and completion in the source editor use [Ace Editor builds 1.44.0](https://github.com/ajaxorg/ace-builds/tree/v1.44.0) under the BSD-3-Clause license, and its notice is in [`tex_mcp_web/static/ace/LICENSE`](tex_mcp_web/static/ace/LICENSE).
 
 <!-- mcp-name: io.github.MiiKiyoshi/tex-mcp-web -->
