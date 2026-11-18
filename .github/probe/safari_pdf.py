@@ -22,8 +22,17 @@ const encode = (w, h) => within(new Promise((ok) => { const t = performance.now(
   g.putImageData(g.createImageData(Math.min(w, 50), Math.min(h, 50)), 0, 0);
   c.toBlob((blob) => ok((blob ? blob.size + " bytes" : "null") + " in " + Math.round(performance.now() - t) + " ms")); }), 8000);
 const bitmap = within(createImageBitmap(new ImageData(40, 40)).then(() => "ok", (e) => "fails: " + e), 8000);
-Promise.all([encode(40, 40), encode(1224, 1584), bitmap]).then(([small, page, bitmap]) =>
-  done(JSON.stringify({small, page, bitmap, gl: Boolean(document.createElement("canvas").getContext("webgl"))})));
+const c = document.createElement("canvas"); c.width = 40; c.height = 40;
+const g = c.getContext("2d"); g.fillStyle = "#c33"; g.fillRect(0, 0, 40, 40);
+let url; try { url = c.toDataURL("image/png"); } catch (e) { url = "throws: " + e; }
+const pixel = Array.from(g.getImageData(5, 5, 1, 1).data).join(",");
+const offscreen = within((async () => { const o = new OffscreenCanvas(40, 40); const og = o.getContext("2d");
+  og.fillStyle = "#c33"; og.fillRect(0, 0, 40, 40); const b = await o.convertToBlob(); return b ? b.size + " bytes" : "null"; })()
+  .catch((e) => "fails: " + e), 8000);
+Promise.all([encode(40, 40), encode(1224, 1584), bitmap, offscreen]).then(([small, page, bitmap, offscreen]) =>
+  done(JSON.stringify({small, page, bitmap, offscreen, dataUrl: url.slice(0, 40) + " (" + url.length + ")", pixel,
+    jpeg: (() => { try { return c.toDataURL("image/jpeg").length; } catch (e) { return String(e); } })(),
+    agent: navigator.userAgent})));
 '''
 
 out = Path(sys.argv[1]); out.mkdir(parents=True, exist_ok=True)
@@ -37,7 +46,7 @@ shared = SharedProjectServer(load_config(folder / ".tex-mcp-web.yaml"))
 shared.ensure()
 wait_for_build(shared)
 try:
-    for trial in range(3):
+    for trial in range(2):
         browser = chrome.launch()
         try:
             browser.set_window_rect(x=0, y=0, width=1200, height=800)
