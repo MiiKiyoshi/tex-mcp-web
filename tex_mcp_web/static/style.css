@@ -756,7 +756,7 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 /* The conditions under the search box while it has the focus, and the list of names or files
    hanging under them, over the comments. */
-.search-terms { position: relative; flex: none; display: flex; flex-wrap: wrap; gap: 4px; margin: -0.25rem 0 0.5rem; }
+.search-terms { position: relative; flex: none; display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 0.5rem; }
 .search-terms[hidden], .search-pick[hidden] { display: none; }
 .search-terms button {
   padding: 1px 4px; font: var(--text-fine) var(--mono); line-height: 1.4;
