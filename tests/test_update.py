@@ -89,7 +89,7 @@ def test_on_windows_an_update_is_refused_while_the_installs_own_program_runs(tmp
 
     monkeypatch.setattr(update, "way", lambda: "checkout")
     monkeypatch.setattr(update, "_run", record)
-    monkeypatch.setattr(update.sys, "platform", "win32")
+    monkeypatch.setattr(update, "WINDOWS", True)
     with pytest.raises(update.UpdateError, match="tex-mcp.exe and tex-web.exe are running"):
         asyncio.run(update.run())
     assert ran == []

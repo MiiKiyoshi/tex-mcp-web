@@ -9,6 +9,8 @@ from typing import Any
 
 import yaml
 
+from . import shared_file
+
 DEFAULT_PORT = 8765
 
 # The sources a paper is written in. A paper written in Markdown or plain text adds its
@@ -199,16 +201,20 @@ def _translation(data: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def _command(raw: Any) -> list[str] | None:
-    """``translation.command`` as its words: a string split the way a POSIX shell splits
-    it, or a list of the words. Empty means unset."""
+def _command(raw: Any, windows: bool = os.name == "nt") -> list[str] | None:
+    """``translation.command`` as its words: a string split the way a shell splits it, or a
+    list of the words. Empty means unset. On Windows a backslash is part of a path and not
+    an escape, so ``C:\\Tools\\llm.exe`` stays whole, and quotes around a word are taken off."""
     if raw is None:
         return None
     if isinstance(raw, str):
         try:
-            words = shlex.split(raw)
+            words = shlex.split(raw, posix=not windows)
         except ValueError as error:
             raise ValueError(f"translation.command: {error}") from None
+        if windows:
+            words = [word[1:-1] if len(word) > 1 and word[0] == word[-1] and word[0] in "\"'" else word
+                     for word in words]
     elif isinstance(raw, list) and all(isinstance(word, str) for word in raw):
         words = list(raw)
     else:
@@ -276,8 +282,8 @@ def load_config(path: Path | None = None, main_file: str | None = None) -> Confi
         config_path = find_config()
 
     if config_path and config_path.exists():
-        with open(config_path, encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
+        # The page's server rewrites the file when its settings change.
+        data = yaml.safe_load(shared_file.read_text(config_path)) or {}
 
     # CLI argument overrides config file
     if main_file:

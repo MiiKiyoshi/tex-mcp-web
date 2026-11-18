@@ -46,6 +46,8 @@ from typing import Any, Callable, Iterable, Iterator, Literal
 
 import pymupdf
 
+from . import shared_file
+
 logger = logging.getLogger(__name__)
 
 
@@ -1292,10 +1294,9 @@ class CommentStore:
 
     Concurrency is real: the daemon, the MCP server, and the CLI may all
     mutate the store at the same time.  Each read-modify-write cycle is
-    serialized with an exclusive lock on a sibling ``.lock``
-    file (POSIX only — on Windows the lock is a no-op and the last-writer-
-    wins risk is documented).  The actual data write is atomic via temp
-    file + ``os.replace``.
+    serialized with an exclusive lock on a sibling ``.lock`` file (see
+    filelock).  The data is written whole to a temporary file that then
+    replaces the store, and readers take no lock (see shared_file).
     """
 
     def __init__(self, path: Path):
@@ -1326,7 +1327,7 @@ class CommentStore:
         when it was put there unless the thread changed after, and marks those records."""
         with self._locked():
             try:
-                data = json.loads(self.path.read_text(encoding="utf-8"))
+                data = json.loads(shared_file.read_text(self.path))
                 if data["version"] not in (5, 6, 7, 8):
                     return
                 for comment in data["comments"]:
@@ -1392,7 +1393,8 @@ class CommentStore:
         # named as the last one was, a change built on the old one would undo a writer's.
         if self._parsed is not None and self._parsed[0] == named and not self._changing:
             return self._parsed[1]
-        data = json.loads(self.path.read_text(encoding="utf-8"))
+        # Readers take no lock, so a writer may be putting a new file in place meanwhile.
+        data = json.loads(shared_file.read_text(self.path))
         if data["version"] != STORE_VERSION:
             raise ValueError(
                 f"unsupported comment store version {data['version']}; expected {STORE_VERSION}"
@@ -1415,7 +1417,7 @@ class CommentStore:
             tmp = Path(f.name)
             f.flush()
             stat = os.fstat(f.fileno())
-        os.replace(tmp, self.path)
+        shared_file.replace(tmp, self.path)
         # What was written is what the file holds until someone writes again, so the next
         # read parses nothing. The file is named as it was written, not as it is found
         # after the rename, which another process's file may have followed.
@@ -2093,7 +2095,7 @@ class CommentStore:
             self._bases.mkdir(parents=True, exist_ok=True)
             staging = kept.with_suffix(".tmp")
             staging.write_text(text, encoding="utf-8")
-            os.replace(staging, kept)
+            shared_file.replace(staging, kept)
         return sha
 
     def _keep_bases(self, comments: list[Comment], texts: dict[str, str | None], kinds: tuple[type, ...]) -> bool:

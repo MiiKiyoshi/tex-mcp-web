@@ -33,7 +33,7 @@ import time
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Collection, Protocol
 
-from . import overleaf, overleaf_ot as ot
+from . import overleaf, overleaf_ot as ot, shared_file
 
 logger = logging.getLogger(__name__)
 
@@ -185,7 +185,7 @@ class _Records:
             handle.write((text.replace("\n", "\r\n") if doc.crlf else text).encode("utf-8"))
             staging = Path(handle.name)
         os.chmod(staging, mode)
-        os.replace(staging, file)
+        shared_file.replace(staging, file)
         info = file.stat()
         doc.mark = (info.st_mtime_ns, info.st_size)
         if self._written is not None:
@@ -208,7 +208,7 @@ class _Records:
         found = {}
         for record in self.state_dir.glob("*.json"):
             try:
-                found[str(json.loads(record.read_text(encoding="utf-8"))["path"])] = record
+                found[str(json.loads(shared_file.read_text(record))["path"])] = record
             except (OSError, ValueError, KeyError, TypeError):
                 continue
         return found
@@ -260,11 +260,11 @@ class _Records:
         path = self._record_path(doc.doc_id)
         staging = path.with_suffix(".tmp")
         staging.write_text(json.dumps(doc.record()), encoding="utf-8")
-        os.replace(staging, path)
+        shared_file.replace(staging, path)
 
     def _load(self, doc: Doc) -> bool:
         try:
-            record = json.loads(self._record_path(doc.doc_id).read_text(encoding="utf-8"))
+            record = json.loads(shared_file.read_text(self._record_path(doc.doc_id)))
         except (OSError, ValueError):
             return False
         if record.get("path") != doc.path:   # renamed: begin again
@@ -938,7 +938,7 @@ class Uploads:
 
     def _records(self) -> dict[str, str]:
         try:
-            return dict(json.loads(self.record_path.read_text(encoding="utf-8")))
+            return dict(json.loads(shared_file.read_text(self.record_path)))
         except (OSError, ValueError):
             return {}
 
@@ -948,7 +948,7 @@ class Uploads:
         self.record_path.parent.mkdir(parents=True, exist_ok=True)
         staging = self.record_path.with_suffix(".tmp")
         staging.write_text(json.dumps(records, indent=1), encoding="utf-8")
-        os.replace(staging, self.record_path)
+        shared_file.replace(staging, self.record_path)
 
     def _file(self, path: str) -> Path:
         file = (self.root / path).resolve()
@@ -977,7 +977,7 @@ class Uploads:
             handle.write(data)
             staging = Path(handle.name)
         os.chmod(staging, 0o644)
-        os.replace(staging, file)
+        shared_file.replace(staging, file)
         if self._written is not None:
             asyncio.ensure_future(self._written(path))
 

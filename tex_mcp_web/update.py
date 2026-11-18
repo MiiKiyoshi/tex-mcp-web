@@ -103,6 +103,9 @@ async def _run(*command: str) -> None:
         raise UpdateError("\n".join(said) or f"{Path(command[0]).name} failed")
 
 
+WINDOWS = sys.platform == "win32"
+
+
 def running_launchers() -> list[str]:
     """The programs of this install that are running: the commands the package installs
     into the environment's Scripts folder, tex-mcp.exe among them. Windows locks a running
@@ -123,7 +126,7 @@ async def run() -> str:
     how = way()
     if how is None:
         raise UpdateError("This install cannot update itself. Ask your agent to update tex-mcp-web.")
-    if sys.platform == "win32" and (held := running_launchers()):
+    if WINDOWS and (held := running_launchers()):
         raise UpdateError(f"{' and '.join(held)} {'is' if len(held) == 1 else 'are'} running, and Windows "
                           "does not let a running program be replaced. Ask your agent to update "
                           "tex-mcp-web: it registers the server so that later updates work from this page.")

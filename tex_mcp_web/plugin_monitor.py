@@ -16,6 +16,8 @@ from pathlib import Path
 
 import psutil
 
+from . import shared_file
+
 DIRECTORY = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "tex-mcp-web" / "monitor"
 
 
@@ -80,5 +82,5 @@ def hand_over(command: str) -> bool:
     # The first line differs on every call, so a listen() call restarts a waiter that ended.
     staging = DIRECTORY / f"{session}.command.new"
     staging.write_text(f"{time.time_ns()}\n{command}\n", encoding="utf-8")
-    staging.replace(DIRECTORY / f"{session}.command")
+    shared_file.replace(staging, DIRECTORY / f"{session}.command")
     return True

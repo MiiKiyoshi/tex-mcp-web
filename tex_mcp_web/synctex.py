@@ -258,7 +258,9 @@ def selection_to_source_range(
                 [synctex, "edit", "-o", f"{page}:{center_x}:{center_y}:{pdf_path}"],
                 cwd=pdf_path.parent,
                 stdin=subprocess.DEVNULL,
-                text=True,
+                # synctex writes file names as UTF-8 whatever the system's code page is.
+                encoding="utf-8",
+                errors="replace",
                 capture_output=True,
                 timeout=5,
                 check=False,
@@ -349,7 +351,8 @@ def source_lines_to_boxes(
         try:
             completed = subprocess.run(
                 [synctex, "view", "-i", f"{line}:0:{name}", "-o", str(pdf_path)],
-                cwd=pdf_path.parent, stdin=subprocess.DEVNULL, text=True, capture_output=True, timeout=5, check=False,
+                cwd=pdf_path.parent, stdin=subprocess.DEVNULL, encoding="utf-8", errors="replace",
+                capture_output=True, timeout=5, check=False,
             )
         except (OSError, subprocess.TimeoutExpired):
             continue

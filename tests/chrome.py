@@ -189,6 +189,27 @@ def osascript(script: str) -> str:
                           stdin=subprocess.DEVNULL).stdout.strip()
 
 
+class SafariElement:
+    """An element in Safari, clicked as a pointer does it. The driver's own click, and a
+    quick pointer press, sometimes reach the page as a release before the press when they
+    closely follow another click, and the page then sees no click at all. A pause before
+    the press and before the release keeps them in order."""
+
+    def __init__(self, browser: "Safari", element):
+        self.browser, self.element = browser, element
+
+    def __getattr__(self, name: str):
+        return getattr(self.element, name)
+
+    def click(self) -> None:
+        box = self.browser.driver.execute_script(
+            "arguments[0].scrollIntoView({block: 'nearest', inline: 'nearest'});"
+            " const box = arguments[0].getBoundingClientRect();"
+            " return [box.left + box.width / 2, box.top + box.height / 2];", self.element)
+        self.browser.actions("pointer", "mouse", {"pointerType": "mouse"}) \
+            .pointer_move(box[0], box[1]).pause(50).pointer_down().pause(50).pointer_up().perform()
+
+
 class Safari(Chrome):
     """A Safari window on the review page. It shows on the screen, since Safari has no
     headless window, and its viewport is sized by sizing the window around it."""
@@ -269,6 +290,9 @@ class Safari(Chrome):
 
     def platform(self, name: str) -> None:
         pytest.skip("Safari: the system a browser says it runs on cannot be set")
+
+    def find_element(self, strategy: str, selector: str):
+        return SafariElement(self, super().find_element(strategy, selector))
 
     @staticmethod
     def dark(value: bool | None = None) -> bool:

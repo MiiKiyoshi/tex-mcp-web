@@ -17,11 +17,15 @@ because nobody types ``tex-mcp-web comment add ...`` from a shell.
 from __future__ import annotations
 
 import argparse
+import os
 import asyncio
+import codecs
 import json
 import logging
 import sys
+import unicodedata
 from pathlib import Path
+from typing import TextIO
 
 from .config import DEFAULT_PORT, create_config, find_config, load_config
 from . import __version__
@@ -32,12 +36,43 @@ from . import __version__
 # ---------------------------------------------------------------------------
 
 
+# Plain stand-ins for the punctuation the page's own texts use.
+_STAND_INS = {"—": "-", "–": "-", "‘": "'", "’": "'", "“": '"', "”": '"', "…": "..."}
+
+
+def _stand_in(error: UnicodeEncodeError) -> tuple[str, int]:
+    """For characters an encoding cannot hold: a dash or quote as its plain form, a letter
+    without its accent, and anything else as "?"."""
+    def plain(character: str) -> str:
+        return (_STAND_INS.get(character)
+                or unicodedata.normalize("NFKD", character).encode("ascii", "ignore").decode("ascii") or "?")
+
+    return "".join(map(plain, error.object[error.start:error.end])), error.end
+
+
+codecs.register_error("tex_mcp_web.stand_in", _stand_in)
+
+
+class _LegibleHandler(logging.StreamHandler):
+    """Writes a log line's characters as they are where the stream's encoding holds them,
+    and a plain stand-in for each it cannot hold. A console's legacy code page, Korean
+    Windows' cp949 for one, holds the letters of a paper folder's name but no em dash,
+    which the stream itself would write as an escape such as \\u2014."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        line = super().format(record)
+        encoding = getattr(self.stream, "encoding", None) or "utf-8"
+        return line.encode(encoding, "tex_mcp_web.stand_in").decode(encoding)
+
+
+def _log_handler(stream: TextIO) -> logging.Handler:
+    handler = _LegibleHandler(stream)
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)-7s %(name)s — %(message)s", "%H:%M:%S"))
+    return handler
+
+
 def _configure_logging(verbose: bool) -> None:
-    logging.basicConfig(
-        level=logging.DEBUG if verbose else logging.INFO,
-        format="%(asctime)s %(levelname)-7s %(name)s — %(message)s",
-        datefmt="%H:%M:%S",
-    )
+    logging.basicConfig(level=logging.DEBUG if verbose else logging.INFO, handlers=[_log_handler(sys.stderr)])
 
 
 # ---------------------------------------------------------------------------
@@ -45,11 +80,33 @@ def _configure_logging(verbose: bool) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _port_taken(port: int) -> bool:
+    """Whether something already listens on the page's port, asked before the server says
+    that it serves there."""
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        # As the server binds: a port just closed can be taken again at once. Windows would
+        # let this option take a port that is in use, so it is not set there.
+        if os.name == "posix":
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            probe.bind(("127.0.0.1", port))
+        except OSError:
+            return True
+    return False
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     from .server import run as run_server
 
     cfg = load_config(main_file=getattr(args, "main", None))
     port = args.port or cfg.port
+    if _port_taken(port):
+        print(f"Port {port} is already in use, by another tex-mcp-web server or by another program. "
+              "Choose another with `tex-mcp-web config port <number>`, or with --port for this run.",
+              file=sys.stderr)
+        return 1
     print(
         f"tex-mcp-web v{__version__}  serving {cfg.main} at http://127.0.0.1:{port}"
         + ("  (open it from the link `tex-mcp-web link` prints)" if cfg.page_token else ""),

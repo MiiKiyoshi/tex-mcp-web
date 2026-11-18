@@ -339,6 +339,63 @@ async def test_overlapping_compile_requests_share_one_build(project, monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_a_request_after_a_source_changed_gets_the_build_that_follows(project, monkeypatch):
+    """A build reads the sources as it goes, so one that began before a source changed may
+    have read the old words. A request made after the change is answered by one build that
+    follows, which the requests after it share; one made while the sources are as the build
+    found them is answered by that build. The page hears which, and, as a build ends,
+    whether a source changed meanwhile that no build follows to take."""
+    server = TexMcpWebServer(Config(main="paper.tex", config_path=project / ".tex-mcp-web.yaml"))
+    gates: list[asyncio.Event] = []
+    said: list[dict] = []
+
+    async def fake_compile_tex(*args, **kwargs):
+        gate = asyncio.Event()
+        gates.append(gate)
+        await gate.wait()
+        return CompileResult(success=True, duration_seconds=float(len(gates)))
+
+    async def broadcast(message: dict) -> None:
+        said.append(message)
+
+    async def settle() -> None:
+        for _ in range(5):
+            await asyncio.sleep(0)
+
+    monkeypatch.setattr("tex_mcp_web.server.compile_tex", fake_compile_tex)
+    server.broadcast = broadcast
+    paper = project / "paper.tex"
+    first = asyncio.create_task(server.do_compile())
+    await settle()
+    unchanged = asyncio.create_task(server.do_compile())
+    await settle()
+    paper.write_text(paper.read_text(encoding="utf-8") + "More.\n", encoding="utf-8", newline="")
+    changed = [asyncio.create_task(server.do_compile()) for _ in range(2)]
+    await settle()
+    gates[0].set()
+    first_result = await first
+    assert await unchanged is first_result
+    await settle()
+    assert len(gates) == 2
+    gates[1].set()
+    followed = await asyncio.gather(*changed)
+
+    assert followed[0] is followed[1] is not first_result and followed[0].duration_seconds == 2.0
+    assert [m["follows"] for m in said if m["type"] == "compile_requested"] == [False, True, True]
+    assert [m["sources_ahead"] for m in said if m["type"] == "compiled"] == [False, False]
+
+    # A source saved while a build runs, with no request after it, is named as the build ends.
+    said.clear()
+    third = asyncio.create_task(server.do_compile())
+    await settle()
+    paper.write_text(paper.read_text(encoding="utf-8") + "Even more.\n", encoding="utf-8", newline="")
+    gates[2].set()
+    await third
+    assert len(gates) == 3
+    assert [m["sources_ahead"] for m in said if m["type"] == "compiled"] == [True]
+
+
+@pytest.mark.asyncio
 async def test_a_section_comment_keeps_to_the_heading_it_was_made_on(client_with_pdf, project):
     """Headings can share a title. The Sections tab names the heading pressed, the
     comment keeps to it through lines added above, and the title alone is refused."""

@@ -148,7 +148,10 @@ source in that language, beside the text.
    Read the tool's help first (`<tool> --help`, and the help of the subcommand that runs
    once), and take each flag from it under the name this version uses. Take the model name
    from the help or from the tool's list of models. Start the line with the tool's full path
-   from `command -v <tool>`, because the server runs with a short PATH of its own.
+   from `command -v <tool>`, because the server runs with a short PATH of its own. On
+   Windows, write the path as Windows names it, with forward slashes, such as
+   `C:/Users/me/.local/bin/tool.exe` (`cygpath -m "$(command -v <tool>)"` in Git Bash, or
+   `where <tool>`).
 6. Test the line once by sending a one-line request on standard input, for example
    `echo 'Translate into Korean: Good morning.' | <the line>`. If the line has `{prompt}`,
    put the request there instead. The output must be the answer and nothing else; if it is

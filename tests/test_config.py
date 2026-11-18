@@ -326,3 +326,18 @@ class TestGuidelines:
             load_config(config)
         config.write_text("main: main.tex\nguideline: my-field\n", encoding="utf-8", newline="")
         assert load_config(config).to_dict()["guideline"] == "my-field"
+
+
+def test_a_windows_path_in_the_translation_command_stays_whole():
+    """On Windows a backslash is part of a path. The command line is split there without
+    reading it as an escape, and quotes around a word with a space are taken off."""
+    from tex_mcp_web.config import _command
+
+    line = 'C:\\Users\\me\\.local\\bin\\tool.exe -p --model small'
+    assert _command(line, windows=True) == ['C:\\Users\\me\\.local\\bin\\tool.exe', "-p", "--model", "small"]
+    assert _command('"C:\\Program Files\\Tool\\tool.exe" run --flag "two words"', windows=True) \
+        == ['C:\\Program Files\\Tool\\tool.exe', "run", "--flag", "two words"]
+    assert _command("C:/Users/me/tool.exe -p", windows=True) == ["C:/Users/me/tool.exe", "-p"]
+    # Elsewhere the line is split as a POSIX shell splits it.
+    assert _command("/usr/bin/tool -p 'two words' a\\ b", windows=False) == ["/usr/bin/tool", "-p", "two words", "a b"]
+

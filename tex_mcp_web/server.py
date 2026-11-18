@@ -84,6 +84,7 @@ from .synctex import (
 from . import overleaf
 from . import overleaf_git
 from . import page_token
+from . import shared_file
 from . import plugin_monitor
 from . import update
 from . import __version__
@@ -137,6 +138,15 @@ def _result_to_dict(r: CompileResult | None) -> dict[str, Any] | None:
         "pages_changed": r.pages_changed,
         "layout": r.layout,
     }
+
+
+def _mark(path: Path) -> tuple[int, int] | None:
+    """The file's modification time and size, or None when there is no such file."""
+    try:
+        info = path.stat()
+    except OSError:
+        return None
+    return info.st_mtime_ns, info.st_size
 
 
 def _eof_line(path: Path, fallback: int) -> int:
@@ -469,7 +479,8 @@ def _set_config_keys(path: Path, changes: dict[str, Any]) -> None:
     yaml.safe_load(new)              # still a config before it replaces the old one
     temp = path.with_name(path.name + ".tmp")
     temp.write_text(new, encoding="utf-8")
-    os.replace(temp, path)
+    # The agent's processes read the config on every tool call.
+    shared_file.replace(temp, path)
 
 
 _LOCAL_NAMES = ("localhost", "127.0.0.1", "::1")
@@ -523,6 +534,10 @@ class TexMcpWebServer:
         # while it runs, so the page is served these instead.
         self._earlier_pdf: bytes | None = None
         self._compile_task: asyncio.Task[CompileResult] | None = None
+        # The build that follows the running one, asked for after a file it reads changed.
+        self._next_compile: asyncio.Task[CompileResult] | None = None
+        # The time and size of each file the running build reads, as they were when it began.
+        self._compile_marks: dict[Path, tuple[int, int] | None] = {}
         # Per-page text hashes from the previous compile, for change
         # detection.  Empty after process startup; populated on each
         # successful build.
@@ -675,11 +690,22 @@ class TexMcpWebServer:
     # ----- compile + watch -----
 
     async def do_compile(self) -> CompileResult:
-        """Return the active build when compile requests overlap."""
+        """Build the paper. A request while a build runs is answered by that build when the
+        files it reads are as they were when it began. When one has changed since, the build
+        may have read it before the change, and the request is answered by the build that
+        follows, which every such request shares. The page hears which of the two it is."""
         active = self._compile_task
         if active is not None and not active.done():
-            return await asyncio.shield(active)
+            follow = self._next_compile
+            if follow is None and not self._sources_changed():
+                await self.broadcast({"type": "compile_requested", "follows": False})
+                return await asyncio.shield(active)
+            if follow is None:
+                follow = self._next_compile = asyncio.create_task(self._compile_after(active))
+            await self.broadcast({"type": "compile_requested", "follows": True})
+            return await asyncio.shield(follow)
 
+        self._compile_marks = self._source_marks()
         task = asyncio.create_task(self._compile_once())
         self._compile_task = task
         try:
@@ -687,6 +713,27 @@ class TexMcpWebServer:
         finally:
             if self._compile_task is task:
                 self._compile_task = None
+
+    async def _compile_after(self, running: asyncio.Task[CompileResult]) -> CompileResult:
+        """The build that follows *running*, started once it has ended."""
+        await asyncio.wait({running})
+        self._next_compile = None
+        return await self.do_compile()
+
+    def _source_marks(self) -> dict[Path, tuple[int, int] | None]:
+        """The time and size of each file a build reads, which change when the file does:
+        the main file, the .tex files it brings in, those the last latexmk run read, and
+        the config, which names the main file and the compiler."""
+        files = [self.main_file, *_files_reachable_from(self.main_file, self.watch_dir),
+                 *source_dependencies(self.main_file, self.watch_dir)]
+        if self.config.config_path is not None:
+            files.append(self.config.config_path)
+        return {path: _mark(path) for path in files}
+
+    def _sources_changed(self) -> bool:
+        """Whether a file the last build to begin reads has changed since it began. A file
+        a build reads for the first time comes in through an edit to one it read before."""
+        return any(_mark(path) != mark for path, mark in self._compile_marks.items())
 
     async def _compile_once(self) -> CompileResult:
         self.compiling = True
@@ -758,6 +805,8 @@ class TexMcpWebServer:
                 "result": _result_to_dict(self.last_result),
                 "pdf_digest": self.pdf_digest,
                 "pages_changed": changed_pages,
+                # A file the build reads changed while it ran, and no build follows to take it.
+                "sources_ahead": self._next_compile is None and self._sources_changed(),
             }
             await self.broadcast(msg)
         return self.last_result
@@ -1187,7 +1236,7 @@ class TexMcpWebServer:
 
     def _load_review_state(self) -> tuple[int, int]:
         try:
-            data = json.loads(self.review_state_path.read_text(encoding="utf-8"))
+            data = json.loads(shared_file.read_text(self.review_state_path))
             calls, consumed = int(data["calls"]), int(data["consumed"])
         except (FileNotFoundError, json.JSONDecodeError, KeyError, TypeError, ValueError):
             return 0, 0
@@ -1200,7 +1249,7 @@ class TexMcpWebServer:
         staging = self.review_state_path.with_name(self.review_state_path.name + ".new")
         staging.write_text(json.dumps(
             {"calls": self.review_calls, "consumed": self.review_consumed}), encoding="utf-8")
-        staging.replace(self.review_state_path)
+        shared_file.replace(staging, self.review_state_path)
 
     def _review_line(self) -> str:
         # The line counts what a wake-up is for: the open threads read_comments(new=True)
@@ -1538,7 +1587,10 @@ class TexMcpWebServer:
     def _save_overleaf_ledger(self, ledger: dict[str, dict[str, Any]]) -> None:
         path = overleaf.ledger_path(self.watch_dir)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(ledger, indent=1), encoding="utf-8")
+        # Written whole and then put in place: the agent's processes read it meanwhile.
+        staging = path.with_name(path.name + ".new")
+        staging.write_text(json.dumps(ledger, indent=1), encoding="utf-8")
+        shared_file.replace(staging, path)
 
     async def _overleaf_lacks(self, checks: list[dict[str, str]]) -> tuple[str | None, str]:
         """Whether the words a new thread's draft describes are on Overleaf: why not, or None
@@ -2198,7 +2250,8 @@ class TexMcpWebServer:
                 handle.write(encoded)
                 staging = Path(handle.name)
             staging.chmod(mode)
-            staging.replace(path)
+            # TeX and the agent's tools read the sources meanwhile.
+            shared_file.replace(staging, path)
         finally:
             if staging is not None:
                 with contextlib.suppress(FileNotFoundError):
@@ -3483,13 +3536,15 @@ class TexMcpWebServer:
         # do_compile shields the build, so the build task is cancelled directly.
         # Awaiting the cancellation lets a running compiler subprocess close its
         # transport while the loop is still alive.
-        for task in (self._store_watch, self._initial_compile, self._compile_task, self._earlier_synctex):
+        for task in (self._store_watch, self._initial_compile, self._next_compile, self._compile_task,
+                     self._earlier_synctex):
             if task is not None:
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
         self._store_watch = None
         self._initial_compile = None
+        self._next_compile = None
         self._compile_task = None
         self._earlier_synctex = None
         if self.watcher:

@@ -19,7 +19,7 @@ import time
 
 import psutil
 
-from . import plugin_monitor
+from . import plugin_monitor, shared_file
 
 
 def _end(child: subprocess.Popen | None) -> None:
@@ -69,7 +69,7 @@ def main(argv: list[str] | None = None) -> None:
     try:
         while psutil.pid_exists(session):
             try:
-                handed = command.read_text(encoding="utf-8")
+                handed = shared_file.read_text(command)
             except OSError:
                 handed = None
             if handed and handed != current:

@@ -279,3 +279,67 @@ def test_no_process_the_server_starts_is_given_the_servers_own_input() -> None:
                 if not given:
                     missing.append(f"{path.name}:{node.lineno}")
     assert missing == []
+
+
+def test_serve_says_in_one_line_that_its_port_is_in_use(project_dir, capsys):
+    """A port another program holds: serve says so, names the port and how to choose another,
+    and ends with a failure, before it says that it serves anything."""
+    import socket
+
+    assert main(["init", "--main", "main.tex"]) == 0
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as held:
+        held.bind(("127.0.0.1", 0))
+        held.listen(1)
+        port = held.getsockname()[1]
+        capsys.readouterr()
+        assert main(["--port", str(port), "serve"]) == 1
+    said = capsys.readouterr().err
+    assert said.startswith(f"Port {port} is already in use") and "tex-mcp-web config port" in said
+    assert "serving" not in said and "Traceback" not in said
+
+
+@pytest.mark.parametrize("encoding, shown", [
+    # Korean Windows' console code page holds Korean letters but no em dash.
+    ("cp949", "Watching C:\\Users\\민수\\논문 - 초고\\main.tex"),
+    # One that holds no Korean letter puts a stand-in for each, and keeps the dash.
+    ("cp1252", "Watching C:\\Users\\??\\?? — ??\\main.tex"),
+])
+def test_the_log_writes_what_its_stream_can_hold_as_it_is(encoding, shown):
+    """A paper folder with a Korean name reads in the log as it is, where the stream's
+    encoding holds its letters, and no character comes out as an escape."""
+    import io
+    import logging
+
+    from tex_mcp_web.cli import _log_handler
+
+    stream = io.TextIOWrapper(io.BytesIO(), encoding=encoding, errors="backslashreplace", newline="")
+    handler = _log_handler(stream)
+    handler.emit(logging.LogRecord("tex_mcp_web.server", logging.INFO, __file__, 1,
+                                   "Watching %s", ("C:\\Users\\민수\\논문 — 초고\\main.tex",), None))
+    stream.flush()
+    written = stream.buffer.getvalue().decode(encoding)
+
+    assert written.endswith(f" INFO    tex_mcp_web.server {'-' if encoding == 'cp949' else '—'} {shown}\n")
+    assert "\\u" not in written and "\\x" not in written
+
+
+def test_what_a_child_process_prints_is_never_read_in_the_systems_code_page() -> None:
+    """A Windows set to Korean reads a child's output as cp949 unless told otherwise, and
+    synctex, git and the TeX tools write UTF-8: a paper folder with Korean letters in its
+    name then broke every search between the PDF and the source. No call asks for text
+    without naming the encoding."""
+    import ast
+
+    package = Path(__file__).parents[1] / "tex_mcp_web"
+    unnamed = []
+    for path in sorted(package.glob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not isinstance(node, ast.Call):
+                continue
+            keywords = {keyword.arg: keyword.value for keyword in node.keywords}
+            as_text = any(isinstance(keywords.get(name), ast.Constant) and keywords[name].value is True
+                          for name in ("text", "universal_newlines"))
+            if as_text and "encoding" not in keywords:
+                unnamed.append(f"{path.name}:{node.lineno}")
+    assert unnamed == []
+

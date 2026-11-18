@@ -74,6 +74,12 @@ UNDERFULL_OVERFULL_PATTERN = re.compile(
     r"^(?P<type>Underfull|Overfull)\s+\\[hv]box\s+.+?at\s+lines?\s+(?P<line>\d+)",
     re.MULTILINE,
 )
+# MiKTeX ends each program's output with a reminder such as "major issue: So far, you have
+# not checked for MiKTeX updates.", which says nothing about the paper.
+MIKTEX_UPDATE_REMINDER = re.compile(
+    r"^[^\n]*\bissue: So far,[^\n]*\bchecked for[^\n]*\bupdates\b[^\n]*(?:\n|$)",
+    re.MULTILINE | re.IGNORECASE,
+)
 
 # Whitelist of allowed compilers for security
 ALLOWED_COMPILERS = frozenset({
@@ -135,6 +141,9 @@ def _get_compiler_command(
             "-interaction=nonstopmode",
             "-synctex=1",
             "-file-line-error",
+            # The PDF is built beside the main file, where the page looks for it, also when
+            # the paper's .latexmkrc sets $out_dir to another folder.
+            "-outdir=.",
         ]
         if force_rebuild:
             command.append("-g")
@@ -464,6 +473,8 @@ async def compile_tex(
             stdout, _ = await _communicate(process)
             log_output = stdout.decode("utf-8", errors="replace")
             stderr_text = ""
+        # Errors and warnings are read from the output without MiKTeX's update reminder.
+        said = MIKTEX_UPDATE_REMINDER.sub("", log_output)
 
         end_time = datetime.now(timezone.utc)
 
@@ -474,7 +485,7 @@ async def compile_tex(
             errors = _parse_pandoc_errors(stderr_text) if not success else []
             warnings = []
         else:
-            unwrapped = _unwrap_log(log_output)
+            unwrapped = _unwrap_log(said)
             errors = _parse_errors(unwrapped, str(main_file.name))
             # latexmk runs the engine until the references settle, and each pass prints the
             # warnings it met, a reference not yet defined among them. The warnings that stand
@@ -487,7 +498,7 @@ async def compile_tex(
             warnings = _parse_warnings(standing, str(main_file.name))
 
         if process.returncode != 0 and not errors:
-            raw_output = "\n".join(part for part in (log_output, stderr_text) if part)
+            raw_output = "\n".join(part for part in (said, stderr_text) if part)
             tail = _compiler_output_tail(raw_output)
             message = f"Compiler exited with status {process.returncode}"
             if tail:

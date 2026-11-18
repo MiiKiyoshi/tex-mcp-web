@@ -529,3 +529,30 @@ def test_the_forward_search_asks_by_the_name_the_record_has_for_the_file(tmp_pat
     synctex.source_lines_to_boxes(real / "main.pdf", real / "main.tex", 3, 3)
     assert asked == [f"3:0:{recorded}"]
 
+
+def test_synctex_output_is_read_as_utf_8_whatever_the_systems_code_page(tmp_path, monkeypatch) -> None:
+    """A paper in a folder with Korean letters in its name: synctex names the file in UTF-8,
+    and both searches read what it prints as UTF-8, not in the system's code page."""
+    from tex_mcp_web import synctex
+
+    folder = tmp_path / "논문 폴더"
+    folder.mkdir()
+    (folder / "main.tex").write_text("Words.\n", encoding="utf-8", newline="")
+    (folder / "main.pdf").write_bytes(b"%PDF-1.4\n")
+    asked = []
+
+    def run(command, **keywords):
+        asked.append(keywords.get("encoding"))
+        assert "text" not in keywords
+        printed = (f"SyncTeX result begin\nOutput:{folder / 'main.pdf'}\nInput:{folder / 'main.tex'}\nLine:1\n"
+                   "Column:-1\nSyncTeX result end\n") if command[1] == "edit" else \
+            "SyncTeX result begin\nPage:1\nx:72.0\ny:80.0\nh:72.0\nv:82.0\nW:100.0\nH:10.0\nSyncTeX result end\n"
+        return SimpleNamespace(stdout=printed, stderr="", returncode=0)
+
+    monkeypatch.setattr(synctex.shutil, "which", lambda name: "synctex")
+    monkeypatch.setattr(synctex.subprocess, "run", run)
+    assert synctex.source_lines_to_boxes(folder / "main.pdf", folder / "main.tex", 1, 1)
+    found = synctex.selection_to_source_range(folder / "main.pdf", 1, [(72.0, 70.0, 172.0, 82.0)], folder)
+    assert found is not None and found[0] == "main.tex"
+    assert asked and set(asked) == {"utf-8"}
+

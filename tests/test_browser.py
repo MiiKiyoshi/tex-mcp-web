@@ -126,9 +126,11 @@ def select_in_preview(browser, words, page_width: float) -> None:
     left, top, scale = browser.execute_script(
         f"{PREVIEW_PAGE} return [rect.left, rect.top, rect.width / {page_width}];")
     y = top + (words.y0 + words.y1) / 2 * scale
+    # The pauses give Safari's driver time: without them it sometimes sends a press that
+    # closely follows another as a release before the press, and the page sees no drag.
     browser.actions("pointer", "mouse", {"pointerType": "mouse"}) \
-        .pointer_move(left + (words.x0 + 1) * scale, y).pointer_down() \
-        .pointer_move(left + (words.x1 - 1) * scale, y, duration=300).pointer_up().perform()
+        .pointer_move(left + (words.x0 + 1) * scale, y).pause(50).pointer_down().pause(50) \
+        .pointer_move(left + (words.x1 - 1) * scale, y, duration=300).pause(50).pointer_up().perform()
 
 
 @needs_browser
@@ -775,6 +777,72 @@ def test_a_build_that_ends_while_the_page_loads_shows_its_pdf(tmp_path: Path, mo
         wait_for_build(shared)
         script("window.goOn();")
         wait_until(lambda: shape() == "landscape" and status().startswith("✓ ok"))
+    finally:
+        for gate in gates:
+            gate.set()
+        if browser is not None:
+            browser.quit()
+        shared.stop()
+
+
+@needs_browser
+def test_compile_pressed_while_a_build_runs_says_what_comes_of_it(tmp_path: Path, monkeypatch) -> None:
+    """Ctrl+Enter while a build runs says in the top bar, with no alert, what comes of it:
+    the running build has the sources as they are, or, after an edit it saves, a build
+    follows. A source saved while a build runs, with no build after it, is named as the
+    build ends."""
+    paper = tmp_path / "paper.tex"
+    paper.write_text(PAPER, encoding="utf-8")
+    gates = builds_by_hand(monkeypatch)
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    browser = None
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: gates)
+        gates[0].set()
+        wait_for_build(shared)
+        browser = chrome.launch()
+        browser.navigate(base)
+        script = browser.execute_script
+        status = lambda: script('return document.querySelector("#compile-status").textContent')
+        busy = lambda: script('return document.querySelector("#compile-btn").disabled')
+        editor = '(window.wrappedJSObject || window).ace.edit("source-editor")'
+        script('document.querySelector("[data-view=split]").click()')
+        wait_until(lambda: script(f'return {editor}.getValue().includes("Introduction")') and status().startswith("✓ ok"))
+        script("window.alerted = []; window.alert = (words) => window.alerted.push(words);")
+
+        def press_compile() -> None:
+            script(f"{editor}.focus()")
+            browser.actions("key", "keyboard").key_down("").key_down("") \
+                .key_up("").key_up("").perform()
+
+        script('document.querySelector("#compile-btn").click()')
+        wait_until(lambda: len(gates) == 2 and status().startswith("compiling…"))
+        press_compile()
+        wait_until(lambda: status().endswith(" · this build already includes the latest changes"))
+        script(f'{editor}.session.insert({{row: 0, column: 0}}, "% edited\\n")')
+        press_compile()
+        wait_until(lambda: status().endswith(" · another build will follow to include the latest changes"))
+        assert paper.read_text(encoding="utf-8").startswith("% edited\n") and len(gates) == 2
+        gates[1].set()
+        wait_until(lambda: len(gates) == 3 and status().startswith("compiling…") and "follow" not in status())
+        assert busy()
+        gates[2].set()
+        wait_until(lambda: status().startswith("✓ ok") and not busy())
+        assert "source changed" not in status()
+
+        # Saved while the build runs, which the editor shows: the build ends naming it.
+        script('document.querySelector("#compile-btn").click()')
+        wait_until(lambda: len(gates) == 4 and busy())
+        paper.write_text(PAPER + "% saved meanwhile\n", encoding="utf-8")
+        wait_until(lambda: script(f"return {editor}.getValue()").rstrip().endswith("% saved meanwhile"))
+        gates[3].set()
+        wait_until(lambda: status().startswith("✓ ok") and status().endswith(" · source changed, Compile to update"))
+        assert len(gates) == 4 and script("return window.alerted") == []
     finally:
         for gate in gates:
             gate.set()
@@ -1800,6 +1868,10 @@ def test_browser_source_selection_and_split_resize(tmp_path: Path) -> None:
         assert browser.execute_script(f"return {editor}.textInput.getElement().readOnly;") is False
         # Without Vim keys, Ctrl+Alt+M comments on the selection.
         browser.execute_script(f"{editor}.focus(); {editor}.selection.selectLine();")
+        # The comment button says what a press does to a screen reader as it does in its tooltip.
+        wait_until(lambda: browser.execute_script(
+            'const b = document.querySelector("#source-comment-btn");'
+            ' return b.title.startsWith("Comment on the selected source text") && b.getAttribute("aria-label") === b.title'))
         browser.actions("key", "keyboard").key_down(chrome.MOD).key_down("\ue00a").key_down("m") \
             .key_up("m").key_up("\ue00a").key_up(chrome.MOD).perform()
         wait_until(lambda: browser.execute_script('return document.querySelector("#compose-dialog").open'))
@@ -2891,6 +2963,10 @@ def test_on_a_mac_the_page_names_the_keys_a_mac_has(tmp_path: Path) -> None:
             wait_until(lambda: browser.execute_script('return document.querySelector("#comments-list") !== null'))
             wait_until(lambda: f"{held}+{alt}+Enter" in browser.execute_script('return document.querySelector("#call-agent-btn").title'))
             browser.execute_script('document.querySelector("#keys-btn").click()')
+            # The dialog opens on its first lines, though the focus goes to Close at its end.
+            wait_until(lambda: browser.execute_script(
+                'const d = document.querySelector("#keys-dialog");'
+                ' return d.open && d.scrollHeight > d.clientHeight && d.scrollTop === 0'))
             compile_title, call_title, preview_title, keys = browser.execute_script(names)
             assert f"({held}+Enter" in compile_title and f"{held}+{alt}+Enter" in call_title
             assert f"{held}+{alt}+P" in preview_title
@@ -2990,6 +3066,8 @@ def test_the_editors_menu_holds_text_size_wrap_and_vim_keys(tmp_path: Path) -> N
         shared.stop()
 
 
+@chrome.not_in_safari("its driver sends Shift+Space as a dead key under a Korean input source, where a real "
+                      "Shift+Space reaches the page")
 @needs_browser
 def test_the_ring_holds_a_third_of_the_way_down_and_an_opened_card_shows_its_end(tmp_path: Path) -> None:
     """Moving by keys keeps the ringed card's middle a third of the way down the list, so

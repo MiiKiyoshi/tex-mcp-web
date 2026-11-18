@@ -23,6 +23,7 @@ Requires: pip install "mcp>=1.0"  (and httpx for compile)
 
 import asyncio
 import json
+import os
 import re
 import secrets
 import shlex
@@ -34,7 +35,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from . import page_token, plugin_monitor
+from . import page_token, plugin_monitor, shared_file
 
 try:
     from mcp.server.fastmcp import Context, FastMCP
@@ -211,7 +212,7 @@ def _cursor_path(watch_dir: Path) -> Path:
 def read_cursor(watch_dir: Path) -> str | None:
     """The moment this project's agent was last told about, or None."""
     try:
-        return str(json.loads(_cursor_path(watch_dir).read_text(encoding="utf-8"))["at"])
+        return str(json.loads(shared_file.read_text(_cursor_path(watch_dir)))["at"])
     except (OSError, ValueError, KeyError, TypeError):
         return None
 
@@ -233,7 +234,10 @@ def _moment(at: str) -> datetime:
 def write_cursor(watch_dir: Path, at: str) -> None:
     path = _cursor_path(watch_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"at": at}), encoding="utf-8")
+    # Written whole and then put in place: the page's server reads it meanwhile.
+    staging = path.with_name(f"{path.name}.{os.getpid()}")
+    staging.write_text(json.dumps({"at": at}), encoding="utf-8")
+    shared_file.replace(staging, path)
 
 
 def _after(entry, moment: datetime | None) -> bool:

@@ -31,7 +31,7 @@ from urllib.parse import unquote, urlsplit
 
 import aiohttp
 
-from . import __version__
+from . import __version__, shared_file
 from . import overleaf_ot as ot
 
 COOKIE_ENV = "TEX_MCP_WEB_OVERLEAF_COOKIE"
@@ -58,7 +58,7 @@ def ledger_path(watch_dir: Path) -> Path:
 
 def ledger(watch_dir: Path) -> dict[str, dict[str, Any]]:
     try:
-        return json.loads(ledger_path(watch_dir).read_text(encoding="utf-8"))
+        return json.loads(shared_file.read_text(ledger_path(watch_dir)))
     except (OSError, ValueError):
         return {}
 
@@ -107,7 +107,8 @@ def save_cookie(pasted: str) -> None:
         os.write(descriptor, f"{name}={value}\n".encode())
     finally:
         os.close(descriptor)
-    os.replace(temporary, path)
+    # Every paper's server and agent reads the one cookie.
+    shared_file.replace(temporary, path)
 
 
 def forget_cookie() -> None:
@@ -124,7 +125,7 @@ def cookie_source() -> str | None:
 def read_cookie() -> tuple[str, str] | None:
     """(name, value) of the reviewer's cookie, the environment's before the file's."""
     try:
-        pasted = os.environ.get(COOKIE_ENV, "").strip() or cookie_path().read_text(encoding="utf-8")
+        pasted = os.environ.get(COOKIE_ENV, "").strip() or shared_file.read_text(cookie_path())
         return parse_cookie(pasted)
     except (OSError, ValueError):
         return None

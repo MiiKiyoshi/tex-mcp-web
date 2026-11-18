@@ -31,6 +31,7 @@ import re
 from collections import Counter, defaultdict
 from pathlib import Path
 
+from . import shared_file
 from .config import Config, get_references_dir
 
 TERMS_FILE = "terms.md"
@@ -446,7 +447,7 @@ def _write(path: Path, text: str) -> None:
     """Written whole and then put in place, so a reader never sees half a list."""
     written = path.with_name(f"{path.name}.{os.getpid()}")
     written.write_text(text, encoding="utf-8")
-    os.replace(written, path)
+    shared_file.replace(written, path)
 
 
 def refresh(config: Config) -> Path | None:
@@ -471,7 +472,7 @@ def refresh(config: Config) -> Path | None:
             raise ValueError(f"{folder} is not a folder")
         mark = {"references": str(folder), "fingerprint": fingerprint(folder)}
         try:
-            if json.loads(stamp.read_text(encoding="utf-8")) == mark and terms.is_file():
+            if json.loads(shared_file.read_text(stamp)) == mark and terms.is_file():
                 return terms
         except (OSError, ValueError):
             pass

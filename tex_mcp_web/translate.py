@@ -23,6 +23,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
+from . import shared_file
+
 logger = logging.getLogger(__name__)
 
 # Paragraphs sent in one call; a page rarely holds more.
@@ -151,7 +153,7 @@ class TranslationStore:
         self.path = path
         self._lock = threading.Lock()
         try:
-            self._data: dict[str, dict] = json.loads(path.read_text(encoding="utf-8"))
+            self._data: dict[str, dict] = json.loads(shared_file.read_text(path))
         except (OSError, ValueError):
             self._data = {}
 
@@ -169,13 +171,13 @@ class TranslationStore:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.path.with_suffix(".tmp")
             tmp.write_text(json.dumps(self._data, ensure_ascii=False, indent=1), encoding="utf-8")
-            tmp.replace(self.path)
+            shared_file.replace(tmp, self.path)
 
 
 def load_glossary(terms_md: Path) -> list[str]:
     """Term names from the reference term list (``- term (count), also ...``)."""
     try:
-        lines = terms_md.read_text(encoding="utf-8").splitlines()
+        lines = shared_file.read_text(terms_md).splitlines()
     except OSError:
         return []
     terms = []
@@ -218,11 +220,23 @@ _SESSION_ENV = ("CLAUDE_EFFORT", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE
 PROMPT = "{prompt}"
 
 
+def _windows_path(program: str, windows: bool = os.name == "nt") -> str:
+    """*program* as Windows names it. Git Bash, the shell an agent works in there, gives a
+    path as ``/c/Users/...``, which Windows itself does not know: its drive letter is put
+    back as ``C:/Users/...``. Elsewhere, and for any other name, the program as given."""
+    found = re.match(r"/([A-Za-z])/(.+)$", program) if windows else None
+    return f"{found.group(1).upper()}:/{found.group(2)}" if found else program
+
+
 def run_command(command: list[str], prompt: str, cwd: Path, system: str) -> str:
     """What *command* prints for one request: *system*, then *prompt*. The request goes to
     the command's standard input, or in place of ``{prompt}`` when its arguments hold it."""
-    executable = shutil.which(command[0])
+    executable = shutil.which(_windows_path(command[0]))
     if executable is None:
+        # A program named by its path is looked for there alone, and one named by a bare
+        # word on the PATH the server was registered with, which is shorter than a shell's.
+        if re.search(r"[/\\]", command[0]):
+            raise RuntimeError(f"{command[0]} does not exist, or is not a program that can be run")
         raise RuntimeError(f"{command[0]} was not found on the server's PATH, "
                            "which is the shorter PATH it was registered with")
     request = f"{system}\n\n--- Request ---\n\n{prompt}"
@@ -241,9 +255,10 @@ def run_command(command: list[str], prompt: str, cwd: Path, system: str) -> str:
 
 
 def command_label(command: list[str]) -> str:
-    """The command's program by its name, without its folder, and the model it names with
-    ``--model X``, ``--model=X`` or ``-m X``."""
-    name = Path(command[0]).name
+    """The command's program by its name, without its folder or Windows' ``.exe``, and the
+    model it names with ``--model X``, ``--model=X`` or ``-m X``."""
+    name = re.split(r"[/\\]", command[0])[-1]
+    name = name[:-4] if name.lower().endswith(".exe") else name
     for index, word in enumerate(command[1:], start=1):
         if word.startswith("--model="):
             return f"{name} · {word.removeprefix('--model=')}"

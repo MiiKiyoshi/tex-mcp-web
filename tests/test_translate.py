@@ -284,3 +284,31 @@ def test_the_label_is_the_commands_first_word_and_the_model_it_names():
     assert command_label(["/opt/tools/bin/llm-tool", "-m", "mid"]) == "llm-tool · mid"
     assert command_label(["llm-tool", "run"]) == "llm-tool"
     assert command_label(["llm-tool", "--model"]) == "llm-tool"
+
+
+def test_a_path_as_git_bash_gives_it_is_read_as_windows_names_it():
+    """An agent on Windows works in Git Bash, where a program's path reads /c/Users/....
+    Windows does not know that form, so the drive letter is put back before the program is
+    looked for. Other names, and every name on other systems, are left as they are."""
+    from tex_mcp_web.translate import _windows_path
+
+    assert _windows_path("/c/Users/me/.local/bin/tool", windows=True) == "C:/Users/me/.local/bin/tool"
+    assert _windows_path("C:/Users/me/tool.exe", windows=True) == "C:/Users/me/tool.exe"
+    assert _windows_path("tool", windows=True) == "tool"
+    assert _windows_path("/c/Users/me/tool", windows=False) == "/c/Users/me/tool"
+
+
+def test_a_program_that_is_missing_is_told_by_how_it_was_named(tmp_path):
+    """A program named by a path that leads nowhere does not exist: the PATH has no part in
+    it. One named by a bare word was not found on the server's PATH. The label drops the
+    folder and Windows' .exe."""
+    from tex_mcp_web import translate
+
+    with pytest.raises(RuntimeError, match="does not exist"):
+        translate.run_command([str(tmp_path / "nowhere" / "llm")], "words", tmp_path, "rules")
+    with pytest.raises(RuntimeError, match="was not found on the server's PATH"):
+        translate.run_command(["no-such-program-here"], "words", tmp_path, "rules")
+    assert translate.command_label(["C:\\Users\\me\\bin\\tool.exe", "-p", "--model", "small"]) == "tool · small"
+    assert translate.command_label(["/usr/local/bin/tool", "-m", "small"]) == "tool · small"
+    assert translate.command_label(["tool.EXE"]) == "tool"
+

@@ -105,12 +105,15 @@ const state = {
   lastViewerPointer: null,
   appliedCompileTimestamp: null,
   compileRefreshPromise: null,
-  // What the top bar says of the build: how the last one went or that one runs, whether a
-  // source file changed since, and a config the server could not take, until it takes one
-  // or a build begins or ends.
+  // What the top bar says of the build: how the last one went or that one runs, what a
+  // request to compile made while it runs leads to, whether a source file changed since,
+  // and a config the server could not take, until it takes one or a build begins or ends.
   compileStatus: "idle",
+  compileNote: "",
   sourceAhead: false,
   configError: "",
+  // Whether the server runs a build, as it last said.
+  serverCompiling: false,
   // Whether the last build failed, which the Preview and the translation say while there is
   // no PDF.
   buildFailed: false,
@@ -924,6 +927,7 @@ function updateSourceCommentButton() {
   button.title = state.sourceDirty
     ? "Save source before commenting"
     : selected ? `${where} the selected source text (Ctrl+Alt+M, gc with Vim keys)` : "Select source text to comment";
+  button.setAttribute("aria-label", button.title);
   $("#source-pdf-btn").disabled = !selected;
 }
 
@@ -4529,6 +4533,7 @@ function applyCompileResult(result) {
     ? ` · ${result.duration_seconds.toFixed(1)}s`
     : "";
   state.compileStatus = (result.success ? "✓ ok" : "✗ failed") + duration;
+  state.compileNote = "";
   state.configError = "";
   renderCompileStatus();
   const badge = $("#compile-tab-count");
@@ -4553,14 +4558,19 @@ function showProblems() {
   switchTab("compile");
 }
 
-function applyCompiling(compiling) {
+function showCompileButton(compiling) {
   const button = $("#compile-btn");
   button.disabled = compiling;
   button.querySelector(".wide-label").textContent = compiling ? "Compiling…" : "Compile";
+}
+
+function applyCompiling(compiling) {
+  showCompileButton(compiling);
   if (compiling) {
     // A build that starts now reads the sources as they are. Until it ends, the Preview
     // shows the PDF of the build before it, when there is one.
     state.compileStatus = state.pdfDigest ? "compiling… · showing the previous build" : "compiling…";
+    state.compileNote = "";
     state.sourceAhead = false;
     state.configError = "";
     renderCompileStatus();
@@ -4569,7 +4579,8 @@ function applyCompiling(compiling) {
 
 function renderCompileStatus() {
   $("#compile-status").textContent = state.configError ? `config error: ${state.configError}`
-    : state.compileStatus + (state.sourceAhead ? " · source changed, Compile to update" : "");
+    : state.compileStatus + (state.compileNote ? ` · ${state.compileNote}` : "")
+      + (state.sourceAhead ? " · source changed, Compile to update" : "");
 }
 
 // ----- Translation -----
@@ -4762,6 +4773,7 @@ async function applyCompletedCompile(result, pdfDigest) {
   const timestamp = result.timestamp;
   if (timestamp && timestamp === state.appliedCompileTimestamp) {
     if (state.compileRefreshPromise) await state.compileRefreshPromise;
+    showCompileButton(state.serverCompiling);
     return;
   }
 
@@ -4782,15 +4794,20 @@ async function applyCompletedCompile(result, pdfDigest) {
     await refresh;
   } finally {
     if (state.compileRefreshPromise === refresh) state.compileRefreshPromise = null;
-    applyCompiling(false);
+    // The build that follows this one may have begun while its PDF loaded.
+    showCompileButton(state.serverCompiling);
   }
 }
 
 // Ctrl+Enter (Cmd+Enter), or :make with Vim keys, compiles as the button does, saving the
-// editor's changes first so that the PDF shows them.
+// editor's changes first so that the PDF shows them. While a build runs, the server answers
+// with that build, or with one after it when a source changed since the build began, and
+// the top bar says which.
 async function compileFromKeys() {
-  if ($("#compile-btn").disabled) return;
   if (state.sourceDirty) await saveSource();
+  // Edits the file did not take, since it changed on disk, as the editor's status says,
+  // are not what a build would show.
+  if (state.sourceDirty) return;
   await compile();
 }
 
@@ -4809,10 +4826,22 @@ async function compile() {
 async function handleWebSocketMessage(message) {
   switch (message.type) {
     case "compiling":
+      state.serverCompiling = Boolean(message.status);
       if (message.status) applyCompiling(true);
+      break;
+    case "compile_requested":
+      state.compileNote = message.follows
+        ? "another build will follow to include the latest changes"
+        : "this build already includes the latest changes";
+      renderCompileStatus();
       break;
     case "compiled":
       await applyCompletedCompile(message.result, message.pdf_digest);
+      // A source saved while the build ran, which no build follows to take.
+      if (message.sources_ahead && !state.serverCompiling) {
+        state.sourceAhead = true;
+        renderCompileStatus();
+      }
       scheduleTranslation(1500);
       scheduleCompletions(1500);
       // A build may bring in or drop source files.
@@ -4827,7 +4856,8 @@ async function handleWebSocketMessage(message) {
     case "source_changed":
       readOverleafGitStateSoon();
       // The PDF shows the sources as the last build read them. A change heard of while a
-      // build runs is the save that Compile made just before it, which the build has.
+      // build runs is most often the save that Compile made just before it, which the build
+      // has; the server says as the build ends whether one came after it began.
       if (!$("#compile-btn").disabled) {
         state.sourceAhead = true;
         renderCompileStatus();
@@ -4852,7 +4882,8 @@ async function handleWebSocketMessage(message) {
     case "state":
       if (message.result) applyCompileResult(message.result);
       // A build that ended while the page could not hear of it leaves Compile free again.
-      applyCompiling(Boolean(message.compiling));
+      state.serverCompiling = Boolean(message.compiling);
+      applyCompiling(state.serverCompiling);
       if (message.review_waiters !== undefined) showAgentWaiting(message.review_waiters);
       // A build that ended after the page first read the paper and before its socket opened
       // left a PDF the page has not shown. A page that reconnects catches up as it opens.
@@ -5497,6 +5528,9 @@ function showCommentKeys() {
   const picked = COMMENT_KEYS.flatMap(([, group]) => group).filter((entry) => entry.picked).map((entry) => entry.keys[0]);
   $("#keys-picked").textContent = `With comments selected, ${picked.slice(0, -1).join(", ")} and ${picked.at(-1)} act on the selection.`;
   $("#keys-dialog").showModal();
+  // The dialog opens on its first lines: the focus goes to Close, its only button, which
+  // would otherwise scroll the list to its end. Safari settles that scroll a frame later.
+  requestAnimationFrame(() => { $("#keys-dialog").scrollTop = 0; });
 }
 
 function attachCommentKeys() {
@@ -6380,7 +6414,8 @@ async function init() {
 
   await refreshPaper();
   // A build already running says so from the start, before the page's socket connects.
-  applyCompiling(state.paper.compiling);
+  state.serverCompiling = Boolean(state.paper.compiling);
+  applyCompiling(state.serverCompiling);
   await refreshComments();
   // A git clone of the Overleaf project: where it stands shows in the top bar from the start.
   loadOverleafStanding().catch((error) => console.error(error));

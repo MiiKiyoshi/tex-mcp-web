@@ -272,6 +272,37 @@ async def test_nonzero_return_without_parsed_error_reports_raw_tail(tmp_path, mo
     assert "Emergency stop without TeX marker" in result.errors[0].message
 
 
+@pytest.mark.parametrize("output, error", [
+    # A run MiKTeX could not start: its own words are the error.
+    (b"MiKTeX could not find the script engine 'perl' which is required to execute 'latexmk'.\r\n"
+     b"major issue: So far, you have not checked for MiKTeX updates.\r\n",
+     "MiKTeX could not find the script engine 'perl'"),
+    # A TeX error, with the reminder each MiKTeX program prints as it ends.
+    (b"./main.tex:3: Undefined control sequence.\r\nl.3 \\foo\r\n\r\n"
+     b"major issue: So far, you have not checked for MiKTeX updates.\r\n"
+     b"Latexmk: Errors, so I did not complete making targets\r\n"
+     b"major issue: So far, no MiKTeX administrator has checked for updates.\r\n",
+     "Undefined control sequence."),
+])
+@pytest.mark.asyncio
+async def test_miktex_update_reminder_is_no_error(tmp_path, monkeypatch, output, error):
+    main_file = tmp_path / "main.tex"
+    main_file.write_text("source", encoding="utf-8", newline="")
+    _write_one_page_pdf(tmp_path / "main.pdf")
+
+    async def fake_exec(*args, **kwargs):
+        return _FakeProcess(1, output)
+
+    monkeypatch.setattr(compiler_module.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(compiler_module.asyncio, "create_subprocess_exec", fake_exec)
+
+    result = await compile_tex(main_file, work_dir=tmp_path)
+
+    said = [message.message for message in result.errors + result.warnings]
+    assert len(result.errors) == 1 and error in said[0]
+    assert not any("updates" in words for words in said)
+
+
 def test_pdf_validation_rejects_zero_pages(tmp_path, monkeypatch):
     pdf_path = tmp_path / "main.pdf"
     pdf_path.write_bytes(b"placeholder")
@@ -532,3 +563,18 @@ async def test_warnings_are_those_the_last_pass_leaves(tmp_path):
                          encoding="utf-8", newline="")
     standing = await compile_tex(main_file, work_dir=tmp_path)
     assert any("sec:gone" in warning.message for warning in standing.warnings)
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(shutil.which("latexmk") is None, reason="latexmk is required")
+async def test_a_latexmkrc_out_dir_still_leaves_the_pdf_where_the_page_looks(tmp_path):
+    """A paper whose .latexmkrc sends the output to another folder: the page looks for the
+    PDF beside the main file, and the build puts it there."""
+    main_file = tmp_path / "main.tex"
+    main_file.write_text("\\documentclass{article}\n\\begin{document}\nWords.\n\\end{document}\n",
+                         encoding="utf-8", newline="")
+    (tmp_path / ".latexmkrc").write_text('$out_dir = "build";\n$pdf_mode = 1;\n', encoding="utf-8", newline="")
+    result = await compile_tex(main_file, work_dir=tmp_path, compiler="latexmk")
+    assert result.success, result.errors
+    assert result.output_file == tmp_path / "main.pdf" and (tmp_path / "main.pdf").is_file()
+

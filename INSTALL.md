@@ -5,9 +5,9 @@ This file is for the agent the user asked to install tex-mcp-web. Fetch it with
 show the user one summary, and install once they agree. On a machine that already has
 tex-mcp-web, the same steps update it.
 
-The commands are written for a POSIX shell. On another system, Windows included, run the
-equivalent commands for that system: use its shell and its home folder, and use the virtual
-environment's `Scripts` folder where the commands say `bin`.
+The commands are written for a POSIX shell. On Windows, run them in Git Bash, which is the
+shell Claude Code itself uses there, and write `Scripts` where the commands say `bin`. In
+PowerShell or cmd, run the equivalent commands for that shell.
 
 ## 1. Inspect (change nothing)
 
@@ -18,8 +18,13 @@ environment's `Scripts` folder where the commands say `bin`.
   in step 3 has to build a dependency and the build fails, use Python 3.13. If no suitable
   Python is installed, name the command that installs one on this system, such as
   `py install 3.13` on Windows, and install it only when the user says to. Use the Python you
-  found wherever the commands below say `python3` (on Windows, `py -3.13`).
-- LaTeX: run `command -v latexmk` and record its directory. If it is missing, name the TeX
+  found wherever the commands below say `python3`. On Windows, use `py -3.13` from the start
+  when `py -0p` lists it, rather than a newer default. If there is no `py` launcher, use the
+  full path of a Python from python.org or winget, not the `python3` in a `WindowsApps`
+  folder, which only opens the Microsoft Store.
+- LaTeX: run `command -v latexmk` and record its directory. On Windows, record it as Windows
+  names it, from `cygpath -w "$(dirname "$(command -v latexmk)")"`, because step 4 writes it
+  into a Windows PATH. If it is missing, name the TeX
   distribution that suits this system and the command that installs it (TeX Live on Linux,
   MacTeX on macOS, MiKTeX or TeX Live on Windows), and install it only when the user says to.
   Continue once `latexmk` runs, using its full path if this shell's PATH does not include it
