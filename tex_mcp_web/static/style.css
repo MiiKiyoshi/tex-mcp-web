@@ -542,6 +542,16 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
   .view-tabs { order: 1; }
   .topbar .compile-status { order: 2; }
   .topbar .actions { order: 3; flex: none; margin-left: auto; }
+  /* Still too wide, the bar gives way a step at a time (fitTopbar in viewer.js). */
+  .topbar.one-face .overleaf-face:not(:first-child) { display: none; }
+  .topbar.tight, .topbar.tight .actions { gap: 0.2rem; }
+  .topbar.tight .view-tab { padding: 0.2rem 0.3rem; }
+  .topbar.tight button { padding-left: 0.25rem; padding-right: 0.25rem; }
+  .topbar.faceless .overleaf-faces { display: none; }
+  .topbar.countless .git-count { display: none; }
+  .topbar.tabs-cut .view-tabs { flex: 0 1 auto; min-width: 0; }
+  .topbar.tabs-cut .compile-status { flex-shrink: 100; }
+  .topbar.tabs-cut .view-tab { flex: 0 1 auto; min-width: 1.5rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* One row on a phone: the buttons draw smaller, the file's name gives up what the row
      lacks and ends in an ellipsis, and Saved ends the row in small type. */
   .source-toolbar { flex-wrap: nowrap; gap: 0.25rem; padding: 0.1rem 0.35rem; }
@@ -579,6 +589,11 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 #translation-file { font-size: var(--text-small); max-width: 14rem; }
 #translation-page, #translation-status { color: var(--fg-dim); }
+/* The head stays one line: a long status gives way first, cut short, its whole text in its
+   title, and then the command's name. */
+#translation-page { flex: none; white-space: nowrap; }
+#translation-status, #translation-tool { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#translation-status { flex-shrink: 1000; }
 #translation-tool { font-size: var(--text-fine); color: var(--fg-dim); }
 #translation-font-smaller-btn { margin-left: auto; }
 .translation-head button { flex: none; padding: 0.15rem 0.3rem; }
@@ -751,6 +766,21 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 .filter-row.squeezed > .row-group:first-child { flex: 0 1 auto; }
 .filter-row.squeezed .pick:not(.sort-pick) { flex: 0 1 auto; min-width: 4.7rem; }
 .filter-row.squeezed .pick:not(.sort-pick) select { width: 100%; text-overflow: ellipsis; }
+/* Leafless, Send in the leaf tab is its drawing alone. View-shrunk, the view list is its icon
+   alone, as the sort list is shrunk, its view named in its title. */
+.filter-row.leafless #send-picked-btn .leaf-icon { display: none; }
+/* While words are in the search box the list covers every view, and the view list reads
+   "all", greyed, until the search is cleared. */
+#comment-filter.searching, .view-pick:has(.searching) .pick-name { color: var(--fg-dim); }
+.view-pick .view-icon { display: none; }
+.filter-row.view-shrunk .pick.view-pick:not(.sort-pick) { flex: none; min-width: 0; }
+.filter-row.view-shrunk .view-pick .view-icon { display: inline-flex; }
+.filter-row.view-shrunk .view-pick .pick-name { display: none; }
+.filter-row.view-shrunk .view-pick select {
+  position: absolute; inset: 0; width: 100%; height: 100%; min-width: 0; opacity: 0;
+}
+.view-pick:hover .view-icon { background: var(--accent-soft); }
+.view-pick:has(select:focus-visible) .view-icon { outline: 2px solid var(--accent); outline-offset: 1px; }
 /* Too narrow even then, the row takes two lines rather than going past its edge. */
 .filter-row.wrapped { flex-wrap: wrap; row-gap: var(--row-gap); }
 .comment-search {
@@ -1105,6 +1135,23 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 .cmt-overleaf-head { display: flex; align-items: center; gap: 0.3rem; font-size: var(--text-small); font-weight: 600; }
 .overleaf-reply-note { font-size: var(--text-small); color: var(--warn); overflow-wrap: anywhere; }
 .overleaf-reply-note:empty { display: none; }
+/* A draft the agent wrote after the reviewer began typing, offered beside what they typed. */
+.overleaf-newer { display: flex; flex-direction: column; align-items: flex-start; gap: 0.25rem; font-size: var(--text-small); }
+.overleaf-newer p { margin: 0; color: var(--fg-dim); }
+.overleaf-newer blockquote {
+  margin: 0;
+  padding-left: 0.5rem;
+  border-left: 2px solid var(--border);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.overleaf-newer .overleaf-use {
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg);
+  font: inherit;
+}
 .cmt-form-actions .overleaf-send { display: inline-flex; align-items: center; gap: 0.25rem; }
 .thread-meta .entry-overleaf { margin-right: auto; display: inline-flex; align-items: center; gap: 0.2rem; white-space: nowrap; }
 .entry-overleaf.here { color: var(--fg-dim); font-style: italic; }

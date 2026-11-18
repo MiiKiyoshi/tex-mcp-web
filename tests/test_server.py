@@ -247,6 +247,17 @@ async def test_root_serves_the_viewer(client):
 
 
 @pytest.mark.asyncio
+async def test_the_page_has_the_project_logo_as_its_icon(client):
+    """The page names its icon, so a browser asks for no /favicon.ico that is not there."""
+    tc, server = client
+    html = await (await tc.get("/")).text()
+    assert f'<link rel="icon" type="image/png" href="/static/{server.static_tag()}/favicon.png">' in html
+    icon = await tc.get(f"/static/{server.static_tag()}/favicon.png")
+    assert icon.status == 200 and icon.content_type == "image/png"
+    assert (await icon.read()).startswith(b"\x89PNG\r\n\x1a\n")
+
+
+@pytest.mark.asyncio
 async def test_source_api_lists_and_reads_watched_files(client, project):
     tc, server = client
     (project / "references.bib").write_text("@book{x}\n", encoding="utf-8", newline="")
@@ -965,6 +976,15 @@ async def test_picked_comments_change_status_in_one_call(client):
     resp = await tc.post("/comments/status", json={"ids": [ids[0], "c-00000000"], "status": "resolved"})
     assert resp.status == 404 and (await (await tc.get(f"/comments/{ids[0]}")).json())["status"] == "open"
     assert (await tc.post("/comments/status", json={"ids": ids, "status": "done"})).status == 400
+    # An undo resolves a comment again at the moment it was resolved at before.
+    earlier = "2026-11-13T09:49:00+00:00"
+    resp = await tc.post("/comments/status", json={"ids": ids[:1], "status": "resolved", "resolved": {ids[0]: earlier}})
+    assert resp.status == 200 and (await (await tc.get(f"/comments/{ids[0]}")).json())["resolved"] == earlier
+    for wrong in ({ids[1]: earlier}, {ids[0]: "yesterday"}, [earlier]):
+        resp = await tc.post("/comments/status", json={"ids": ids[:1], "status": "resolved", "resolved": wrong})
+        assert resp.status == 400
+    resp = await tc.post("/comments/status", json={"ids": ids[:1], "status": "open", "resolved": {ids[0]: earlier}})
+    assert resp.status == 400
 
 
 @pytest.mark.asyncio
@@ -1753,6 +1773,12 @@ async def test_the_reviewer_starts_a_thread_for_overleaf_and_the_agent_drafts_it
         assert made.status == 201, await made.text()
         started = await made.json()
         assert started["for_overleaf"] is True and "suggestion" not in started
+        # Both boxes filled: the first message is the reviewer's own, kept as the thread's draft
+        # until it is sent, and the note waits for the agent.
+        made = await client.post("/comments", json={"anchor": lines, "draft": "Is this the right cite?",
+                                                    "text": "make my question politer", "overleaf": True})
+        own = await made.json()
+        assert own["overleaf_draft"]["mine"] is True
     finally:
         await client.close()
 
@@ -1762,8 +1788,22 @@ async def test_the_reviewer_starts_a_thread_for_overleaf_and_the_agent_drafts_it
     async def call(tool_name, **arguments):
         return json.loads((await mcp.call_tool(tool_name, arguments))[0].text)
 
-    [told] = (await call("read_comments", new=True))["comments"]
+    told, mine = (await call("read_comments", new=True))["comments"]
     assert told["id"] == started["id"] and told["new_thread"] is True and "on_overleaf" not in told
+    assert "overleaf_draft_by" not in told
+    # The agent's wording for the reviewer's own message comes as its private reply, and the
+    # message stays as the reviewer wrote it.
+    assert (mine["id"], mine["overleaf_draft"], mine["overleaf_draft_by"]) == (
+        own["id"], "Is this the right cite?", "reviewer")
+    suggested = await call("write_comments", action="overleaf", id=own["id"], rev=mine["rev"],
+                           text="Could you check whether this is the right citation?")
+    assert "stays as they wrote it" in suggested["note"]
+    kept = CommentStore(project / ".tex-mcp-web" / "comments.json").get(own["id"])
+    assert kept.overleaf_draft.text == "Is this the right cite?"
+    assert [(entry.author, entry.text) for entry in kept.thread] == [
+        ("human", "make my question politer"),
+        ("agent", "Suggested wording for the message on Overleaf:\nCould you check whether this is the right citation?")]
+    assert kept.waiting() == []
     assert [entry["text"] for entry in told["entries"]] == ["ask whether this cite is the right one, politely"]
     drafted = await call("write_comments", action="overleaf", id=started["id"], rev=told["rev"],
                          text="Could you check whether this is the right citation here?")
@@ -3561,6 +3601,23 @@ async def test_translations_cover_a_whole_file_once(client, project):
     assert again["status"] == "ready"
     assert [p["text"] for p in again["paragraphs"]] == ["T First", "T Second", "T Third"]
     assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_translation_program_that_is_gone_is_said_above_the_translations_kept(client, project):
+    """Every paragraph translated before shows from the store, and nothing runs the command.
+    Its program is looked for all the same: when it is gone the page says so, the
+    translations still shown."""
+    tc, server = client
+    calls = []
+    _translation_project(project, server, _echo_runner(calls))
+    await tc.get("/translations?file=body.tex")
+    assert len(calls) == 1
+
+    data = await (await tc.get("/translations?file=body.tex")).json()
+    assert data["status"] == "ready" and len(calls) == 1
+    assert data["error"].startswith("llm-tool was not found on the server's PATH")
+    assert [p["text"] for p in data["paragraphs"]] == ["T First", "T Second", "T Third"]
 
 
 @pytest.mark.asyncio

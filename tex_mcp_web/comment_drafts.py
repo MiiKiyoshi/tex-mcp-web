@@ -142,7 +142,7 @@ def load(root: Path, path: str) -> tuple[dict[str, str], list[tuple[str, str, st
                     raise ValueError(f"the Edit block for {slot[2]} must not be emptied")
                 entry_edits.append((slot[1], slot[2], value.strip()))
         if not replies and not entry_edits:
-            raise ValueError("the draft holds no reply and no changed Edit block")
+            raise ValueError("the draft has no reply and no changed Edit block")
         expected = dict(zip(snapshot["ids"], snapshot["updated"]))
         return replies, entry_edits, expected
     except (OSError, UnicodeError, KeyError, TypeError, IndexError, json.JSONDecodeError) as error:

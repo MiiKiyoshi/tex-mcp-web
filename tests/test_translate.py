@@ -158,6 +158,29 @@ def test_failed_call_records_error_and_retries_later(tmp_path: Path):
     assert translator.error is None and translator.missing(paragraphs) == []
 
 
+def test_a_program_that_is_gone_is_found_without_running_the_command(tmp_path: Path, monkeypatch):
+    """With every paragraph in the store, nothing would run the command: check() looks for its
+    program, without running it, and says when it is gone, until a later check finds it."""
+    from tex_mcp_web import translate
+
+    store = TranslationStore(tmp_path / "t.json")
+    paragraphs = split_paragraphs("Some words here.\n", "a.tex")
+    store.put_many({paragraphs[0].key: "번역"})
+    asked = []
+    translator = Translator(store, [], tmp_path, runner=lambda prompt, cwd: asked.append(prompt),
+                            command=["llm-tool", "--model", "mid"])
+    monkeypatch.setattr(translate.shutil, "which", lambda name: None)
+    translator.check()
+    assert translator.error.startswith("llm-tool was not found on the server's PATH")
+    monkeypatch.setattr(translate.shutil, "which", lambda name: f"/usr/bin/{name}")
+    translator.check()
+    assert translator.error is None and asked == []
+    # An error from a run of the command is not check()'s to clear.
+    translator.error = "llm-tool exited with 1"
+    translator.check()
+    assert translator.error == "llm-tool exited with 1"
+
+
 def test_comment_line_inside_a_paragraph_does_not_split_it():
     paragraphs = split_paragraphs("Alpha beta gamma\n% a note\ndelta epsilon zeta.\n", "a.tex")
     assert [(p.line_start, p.line_end) for p in paragraphs] == [(1, 3)]

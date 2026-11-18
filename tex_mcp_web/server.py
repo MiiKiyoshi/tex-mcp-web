@@ -27,6 +27,7 @@ import stat
 import tempfile
 import time
 from collections.abc import Awaitable, Callable, Iterable
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -60,7 +61,6 @@ from .comments import (
 )
 from .compiler import CompileResult, compile_tex, earlier_pdf, output_pdf, source_dependencies
 from .config import Config, get_main_file, get_watch_dir, load_config, translation_command
-from .mcp_server import short_time
 from .structure import (
     AmbiguousSection,
     DocumentStructure,
@@ -108,10 +108,6 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 def _comment_to_dict(c: Comment) -> dict[str, Any]:
     d = c.to_dict()
-    # Each entry's time as the agent reads it too, MM-DD HH:MM on this server's clock, so
-    # the page and the agent name a moment alike.
-    for entry in d["thread"]:
-        entry["when"] = short_time(entry["at"])
     # The reviewer wrote in it after the agent's last answer, which the page's to do lists.
     if c.waiting():
         d["awaits_agent"] = True
@@ -216,15 +212,6 @@ def _place_suggestions(theirs: str, here: str, groups: list[dict[str, Any]]) -> 
         span = moved[f"c{index}"]
         placed.append((overleaf_ot.py_index(here, span["p"]), overleaf_ot.py_index(here, span["p"] + span["n"])))
     return placed
-
-
-def _suggested_when(stamp: str) -> str:
-    """When Overleaf says an edit was suggested, as the page shows a thread's times. Overleaf
-    writes the time zone as Z, which Python reads from 3.11 on."""
-    try:
-        return short_time(re.sub(r"Z$", "+00:00", stamp))
-    except ValueError:
-        return ""
 
 
 def _line_column(text: str, offset: int) -> tuple[int, int]:
@@ -567,6 +554,8 @@ class TexMcpWebServer:
         # last told it, and that page: the reviewer's cursor on Overleaf.
         self._cursor: tuple[str, int, int] | None = None
         self._cursor_page: web.WebSocketResponse | None = None
+        # The countdown that takes that cursor off Overleaf once its place is nobody's.
+        self._cursor_gone: asyncio.TimerHandle | None = None
         # One look at a time at whether the session should be open: two at once would each
         # find none open and open one.
         self._overleaf_live_turn = asyncio.Lock()
@@ -903,6 +892,7 @@ class TexMcpWebServer:
         if self.overleaf_live is not None:
             await ws.send_json({"type": "overleaf_live", **self.overleaf_live.snapshot()})
         await self._sync_overleaf_live()
+        self._watch_cursor()
         try:
             async for message in ws:
                 # The page says where its editor's cursor is, or that Settings hides it.
@@ -921,6 +911,9 @@ class TexMcpWebServer:
 
     # Seconds the connection outlives the last page, so a reload does not drop it.
     OVERLEAF_LIVE_GRACE = 30
+    # Seconds the reviewer's cursor stays on Overleaf once its place is nobody's, so that a
+    # reload, or a look at a file that is not on Overleaf, does not join the project anew.
+    OVERLEAF_CURSOR_GONE = 10
     # Seconds before reading comments after news of them, twice: the thread is announced
     # before the words it is on are stored.
     OVERLEAF_COMMENT_SETTLE = 2
@@ -983,12 +976,14 @@ class TexMcpWebServer:
         """The reviewer's cursor on Overleaf, from what the page *page* says: where its editor's
         cursor is ({"path", "row", "column"}), or that Settings hides it ({"hidden": true}),
         which takes it off Overleaf. None when the page goes, which ends what it told, if it
-        told last, and leaves the place on Overleaf until the session ends."""
+        told last. A place left nobody's, by that or by a cursor in a file that is not on
+        Overleaf, goes after OVERLEAF_CURSOR_GONE seconds (see _watch_cursor)."""
         if said is not None and said.get("hidden"):
             self._cursor = self._cursor_page = None
             async with self._overleaf_live_turn:
                 if self.overleaf_live is not None:
                     await self.overleaf_live.hide()
+            self._watch_cursor()
             return
         if said is not None:
             self._cursor, self._cursor_page = (str(said["path"]), int(said["row"]), int(said["column"])), page
@@ -998,6 +993,31 @@ class TexMcpWebServer:
             return
         if self.overleaf_live is not None:
             self.overleaf_live.place(self._cursor)
+        self._watch_cursor()
+
+    def _watch_cursor(self) -> None:
+        """Start the countdown that takes the reviewer's cursor off Overleaf once the place it
+        was last sent to is nobody's, unless it already runs, and stop it once a page tells a
+        place on Overleaf again. Only that stops it: a cursor moving in a file that is not on
+        Overleaf leaves it running."""
+        live = self.overleaf_live
+        if live is None or not live.stranded():
+            if self._cursor_gone is not None:
+                self._cursor_gone.cancel()
+                self._cursor_gone = None
+            return
+        if self._cursor_gone is None:
+            self._cursor_gone = asyncio.get_running_loop().call_later(
+                self.OVERLEAF_CURSOR_GONE, lambda: asyncio.ensure_future(self._take_cursor_away(live)))
+
+    async def _take_cursor_away(self, live: LivePresence) -> None:
+        """Take the reviewer's cursor off Overleaf if its place is still nobody's, in the session
+        it was sent in. With no page open the session's own end takes it, and a page that opens
+        starts the countdown again."""
+        self._cursor_gone = None
+        async with self._overleaf_live_turn:
+            if live is self.overleaf_live and live.stranded() and self.websockets:
+                await live.hide()
 
     async def _stop_overleaf_live(self, idle: bool = False) -> None:
         if idle and self.websockets:
@@ -1006,6 +1026,9 @@ class TexMcpWebServer:
         if self._overleaf_live_stop is not None:
             self._overleaf_live_stop.cancel()
             self._overleaf_live_stop = None
+        if self._cursor_gone is not None:
+            self._cursor_gone.cancel()
+            self._cursor_gone = None
         self._overleaf_reads = 0
         self._overleaf_was_in_step = False
         self._overleaf_deleted.clear()
@@ -1021,9 +1044,13 @@ class TexMcpWebServer:
         self.overleaf_hand = None
         if live is not None:
             await live.stop()
+            live.files = None
         sync, self.overleaf_sync = self.overleaf_sync, None
         if sync is not None:
             await sync.stop()
+        # The pages hear that the session ended, and that no files follow Overleaf any more,
+        # live or by hand.
+        if live is not None:
             await self.broadcast({"type": "overleaf_live", **live.snapshot()})
 
     def _overleaf_live_changed(self) -> None:
@@ -1125,7 +1152,7 @@ class TexMcpWebServer:
                               "line": _line_column(held["text"], group["at"])[0],
                               "inserted": group["inserted"], "deleted": group["deleted"],
                               "user_id": group["user_id"], "name": group["name"],
-                              "at": group["ts"], "when": _suggested_when(group["ts"]), "here": start})
+                              "at": group["ts"], "here": start})
         return shown
 
     def _suggested_lines(self) -> list[str]:
@@ -1752,7 +1779,7 @@ class TexMcpWebServer:
         # A first message the reviewer wrote with no draft from the agent is kept as the draft,
         # where the thread's id goes before anything is sent.
         if comment.overleaf_draft is None:
-            comment = self.comments.draft_overleaf(comment.id, comment.updated, OverleafDraft(text), {})
+            comment = self.comments.draft_overleaf(comment.id, comment.updated, OverleafDraft(text, mine=True), {})
         thread = comment.overleaf_draft.thread or overleaf.new_thread_id()
         if comment.overleaf_draft.thread is None:
             self.comments.name_overleaf_thread(comment.id, thread)
@@ -2516,7 +2543,7 @@ class TexMcpWebServer:
             # The first message is kept as the thread's draft until it is sent, and the note
             # comes after it, so that sending it leaves the note waiting for the agent.
             comment = self.comments.add_overleaf_thread(
-                anchor, OverleafDraft(draft), resolved, source_selector,
+                anchor, OverleafDraft(draft, mine=True), resolved, source_selector,
                 {resolved.file: self._base_text(anchor, resolved)}, for_overleaf=True)
             if text:
                 comment = self.comments.reply(comment.id, text, author="human")
@@ -2895,11 +2922,13 @@ class TexMcpWebServer:
                                                "resolve it, or delete it on Overleaf"}, status=409)
         return None
 
-    async def _set_on_overleaf(self, threads: dict[str, str], resolved: bool) -> web.Response | None:
+    async def _set_on_overleaf(self, threads: dict[str, str], resolved: bool,
+                               times: dict[str, str] | None = None) -> web.Response | None:
         """Resolve or reopen threads from Overleaf there first, as the reviewer, and each one
-        Overleaf takes here too. *threads* maps a thread on Overleaf to its comment here. What
-        Overleaf refuses, and every thread after it, stays as it was on both, and the refusal
-        is returned. None once Overleaf has taken them all."""
+        Overleaf takes here too. *threads* maps a thread on Overleaf to its comment here, and
+        *times* gives a comment resolved here the moment it had, by its id. What Overleaf
+        refuses, and every thread after it, stays as it was on both, and the refusal is
+        returned. None once Overleaf has taken them all."""
         async with self._overleaf_import:
             cookie = overleaf.read_cookie()
             if cookie is None:
@@ -2914,7 +2943,8 @@ class TexMcpWebServer:
                         elif follower is not None:
                             follower.resolved_threads.discard(thread)
                     if resolved:
-                        self.comments.resolve(threads[thread], summary="", author="human")
+                        self.comments.resolve(threads[thread], summary="", author="human",
+                                              at=(times or {}).get(threads[thread]))
                     else:
                         self.comments.reopen(threads[thread], author="human")
             except overleaf.SignedOut as error:
@@ -2935,15 +2965,25 @@ class TexMcpWebServer:
 
     async def _handle_set_status(self, request: web.Request) -> web.Response:
         """Give the picked comments one status in one call, and the page one notice. The
-        threads from Overleaf go there first, together, as each would alone."""
+        threads from Overleaf go there first, together, as each would alone. An undo that
+        resolves comments again gives each the moment it was resolved at before, by id
+        (resolved)."""
         data, err = await self._read_json(request)
         if err is not None:
             return err
-        ids, status = data.get("ids"), data.get("status")
+        ids, status, times = data.get("ids"), data.get("status"), data.get("resolved", {})
         if not isinstance(ids, list) or not all(isinstance(cid, str) for cid in ids):
             return web.json_response({"error": "ids must be a list of comment ids"}, status=400)
         if status not in ("open", "resolved", "archived"):
             return web.json_response({"error": "status must be open, resolved or archived"}, status=400)
+        try:
+            if not isinstance(times, dict) or (times and status != "resolved") or not set(times) <= set(ids):
+                raise ValueError
+            for moment in times.values():
+                datetime.fromisoformat(moment)
+        except (TypeError, ValueError):
+            return web.json_response({"error": "resolved must map ids being resolved to the ISO times "
+                                               "they were resolved at before"}, status=400)
         present = {comment.id for comment in self.comments.list()}
         if missing := [cid for cid in ids if cid not in present]:
             return web.json_response({"error": f"no comment {', '.join(missing)}"}, status=404)
@@ -2951,13 +2991,13 @@ class TexMcpWebServer:
         threads = {followed[cid]: cid for cid in ids if cid in followed}
         if threads and status == "archived":
             return self._follows_overleaf(next(iter(threads.values())))
-        refused = await self._set_on_overleaf(threads, status == "resolved") if threads else None
+        refused = await self._set_on_overleaf(threads, status == "resolved", times) if threads else None
         if refused is None:
             for cid in ids:
                 if cid in followed:
                     continue
                 if status == "resolved":
-                    self.comments.resolve(cid, summary="", author="human")
+                    self.comments.resolve(cid, summary="", author="human", at=times.get(cid))
                 elif status == "open":
                     self.comments.reopen(cid, author="human")
                 else:
@@ -3024,7 +3064,9 @@ class TexMcpWebServer:
         ``?file=`` names the file; with only ``?page=N`` it is the file that
         SyncTeX places most on that page. ``on_page`` marks the paragraphs
         typeset on ``page``. Paragraphs already translated come from the store;
-        the rest start one background job and come back with ``text: null``.
+        the rest start one background job and come back with ``text: null``. With none
+        missing, nothing runs the command, so its program is looked for, and ``error`` says
+        when it is gone, above the translations kept.
         ``translator`` names the command that translates, and ``command`` gives it whole.
         With no language or no command set, the status says which, and ``help`` says what
         translation is and how to set it up.
@@ -3064,6 +3106,8 @@ class TexMcpWebServer:
         paragraphs = split_paragraphs(text, file)
         on_page = lines.get(file, set())
         missing = translator.missing(paragraphs)
+        if not missing:
+            translator.check()
         failed = bool(missing) and translator.error is not None and not translator.busy()
         body = {
             "language": language,

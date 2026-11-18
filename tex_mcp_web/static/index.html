@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>tex-mcp-web</title>
+<link rel="icon" type="image/png" href="/static/favicon.png">
 <link rel="stylesheet" href="/static/style.css">
 <script>
   // The theme is set before the page is drawn, so a dark page does not flash light: the
@@ -152,8 +153,11 @@
              greyed out, not taken away: the row keeps one shape. -->
         <div class="filter-row">
           <span class="row-group">
-            <!-- The page fills the list with the shown tab's views. -->
-            <span class="pick"><span id="comment-filter-name" class="pick-name" aria-hidden="true">to do</span><select id="comment-filter" aria-label="View">
+            <!-- The page fills the list with the shown tab's views. In a row short of room even
+                 for the shortest view's name it is its icon alone, with the list lying clear over it. -->
+            <span class="pick view-pick"><span class="icon-btn view-icon" aria-hidden="true">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h12l-4.5 5.5V13l-3-1.5V8.5z"/></svg>
+              </span><span id="comment-filter-name" class="pick-name" aria-hidden="true">to do</span><select id="comment-filter" aria-label="View">
               <option value="todo" selected>to do</option>
             </select></span>
             <!-- The order of the list, kept for each comment tab. In a row short of room it is its

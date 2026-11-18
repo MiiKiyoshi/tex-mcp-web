@@ -388,10 +388,10 @@ def _upstream_line(upstream: dict[str, Any] | None) -> str | None:
         return None
     if upstream.get("behind"):
         count = upstream["behind"]
-        return (f"Overleaf has {count} commit{'' if count == 1 else 's'} this folder lacks. "
+        return (f"Overleaf has {count} commit{'' if count == 1 else 's'} that this folder does not have yet. "
                 'overleaf(action="get") brings them in. Do it before editing.')
     if upstream.get("get"):
-        return (f"Overleaf has edits to {', '.join(upstream['get'])} this folder lacks. "
+        return (f"Overleaf has edits to {', '.join(upstream['get'])} that this folder does not have yet. "
                 'overleaf(action="get") brings them in. Do it before editing.')
     if upstream.get("choose"):
         return f"{', '.join(upstream['choose'])} wait for the reviewer to choose between this text and Overleaf's."
@@ -460,8 +460,10 @@ def _agent_comment_to_dict(comment, watch_dir: Path) -> dict[str, Any]:
     if comment.overleaf_draft is not None:
         # The reply drafted for Overleaf, which the reviewer has not sent yet. A thread with a
         # draft and not on Overleaf is a new thread drafted for it, and one with no entries
-        # holds the draft alone.
+        # has the draft alone. A first message the reviewer wrote says so.
         payload["overleaf_draft"] = comment.overleaf_draft.text
+        if comment.overleaf_draft.mine:
+            payload["overleaf_draft_by"] = "reviewer"
         if not comment.thread:
             del payload["comment"]
     if comment.stale:
@@ -773,6 +775,8 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                 if comment.overleaf_draft is not None:
                     # What the reviewer says may be about the draft, which they have not sent.
                     told["overleaf_draft"] = comment.overleaf_draft.text
+                    if comment.overleaf_draft.mine:
+                        told["overleaf_draft_by"] = "reviewer"
                 if comment.resolved_source is not None:
                     source = comment.resolved_source
                     told["source"] = f"{source.file}:{source.line_start}-{source.line_end}"
@@ -862,7 +866,8 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                 said = [(_agent_entry(entry), entry.at, entry.text) for entry in comment.thread]
                 if comment.overleaf_draft is not None:
                     draft = comment.overleaf_draft
-                    said.append(({"draft": draft.text, "at": short_time(draft.at)}, draft.at, draft.text))
+                    said.append(({"draft": draft.text, "at": short_time(draft.at),
+                                  **({"by": "reviewer"} if draft.mine else {})}, draft.at, draft.text))
                 matches = [shown_cut(shown, text) for shown, at, text in said
                            if within(at) and words in text.casefold()]
                 if not matches:
@@ -1047,7 +1052,9 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         edits move these ranges as they move a comment, so the draft does not need rewriting
         when lines shift. On a thread that came from Overleaf (on_overleaf), it drafts the
         public reply that the reviewer may send there. A thread has one draft, which this
-        replaces, and only the reviewer sends it; the reviewer is asked first when a file that
+        replaces, and only the reviewer sends it. A first message the reviewer wrote
+        themselves (overleaf_draft_by: reviewer) is not replaced: your text is added to the
+        thread as your private reply suggesting the wording. The reviewer is asked first when a file that
         contains those ranges differs between here and Overleaf. Since the draft is public
         once sent, word it for the people on Overleaf, and answer what the reviewer asks you
         in the thread with reply, which is private. With anchor (a source_range) instead of
@@ -1141,7 +1148,13 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                 if id not in _on_overleaf(watch_dir) and not drafted:
                     return _err("this comment did not come from Overleaf")
                 ranges, texts = _draft_ranges(watch_dir, edits or [])
-                return receipt(store.draft_overleaf(id, stamp_for(id), OverleafDraft(text, ranges), texts))
+                written = store.draft_overleaf(id, stamp_for(id), OverleafDraft(text, ranges), texts)
+                if written.overleaf_draft is not None and written.overleaf_draft.mine:
+                    return _ok({"id": written.id, "status": written.status, "rev": revision_of(written.updated),
+                                "note": "The reviewer wrote this thread's first message themselves, so it stays "
+                                        "as they wrote it. Your wording was added to the thread as your private "
+                                        "reply, for them to use."})
+                return receipt(written)
             if action == "edit":
                 if not id or not entry or not text or not rev:
                     return _err("edit requires id, entry, text and rev")

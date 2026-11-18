@@ -62,7 +62,7 @@ class SharedProjectServer:
         if data.get("config_path") is None:
             raise RuntimeError(
                 f"port {self.port} is served without a config file, by another project or an "
-                "older tex-mcp-web. Restart the MCP server that holds it, or change this port")
+                "older tex-mcp-web. Restart the MCP server that is using it, or change this port")
         return str(data["config_path"])
 
     def _serve(self) -> None:

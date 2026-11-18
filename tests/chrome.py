@@ -170,6 +170,10 @@ class Chrome:
         self.driver.execute_cdp_cmd("Emulation.setEmulatedMedia", {
             "features": [{"name": "prefers-color-scheme", "value": scheme or "light"}]})
 
+    def time_zone(self, name: str) -> None:
+        """Have the browser read its clock in the time zone *name*, as "Pacific/Honolulu"."""
+        self.driver.execute_cdp_cmd("Emulation.setTimezoneOverride", {"timezoneId": name})
+
     def platform(self, name: str) -> None:
         """Have the browser say it runs on the system *name*, as navigator.platform gives it,
         for the pages loaded from then on."""
@@ -290,6 +294,9 @@ class Safari(Chrome):
 
     def platform(self, name: str) -> None:
         pytest.skip("Safari: the system a browser says it runs on cannot be set")
+
+    def time_zone(self, name: str) -> None:
+        pytest.skip("Safari: the time zone a browser reads its clock in cannot be set")
 
     def find_element(self, strategy: str, selector: str):
         return SafariElement(self, super().find_element(strategy, selector))

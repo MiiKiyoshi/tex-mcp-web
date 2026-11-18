@@ -504,13 +504,54 @@ async def test_the_page_whose_cursor_moved_last_puts_the_reviewers_cursor_on_ove
     # Shown again, the page's place goes to the new session.
     await second.send_json({"type": "cursor", "path": "main.tex", "row": 3, "column": 0})
     await wait_for(lambda: positions(fake, before) == [{"row": 3, "column": 0, "doc_id": "d-main"}])
-    # The page that told last goes while another stays: its place stays on Overleaf, and is not
-    # sent again should the session join anew.
+    # The page that told last goes while another stays: its place is nobody's, and after a short
+    # wait the session joins anew without it.
+    server.OVERLEAF_CURSOR_GONE = 0.3
     third = await client.ws_connect("/ws")
+    before = len(fake.sent)
     await second.close()
     await wait_for(lambda: server._cursor is None)
     assert len(fake.handshakes) == 2 and server.overleaf_live._place is None
+    await wait_for(lambda: len(fake.handshakes) == 3 and any(name == "joinDoc" for name, _ in told(fake, before)))
+    await asyncio.sleep(0.1)
+    assert positions(fake, before) == []
     await third.close()
+
+
+async def test_a_place_nobody_is_at_leaves_overleaf_after_a_short_wait(review) -> None:
+    """The reviewer's cursor leaves Overleaf, the session joining anew, once its place is
+    nobody's: the editor is in a file that is not on Overleaf, or the page that told it went.
+    A page back at a place on Overleaf within the wait, as a reload is, keeps the session, and
+    moving about a file that is not on Overleaf does not put the leaving off."""
+    client, server, fake = review
+    server.OVERLEAF_CURSOR_GONE = 1.0
+    first = await opened(client, fake)
+    await wait_for(lambda: server.overleaf_live is not None and server.overleaf_live.snapshot()["doc_type"])
+    stays = await client.ws_connect("/ws")
+    await first.send_json({"type": "cursor", "path": "main.tex", "row": 1, "column": 0})
+    await wait_for(lambda: positions(fake) == [{"row": 1, "column": 0, "doc_id": "d-main"}])
+    # A reload: the page goes, and the page that comes back tells a place on Overleaf in time.
+    await first.close()
+    await wait_for(lambda: server._cursor is None)
+    again = await client.ws_connect("/ws")
+    await again.send_json({"type": "cursor", "path": "main.tex", "row": 2, "column": 0})
+    await wait_for(lambda: len(positions(fake)) == 2)
+    await asyncio.sleep(1.5)
+    assert len(fake.handshakes) == 1
+    # A file that is not on Overleaf: the cursor moving in it does not put the leaving off.
+    before = len(fake.sent)
+    for column in range(6):
+        await again.send_json({"type": "cursor", "path": "notes/draft.txt", "row": 0, "column": column})
+        await asyncio.sleep(0.3)
+    await wait_for(lambda: len(fake.handshakes) == 2, timeout=0.5)
+    await wait_for(lambda: any(name == "joinDoc" for name, _ in told(fake, before)))
+    await asyncio.sleep(0.1)
+    assert positions(fake, before) == []
+    # Back in a file on Overleaf, the place goes to the new session.
+    await again.send_json({"type": "cursor", "path": "tex/body.tex", "row": 0, "column": 1})
+    await wait_for(lambda: positions(fake, before) == [{"row": 0, "column": 1, "doc_id": "d-body"}])
+    await again.close()
+    await stays.close()
 
 
 # ----- Comments coming in by themselves -----

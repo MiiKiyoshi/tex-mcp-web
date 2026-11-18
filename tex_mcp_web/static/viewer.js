@@ -120,10 +120,20 @@ const state = {
   // The page cannot reach its server, and a call to the agent waits for one to listen.
   serverGone: false,
   callWaits: false,
+  // A comment or a reply was posted in this visit, some comment waits for the agent, and the
+  // bell has been pressed in this visit: what the note about calling the agent goes by.
+  posted: false,
+  agentAwaited: false,
+  called: false,
+  // The shown comment tab has no comment at all, in any view.
+  tabEmpty: false,
   // The last change of status made on the page, which the line above the list offers to undo:
-  // what the line says, the status each comment it changed had before, and why some could not
-  // be put back. Null when there is nothing to undo.
+  // what the line says, the status each comment it changed had before and when one resolved
+  // was resolved, why some could not be put back, and how many no longer exist. Null when
+  // there is nothing to undo.
   undo: null,
+  // The view the list showed before a search, which it shows again once the search is cleared.
+  viewBeforeSearch: "todo",
   // Why applying a thread's suggestion was refused, with the suggestion it was refused for.
   unfitSuggestions: new Map(),
   view: "pdf",
@@ -135,6 +145,9 @@ const state = {
   sourceCommentMarkers: [],
   // Each comment's marked text in the editor, as { range, comment }.
   sourceCommentSpans: [],
+  // What the editor's status line last said of the file, how ("", "dirty" or "conflict"), and
+  // whether it was said since the cursor last moved.
+  sourceStatus: { text: "Open Source to edit", kind: "", fresh: true },
   // The gutter's marks, as "row class": a row takes each class once.
   sourceDecorations: new Set(),
   sourceCommentsByRow: new Map(),
@@ -489,6 +502,10 @@ async function initializePdfViewer(pdfView) {
     endTouchHold();
     if (state.areaMode || event.pointerType !== "touch" || !onPages(event)) return;
     event.stopImmediatePropagation();
+    // The finger's moves go to what is under it, as a mouse's do. A touch is otherwise held by
+    // what it landed on, which may be a comment's badge beside the word, as a touch screen
+    // lands a finger on the nearest button: the viewer would then see no move to drag on.
+    try { event.target.releasePointerCapture(event.pointerId); } catch { /* not held */ }
     // A second finger is a pinch. Its press stays from the viewer, which began a selection
     // under it, and the first finger's hold has ended with it.
     if (!event.isPrimary) return;
@@ -511,6 +528,11 @@ async function initializePdfViewer(pdfView) {
   root.addEventListener("touchmove", (event) => {
     if (touchHold?.held) event.preventDefault();
   }, { capture: true, passive: false });
+  // A finger lifted after a hold is no tap. A click the browser sends for that lift, where the
+  // finger left, as Chrome's touch emulation does, would be a third click after the hold's
+  // double click, which the viewer takes for a triple click and selects the whole line with:
+  // it is kept from the viewer.
+  let heldLift = null;
   root.addEventListener("pointerup", (event) => {
     if (event.isTrusted && touchHold !== null && !touchHold.held) {
       const { x, y } = touchHold;
@@ -520,7 +542,15 @@ async function initializePdfViewer(pdfView) {
       press("pointerup", x, y);
       return;
     }
+    if (event.isTrusted && touchHold?.held) heldLift = { at: Date.now(), x: event.clientX, y: event.clientY };
     if (event.isTrusted) endTouchHold();
+  }, { capture: true });
+  root.addEventListener("click", (event) => {
+    const lift = heldLift;
+    heldLift = null;
+    if (!event.isTrusted || lift === null || Date.now() - lift.at >= 500
+      || Math.hypot(event.clientX - lift.x, event.clientY - lift.y) >= 10) return;
+    event.stopImmediatePropagation();
   }, { capture: true });
   root.addEventListener("pointercancel", endTouchHold, { capture: true });
   root.addEventListener("contextmenu", (event) => {
@@ -579,9 +609,12 @@ async function initializePdfViewer(pdfView) {
     action: openTextSelectionCompose,
   });
   state.viewer.registerIcon("tex-source", { viewBox: "0 0 24 24", path: "M8 7l-5 5 5 5 M16 7l5 5-5 5", strokeWidth: 2 });
+  // Its label names the shortcut that does the same on a word, where a mouse has the keys:
+  // Ctrl (Cmd on a Mac) with a double click.
+  const sourceClick = /Mac|iPhone|iPad|iPod/.test(navigator.platform) ? "Cmd+double-click" : "Ctrl+double-click";
   commands.registerCommand({
     id: "tex-web:selection-source",
-    label: "Show in Source",
+    label: matchMedia("(pointer: coarse)").matches ? "Show in Source" : `Show in Source (${sourceClick})`,
     icon: "tex-source",
     action: () => openSelectionInSource().catch((error) => alert(`Could not open the source: ${error.message}`)),
   });
@@ -901,10 +934,36 @@ function sourceMode(path) {
 }
 
 function setSourceStatus(text, kind = "") {
+  state.sourceStatus = { text, kind, fresh: true };
+  showSourceStatus();
+}
+
+// The cursor moved: what was last said of the file has been seen.
+function sourceCursorMoved() {
+  state.sourceStatus.fresh = false;
+  showSourceStatus();
+}
+
+// The editor's status line: what was last said of the file, or, once the cursor has moved
+// into words a comment or a suggested edit is on and the file has nothing else to say, that
+// it is there and which key opens it, as a click on its mark beside the line does.
+function showSourceStatus() {
   const status = $("#source-status");
-  status.textContent = text;
+  const { text, kind, fresh } = state.sourceStatus;
+  const here = !kind && !fresh && state.editor ? markAtCursor() : undefined;
+  const key = vimKeys() ? "K" : /Mac|iPhone|iPad|iPod/.test(navigator.platform) ? "Cmd+Option+K" : "Ctrl+Alt+K";
+  status.textContent = here === undefined ? text
+    : `${here.suggested ? "A suggested edit" : "A comment"} is here. ${key} opens it.`;
   status.classList.toggle("dirty", kind === "dirty");
   status.classList.toggle("conflict", kind === "conflict");
+}
+
+// The comment or suggested edit whose words the cursor is in, the narrowest when several are.
+function markAtCursor() {
+  const { row, column } = state.editor.getCursorPosition();
+  const size = ({ range }) => (range.end.row - range.start.row) * 1e6 + range.end.column - range.start.column;
+  return state.sourceCommentSpans.filter(({ range }) => range.contains(row, column))
+    .sort((a, b) => size(a) - size(b))[0]?.comment;
 }
 
 function setSourceDirty(dirty) {
@@ -1073,6 +1132,7 @@ function syncSourceCommentMarkers() {
       state.sourceCommentsByRow.set(start.row, rowComments);
     }
   }
+  showSourceStatus();
 }
 
 function openSourceCommentCompose() {
@@ -1080,8 +1140,17 @@ function openSourceCommentCompose() {
   const text = state.editor.getSelectedText();
   const range = state.editor.getSelectionRange();
   if (!text || range.isEmpty()) return;
+  // A selection that ends at the start of a line, as one of whole lines does, ends on the line
+  // before: the line it ends at holds none of it.
+  let end = range.end;
+  while (end.column === 0 && end.row > range.start.row) {
+    const row = end.row - 1;
+    const column = state.editor.session.getLine(row).length;
+    if (row === range.start.row && column <= range.start.column) break;
+    end = { row, column };
+  }
   const lineStart = range.start.row + 1;
-  const lineEnd = range.end.row + 1;
+  const lineEnd = end.row + 1;
   // Back in the editor once the comment is sent or dropped, to go on from where it was.
   $("#compose-dialog").addEventListener("close", () => state.editor.focus(), { once: true });
   openCompose(
@@ -1091,7 +1160,7 @@ function openSourceCommentCompose() {
       line_start: lineStart,
       line_end: lineEnd,
       column_start: range.start.column,
-      column_end: range.end.column,
+      column_end: end.column,
     },
     `Source: ${state.sourcePath}:${lineStart}-${lineEnd}`,
     null,
@@ -1855,7 +1924,8 @@ function renderOverleafLive(snapshot) {
   overleafLive.settled = settled;
   $("#overleaf-live-faces").replaceChildren(...users.slice(0, 4).map((user) => {
     const where = user.file ? `${user.file}:${(user.row ?? 0) + 1}` : "";
-    const said = `${user.name || "Someone"} on Overleaf${where ? `, at ${where}` : ""}`;
+    const said = where ? `${user.name || "Someone"} is on Overleaf at ${where}. Click to go to that line.`
+      : `${user.name || "Someone"} is on Overleaf.`;
     return h("button", {
       class: "overleaf-face", type: "button", title: said, "aria-label": said,
       style: { background: overleafColor(user.user_id || user.id) },
@@ -1977,6 +2047,10 @@ function applySourceLeaf() {
   button.hidden = !state.overleafProject;
   button.classList.toggle("active", on);
   button.setAttribute("aria-pressed", String(on));
+  button.title = on ? "Overleaf threads are on: a new comment from the Source starts a public thread on Overleaf. "
+    + "Click to make new comments private."
+    : "Overleaf threads are off: a new comment from the Source is a private comment. "
+    + "Click to start public threads on Overleaf instead.";
   updateSourceCommentButton();
 }
 
@@ -2475,10 +2549,8 @@ async function goToDefinition() {
 // cover the cursor, else one on the cursor's line. The comment keys then act on it, and K there
 // brings the cursor back to its words. Off any comment, the keys go to the list as it was.
 function showCommentAtCursor() {
-  const { row, column } = state.editor.getCursorPosition();
-  const size = ({ range }) => (range.end.row - range.start.row) * 1e6 + range.end.column - range.start.column;
-  const covering = state.sourceCommentSpans.filter(({ range }) => range.contains(row, column)).sort((a, b) => size(a) - size(b));
-  const chosen = covering[0]?.comment ?? state.sourceCommentsByRow.get(row)?.[0];
+  const { row } = state.editor.getCursorPosition();
+  const chosen = markAtCursor() ?? state.sourceCommentsByRow.get(row)?.[0];
   setSidebarCollapsed(false);
   state.editor.blur();
   if (chosen?.suggested) {
@@ -2535,6 +2607,7 @@ async function initializeSourceEditor() {
   for (const name of ["mousedown", "guttermousedown"]) state.editor.on(name, () => { state.editorPointing = true; });
   document.addEventListener("pointerup", () => { state.editorPointing = false; }, true);
   state.editor.selection.on("changeCursor", holdCursorLine);
+  state.editor.selection.on("changeCursor", sourceCursorMoved);
   applyCursorHeld();
   state.editor.on("change", () => {
     if (!state.sourceLoading) setSourceDirty(true);
@@ -2697,6 +2770,12 @@ function applySendKey() {
   for (const button of document.querySelectorAll("[data-send-choice]")) {
     button.setAttribute("aria-checked", String(button.dataset.sendChoice === key));
   }
+  $("#compose-submit").title = `Post (${sendKeyName()})`;
+}
+
+// The key that sends what is being written, as Settings chooses it, for the Post buttons' titles.
+function sendKeyName() {
+  return enterSends() ? "Enter" : "Shift+Enter";
 }
 
 function sendOn(input, send) {
@@ -2772,10 +2851,12 @@ async function submitCompose(event) {
     if (state.commentTab !== tab) switchTab(tab);
     // A comment for the agent is in to do as well, so a reader there stays there.
     if (state.pendingForOverleaf) setCommentFilter("new");
-    else if ($("#comment-filter").value !== "todo") setCommentFilter("open");
+    else if (chosenView() !== "todo") setCommentFilter("open");
   } finally {
     applyComposeSubmitting(false);
   }
+  // A note for the agent waits for it, and the line above the list may say how to call it.
+  if (text) state.posted = true;
   // A first message goes as one sent from its card goes: refused, it stays there as the
   // thread's draft, saying why.
   if (message) await sendToOverleaf(started.id, message, message);
@@ -2794,8 +2875,9 @@ async function readComments() {
   // A list asked for again while one is on its way, as when the view changes, is the one that
   // stands: an answer that comes back after a later one is dropped.
   const asked = ++state.commentsAsked;
-  // A search looks through every comment of the tab, whatever view the list atop names.
+  // A search looks through every comment of the tab, and the list atop says so.
   const query = searchQuery();
+  showSearchView(query.length > 0);
   const status = query.length > 0 ? "all" : $("#comment-filter").value;
   const url = status === "all" ? "/comments"
     : `/comments?status=${["todo", "unanswered", "answered", "new", "changes"].includes(status) ? "open" : status}`;
@@ -2821,6 +2903,8 @@ async function readComments() {
   if (!["resolved", "archived"].includes(status)) {
     state.todoCounts = { comments: here.filter(inToDo).length,
                          "overleaf-comments": onOverleaf.filter(inToDo).length + state.overleafSuggested.length };
+    state.agentAwaited = data.comments.some((comment) => comment.awaits_agent);
+    renderCallWaits();
   }
   state.markedComments = (state.commentTab === "overleaf-comments" ? onOverleaf : here)
     .filter((comment) => comment.status === "open");
@@ -2831,6 +2915,7 @@ async function readComments() {
     : status === "answered" ? onOverleaf.filter(answeredByMe)
     : status === "new" ? [...onOverleaf.filter(draftedThread), ...onOverleaf.filter(openedHere)]
     : status === "changes" ? state.overleafSuggested.map(suggestedItem)
+    : query.length > 0 ? [...onOverleaf, ...state.overleafSuggested.map(suggestedItem)]
     : onOverleaf;
   if (query.length > 0) data.comments = data.comments.filter((comment) => meetsSearch(comment, query, state.overleafMe));
   renderOverleafThreadSync();
@@ -2874,6 +2959,16 @@ async function readComments() {
       && !state.comments.some((comment) => comment.id === state.focusedCommentId);
   if (handed) state.focusedCommentId = state.comments[Math.min(at, state.comments.length - 1)].id;
   state.commentsView = view;
+  // A tab with no comment at all, in any view, says how to make one.
+  const leaf = state.commentTab === "overleaf-comments";
+  let every = status === "all" ? [...here, ...onOverleaf] : null;
+  if (state.comments.length === 0 && query.length === 0 && every === null) {
+    const all = await fetch("/comments");
+    if (asked !== state.commentsAsked) return state.commentsReading;
+    every = all.ok ? (await all.json()).comments : [];
+  }
+  state.tabEmpty = state.comments.length === 0 && query.length === 0
+    && !every.some((comment) => forOverleaf(comment) === leaf) && !(leaf && state.overleafSuggested.length > 0);
   renderComments();
   if (handed) placeRing();
   syncCommentAnnotations();
@@ -2976,7 +3071,7 @@ function renderCommentFilter() {
   if (changes) {
     const count = state.overleafSuggested.length;
     changes.textContent = count ? `suggested edits (${count})` : "suggested edits";
-    if (filter.value === "changes") $("#comment-filter-name").textContent = changes.textContent;
+    if (filter.value === "changes") showViewName();
   }
   showCommentSort();
   $("#archive-picked-btn").hidden = state.commentTab === "overleaf-comments";
@@ -3003,6 +3098,11 @@ function renderComments() {
       : view === "todo" ? "Nothing is left to do here."
       : view === "changes" && state.commentTab === "overleaf-comments" ? "No suggested edits on Overleaf."
       : "No comments in this view."));
+    if (state.tabEmpty) {
+      list.appendChild(placeholder(state.commentTab === "overleaf-comments"
+        ? "To start a thread for Overleaf, select words in the Source with the leaf beside Comment pressed."
+        : "To comment, select words in the Preview or the Source, or draw a box with the box tool."));
+    }
   } else {
     for (const comment of state.comments) {
       list.appendChild(comment.suggested ? renderSuggestedEdit(comment) : renderCommentItem(comment));
@@ -3111,25 +3211,32 @@ function renderPickedActions() {
 // How the row gives way, one step at a time while it would spill over: the sort list shrinks
 // to its icon, the words beside the other icons go, then Resolve's, the sort list waits behind
 // the dots as the gaps narrow, then Expand all, the view list gives up the room its longest
-// view needs, and the sync button and then Call agent wait behind the dots too. What acts on
-// the picked comments stays in the row, which takes two lines when even that is too wide.
+// view needs, and the sync button and then Call agent wait behind the dots too. In the leaf
+// tab, Send then drops its leaf, and Accept and Reject, which each suggested edit's card has
+// too, wait behind the dots. Last the view list shrinks to its icon, with the list lying over
+// it. Resolve, Archive and Send stay in the row, which takes two lines only when even that is
+// too wide.
 const ROW_STEPS = [["sort-shrunk"], ["wordless"], ["resolve-wordless"], ["narrow", "#comment-sort-pick"],
   ["foldless", "#fold-all-btn"], ["squeezed"], ["unsynced", "#overleaf-sync-comments-btn"],
-  ["uncalled", "#call-agent-btn"], ["wrapped"]];
+  ["uncalled", "#call-agent-btn"], ["leafless"], ["edits-behind", "#accept-picked-btn, #reject-picked-btn"],
+  ["view-shrunk"], ["wrapped"]];
 
 function fitCommentRow() {
   const row = $(".filter-row");
   // Each button back in its place in the row. One already there stays put, keeping the focus.
   const [sort, fold, sync, call] = [$("#comment-sort-pick"), $("#fold-all-btn"), $("#overleaf-sync-comments-btn"), $("#call-agent-btn")];
+  const [accept, reject, send] = [$("#accept-picked-btn"), $("#reject-picked-btn"), $("#send-picked-btn")];
   if (fold.nextElementSibling !== $("#comment-rare")) $("#comment-rare").before(fold);
   if (sort.nextElementSibling !== fold) fold.before(sort);
   if (sync.parentElement !== $("#comment-fetch")) $("#comment-fetch").prepend(sync);
   if (call.parentElement !== $("#comment-fetch")) $("#comment-fetch").append(call);
+  if (reject.nextElementSibling !== send) send.before(reject);
+  if (accept.nextElementSibling !== reject) reject.before(accept);
   row.classList.remove(...ROW_STEPS.map(([step]) => step));
   for (const [step, behind] of ROW_STEPS) {
     if (row.scrollWidth <= row.clientWidth) break;
     row.classList.add(step);
-    if (behind) $(".comment-rare-group").append($(behind));
+    if (behind) $(".comment-rare-group").append(...document.querySelectorAll(behind));
   }
   if (!row.classList.contains("narrow")) closeCommentRare();
 }
@@ -3177,12 +3284,13 @@ function pickAll() {
 // Comments sent to *status* in one call, the call the row, the cards, the keys and Undo all make.
 // It gives the ids that took it: all of them, or after a refusal those the server now has at
 // that status, since Overleaf takes threads one by one and stops at the first it refuses. *why*
-// is the refusal, or "".
-async function postStatus(ids, status) {
+// is the refusal, or "". *resolved* gives comments resolved again the moments they were
+// resolved at before, by id, as Undo does.
+async function postStatus(ids, status, resolved = {}) {
   const response = await fetch("/comments/status", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ids, status }),
+    body: JSON.stringify({ ids, status, resolved }),
   });
   if (response.ok) return { took: ids, why: "" };
   const why = await responseError(response);
@@ -3206,18 +3314,21 @@ function tabNoun() {
 
 // A change of status made on the page, from the row, a card or a key, and the list drawn again
 // once. The comments it changed are kept for Undo, each with the status it had in the list
-// just before, and the line above the list says what was done. A change that changed nothing
-// leaves the line as it was. The picked comments are let go once every one has changed.
+// just before and, if resolved, when, and the line above the list says what was done. A change
+// that changed nothing leaves the line as it was. The picked comments are let go once every
+// one has changed.
 async function setStatus(ids, status) {
-  const before = new Map(state.comments.filter((comment) => ids.includes(comment.id) && comment.status !== status)
-    .map((comment) => [comment.id, comment.status]));
+  const changing = state.comments.filter((comment) => ids.includes(comment.id) && comment.status !== status);
+  const before = new Map(changing.map((comment) => [comment.id, comment.status]));
+  const resolved = Object.fromEntries(changing.filter((comment) => comment.status === "resolved" && comment.resolved)
+    .map((comment) => [comment.id, comment.resolved]));
   const noun = tabNoun();
   try {
     const { took, why } = await postStatus(ids, status);
     const changed = took.filter((id) => before.has(id));
     if (changed.length > 0) {
-      state.undo = { said: `${STATUS_DONE[status]} ${counted(changed.length, noun)}.`, noun, why: "",
-                     before: new Map(changed.map((id) => [id, before.get(id)])) };
+      state.undo = { said: `${STATUS_DONE[status]} ${counted(changed.length, noun)}.`, noun, why: "", gone: 0,
+                     before: new Map(changed.map((id) => [id, before.get(id)])), resolved };
     }
     if (!why) for (const id of ids) state.picked.delete(id);
     renderUndo();
@@ -3229,18 +3340,34 @@ async function setStatus(ids, status) {
 }
 
 // Undo puts each comment of the last change back to the status it had, by the same call, so a
-// thread from Overleaf goes back there too. It only restores, so it asks nothing. Those the
-// server refuses stay on the line, which says how many and why, and Undo tries them again.
+// thread from Overleaf goes back there too, and one resolved gets back the moment it was
+// resolved at. It only restores, so it asks nothing. A comment deleted since cannot be put
+// back, and the line says how many. Those the server refuses stay on the line, which says how
+// many and why, and Undo tries them again.
 async function undoStatus() {
   const undo = state.undo;
-  if (undo === null) return;
+  if (undo === null || undo.before.size === 0) return;
   state.undo = null;
   renderUndo();
   const left = new Map(undo.before);
   let why = "";
+  let gone = 0;
+  try {
+    const response = await fetch("/comments");
+    if (response.ok) {
+      const present = new Set((await response.json()).comments.map((comment) => comment.id));
+      for (const id of [...left.keys()].filter((id) => !present.has(id))) {
+        left.delete(id);
+        gone += 1;
+      }
+    }
+  } catch { /* the calls below say why they fail */ }
   for (const status of new Set(left.values())) {
+    const ids = [...left.keys()].filter((id) => left.get(id) === status);
+    const resolved = status === "resolved"
+      ? Object.fromEntries(ids.filter((id) => undo.resolved[id]).map((id) => [id, undo.resolved[id]])) : {};
     try {
-      const answer = await postStatus([...left.keys()].filter((id) => left.get(id) === status), status);
+      const answer = await postStatus(ids, status, resolved);
       for (const id of answer.took) left.delete(id);
       why ||= answer.why;
     } catch (error) {
@@ -3248,7 +3375,7 @@ async function undoStatus() {
     }
   }
   // A change made meanwhile has the line.
-  if (left.size > 0 && state.undo === null) state.undo = { ...undo, before: left, why };
+  if ((left.size > 0 || gone > 0) && state.undo === null) state.undo = { ...undo, before: left, why, gone };
   renderUndo();
   await refreshComments();
 }
@@ -3260,8 +3387,13 @@ function renderUndo() {
   const undo = state.undo;
   $("#undo-line").hidden = undo === null;
   if (undo === null) return;
+  const gone = undo.gone ? `${counted(undo.gone, undo.noun)} could not be restored because `
+    + `${undo.gone === 1 ? "it no longer exists" : "they no longer exist"}.` : "";
   $("#undo-text").textContent = undo.why
-    ? `${counted(undo.before.size, undo.noun)} could not be undone: ${undo.why}` : undo.said;
+    ? `${counted(undo.before.size, undo.noun)} could not be undone: ${undo.why}${gone ? ` ${gone}` : ""}`
+    : gone || undo.said;
+  // With nothing left to put back, the line only says what could not be.
+  $("#undo-btn").hidden = undo.before.size === 0;
 }
 
 // A reply sent to its thread on Overleaf: null once sent, or why not, with the files its
@@ -3356,7 +3488,9 @@ async function sendPickedToOverleaf(ids) {
 
 // The box that picks a card, in its head, which opens the card: picking is not opening.
 function pickBox(comment) {
-  const box = h("input", { class: "comment-pick", type: "checkbox", title: `Select this ${tabNoun()}` });
+  const noun = tabNoun();
+  const box = h("input", { class: "comment-pick", type: "checkbox",
+    title: `Select this ${noun}. Shift+click selects or clears every ${noun} from the last one you clicked.` });
   box.checked = state.picked.has(comment.id);
   // A checkbox has already taken its new value by the time the click arrives, so the
   // whole decision is made here and nothing listens for the change.
@@ -3480,7 +3614,7 @@ function renderSuggestedEdit(item) {
   const head = h("div", { class: "cmt-head", title: "Show it in the source", onclick: show },
     pickBox(item),
     h("span", { class: "suggested-by", style: { borderColor: overleafColor(item.user_id) }, text: item.name || "Someone" }),
-    item.when ? h("span", { class: "cmt-when", text: item.when }) : null,
+    shortTime(item.at) ? h("span", { class: "cmt-when", text: shortTime(item.at) }) : null,
     h("span", { class: "cmt-anchor", text: where }));
   const line = (kind, marker, text) => h("div", { class: kind },
     h("span", { class: "sugg-marker", text: marker }), h("span", { class: "sugg-text", text }));
@@ -3595,13 +3729,14 @@ function renderSuggestion(comment) {
   );
 }
 
-// The thread's Overleaf reply: the agent's draft, which the reviewer edits and sends. The
-// server sends it only once the words its draft describes are on Overleaf, and says why not.
-// What a thread's reply box for Overleaf holds: what the reviewer typed over the agent's draft,
-// else the draft. A new draft from the agent replaces what was typed over the one before.
+// The thread's Overleaf reply: the agent's draft, or the first message the reviewer wrote,
+// which the reviewer edits and sends. The server sends it only once the words its draft
+// describes are on Overleaf, and says why not.
+// What a thread's reply box for Overleaf holds: what the reviewer typed, else the draft. What
+// they typed stays when the agent writes a new draft, which the card then offers beside it.
 function overleafReplyText(comment) {
   const kept = state.overleafReplies.get(comment.id);
-  if (kept && kept.from !== comment.overleaf_draft?.text) state.overleafReplies.delete(comment.id);
+  if (kept && kept.from !== comment.overleaf_draft?.text && kept.text === kept.from) state.overleafReplies.delete(comment.id);
   return state.overleafReplies.get(comment.id)?.text ?? comment.overleaf_draft?.text ?? "";
 }
 
@@ -3614,8 +3749,10 @@ function renderOverleafReply(comment) {
   });
   textarea.value = overleafReplyText(comment);
   const kept = state.overleafReplies.get(comment.id);
+  // A draft the agent wrote after the reviewer began typing, which the box does not show.
+  const newer = kept && draft && kept.from !== draft.text ? draft.text : null;
   textarea.addEventListener("input", () => {
-    state.overleafReplies.set(comment.id, { text: textarea.value, from: draft?.text });
+    state.overleafReplies.set(comment.id, { text: textarea.value, from: state.overleafReplies.get(comment.id)?.from ?? draft?.text });
     renderPickedActions();
   });
   // Escape leaves the box with its words in it, for the comment keys to go on.
@@ -3640,9 +3777,10 @@ function renderOverleafReply(comment) {
   });
   // The agent's draft, turned down: it leaves the card with what was typed over it, and
   // the thread says what it was. Nothing goes to Overleaf, where it never was. A new thread
-  // a send left half opened there is finished by sending.
+  // a send left half opened there is finished by sending. A first message the reviewer wrote
+  // is theirs, not a draft to reject.
   let reject = null;
-  if (draft && !draft.thread && comment.status === "open") {
+  if (draft && !draft.mine && !draft.thread && comment.status === "open") {
     reject = actionButton("overleaf-reject", "Reject draft", async () => {
       reject.disabled = true;
       if (await doMutation(comment.id, "reject-draft", { updated: comment.updated })) {
@@ -3659,6 +3797,13 @@ function renderOverleafReply(comment) {
       h("span", { text: draftedThread(comment) ? "New public thread on Overleaf"
         : draft ? "Draft of a public reply" : "Public reply on Overleaf" })),
     textarea,
+    newer ? h("div", { class: "overleaf-newer" },
+      h("p", { text: "The agent has written a new draft:" }),
+      h("blockquote", { text: newer }),
+      actionButton("overleaf-use", "Use new draft", () => {
+        state.overleafReplies.delete(comment.id);
+        renderComments();
+      })) : null,
     draft?.ranges?.length
       ? h("div", { class: "thread-edits" }, ...draft.ranges.map(draftRange))
       : null,
@@ -3672,6 +3817,15 @@ function draftRange(range) {
   return h("span", { class: "edit", text: range.range },
     range.stale ? h("span", { class: "stale", text: "STALE", title: "These lines are not found in the file any more" }) : null,
     range.edited ? h("span", { class: "reanchored", text: "EDITED", title: "These lines were edited after the draft was written" }) : null);
+}
+
+// When something was written, on this browser's clock, as MM-DD HH:MM: the clock that after:
+// and before: in the search name their days and minutes on. "" for a time that cannot be read.
+function shortTime(at) {
+  const moment = new Date(at ?? "");
+  if (Number.isNaN(moment.getTime())) return "";
+  const two = (value) => String(value).padStart(2, "0");
+  return `${two(moment.getMonth() + 1)}-${two(moment.getDate())} ${two(moment.getHours())}:${two(moment.getMinutes())}`;
 }
 
 // An entry Overleaf holds goes by the name Overleaf gives its writer, as on Overleaf.
@@ -3709,7 +3863,7 @@ function renderThreadEntry(entry, commentId, index, onOverleaf) {
     && state.editingEntry.index === index;
   const children = [
     h("div", { class: "thread-meta" },
-      h("span", { text: `${writer(entry)} · ${entry.when}` }),
+      h("span", { text: `${writer(entry)} · ${shortTime(entry.at)}` }),
       reachMark(entry),
       // What the reviewer wrote carries Edit and Delete, here or on Overleaf alike. One on
       // Overleaf, sent from here or written there, is reworded or deleted there, for
@@ -3895,6 +4049,7 @@ function renderActiveForm(comment) {
     const saved = await doMutation(comment.id, mode, { [config.key]: text });
     if (saved) {
       state.activeForm = null;
+      state.posted = true;
       try {
         await refreshComments();
       } catch (error) {
@@ -3920,6 +4075,7 @@ function renderActiveForm(comment) {
     }
   });
   submitButton = actionButton("cmt-form-submit", config.label, submit);
+  submitButton.title = `${config.label} (${sendKeyName()})`;
   const form = h("div", { class: `cmt-form mode-${mode}` },
     h("div", { class: "cmt-form-title", text: config.placeholder }),
     textarea,
@@ -4060,6 +4216,8 @@ function syncCommentBadges() {
       badge.className = "tex-comment-badge";
       badge.dataset.commentId = plan.comment.id;
       badge.addEventListener("pointerdown", (event) => event.stopPropagation());
+      // A click shows the comment in the panel, and a second click on the badge of the comment
+      // the panel already shows hides the panel, to read the paper at its full width.
       badge.addEventListener("click", (event) => {
         event.stopPropagation();
         if (!$(".layout").classList.contains("sidebar-collapsed")
@@ -4075,7 +4233,7 @@ function syncCommentBadges() {
     }
     badge.classList.toggle("stale", plan.comment.stale === true);
     if (badge.textContent !== String(plan.number)) badge.textContent = String(plan.number);
-    badge.title = plan.comment.thread[0]?.text ?? "";
+    badge.title = `${plan.comment.thread[0]?.text ?? ""}\n\nClick to show this comment in the panel. Click again to hide the panel.`;
     badge.setAttribute("aria-label", `Open comment ${plan.number}`);
     const localWidth = parseFloat(frame.style.width);
     const scale = localWidth > 0 ? frame.getBoundingClientRect().width / localWidth : 1;
@@ -4236,7 +4394,7 @@ function renderSections() {
     list.appendChild(h("li", { class: `paper-section level-${section.level}` },
       h("span", {
         class: "paper-section-title",
-        title: `${section.file}:${section.line}`,
+        title: `Show this heading in the source, at ${section.file}:${section.line}`,
         onclick: () => jumpToSource(section.file, section.line),
       },
       section.number ? h("span", { class: "section-number", text: section.number }) : null,
@@ -4297,20 +4455,24 @@ function searchMoment(text, year) {
 
 // Whether a comment meets a search parseSearch read: every term of one of its groups. A word
 // or a phrase is held in what was said in it and by whom, in the words it is on, its file,
-// its id, its suggestion or its draft for Overleaf. from: is someone who wrote in the thread,
-// file: the file the comment is on, after: an entry written at that moment or later, and
-// before: one written earlier. Each term is met by the thread on its own, so from: and
-// after: may be met by two entries. `me` is the reviewer's name on Overleaf.
+// its id, its suggestion or its draft for Overleaf, or in the words a suggested edit on
+// Overleaf inserts or deletes and who suggested it. from: is someone who wrote in the thread
+// or suggested the edit, file: the file the comment is on, after: an entry written at that
+// moment or later, and before: one written earlier, an edit's being when it was suggested.
+// Each term is met by the thread on its own, so from: and after: may be met by two entries.
+// `me` is the reviewer's name on Overleaf.
 export function meetsSearch(comment, query, me) {
   let held = null;
+  const said = comment.suggested ? [{ name: comment.name ?? "", at: comment.at }] : comment.thread;
   const meets = ({ field, value }) => field === "from"
-    ? comment.thread.some((entry) => writerNames(entry, me).some((name) => name.toLowerCase().includes(value)))
+    ? said.some((entry) => writerNames(entry, me).some((name) => name.toLowerCase().includes(value)))
     : field === "file" ? [comment.anchor?.file, comment.resolved_source?.file].some((file) => file?.toLowerCase().includes(value))
-    : field === "after" ? comment.thread.some((entry) => Date.parse(entry.at) >= value)
-    : field === "before" ? comment.thread.some((entry) => Date.parse(entry.at) < value)
+    : field === "after" ? said.some((entry) => Date.parse(entry.at) >= value)
+    : field === "before" ? said.some((entry) => Date.parse(entry.at) < value)
     : (held ??= [
       comment.id, comment.anchor?.quote, comment.anchor?.file, comment.anchor?.title, comment.resolved_source?.file,
       comment.source_selector?.exact, comment.overleaf_draft?.text,
+      ...(comment.suggested ? [comment.inserted, comment.deleted, comment.name] : []),
       ...comment.thread.flatMap((entry) => [entry.text, entry.name]),
       ...(comment.suggestion?.changes ?? []).flatMap((change) => [change.old, change.new]),
     ].filter(Boolean).map((words) => words.replace(/\s+/g, " ")).join("\n").toLowerCase()).includes(value);
@@ -4505,11 +4667,43 @@ function attachCommentSearch() {
   });
 }
 
-// The two comment tabs share one pane, which shows the chosen tab's comments.
+// The two comment tabs share one pane, which shows the chosen tab's comments. A view chosen
+// ends what a search showed in the list.
 function setCommentFilter(value) {
   const filter = $("#comment-filter");
   filter.value = value;
+  filter.classList.remove("searching");
+  showViewName();
+}
+
+// The view's name, in the list and in its title, which names it while the list is its icon.
+function showViewName() {
+  const filter = $("#comment-filter");
   $("#comment-filter-name").textContent = filter.selectedOptions[0].textContent;
+  filter.title = filter.classList.contains("searching")
+    ? `The search covers all ${tabNoun()}s. Choose a view to clear it.`
+    : `Showing ${filter.selectedOptions[0].textContent}`;
+}
+
+// The view the reader chose, which the list reads again once a search is cleared.
+function chosenView() {
+  const filter = $("#comment-filter");
+  return filter.classList.contains("searching") ? state.viewBeforeSearch : filter.value;
+}
+
+// While words are in the search box the list covers every status, so the view list reads
+// "all", greyed, and goes back to the view chosen before once the search is cleared.
+function showSearchView(searching) {
+  const filter = $("#comment-filter");
+  if (searching === filter.classList.contains("searching")) return;
+  if (searching) {
+    state.viewBeforeSearch = filter.value;
+    filter.value = "all";
+  } else {
+    filter.value = state.viewBeforeSearch;
+  }
+  filter.classList.toggle("searching", searching);
+  showViewName();
 }
 
 function switchTab(name) {
@@ -4707,11 +4901,15 @@ async function loadTranslation() {
   translation.file = data.file;
   translation.page = page;
   $("#translation-page").textContent = page === null ? "" : `p. ${page}`;
-  $("#translation-status").textContent = data.status === "pending" ? "Translating…"
-    : data.status === "error" ? `Translation failed: ${data.error}` : "";
+  // The head's one line: what runs, or why the command failed, the translations kept showing.
+  const status = $("#translation-status");
+  status.textContent = data.status === "pending" ? "Translating…"
+    : data.status === "error" ? `Translation failed: ${data.error}`
+    : data.error ? `The translation command failed: ${data.error}. Showing saved translations.` : "";
+  status.title = status.textContent;
   const items = data.paragraphs.map((paragraph) => h("p", {
     class: ["translation-para", paragraph.text ? "" : "pending", paragraph.on_page ? "on-page" : ""].join(" ").trim(),
-    title: `${data.file}:${paragraph.line_start}-${paragraph.line_end}`,
+    title: `Open ${data.file}:${paragraph.line_start}-${paragraph.line_end} in the editor`,
     data: { start: paragraph.line_start, end: paragraph.line_end },
     onclick: async () => {
       if (state.view === "pdf") await showSourceBesidePreview();
@@ -4731,6 +4929,8 @@ async function loadTranslation() {
   else if (sameFile) body.scrollTop = keepScroll;
   else body.scrollTop = 0;
   if (data.status === "pending") translation.timer = setTimeout(() => scheduleTranslation(0), 3000);
+  // A command that failed is tried again now and then, and the line goes once it works.
+  else if (data.error) translation.timer = setTimeout(() => scheduleTranslation(0), 60000);
 }
 
 // The paragraph holding the editor's cursor, while the two show the same file.
@@ -4921,11 +5121,17 @@ function showAgentWaiting(waiters) {
   renderCallWaits();
 }
 
+// The note about calling the agent, above the list: that a call is queued until an agent
+// listens, or, after a comment or a reply is posted while comments wait for the agent, that
+// they reach it when the bell is pressed, until it is. Once the bell has been pressed in this
+// visit, that is not said again.
 function renderCallWaits() {
   const note = $("#call-agent-why");
-  note.textContent = "No agent is listening yet, so the call is queued. Claude Code listens when started in the "
-    + "paper's folder. In Codex, send “do tex listen”.";
-  note.hidden = !state.callWaits;
+  const remind = !state.called && state.posted && state.agentAwaited;
+  note.textContent = state.callWaits ? "No agent is listening yet, so the call is queued. Claude Code listens when "
+    + "started in the paper's folder. In Codex, send “do tex listen”."
+    : remind ? "Your comments reach the agent when you press the bell (Ctrl+Alt+Enter)." : "";
+  note.hidden = !state.callWaits && !remind;
 }
 
 async function callAgent() {
@@ -4940,6 +5146,7 @@ async function callAgent() {
     // answers the agent's next wait at once.
     word.textContent = reply.delivered ? "Called" : "Queued";
     state.callWaits = !reply.delivered;
+    state.called = true;
     renderCallWaits();
   } catch (error) {
     word.textContent = "Failed";
@@ -5190,7 +5397,11 @@ async function jumpToComment(commentId) {
     if (state.view !== "pdf" && await openSource(file)) showSourcePlace(line - 1, 0);
     if (state.view !== "source") await showPdfPageOf(file, line);
   }
-  $("#comments-list").focus({ preventScroll: true });
+  // The keys come back to the list, unless a box in it took them while the jump went on, as r
+  // pressed right after Space opens the reply box.
+  if (!document.activeElement?.matches?.("#comments-list textarea")) {
+    $("#comments-list").focus({ preventScroll: true });
+  }
 }
 
 // A comment shown from elsewhere, a mark on the paper or the editor: its card opens and flashes.
@@ -5505,7 +5716,8 @@ function pressForRange(rows) {
 function cycleStatus(step) {
   const filter = $("#comment-filter");
   const views = [...filter.options];
-  filter.value = views[(filter.selectedIndex + step + views.length) % views.length].value;
+  const at = views.findIndex((option) => option.value === chosenView());
+  filter.value = views[(at + step + views.length) % views.length].value;
   filter.dispatchEvent(new Event("change"));
 }
 
@@ -5642,21 +5854,58 @@ function setSidebarCollapsed(collapsed) {
   localStorage.setItem("sidebarCollapsed", collapsed ? "1" : "0");
 }
 
-function attachSidebarToggle() {
-  const closeMore = () => {
-    $("#more-menu").hidden = true;
-    $("#more-btn").setAttribute("aria-expanded", "false");
+// A ⋯ button and its menu. The button opens and closes the menu; a click outside it, a click
+// on an item that `closes` accepts, or Escape closes it. The menu takes Escape before the
+// editor and the comment keys do. `opening` readies the items as the menu opens.
+function attachMenu(button, menu, { closes, opening = () => {} }) {
+  const close = () => {
+    menu.hidden = true;
+    button.setAttribute("aria-expanded", "false");
   };
-  $("#more-btn").addEventListener("click", (event) => {
-    event.stopPropagation();
-    const open = $("#more-menu").hidden;
-    $("#download-pdf-btn").disabled = !state.pdfDigest;
-    $("#more-menu").hidden = !open;
-    $("#more-btn").setAttribute("aria-expanded", String(open));
+  button.addEventListener("click", () => {
+    const open = menu.hidden;
+    if (open) opening();
+    menu.hidden = !open;
+    button.setAttribute("aria-expanded", String(open));
   });
-  // A choice in the menu closes it.
   document.addEventListener("click", (event) => {
-    if (!event.target.closest(".topbar .more") || event.target.closest(".more-menu button")) closeMore();
+    if (!button.parentElement.contains(event.target) || closes(event.target)) close();
+  }, { capture: true });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || menu.hidden) return;
+    event.preventDefault();
+    event.stopPropagation();
+    close();
+  }, { capture: true });
+}
+
+// How the top bar gives way on a phone, one step at a time while it would spill over, after
+// the title, the file's name and the buttons' words have gone and the build's status has
+// shrunk: the faces after the first go, the tabs and the buttons draw closer together, the
+// first face goes too, the git buttons drop their counts, which their tooltips still give,
+// and last the tabs' names end in an ellipsis. Settings lists who is in the project whatever
+// the bar shows.
+const TOPBAR_STEPS = ["one-face", "tight", "faceless", "countless", "tabs-cut"];
+
+function fitTopbar() {
+  const bar = $(".topbar");
+  bar.classList.remove(...TOPBAR_STEPS);
+  for (const step of TOPBAR_STEPS) {
+    if (bar.scrollWidth <= bar.clientWidth) break;
+    bar.classList.add(step);
+  }
+}
+
+function attachSidebarToggle() {
+  // The bar is fitted again whenever it, or something in it, changes width: a face comes or
+  // goes, a git button shows, or Settings changes the text size.
+  const refit = new ResizeObserver(() => fitTopbar());
+  refit.observe($(".topbar"));
+  for (const part of $(".topbar").children) refit.observe(part);
+  // Any choice in the top bar's ⋯ menu closes it.
+  attachMenu($("#more-btn"), $("#more-menu"), {
+    closes: (target) => target.closest("#more-menu button"),
+    opening: () => { $("#download-pdf-btn").disabled = !state.pdfDigest; },
   });
   $("#settings-btn").addEventListener("click", () => showSettings());
   $("#settings-menu-btn").addEventListener("click", () => showSettings());
@@ -6238,28 +6487,11 @@ async function init() {
   $("#source-reload-btn").addEventListener("click", () => {
     reloadSource().catch((error) => alert(`Could not reload: ${error.message}`));
   });
-  // The editor's ⋯ menu stays open as the text size steps. It closes on ⋯, on Wrap long lines
-  // or Vim keys, on a click outside it, or on Escape, which it takes before the editor and
-  // the comment keys do.
-  const closeSourceMore = () => {
-    $("#source-more-menu").hidden = true;
-    $("#source-more-btn").setAttribute("aria-expanded", "false");
-  };
-  $("#source-more-btn").addEventListener("click", () => {
-    const open = $("#source-more-menu").hidden;
-    $("#source-more-menu").hidden = !open;
-    $("#source-more-btn").setAttribute("aria-expanded", String(open));
+  // The editor's ⋯ menu stays open as the text size steps, and Wrap long lines or Vim keys
+  // closes it.
+  attachMenu($("#source-more-btn"), $("#source-more-menu"), {
+    closes: (target) => target.closest('#source-more-menu [role="menuitemcheckbox"]'),
   });
-  document.addEventListener("click", (event) => {
-    if (!$("#source-more-btn").parentElement.contains(event.target)
-        || event.target.closest('[role="menuitemcheckbox"]')) closeSourceMore();
-  }, { capture: true });
-  document.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape" || $("#source-more-menu").hidden) return;
-    event.preventDefault();
-    event.stopPropagation();
-    closeSourceMore();
-  }, { capture: true });
   $("#source-font-smaller-btn").addEventListener("click", () => stepSourceFontSize(-1));
   $("#source-font-larger-btn").addEventListener("click", () => stepSourceFontSize(1));
   $("#source-wrap-btn").addEventListener("click", () => {

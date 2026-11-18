@@ -103,7 +103,9 @@ address, so on the shared machine's own browser, open no page another account se
   message, which you edit and send from the thread's card, or replace with your own. With
   both filled, the thread opens on Overleaf and the note waits in it for the agent, private.
   A first message Overleaf refuses stays on the card as the thread's draft, saying why, to
-  send again.
+  send again. It stays as you wrote it: wording the agent suggests for it comes into the
+  thread as the agent's private reply, and a draft the agent writes after you began typing
+  in a card's box shows under the box with **Use new draft**, leaving what you typed.
 - The agent can also draft a new thread on source lines (`write_comments` with
   `action="overleaf"` and an `anchor` instead of an `id`). It waits in the tab as a card
   whose draft is its first message on Overleaf. **Reply privately** talks the draft over with the
@@ -158,9 +160,11 @@ reconnecting, comments not syncing, or files that need a decision. **Your cursor
 Overleaf** in Settings chooses what they see of you. With **Show my cursor**, where the page
 starts, your cursor in the page's editor is shown to them as your cursor on Overleaf, in the
 file you have open there, and their editors then tell where they are at once. Nothing is
-shown while the editor has no file open, a file that is not on Overleaf shows nothing, and
-with several pages open, the one whose cursor moved last is shown. A page that closes leaves its last place there until the page's session leaves the
-project, shortly after the last page closes, or another page's cursor moves. With **Hidden**
+shown while the editor has no file open, and with several pages open, the one whose cursor
+moved last is shown. When the page whose cursor is shown closes, or its editor opens a file
+that is not on Overleaf, your cursor leaves Overleaf about ten seconds later, as the page
+joins the project again, unless a page's cursor is back in a file on Overleaf by then. The
+wait lets a reload or a quick look at another file pass without that. With **Hidden**
 they see no cursor of yours and Overleaf's editor does not show you as there, since it
 shows only those who sent a cursor. Choosing it takes the cursor shown away at once, as the
 page joins the project again. You still see who is in the project, but an Overleaf editor that sees

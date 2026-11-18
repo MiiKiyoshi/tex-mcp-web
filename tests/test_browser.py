@@ -11,6 +11,7 @@ import os
 import shutil
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.request
@@ -1116,6 +1117,11 @@ def test_highlight_badges_leave_pdf_text_selectable(tmp_path: Path) -> None:
           return !document.querySelector(".layout").classList.contains("sidebar-collapsed")
             && document.querySelector('[data-comment-id="{ids[1]}"]').classList.contains("is-focused");
         '''))
+        # A second click on the badge of the comment the panel shows hides the panel, as its
+        # title says.
+        assert browser.execute_script('''
+          return document.querySelector("embedpdf-container").shadowRoot.querySelectorAll(".tex-comment-badge")[1].title;
+        ''').endswith("\n\nClick to show this comment in the panel. Click again to hide the panel.")
         click_badge(1)
         wait_until(lambda: browser.execute_script('''
           return document.querySelector(".layout").classList.contains("sidebar-collapsed");
@@ -1294,12 +1300,14 @@ def test_source_beside_comment_opens_the_selected_words_in_the_editor(tmp_path: 
         '''))
         assert all(abs(got / page[2] - want) < 3 for got, want in zip(pointed, short["bbox"])), (pointed, short["bbox"])
         assert browser.execute_script('return document.querySelector(".layout").classList.contains("view-pdf")')
-        # Pressed in the Preview alone, Show in Source turns the view to Split and selects the words.
+        # Pressed in the Preview alone, Show in Source turns the view to Split and selects the
+        # words. Its label names the shortcut that does the same on a word.
         select_words()
-        wait_until(lambda: menu_button("Show in Source"))
+        source_label = f"Show in Source ({'Cmd' if sys.platform == 'darwin' else 'Ctrl'}+double-click)"
+        wait_until(lambda: menu_button(source_label))
         browser.execute_script('''
           Array.from(document.querySelector("embedpdf-container").shadowRoot.querySelectorAll("button"))
-            .find((button) => button.textContent.trim() === "Show in Source").click();
+            .find((button) => button.textContent.trim().startsWith("Show in Source")).click();
         ''')
         opened = wait_until(lambda: browser.execute_script('''
           const editor = (window.wrappedJSObject || window).ace?.edit("source-editor");
@@ -1431,8 +1439,6 @@ def test_the_selection_bubble_goes_with_the_selection(tmp_path: Path) -> None:
         shared.stop()
 
 
-@pytest.mark.xfail(reason="desktop Chrome's touch emulation selects the whole line where a held "
-                          "finger selects a word: to be settled on a real touch screen", strict=False)
 @chrome.not_in_safari("no touch input or touch emulation in safaridriver")
 @needs_browser
 def test_a_finger_held_on_a_word_selects_it(tmp_path: Path) -> None:
@@ -2014,6 +2020,283 @@ def test_browser_source_selection_and_split_resize(tmp_path: Path) -> None:
 
 
 @needs_browser
+def test_a_whole_line_selected_in_the_editor_is_that_line_alone(tmp_path: Path) -> None:
+    """A selection of whole lines ends at the start of the next line, which holds none of it:
+    the comment is on the lines selected, in the dialog, on its card and in what is kept."""
+    (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    browser = None
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        browser = chrome.launch()
+        browser.navigate(base)
+        script = browser.execute_script
+        script('document.querySelector("[data-view=source]").click()')
+        wait_until(lambda: script('return Boolean(window.ace) && ace.edit("source-editor").getValue().includes("Hello")'))
+        # Line 4 whole, as a click in the gutter or Shift+Down selects it.
+        script('const e = ace.edit("source-editor"); const Range = ace.require("ace/range").Range;'
+               ' e.selection.setRange(new Range(3, 0, 4, 0));')
+        wait_until(lambda: not script('return document.querySelector("#source-comment-btn").disabled'))
+        script('document.querySelector("#source-comment-btn").click()')
+        wait_until(lambda: script('return document.querySelector("#compose-dialog").open'))
+        assert script('return document.querySelector("#compose-anchor").textContent') == "Source: paper.tex:4-4"
+        script('const input = document.querySelector("#compose-text"); input.value = "Say more here.";'
+               ' input.dispatchEvent(new Event("input", {bubbles: true}));'
+               ' document.querySelector("#compose-form").requestSubmit();')
+        made = wait_until(lambda: get_json(f"{base}/comments")["comments"])[0]
+        assert made["anchor"] == {"kind": "source_range", "file": "paper.tex", "line_start": 4, "line_end": 4,
+                                  "column_start": 0, "column_end": 12}
+        assert made["source_selector"]["exact"] == "Hello world."
+        assert (made["resolved_source"]["line_start"], made["resolved_source"]["line_end"]) == (4, 4)
+        wait_until(lambda: script('return document.querySelector(".cmt-anchor")?.textContent') == "paper.tex:4-4")
+    finally:
+        if browser is not None:
+            browser.quit()
+        shared.stop()
+
+
+# Each text size Settings offers, read from the page, after the bars have been fitted again.
+TEXT_SIZES = 'return [...document.querySelectorAll("[data-text-choice]")].map((button) => button.dataset.textChoice)'
+FITTED = 'return new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(() => done(true))))'
+
+
+@needs_browser
+def test_the_top_bar_fits_a_phone_at_every_text_size(tmp_path: Path) -> None:
+    """On a phone, with both git buttons and two faces in the top bar, the bar fits its width at
+    every text size: the second face goes, the tabs and the buttons draw closer, then the first
+    face, the git buttons' counts and last the tabs' full names give way, while the tabs, Compile,
+    the git buttons, the ⋯ menu and the panel's button stay."""
+    (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    browser = None
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        browser = chrome.launch()
+        browser.set_window_rect(width=480, height=800)
+        browser.navigate(base)
+        script = browser.execute_script
+        # Both git buttons with their counts, and two collaborators on Overleaf, as the page
+        # draws them, put in again before each reading, since the page draws its own as it
+        # learns where the folder stands.
+        drawn = '''
+          for (const [id, count] of [["#git-pull-btn", "3"], ["#git-push-btn", "12"]]) {
+            const button = document.querySelector(id);
+            button.hidden = false;
+            button.querySelector(".git-count").textContent = count;
+          }
+          const faces = document.querySelector("#overleaf-live-faces");
+          faces.replaceChildren(...["AL", "BP"].map((initials) => {
+            const face = document.createElement("button");
+            face.className = "overleaf-face";
+            face.textContent = initials;
+            return face;
+          }));'''
+        bar = "return (async () => {" + drawn + '''
+          await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+          const bar = document.querySelector(".topbar");
+          const shown = (selector) => [...bar.querySelectorAll(selector)].some((part) => part.getBoundingClientRect().width > 0);
+          return {fits: bar.scrollWidth <= bar.clientWidth, steps: [...bar.classList].filter((name) => name !== "topbar"),
+                  kept: ["#compile-btn", "#git-pull-btn", "#git-push-btn", "#more-btn", "#sidebar-toggle-btn"].every(shown)
+                    && [...bar.querySelectorAll(".view-tab")].every((tab) => tab.getBoundingClientRect().width > 0)};
+        })();'''
+        sizes = script(TEXT_SIZES)
+        assert len(sizes) >= 5
+        for width in (480, 360):
+            browser.set_window_rect(width=width, height=800)
+            for size in sizes:
+                script(f'document.querySelector(\'[data-text-choice="{size}"]\').click()')
+                script(FITTED)
+                now = script(bar)
+                assert now["fits"] and now["kept"], (width, size, now)
+        # At the page's own size a phone's width has room for all of it.
+        browser.set_window_rect(width=480, height=800)
+        script('document.querySelector(\'[data-text-choice="100"]\').click()')
+        script(FITTED)
+        assert script(bar)["steps"] == []
+        script('document.querySelector(\'[data-text-choice="150"]\').click()')
+        script(FITTED)
+        assert script(bar)["steps"] == ["one-face", "tight"]
+    finally:
+        if browser is not None:
+            browser.quit()
+        shared.stop()
+
+
+@needs_browser
+def test_the_row_above_the_leaf_tabs_list_stays_one_line_at_every_text_size(tmp_path: Path) -> None:
+    """In the leaf tab, with a suggested edit from Overleaf in to do, the row above the list
+    stays one line at every text size from a 240px panel up, a thread picked or not: Send drops
+    its leaf, Accept and Reject wait behind the dots, and last the view list is its icon."""
+    (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nport: {port}\n"
+                           "overleaf: https://www.overleaf.com/project/0123456789abcdef01234567\n", encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    browser = None
+    try:
+        shared.ensure()
+        shared.server._tracked_view = lambda: [{
+            "id": "tc-1", "doc": "d-1", "ids": ["1"], "file": "paper.tex", "line": 4, "inserted": "Hi",
+            "deleted": "Hello", "user_id": "u-1", "name": "Ann Lee", "at": "2026-11-13T00:49:00.000Z", "here": None}]
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        browser = chrome.launch()
+        browser.navigate(base)
+        script = browser.execute_script
+        tab = '.tab-btn[data-tab="overleaf-comments"]'
+        wait_until(lambda: script(f'return !document.querySelector(\'{tab}\').hidden'))
+        # A thread for Overleaf with its first message to send, which Resolve and Send count once
+        # it is picked.
+        post_json(f"{base}/comments", {"anchor": {"kind": "source_range", "file": "paper.tex", "line_start": 4,
+                                                  "line_end": 4, "column_start": 0, "column_end": 5},
+                                       "draft": "Is this greeting right?", "text": "ask politely", "overleaf": True})
+        script(f'document.querySelector(\'{tab}\').click()')
+        wait_until(lambda: script('return document.querySelector("#comments-list .suggested-edit") !== null'
+                                  ' && document.querySelectorAll("#comments-list .cmt").length === 2'))
+        sizes = script(TEXT_SIZES)
+        row = '''const row = document.querySelector(".filter-row");
+          return row.scrollWidth <= row.clientWidth && !row.classList.contains("wrapped")
+            && row.getBoundingClientRect().height < 2 * document.querySelector("#resolve-picked-btn").getBoundingClientRect().height;'''
+        for picked in (False, True):
+            if picked:
+                script('document.querySelector("#pick-all-btn").click()')
+                wait_until(lambda: script('return document.querySelector("#send-picked-btn .count").textContent') == "1")
+            for size in sizes:
+                script(f'document.querySelector(\'[data-text-choice="{size}"]\').click()')
+                for width in range(700, 239, -20):
+                    script(f'document.querySelector(".layout").style.setProperty("--tex-mcp-sidebar-width", "{width}px")')
+                    script(FITTED)
+                    assert script(row), (picked, size, width)
+        # Behind the dots, Accept and Reject are named, and still act on the picked edits.
+        assert script('return [...document.querySelectorAll(".comment-rare-group .icon-btn:not([hidden])")]'
+                      '.map((button) => button.id).filter((id) => ["accept-picked-btn", "reject-picked-btn"].includes(id))') \
+            == ["accept-picked-btn", "reject-picked-btn"]
+    finally:
+        if browser is not None:
+            browser.quit()
+        shared.stop()
+
+
+@needs_browser
+def test_the_page_says_how_to_comment_how_comments_reach_the_agent_and_what_a_search_covers(tmp_path: Path) -> None:
+    """An empty comment tab says how to comment. After a comment is posted while comments wait
+    for the agent, the line above the list says they reach it at the bell, with its shortcut,
+    until the bell is pressed, and not again in this visit. While words are in the search box
+    the view list reads all, greyed, and goes back to the view once the search is cleared. The
+    Post buttons name the key that sends, a comment's box says what Shift+click does, the
+    editor's status line says when the cursor is in a comment's words and which key opens it,
+    and a section's title says what a click on it does."""
+    (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    browser = None
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        browser = chrome.launch()
+        browser.navigate(base)
+        script = browser.execute_script
+        listed = 'return [...document.querySelectorAll("#comments-list .placeholder")].map((line) => line.textContent)'
+        how = "To comment, select words in the Preview or the Source, or draw a box with the box tool."
+        # Nothing at all in the tab: the list says how to comment, in every view.
+        wait_until(lambda: script(listed) == ["Nothing is left to do here.", how])
+        show_view(browser, "open")
+        wait_until(lambda: script(listed) == ["No comments in this view.", how])
+        show_view(browser, "todo")
+        note = 'const note = document.querySelector("#call-agent-why"); return note.hidden ? null : note.textContent'
+        assert script(note) is None
+        # The Post button names the key that sends, as Settings chooses it.
+        script('document.querySelector("#paper-comment-btn").click()')
+        wait_until(lambda: script('return document.querySelector("#compose-dialog").open'))
+        assert script('return document.querySelector("#compose-submit").title') == "Post (Shift+Enter)"
+        script('document.querySelector("[data-send-choice=enter]").click()')
+        assert script('return document.querySelector("#compose-submit").title') == "Post (Enter)"
+        script('const box = document.querySelector("#compose-text"); box.value = "Tighten the opening.";'
+               ' box.dispatchEvent(new Event("input", {bubbles: true}));'
+               ' document.querySelector("#compose-form").requestSubmit();')
+        # Posted, the comment waits for the agent, and the line above the list says how it gets there.
+        reminder = f"Your comments reach the agent when you press the bell ({chrome.MOD_ALT}+Enter)."
+        wait_until(lambda: script(note) == reminder)
+        assert script(listed) == []
+        # A comment's box says what Shift+click does, and Post reply names the key that sends.
+        assert script('return document.querySelector("#comments-list .comment-pick").title') == \
+            "Select this comment. Shift+click selects or clears every comment from the last one you clicked."
+        script('document.querySelector("#comments-list .cmt-head").click()')
+        wait_until(lambda: script('return document.querySelector("#comments-list .cmt-reply") !== null'))
+        script('document.querySelector("#comments-list .cmt-reply").click()')
+        wait_until(lambda: script('return document.querySelector("#comments-list .cmt-form-submit") !== null'))
+        assert script('return document.querySelector("#comments-list .cmt-form-submit").title') == "Post reply (Enter)"
+        script('document.querySelector("#comments-list .cmt-form-cancel").click()')
+        # While words are in the search box the view list reads all, greyed, and says why; cleared,
+        # the list is back on its view.
+        view = ('const f = document.querySelector("#comment-filter");'
+                ' return [f.value, f.classList.contains("searching"), getComputedStyle(f).color, f.title]')
+        todo = script(view)
+        assert todo[:2] == ["todo", False] and todo[3] == "Showing to do"
+        script('const box = document.querySelector("#comment-search"); box.value = "opening";'
+               ' box.dispatchEvent(new Event("input"))')
+        wait_until(lambda: script(view)[:2] == ["all", True])
+        searching = script(view)
+        assert searching[2] != todo[2] and searching[3] == "The search covers all comments. Choose a view to clear it."
+        script('const box = document.querySelector("#comment-search"); box.focus();'
+               ' box.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}))')
+        wait_until(lambda: script(view)[:2] == ["todo", False])
+        # The bell takes the note about it away, and a comment posted after says it no more.
+        script('document.querySelector("#call-agent-btn").click()')
+        wait_until(lambda: script(note) != reminder)
+        post_json(f"{base}/comments", {"anchor": {"kind": "paper"}, "text": "And the closing."})
+        script('document.querySelector("#paper-comment-btn").click()')
+        wait_until(lambda: script('return document.querySelector("#compose-dialog").open'))
+        script('const box = document.querySelector("#compose-text"); box.value = "One more.";'
+               ' box.dispatchEvent(new Event("input", {bubbles: true}));'
+               ' document.querySelector("#compose-form").requestSubmit();')
+        wait_until(lambda: len(get_json(f"{base}/comments")["comments"]) == 3)
+        time.sleep(0.5)
+        assert script(note) != reminder
+        # In the editor the status line says when the cursor is in a comment's words, and which
+        # key opens it.
+        post_json(f"{base}/comments", {"anchor": {"kind": "source_range", "file": "paper.tex", "line_start": 4,
+                                                  "line_end": 4, "column_start": 0, "column_end": 5}, "text": "Say hi."})
+        script('document.querySelector("[data-view=source]").click()')
+        wait_until(lambda: script('return document.querySelector("#source-editor .source-comment-highlight") !== null'))
+        status = 'return document.querySelector("#source-status").textContent'
+        script('ace.edit("source-editor").gotoLine(4, 2)')
+        wait_until(lambda: script(status) == f"A comment is here. {chrome.MOD_ALT}+K opens it.")
+        # What the editor has just said shows until the cursor moves.
+        script('ace.edit("source-editor").execCommand("goToDefinition")')
+        wait_until(lambda: script(status) == "No \\input, \\ref or \\cite under the cursor")
+        time.sleep(0.3)
+        assert script(status) == "No \\input, \\ref or \\cite under the cursor"
+        script('ace.edit("source-editor").gotoLine(4, 3)')
+        wait_until(lambda: script(status) == f"A comment is here. {chrome.MOD_ALT}+K opens it.")
+        script('ace.edit("source-editor").gotoLine(2, 0)')
+        wait_until(lambda: script(status) != f"A comment is here. {chrome.MOD_ALT}+K opens it.")
+        # A section's title says what a click on it does.
+        script('document.querySelector(\'.tab-btn[data-tab="sections"]\').click()')
+        wait_until(lambda: script('return document.querySelector(".paper-section-title") !== null'))
+        assert script('return document.querySelector(".paper-section-title").title') == \
+            "Show this heading in the source, at paper.tex:3"
+    finally:
+        if browser is not None:
+            browser.quit()
+        shared.stop()
+
+
+@needs_browser
 def test_shift_picks_the_run_between_two_boxes(tmp_path: Path) -> None:
     """Picking six threads one box at a time is six clicks. Shift takes the run from the
     box the pick started at to the one it ends at, the way a list of files does, and the
@@ -2236,6 +2519,47 @@ def test_a_comment_opened_by_space_shows_its_line_a_third_of_the_way_down_the_ed
                                '25 * editor.renderer.lineHeight - editor.renderer.scroller.clientHeight);')
         type_keys(browser, ["j", " "])
         wait_until(lambda: browser.execute_script(place) == [21, True])
+    finally:
+        if browser is not None:
+            browser.quit()
+        shared.stop()
+
+
+@needs_browser
+def test_r_right_after_space_keeps_the_reply_box_when_the_jump_ends(tmp_path: Path) -> None:
+    """Space opens a comment and jumps to its place in the source, which may take a moment, and
+    r opens its reply box at once. The box keeps the keys when the jump ends."""
+    (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
+    (tmp_path / "other.tex").write_text("Another invented line.\n", encoding="utf-8")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    browser = None
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        post_json(f"{base}/comments", {"anchor": {"kind": "source_range", "file": "other.tex", "line_start": 1,
+                                                  "line_end": 1, "column_start": 0, "column_end": 7},
+                                       "text": "Say more."})
+        browser = chrome.launch()
+        browser.navigate(base)
+        script = browser.execute_script
+        show_view(browser, "open")
+        wait_until(lambda: script('return document.querySelectorAll("#comments-list .cmt").length === 1'))
+        # The file comes slowly, as from a server far away.
+        script('const page = window.wrappedJSObject || window; const fetch = page.fetch.bind(page);'
+               ' page.fetch = (url, ...rest) => String(url).startsWith("/source?")'
+               ' ? new Promise((done) => setTimeout(done, 800)).then(() => fetch(url, ...rest)) : fetch(url, ...rest);')
+        script("document.activeElement.blur();")
+        type_keys(browser, ["j", " ", "r", *"Shorter"])
+        wait_until(lambda: script('return ace.edit("source-editor").getValue().includes("Another invented line.")'))
+        time.sleep(0.3)
+        type_keys(browser, [*" here"])
+        box = "#comments-list .cmt-form.mode-reply .cmt-form-input"
+        assert script(f'return [document.activeElement.matches("{box}"), document.querySelector("{box}")?.value]') \
+            == [True, "Shorter here"]
     finally:
         if browser is not None:
             browser.quit()
@@ -2495,6 +2819,61 @@ def test_the_search_reads_the_conditions_mail_and_code_search_have(tmp_path: Pat
         assert loads == 1
         assert dict(zip([query for query, _ in cases], found)) == dict(cases)
         assert read == [reading for _, reading in readings]
+    finally:
+        if browser is not None:
+            browser.quit()
+        shared.stop()
+
+
+@needs_browser
+def test_a_day_in_the_search_and_on_the_cards_is_the_browsers_own(tmp_path: Path) -> None:
+    """The cards say when each entry was written on the browser's clock, and after: and before:
+    name days and minutes on that clock: a browser in Honolulu reads 03:00 UTC on 11-14 as
+    11-13 17:00, whatever the server's own time zone."""
+    (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    browser = None
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        add = lambda text: post_json(f"{base}/comments", {"anchor": {"kind": "paper"}, "text": text})["id"]
+        early, late = add("Written in the morning."), add("Written in the afternoon.")
+        # In Honolulu, ten hours behind UTC, both are on 11-13; in UTC the second is on 11-14,
+        # and east of UTC from nine hours ahead both are.
+        stamp(tmp_path / ".tex-mcp-web" / "comments.json",
+              {early: ["2026-11-13T20:00:00+00:00"], late: ["2026-11-14T03:00:00+00:00"]})
+        browser = chrome.launch()
+        browser.time_zone("Pacific/Honolulu")
+        browser.navigate(base)
+        script = browser.execute_script
+        show_view(browser, "all")
+        listed = lambda: sorted(script(
+            'return [...document.querySelectorAll("#comments-list [data-comment-id]")].map((c) => c.dataset.commentId)'))
+        wait_until(lambda: listed() == sorted([early, late]))
+        for cid in (early, late):
+            script(f'document.querySelector(\'[data-comment-id="{cid}"] .cmt-head\').click()')
+        when = lambda cid: script(f'return document.querySelector(\'[data-comment-id="{cid}"] .thread-meta span\')'
+                                  '?.textContent ?? ""')
+        wait_until(lambda: when(early) and when(late))
+        assert [when(early), when(late)] == ["human · 11-13 10:00", "human · 11-13 17:00"]
+        cases = [
+            ("after:11-13", [early, late]),
+            ("after:11-14", []),
+            ("before:11-14", [early, late]),
+            ("before:11-13", []),
+            ('after:"11-13 17:00"', [late]),
+            ("before:11-13T17", [early]),
+        ]
+        for query, expected in cases:
+            script('const box = document.querySelector("#comment-search"); box.value = arguments[0];'
+                   ' box.dispatchEvent(new Event("input"))', script_args=[query])
+            wait_until(lambda: listed() == sorted(expected)
+                       or (not expected and "No comments match" in script('return document.querySelector("#comments-list").textContent')))
+            assert listed() == sorted(expected), query
     finally:
         if browser is not None:
             browser.quit()
@@ -3060,6 +3439,17 @@ def test_the_editors_menu_holds_text_size_wrap_and_vim_keys(tmp_path: Path) -> N
         assert menu_open()
         browser.find_element("css selector", "#source-editor").click()
         assert not menu_open()
+        # The top bar's ⋯ menu closes on Escape and on a click outside, as the editor's does.
+        top_open = lambda: not script('return document.querySelector("#more-menu").hidden')
+        browser.find_element("css selector", "#more-btn").click()
+        assert top_open()
+        escape()
+        assert not top_open() and script(
+            'return document.querySelector("#more-btn").getAttribute("aria-expanded")') == "false"
+        browser.find_element("css selector", "#more-btn").click()
+        assert top_open()
+        browser.find_element("css selector", "#source-editor").click()
+        assert not top_open()
     finally:
         if browser is not None:
             browser.quit()
@@ -3635,6 +4025,7 @@ def test_undo_puts_the_last_change_of_status_back(tmp_path: Path) -> None:
         first, second, third, done, kept = (add(text) for text in ("One.", "Two.", "Three.", "Done.", "Kept."))
         post_json(f"{base}/comments/{done}/resolve", {})
         post_json(f"{base}/comments/{kept}/archive", {})
+        resolved_at = get_json(f"{base}/comments/{done}")["resolved"]
         statuses = lambda *ids: [get_json(f"{base}/comments/{cid}")["status"] for cid in ids]
         script = lambda code: browser.execute_script(code)
         click = lambda selector: browser.execute_script("document.querySelector(arguments[0]).click()",
@@ -3692,6 +4083,21 @@ def test_undo_puts_the_last_change_of_status_back(tmp_path: Path) -> None:
         click("#undo-btn")
         wait_until(lambda: statuses(done, kept) == ["resolved", "archived"] and line() is None)
         assert statuses(first, second, third) == ["resolved"] * 3
+        # The comment resolved again has the moment it was resolved at before.
+        assert get_json(f"{base}/comments/{done}")["resolved"] == resolved_at
+        # A comment deleted after the change cannot be put back: Undo restores the other and
+        # says how many no longer exist, with nothing left to undo.
+        pick(done)
+        pick(kept)
+        click("#resolve-picked-btn")
+        wait_until(lambda: line() == "Reopened 2 comments.")
+        urllib.request.urlopen(urllib.request.Request(f"{base}/comments/{kept}", method="DELETE"), timeout=5).close()
+        click("#undo-btn")
+        wait_until(lambda: statuses(done) == ["resolved"]
+                   and line() == "1 comment could not be restored because it no longer exists.")
+        assert get_json(f"{base}/comments/{done}")["resolved"] == resolved_at
+        assert script('return document.querySelector("#undo-btn").hidden') is True
+        click("#undo-close")
         # The close button takes the line away and changes nothing.
         pick(first)
         click("#resolve-picked-btn")
@@ -3705,7 +4111,7 @@ def test_undo_puts_the_last_change_of_status_back(tmp_path: Path) -> None:
         wait_until(lambda: line() == "Archived 1 comment.")
         browser.refresh()
         show_view(browser, "all")
-        wait_until(lambda: len(listed()) == 5)
+        wait_until(lambda: len(listed()) == 4)
         assert line() is None and statuses(second) == ["archived"]
     finally:
         if browser is not None:
@@ -4186,6 +4592,18 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
             'return [...document.querySelectorAll("[data-comment-id]")].map((c) => c.dataset.commentId);') \
             == [drafted.id, opened_here.id]
         assert "New public thread on Overleaf" in browser.execute_script(f"return {card}.textContent")
+        # What the reviewer typed over the agent's draft stays when the agent drafts again, and
+        # the card offers the new draft, which Use new draft puts in the box.
+        type_over = (f'const box = {card}.querySelector(".overleaf-reply-input"); box.value = "Typed over.";'
+                     'box.dispatchEvent(new Event("input", {bubbles: true}));')
+        browser.execute_script(type_over)
+        kept.draft_overleaf(drafted.id, kept.get(drafted.id).updated, OverleafDraft("Feedback and answer. Shorter."), {})
+        wait_until(lambda: browser.execute_script(
+            f'return {card}?.querySelector(".overleaf-newer blockquote")?.textContent ?? ""') == "Feedback and answer. Shorter.")
+        assert browser.execute_script(f'return {card}.querySelector(".overleaf-reply-input").value') == "Typed over."
+        browser.execute_script(f'{card}.querySelector(".overleaf-use").click()')
+        assert browser.execute_script(f'return [{card}.querySelector(".overleaf-reply-input").value, {card}.querySelector(".overleaf-newer")]') \
+            == ["Feedback and answer. Shorter.", None]
         # Reject draft takes the draft, with what was typed over it, off the card. The thread
         # says what was turned down, in an entry with no Edit, and stays one for Overleaf.
         edits = f'return {card}.querySelectorAll(".cmt-edit").length'
@@ -4879,6 +5297,14 @@ def test_a_folder_without_git_gets_and_sends_by_hand_from_the_top_bar(tmp_path: 
         wait_until(lambda: hidden("#git-push-btn") and "is in sync with Overleaf" in text("#overleaf-git-state"), timeout=15)
         wait_until(lambda: browser.execute_script(
             'return document.querySelector("#overleaf-sync-comments-btn").disabled') is False, timeout=15)
+        # Disconnected, the top bar offers Connect Overleaf again, without a reload.
+        assert hidden("#overleaf-live-btn")
+        click("#settings-btn")
+        click("#overleaf-disconnect-btn")
+        wait_until(lambda: text("#overleaf-status") == "Disconnected.")
+        browser.execute_script('document.querySelector("#settings-dialog").close()')
+        wait_until(lambda: not hidden("#overleaf-live-btn") and text("#overleaf-live-label") == "Connect Overleaf")
+        assert hidden("#git-pull-btn") and hidden("#git-push-btn")
     finally:
         if browser is not None:
             browser.quit()
@@ -4938,7 +5364,7 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
         wait_until(lambda: text("#overleaf-live-faces") == "CA")
         assert browser.execute_script('return document.querySelector("#overleaf-live-btn").hidden') is True
         assert browser.execute_script('return document.querySelector(".overleaf-face").title') == \
-            "Co Author on Overleaf, at tex/body.tex:2"
+            "Co Author is on Overleaf at tex/body.tex:2. Click to go to that line."
         assert "Co Author" in text("#overleaf-live-users") and "tex/body.tex:2" in text("#overleaf-live-users")
         browser.execute_script('document.querySelector(".overleaf-face").click()')
         wait_until(lambda: browser.execute_script(
@@ -5327,11 +5753,26 @@ def test_suggested_edits_from_overleaf_have_their_own_view_and_marks_in_the_edit
                                   ' document.querySelectorAll(".source-suggested-delete").length]') == [1, 1])
         assert browser.execute_script('return ace.edit("source-editor").getCursorPosition()',
                                       sandbox=None) == {"row": 2, "column": 6}
-        # Accepted on Overleaf, it leaves the view and the editor.
+        # The tab's search finds it by its words, inserted or deleted, by who suggested it and
+        # by when.
+        found = lambda query: browser.execute_script(
+            'const box = document.querySelector("#comment-search"); box.value = arguments[0];'
+            ' box.dispatchEvent(new Event("input"));', script_args=[query])
+        for query, finds in (("there", True), ("world", True), ('from:"co author"', True), ("from:me", False),
+                             ("after:2026-01-01", True), ("before:2026-01-01", False), ("elsewhere", False)):
+            found(query)
+            wait_until(lambda: script('return document.querySelector("#comments-list .suggested-edit") !== null') == finds
+                       and (finds or "No comments match" in script('return document.querySelector("#comments-list").textContent')))
+        found("")
+        wait_until(lambda: script('return document.querySelector("#comments-list .suggested-edit") !== null'))
+        # Accepted on Overleaf, it leaves the view and the editor. The tab has nothing left at
+        # all, and says how to start a thread.
         script('document.querySelector(".suggested-edit .change-accept").click()')
         wait_until(lambda: fake.written == [("accept", "d-main", ["s1", "s2"])])
-        wait_until(lambda: script('return document.querySelector("#comments-list").textContent')
-                   == "No suggested edits on Overleaf.")
+        wait_until(lambda: script('return [...document.querySelectorAll("#comments-list .placeholder")]'
+                                  '.map((line) => line.textContent)') == [
+            "No suggested edits on Overleaf.",
+            "To start a thread for Overleaf, select words in the Source with the leaf beside Comment pressed."])
         wait_until(lambda: script('return document.querySelectorAll(".source-suggested-insert").length') == 0)
     finally:
         if browser is not None:
@@ -5354,6 +5795,7 @@ def test_the_leaf_beside_comment_starts_a_thread_for_overleaf(tmp_path: Path, mo
     from aiohttp.test_utils import TestServer
     from tests.test_overleaf_sync import BODY, FIGURE, MAIN, PROJECT_ID, FakeOverleaf
     from tex_mcp_web import overleaf
+    from tex_mcp_web.comments import OverleafDraft
 
     loop = asyncio.new_event_loop()
     threading.Thread(target=loop.run_forever, daemon=True).start()
@@ -5388,8 +5830,13 @@ def test_the_leaf_beside_comment_starts_a_thread_for_overleaf(tmp_path: Path, mo
         wait_until(lambda: script('return Boolean(window.ace) && ace.edit("source-editor").getValue().includes("Only here.")'))
         wait_until(lambda: shared.server.overleaf_live is not None and shared.server.overleaf_live.status == "live",
                    timeout=20)
+        leaf_title = 'return document.querySelector("#source-leaf-btn").title'
+        assert script(leaf_title) == ("Overleaf threads are off: a new comment from the Source is a private comment. "
+                                      "Click to start public threads on Overleaf instead.")
         script('document.querySelector("#source-leaf-btn").click()')
         assert script('return document.querySelector("#source-leaf-btn").getAttribute("aria-pressed")') == "true"
+        assert script(leaf_title) == ("Overleaf threads are on: a new comment from the Source starts a public thread "
+                                      "on Overleaf. Click to make new comments private.")
         store = shared.server.comments
         boxes = '[...document.querySelectorAll("#compose-form textarea")].filter((box) => box.offsetParent !== null)'
 
@@ -5516,6 +5963,19 @@ def test_the_leaf_beside_comment_starts_a_thread_for_overleaf(tmp_path: Path, mo
         assert kept.overleaf_draft.text == "Should this line stay?"
         assert [entry.text for entry in kept.waiting()] == ["ask her once it is on Overleaf"]
         assert len(fake.threads) == 2
+        # The message is the reviewer's own, which nothing offers to reject as the agent's draft.
+        assert script(f'return {card}.querySelector(".overleaf-reject")') is None
+        # The agent's wording for it comes into the thread as its private reply, which answers
+        # the note. The box keeps the message as the reviewer wrote it, with what they typed since.
+        script(f'const box = {card}.querySelector(".overleaf-reply-input"); box.value = "Should this line stay as it is?";'
+               ' box.dispatchEvent(new Event("input", {bubbles: true}));')
+        store.draft_overleaf(refused.id, kept.updated, OverleafDraft("Could you check whether this line should stay?"), {})
+        wait_until(lambda: script(f'return {card}.textContent.includes("Could you check whether this line should stay?")'))
+        assert script(f'return [{card}.querySelector(".overleaf-reply-input").value,'
+                      f' {card}.querySelector(".overleaf-reject"), {card}.querySelector(".overleaf-newer")]') == [
+            "Should this line stay as it is?", None, None]
+        kept = store.get(refused.id)
+        assert kept.overleaf_draft.text == "Should this line stay?" and kept.waiting() == []
 
         # The next comment from the editor goes the same way until the leaf is let go, and then
         # the dialog is the private comment's, with its one box, at the rows of the larger.
@@ -5765,6 +6225,9 @@ def test_translation_numbers_its_source_lines_and_follows_the_editor(tmp_path: P
           return [...document.querySelectorAll(".translation-line")].slice(0, 2).map((x) => x.textContent);
         """)
         assert labels == ["4\u20135", "7\u20138"]
+        # A paragraph's title says what a click on it does.
+        assert browser.execute_script('return document.querySelector(".translation-para").title') == \
+            "Open paper.tex:4-5 in the editor"
         # The pane's head says what translates, in small dim type, with the whole command as its title.
         assert browser.execute_script("""
           const tool = document.querySelector("#translation-tool");
@@ -5816,6 +6279,21 @@ def test_translation_numbers_its_source_lines_and_follows_the_editor(tmp_path: P
         wait_until(lambda: browser.execute_script(
             'return document.querySelectorAll(".translation-para").length === 40;'))
         assert size() == before + 1
+
+        # The server started again and the command's program is not there: the head says so,
+        # on its one line, and the translations made before still show.
+        head = 'return document.querySelector(".translation-head").offsetHeight;'
+        tall = browser.execute_script(head)
+        shared.server.translator = None
+        browser.execute_script('document.querySelector("#translation-file").dispatchEvent(new Event("change"));')
+        status = 'return document.querySelector("#translation-status").textContent;'
+        wait_until(lambda: browser.execute_script(status)
+                   == "The translation command failed: llm-tool was not found on the server's PATH, "
+                      "which is the shorter PATH it was registered with. Showing saved translations.")
+        assert browser.execute_script(head) == tall
+        assert browser.execute_script(
+            'return document.querySelector(".translation-text").textContent;'
+        ) == "T Paragraph number 0 has words\nacross two lines."
     finally:
         if browser is not None:
             browser.quit()

@@ -228,9 +228,8 @@ def _windows_path(program: str, windows: bool = os.name == "nt") -> str:
     return f"{found.group(1).upper()}:/{found.group(2)}" if found else program
 
 
-def run_command(command: list[str], prompt: str, cwd: Path, system: str) -> str:
-    """What *command* prints for one request: *system*, then *prompt*. The request goes to
-    the command's standard input, or in place of ``{prompt}`` when its arguments hold it."""
+def find_program(command: list[str]) -> str:
+    """The program *command* names, as a path that can be run. Raises when there is none."""
     executable = shutil.which(_windows_path(command[0]))
     if executable is None:
         # A program named by its path is looked for there alone, and one named by a bare
@@ -239,6 +238,13 @@ def run_command(command: list[str], prompt: str, cwd: Path, system: str) -> str:
             raise RuntimeError(f"{command[0]} does not exist, or is not a program that can be run")
         raise RuntimeError(f"{command[0]} was not found on the server's PATH, "
                            "which is the shorter PATH it was registered with")
+    return executable
+
+
+def run_command(command: list[str], prompt: str, cwd: Path, system: str) -> str:
+    """What *command* prints for one request: *system*, then *prompt*. The request goes to
+    the command's standard input, or in place of ``{prompt}`` when its arguments hold it."""
+    executable = find_program(command)
     request = f"{system}\n\n--- Request ---\n\n{prompt}"
     in_arguments = any(PROMPT in word for word in command[1:])
     env = {key: value for key, value in os.environ.items() if key not in _SESSION_ENV}
@@ -286,6 +292,8 @@ class Translator:
         self._lock = threading.Lock()
         self._pending: set[str] = set()
         self.error: str | None = None
+        # Whether *error* is check()'s, that the command's program is missing.
+        self._no_program = False
 
     def missing(self, paragraphs: list[Paragraph]) -> list[Paragraph]:
         seen: set[str] = set()
@@ -325,3 +333,17 @@ class Translator:
             return False
         threading.Thread(target=self.translate, args=(paragraphs,), daemon=True).start()
         return True
+
+    def check(self) -> None:
+        """Look for the command's program, without running it: while every paragraph shown was
+        translated before, nothing runs the command, and this is how a program that is gone
+        is found. *error* then says so, until a later check finds the program."""
+        if self.command is None or self._pending:
+            return
+        try:
+            find_program(self.command)
+        except RuntimeError as exc:
+            self.error, self._no_program = str(exc), True
+        else:
+            if self._no_program:
+                self.error, self._no_program = None, False

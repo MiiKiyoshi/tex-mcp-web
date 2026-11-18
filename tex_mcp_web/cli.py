@@ -72,6 +72,11 @@ def _log_handler(stream: TextIO) -> logging.Handler:
 
 
 def _configure_logging(verbose: bool) -> None:
+    # A log that goes to a file or to the program that started the server is UTF-8 on every
+    # system. Windows would write it in the system's own encoding, which whoever reads the
+    # file does not expect. A terminal keeps its own.
+    if not sys.stderr.isatty() and hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8")
     logging.basicConfig(level=logging.DEBUG if verbose else logging.INFO, handlers=[_log_handler(sys.stderr)])
 
 

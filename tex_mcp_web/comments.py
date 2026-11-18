@@ -542,6 +542,10 @@ class DraftRange:
                    base=str(d["base"]) if "base" in d else None, stale="stale" in d)
 
 
+# How the agent's wording for a first message the reviewer wrote begins, as its reply in the thread.
+SUGGESTED_WORDING = "Suggested wording for the message on Overleaf:"
+
+
 @dataclass
 class OverleafDraft:
     """What the agent drafted for Overleaf, which the reviewer edits and sends: a reply to the
@@ -550,11 +554,13 @@ class OverleafDraft:
     compared in before it goes, and the words that must be on Overleaf before a new thread
     goes. *thread* is the id a new thread was given on Overleaf when it was first sent, so a
     send that stopped halfway finishes that thread instead of opening another. *at* is when
-    it was put on the thread: it answers what the thread said before then."""
+    it was put on the thread: it answers what the thread said before then. *mine* marks a
+    first message the reviewer wrote themselves, which only the reviewer changes."""
     text: str
     ranges: list[DraftRange] = field(default_factory=list)
     thread: str | None = None
     at: str = field(default_factory=_now)
+    mine: bool = False
 
     @property
     def checks(self) -> list[dict[str, str]]:
@@ -565,12 +571,14 @@ class OverleafDraft:
         data: dict[str, Any] = {"text": self.text, "ranges": [r.to_dict() for r in self.ranges], "at": self.at}
         if self.thread is not None:
             data["thread"] = self.thread
+        if self.mine:
+            data["mine"] = True
         return data
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "OverleafDraft":
         return cls(text=str(d["text"]), ranges=[DraftRange.from_dict(r) for r in d["ranges"]],
-                   thread=str(d["thread"]) if "thread" in d else None, at=str(d["at"]))
+                   thread=str(d["thread"]) if "thread" in d else None, at=str(d["at"]), mine="mine" in d)
 
 
 @dataclass
@@ -1514,7 +1522,7 @@ class CommentStore:
             status="open",
             resolved_source=resolved_source,
             source_selector=source_selector,
-            overleaf_draft=OverleafDraft(draft.text.strip(), draft.ranges, at=now),
+            overleaf_draft=OverleafDraft(draft.text.strip(), draft.ranges, at=now, mine=draft.mine),
             for_overleaf=for_overleaf,
             created=now,
             updated=now,
@@ -1548,11 +1556,14 @@ class CommentStore:
         edits: list[str] | None = None,
         new_status: Status | None = None,
         name: str | None = None,
+        resolved_at: str | None = None,
     ) -> Comment:
         """Locate a comment, append a thread entry, optionally update status.
 
         Closing a comment may carry no message: replies already hold the
         content, so an empty text flips the status without a thread entry.
+        A comment resolved is stamped now, or at *resolved_at*, the moment an
+        undo gives back.
         """
         with self._locked():
             comments = self._all()
@@ -1565,7 +1576,7 @@ class CommentStore:
                         )
                     if new_status is not None:
                         c.status = new_status
-                        c.resolved = now if new_status == "resolved" else None
+                        c.resolved = (resolved_at or now) if new_status == "resolved" else None
                     c.updated = now
                     comments[i] = c
                     self._save(comments)
@@ -1700,8 +1711,10 @@ class CommentStore:
     def draft_overleaf(
         self, comment_id: str, expected_updated: str, draft: OverleafDraft, texts: dict[str, str]
     ) -> Comment:
-        """Put the agent's draft of an Overleaf reply on an open thread. A thread holds one,
-        which this replaces; it adds no entry, since nothing has been said until it is sent.
+        """Put a draft of an Overleaf reply on an open thread. A thread has one, which this
+        replaces; it adds no entry, since nothing has been said until it is sent. A first
+        message the reviewer wrote (*mine*) is not replaced by the agent's: the agent's wording
+        is added to the thread as its private reply instead, which answers what came before.
         *texts* are the files' texts its ranges were read from, by file."""
         if not draft.text.strip():
             raise ValueError("a draft must not be empty")
@@ -1716,8 +1729,13 @@ class CommentStore:
                     raise ValueError("a draft belongs to a comment that is open")
                 kept = comment.overleaf_draft.thread if comment.overleaf_draft is not None else None
                 now = _now()
-                comment.overleaf_draft = OverleafDraft(draft.text.strip(), draft.ranges, kept, now)
-                self._keep_draft_bases(comment.overleaf_draft, texts)
+                if comment.overleaf_draft is not None and comment.overleaf_draft.mine and not draft.mine:
+                    comment.thread.append(ThreadEntry(
+                        author="agent", at=now, text=f"{SUGGESTED_WORDING}\n{draft.text.strip()}",
+                        edits=[r.label for r in draft.ranges]))
+                else:
+                    comment.overleaf_draft = OverleafDraft(draft.text.strip(), draft.ranges, kept, now, draft.mine)
+                    self._keep_draft_bases(comment.overleaf_draft, texts)
                 comment.updated = now
                 comments[position] = comment
                 self._save(comments)
@@ -1867,6 +1885,8 @@ class CommentStore:
                     raise ValueError("this comment has no draft for Overleaf")
                 if draft.thread is not None:
                     raise ValueError("this thread was begun on Overleaf: send it to finish it there")
+                if draft.mine:
+                    raise ValueError("this message is the reviewer's own, not a draft from the agent")
                 now = _now()
                 comment.thread.append(ThreadEntry(
                     author="human", at=now, text=f"Rejected draft for Overleaf.\n{draft.text}",
@@ -1886,9 +1906,11 @@ class CommentStore:
         summary: str,
         edits: list[str] | None = None,
         author: Author = "agent",
+        at: str | None = None,
     ) -> Comment:
+        """Resolve a comment, now or, for an undo, at the moment *at* it was resolved before."""
         return self._append_entry(
-            comment_id, author, summary, edits=edits, new_status="resolved"
+            comment_id, author, summary, edits=edits, new_status="resolved", resolved_at=at
         )
 
     def reopen(self, comment_id: str, author: Author = "human") -> Comment:

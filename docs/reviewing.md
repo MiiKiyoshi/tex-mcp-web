@@ -32,6 +32,10 @@ it fits the pane, and filling the pane's width once it is wider. Over the middle
 zoom centres on the pointer. A mouse-wheel notch zooms by a quarter. Two fingers on a touch
 screen zoom and move the page as they go, the point between them staying between them.
 
+A click on a link in the PDF, such as a citation or a reference to a figure or a section,
+shows the text it points to in a popup beside the pointer. A click on the popup selects its
+text to copy, and a click anywhere else closes it.
+
 ## Problems
 
 The **Problems** tab lists what the last build said, errors first and then warnings, and
@@ -69,7 +73,9 @@ last line of the PDF. Running heads, page numbers and the words inside an includ
   conditions below show under it, and a click puts one in at the cursor. `from:` and
   `file:`, clicked or typed, list the tab's writers or files to pick from with a click, or
   with the arrow keys and Enter; Escape closes the list. Enter gives the keys to the
-  comments found, and Escape in the box, or choosing a view, puts the search away.
+  comments found, and Escape in the box, or choosing a view, puts the search away. While
+  words are in the box the view list reads **all**, greyed, and it shows its view again once
+  the search is put away.
 
   | Type | Finds the threads that | Example |
   |---|---|---|
@@ -83,8 +89,8 @@ last line of the PDF. Running heads, page numbers and the words inside an includ
   | `before:` | have an entry written before that day, or that minute | `before:"11-13 09:30"` |
 
   Each condition is met by the thread, so `from:` and `after:` may be met by two of its
-  entries. A day is `MM-DD` of this year or `YYYY-MM-DD`, read in your computer's time. A
-  minute follows it as `11-13T09` or `11-13T09:30`, or in quotes as the cards show it,
+  entries. A day is `MM-DD` of this year or `YYYY-MM-DD`, read in your computer's time, in
+  which the cards show when each entry was written. A minute follows it as `11-13T09` or `11-13T09:30`, or in quotes as the cards show it,
   `"11-13 09:30"`. Any other word with a colon is an ordinary word.
 - What you wrote in a thread carries **Edit** and **Delete**. **Delete** on a thread's first
   message deletes the thread.
@@ -92,11 +98,12 @@ last line of the PDF. Running heads, page numbers and the words inside an includ
   **Archive** sets a thread aside, and it still takes replies.
 - After **Resolve**, **Reopen** or **Archive**, on a card, on the picked threads or by key, a
   line above the list says what was done, as "Resolved 3 comments.", with **Undo**, which `u`
-  presses too. Undo puts each of those threads back to the status it had, a thread from
-  Overleaf on Overleaf too, without asking. Only the last change can be undone: the line stays
-  through views and tabs until the next change takes its place, and Undo, its ×, or a reload
-  takes it away. What Overleaf refuses to put back stays on the line, which says how many and
-  why.
+  presses too. Undo puts each of those threads back to the status it had, with the time it
+  was resolved at if it was resolved, a thread from Overleaf on Overleaf too, without asking.
+  Only the last change can be undone: the line stays through views and tabs until the next
+  change takes its place, and Undo, its ×, or a reload takes it away. What Overleaf refuses to
+  put back stays on the line, which says how many and why, and so does the number of threads
+  deleted since, which cannot be put back.
 - A proposed edit shows as the source lines the agent would change, as a −/+ pair, and the
   Source tab marks the same text in red. **Apply suggestion** writes the change into the
   file. **Reject** takes the proposal off the card, leaves the file as it is, and notes in
@@ -120,7 +127,9 @@ last line of the PDF. Running heads, page numbers and the words inside an includ
   **Reject** and **Send to Overleaf**; then the sync button and **Call agent**. On a narrow
   panel the sort list shrinks to its icon first and the word **Resolve** goes next, then the
   sort list, **Expand all**, the sync button and **Call agent** wait behind **⋯** with their
-  names. What acts on the picked threads stays in the
+  names. In the Overleaf tab **Send to Overleaf** then drops its leaf, and **Accept** and
+  **Reject**, which each suggested edit's card has too, wait behind **⋯**. Last the view
+  list shrinks to its icon. **Resolve**, **Archive** and **Send to Overleaf** stay in the
   row, which takes two lines only when even that does not fit.
 
 ## Comment keys

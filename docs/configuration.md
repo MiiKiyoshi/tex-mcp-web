@@ -25,7 +25,7 @@ overleaf: https://www.overleaf.com/project/0123456789abcdef01234567
 | `dir` | Folder holding the paper, relative to this file or absolute. Unset means this file's folder. |
 | `watch` | Source files the Source tab offers. |
 | `ignore` | Patterns excluded even when they match `watch`. |
-| `compiler` | `auto` (latexmk for LaTeX, pandoc for Markdown or text), `latexmk`, `pdflatex`, `xelatex`, `lualatex`, or `pandoc`. |
+| `compiler` | `auto` (latexmk for LaTeX, pandoc for Markdown or text), `latexmk`, `pdflatex`, `xelatex`, `lualatex`, or `pandoc`. The PDF is always built in the same folder as the main file, so an `$out_dir` set in a `.latexmkrc` is not used. |
 | `port` | This paper's review page port. Any free port works. Init picks the first free one from 8765, so each paper can have its own. |
 | `guideline` | The writing guideline the agent reads before editing: the name of a folder of your own under `~/.config/tex-mcp-web/guidelines/<name>/` holding a `GUIDELINE.md`. A guideline whose file opens with front matter `extends: <name>` is read after the one it names. Unset means none. |
 | `references` | Folder holding only the papers yours builds on, converted to Markdown, relative to this file or absolute. Unset means no list of their terms. |

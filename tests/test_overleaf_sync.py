@@ -1363,7 +1363,7 @@ async def test_the_agent_reads_where_the_folder_stands_and_brings_overleafs_edit
         opened.write("main.tex", MAIN.replace("fast", "quick"))
         assert await call("overleaf") == {"by": "hand", "get": ["tex/body.tex"], "send": ["main.tex"]}
         told = await call("read_comments", new=True)
-        assert told["overleaf"].startswith("Overleaf has edits to tex/body.tex this folder lacks.")
+        assert told["overleaf"].startswith("Overleaf has edits to tex/body.tex that this folder does not have yet.")
         assert await call("overleaf", action="get") == {"by": "hand", "send": ["main.tex"]}
         assert opened.read("tex/body.tex") == "New. " + BODY
         refused = await call("overleaf", action="push")

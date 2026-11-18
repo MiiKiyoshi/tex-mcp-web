@@ -1032,6 +1032,34 @@ def test_a_reply_sent_from_a_draft_answers_only_what_came_before_the_draft(store
     assert store.get(other.id).waiting(on_overleaf=True) == []
 
 
+def test_the_agents_wording_never_replaces_a_message_the_reviewer_wrote(store: CommentStore, monkeypatch):
+    """A first message for Overleaf that the reviewer wrote stays as they wrote it. The agent's
+    wording for it comes into the thread as the agent's private reply, which answers the
+    reviewer's note, and the reviewer's message has no draft of the agent's to reject. A draft
+    the agent wrote is still replaced by its next one."""
+    clock = {"now": "2026-01-01T00:00:00+00:00"}
+    monkeypatch.setattr("tex_mcp_web.comments._now", lambda: clock["now"])
+    comment = store.add(PaperAnchor(), "make it polite", for_overleaf=True)
+    clock["now"] = "2026-01-01T00:01:00+00:00"
+    store.draft_overleaf(comment.id, store.get(comment.id).updated, OverleafDraft("Is this right?", mine=True), {})
+    clock["now"] = "2026-01-01T00:02:00+00:00"
+    store.draft_overleaf(comment.id, store.get(comment.id).updated, OverleafDraft("Could you check this, please?"), {})
+    kept = CommentStore(store.path).get(comment.id)
+    assert (kept.overleaf_draft.text, kept.overleaf_draft.mine) == ("Is this right?", True)
+    assert [(entry.author, entry.text) for entry in kept.thread] == [
+        ("human", "make it polite"),
+        ("agent", "Suggested wording for the message on Overleaf:\nCould you check this, please?")]
+    assert kept.waiting() == []
+    with pytest.raises(ValueError):
+        store.reject_draft(comment.id, kept.updated, new_thread=True)
+    # The agent's own draft is the agent's to redraft.
+    other = store.add(PaperAnchor(), "draft a question", for_overleaf=True)
+    store.draft_overleaf(other.id, store.get(other.id).updated, OverleafDraft("First wording."), {})
+    store.draft_overleaf(other.id, store.get(other.id).updated, OverleafDraft("Second wording."), {})
+    assert store.get(other.id).overleaf_draft.text == "Second wording."
+    assert [entry.author for entry in store.get(other.id).thread] == ["human"]
+
+
 def test_canonicalize_pdf_selection_finds_a_letter_whose_accent_the_browser_reads_after_it(
     tmp_path: Path,
 ):

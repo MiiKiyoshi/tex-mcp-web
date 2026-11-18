@@ -343,3 +343,17 @@ def test_what_a_child_process_prints_is_never_read_in_the_systems_code_page() ->
                 unnamed.append(f"{path.name}:{node.lineno}")
     assert unnamed == []
 
+
+
+def test_a_log_that_goes_to_a_file_is_utf8_whatever_the_systems_encoding() -> None:
+    """The server's log, read by the program that started it or from a file, is UTF-8 also
+    where the system's own encoding is another, as on a Korean Windows."""
+    import os
+    import subprocess
+    import sys
+
+    code = ("import logging; from tex_mcp_web.cli import _configure_logging; "
+            "_configure_logging(False); logging.getLogger('t').info('caf\u00e9 \ud55c\uae00')")
+    done = subprocess.run([sys.executable, "-c", code], capture_output=True,
+                          env={**os.environ, "PYTHONIOENCODING": "cp949", "PYTHONUTF8": "0"}, check=True)
+    assert "café 한글" in done.stderr.decode("utf-8")

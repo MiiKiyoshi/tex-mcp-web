@@ -11,8 +11,9 @@ tells: the session opens that file and keeps it open while the cursor is in it, 
 editor does, and sends the place (clientTracking.updatePosition). An editor that sees another's
 cursor sends its own twice a second, and one that sees none every five minutes. A file that is
 not on Overleaf shows nothing. Only a session's end takes a cursor from the others' editors, so
-hiding the cursor joins the project anew, and a page that goes leaves its last place standing
-until the session ends.
+hiding the cursor joins the project anew. So does the server when the place last sent is
+nobody's any more (stranded): the page that told it went, or its cursor is in a file that is
+not on Overleaf.
 The service also says when a comment changes, and when an edit made with track changes on
 comes or a suggested edit is accepted, which is passed on for the server to read.
 When the reviewer sends a new thread, the session puts it on its words with an edit that
@@ -463,9 +464,14 @@ class LivePresence:
     def place(self, place: tuple[str, int, int] | None) -> None:
         """Where the cursor is in the page's editor, (path, row, column) in the file open there,
         shown to the others as the reviewer's cursor on Overleaf. None while no page tells one:
-        the place last sent stays until the session ends."""
+        the place last sent stays until hide() or the session's end."""
         self._place = place
         self._show()
+
+    def stranded(self) -> bool:
+        """Whether the place last sent is nobody's now: no page tells a place, or the one told
+        is in a file that is not on Overleaf."""
+        return self._shown is not None and (self._place is None or self._place[0] not in self._docs.values())
 
     async def hide(self) -> None:
         """Take the reviewer's cursor off Overleaf: a session that sent one joins the project
