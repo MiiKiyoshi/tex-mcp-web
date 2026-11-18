@@ -835,7 +835,7 @@ function openCompose(anchor, label, heading = null, forOverleaf = false) {
   $("#compose-public").hidden = !forOverleaf;
   $("#compose-text").required = !forOverleaf;
   $("#compose-text").placeholder = forOverleaf
-    ? "a private note for the agent, if you like; with the box above empty, it drafts the public message, and you send it…"
+    ? "a private note for the agent. With the box above empty, it drafts the message…"
     : "leave a private comment for the coding agent…";
   $("#compose-anchor").textContent = label;
   $("#compose-message").value = "";

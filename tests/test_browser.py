@@ -4076,7 +4076,7 @@ def test_the_leaf_beside_comment_starts_a_thread_for_overleaf(tmp_path: Path, mo
                       ' document.querySelector(".compose-public-note").textContent,'
                       f' {boxes}.some((box) => box.required)]') == [
             "New public thread on Overleaf", ["compose-message", "compose-text"],
-            "What you write here is posted to Overleaf at once, for everyone in the project.", False]
+            "Posted to Overleaf at once, for everyone in the project.", False]
         wait_until(lambda: script('return document.activeElement.id') == "compose-message")
         # Both empty, nothing is posted.
         script('document.querySelector("#compose-form").requestSubmit()')
