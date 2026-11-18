@@ -3207,6 +3207,216 @@ def test_archived_threads_have_their_own_view_and_picked_archive_action(tmp_path
 
 
 @needs_chrome
+def test_undo_puts_the_last_change_of_status_back(tmp_path: Path) -> None:
+    """A change of status made on the page, by key, from the row or on a card, is said in a
+    line above the list with Undo, which u presses too and which puts each comment back to the
+    status it had. Only the last change is undone: the next takes the line's place, views and
+    tabs leave it be, and the close button or a reload takes it away."""
+    import pymupdf
+
+    (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
+    with pymupdf.open() as pdf:
+        pdf.new_page().insert_text((72, 72), "Hello world.")
+        pdf.save(tmp_path / "paper.pdf")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    browser = None
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        add = lambda text: post_json(f"{base}/comments", {"anchor": {"kind": "paper"}, "text": text})["id"]
+        first, second, third, done, kept = (add(text) for text in ("One.", "Two.", "Three.", "Done.", "Kept."))
+        post_json(f"{base}/comments/{done}/resolve", {})
+        post_json(f"{base}/comments/{kept}/archive", {})
+        statuses = lambda *ids: [get_json(f"{base}/comments/{cid}")["status"] for cid in ids]
+        script = lambda code: browser.execute_script(code)
+        click = lambda selector: browser.execute_script("document.querySelector(arguments[0]).click()",
+                                                        script_args=[selector])
+        line = lambda: script('return document.querySelector("#undo-line").offsetHeight > 0'
+                              ' ? document.querySelector("#undo-text").textContent : null')
+        listed = lambda: sorted(script(
+            'return [...document.querySelectorAll("#comments-list [data-comment-id]")].map((c) => c.dataset.commentId)'))
+        pick = lambda cid: click(f"[data-comment-id='{cid}'] .comment-pick")
+
+        browser = chrome.launch()
+        browser.navigate(base)
+        show_view(browser, "open")
+        wait_until(lambda: listed() == sorted([first, second, third]))
+        assert line() is None
+        # R resolves the ringed comment, the line says so, and u opens it again.
+        script("document.activeElement.blur();")
+        type_keys(browser, ["j", "R"])
+        wait_until(lambda: line() == "Resolved 1 comment.")
+        assert statuses(first) == ["resolved"]
+        assert "(u)" in script('return document.querySelector("#undo-btn").title')
+        type_keys(browser, ["u"])
+        wait_until(lambda: statuses(first) == ["open"] and line() is None)
+        type_keys(browser, ["?"])
+        wait_until(lambda: script('return document.querySelector("#keys-dialog").open'))
+        assert "Undo the last change of status" in script('return document.querySelector("#keys-list").textContent')
+        script('document.querySelector("#keys-dialog").close()')
+        # Three resolved from the row, and Undo opens each again.
+        wait_until(lambda: listed() == sorted([first, second, third]))
+        click("#pick-all-btn")
+        click("#resolve-picked-btn")
+        wait_until(lambda: line() == "Resolved 3 comments.")
+        assert statuses(first, second, third) == ["resolved"] * 3
+        click("#undo-btn")
+        wait_until(lambda: statuses(first, second, third) == ["open"] * 3 and line() is None)
+        # Resolved again, the line stays in another view. A reopen of one resolved and one
+        # archived takes its place, stays through a tab change, and Undo puts each back to the
+        # status it had, leaving the change before it as it is.
+        wait_until(lambda: listed() == sorted([first, second, third]))
+        click("#pick-all-btn")
+        click("#resolve-picked-btn")
+        wait_until(lambda: line() == "Resolved 3 comments.")
+        show_view(browser, "all")
+        wait_until(lambda: listed() == sorted([first, second, third, done, kept]))
+        assert line() == "Resolved 3 comments."
+        pick(done)
+        pick(kept)
+        assert script('return document.querySelector("#resolve-picked-btn").getAttribute("aria-label")') == "Reopen 2"
+        click("#resolve-picked-btn")
+        wait_until(lambda: line() == "Reopened 2 comments.")
+        assert statuses(done, kept) == ["open", "open"]
+        click('.tab-btn[data-tab="sections"]')
+        click('.tab-btn[data-tab="comments"]')
+        assert line() == "Reopened 2 comments."
+        click("#undo-btn")
+        wait_until(lambda: statuses(done, kept) == ["resolved", "archived"] and line() is None)
+        assert statuses(first, second, third) == ["resolved"] * 3
+        # The close button takes the line away and changes nothing.
+        pick(first)
+        click("#resolve-picked-btn")
+        wait_until(lambda: line() == "Reopened 1 comment.")
+        click("#undo-close")
+        assert line() is None and statuses(first) == ["open"]
+        # A card's Archive is said too, and a reload takes the line away.
+        click(f"[data-comment-id='{second}'] .cmt-head")
+        wait_until(lambda: script(f'return document.querySelector("[data-comment-id=\'{second}\'] .cmt-reopen") !== null'))
+        click(f"[data-comment-id='{second}'] .cmt-archive")
+        wait_until(lambda: line() == "Archived 1 comment.")
+        browser.refresh()
+        show_view(browser, "all")
+        wait_until(lambda: len(listed()) == 5)
+        assert line() is None and statuses(second) == ["archived"]
+    finally:
+        if browser is not None:
+            browser.quit()
+        shared.stop()
+
+
+@needs_chrome
+def test_undo_puts_threads_back_on_overleaf_without_asking(tmp_path: Path, monkeypatch) -> None:
+    """Two threads from Overleaf resolved at one press, once the reviewer says yes, are resolved
+    there, and Undo reopens them there without asking. A thread Overleaf refuses to resolve is
+    left out of the line, and one it refuses to put back stays on the line, which says how many
+    and why, until Undo puts it back."""
+    import asyncio
+    import threading
+    from aiohttp import web
+    from aiohttp.test_utils import TestServer
+    from tests.test_overleaf_live import BODY, FIGURE, MAIN, PROJECT_ID, FakeRealtime, on_the_words, said
+    from tex_mcp_web import overleaf
+
+    loop = asyncio.new_event_loop()
+    threading.Thread(target=loop.run_forever, daemon=True).start()
+    fake = FakeRealtime()
+    fake.threads = {"t1": {"messages": [said("Ann", "One.")]}, "t2": {"messages": [said("Ann", "Two.")]}}
+    fake.ranges += [on_the_words("t1"), on_the_words("t2", "Hi")]
+    realtime = TestServer(fake.app, loop=loop)
+    asyncio.run_coroutine_threadsafe(realtime.start_server(), loop).result(10)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config-home"))
+    monkeypatch.delenv(overleaf.COOKIE_ENV, raising=False)
+    overleaf.save_cookie(fake.cookie)
+    # The folder holds what Overleaf holds, so the threads come in.
+    (tmp_path / "main.tex").write_text(MAIN, encoding="utf-8")
+    (tmp_path / "tex").mkdir()
+    (tmp_path / "tex" / "body.tex").write_text(BODY, encoding="utf-8")
+    (tmp_path / "a.png").write_bytes(FIGURE)
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: main.tex\nport: {port}\n"
+                           f"overleaf: http://127.0.0.1:{realtime.port}/project/{PROJECT_ID}\n", encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    browser = None
+    script = lambda code: browser.execute_script(code)
+    click = lambda selector: browser.execute_script("document.querySelector(arguments[0]).click()",
+                                                    script_args=[selector])
+    line = lambda: script('return document.querySelector("#undo-line").offsetHeight > 0'
+                          ' ? document.querySelector("#undo-text").textContent : null')
+    resolved = lambda: sorted(fake.threads[thread].get("resolved", False) for thread in ("t1", "t2"))
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        browser = chrome.launch()
+        browser.navigate(base)
+        wait_until(lambda: post_json(f"{base}/overleaf/comments", {}) is not None, timeout=20)
+        click('.tab-btn[data-tab="overleaf-comments"]')
+        show_view(browser, "open")
+        wait_until(lambda: script('return document.querySelectorAll("#comments-list [data-comment-id]").length') == 2)
+        script("window.asked = []; window.confirm = (words) => window.asked.push(words) > 0;"
+               " window.said = []; window.alert = (words) => { window.said.push(words); };")
+        pick_all = lambda: script('const all = document.querySelector("#pick-all-btn"); if (!all.checked) all.click();')
+        statuses = lambda: sorted(comment["status"] for comment in get_json(f"{base}/comments")["comments"])
+        check = fake._check_write
+
+        def refuse_after_one():
+            taken = len(fake.written)
+
+            def second_refused(request):
+                check(request)
+                if len(fake.written) > taken:
+                    raise web.HTTPInternalServerError()
+
+            fake._check_write = second_refused
+
+        # Overleaf takes the first of two threads resolved and refuses the second: the line
+        # counts the one resolved, and Undo reopens it.
+        refuse_after_one()
+        pick_all()
+        click("#resolve-picked-btn")
+        wait_until(lambda: line() == "Resolved 1 thread.")
+        assert resolved() == [False, True] and statuses() == ["open", "resolved"]
+        wait_until(lambda: [words.startswith("Could not save: ") for words in script("return window.said")] == [True])
+        fake._check_write = check
+        click("#undo-btn")
+        wait_until(lambda: resolved() == [False, False] and line() is None)
+        # Both resolved, after the reviewer says yes.
+        taken = len(fake.written)
+        wait_until(lambda: script('return document.querySelectorAll("#comments-list [data-comment-id]").length') == 2)
+        pick_all()
+        click("#resolve-picked-btn")
+        wait_until(lambda: line() == "Resolved 2 threads.")
+        assert script("return window.asked") == ["Resolve 2 threads on Overleaf, for everyone in the project?"] * 2
+        assert sorted(fake.written[taken:]) == [("resolve", "t1", "d-main"), ("resolve", "t2", "d-main")]
+        assert resolved() == [True, True]
+        # Overleaf takes the first thread put back and refuses the second.
+        taken = len(fake.written)
+        refuse_after_one()
+        click("#undo-btn")
+        wait_until(lambda: (line() or "").startswith("1 thread could not be put back: "))
+        assert resolved() == [False, True] and len(fake.written) == taken + 1
+        assert statuses() == ["open", "resolved"]
+        fake._check_write = check
+        click("#undo-btn")
+        wait_until(lambda: resolved() == [False, False] and line() is None)
+        assert [what for what, *_ in fake.written[taken:]] == ["reopen", "reopen"]
+        wait_until(lambda: statuses() == ["open", "open"])
+        assert len(script("return window.asked")) == 2 and len(script("return window.said")) == 1
+    finally:
+        if browser is not None:
+            browser.quit()
+        shared.stop()
+        asyncio.run_coroutine_threadsafe(realtime.close(), loop).result(10)
+        loop.call_soon_threadsafe(loop.stop)
+
+
+@needs_chrome
 def test_split_puts_the_translation_where_settings_says(tmp_path: Path, monkeypatch) -> None:
     """The ⋯ menu's item names the language and is checked while the translation shows. The
     translation sits under the Preview in Preview, under the editor in Source, and in Split

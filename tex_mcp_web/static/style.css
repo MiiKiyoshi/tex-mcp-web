@@ -798,11 +798,20 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 .icon-btn svg { display: block; }
 .icon-btn .count:empty { display: none; }
 .icon-btn:disabled { opacity: .45; }
-/* Notes above the list: why the leaf tab's comments cannot sync yet, and that a call to the
-   agent waits for one to listen. A note that opens what clears it reads as a link. */
+/* Notes above the list: why the leaf tab's comments cannot sync yet, that a call to the agent
+   waits for one to listen, and what a change of status did. A note that opens what clears it,
+   and Undo, read as a link. */
 .sync-why { margin: 0; padding: 6px 10px; font-size: var(--text-body); color: var(--muted, inherit); border-bottom: 1px solid var(--border, currentColor); }
 .sync-why[hidden] { display: none; }
 .sync-why-go { padding: 0; border: 0; background: none; font: inherit; color: var(--accent); text-align: left; text-decoration: underline; cursor: pointer; }
+/* After a change of status: what was done, Undo right after it, and the close button at the
+   line's end, both beside the first line of the words, which wrap in their own place on a
+   narrow panel. */
+.undo-line { display: flex; align-items: baseline; gap: 0.6rem; }
+#undo-text { min-width: 0; overflow-wrap: anywhere; }
+.undo-go { flex: none; }
+.undo-close { flex: none; align-self: flex-start; margin: 1px 0 0 auto; padding: 2px; border: 0; background: none; color: var(--fg-dim); line-height: 0; }
+.undo-close:hover { color: var(--fg); }
 .filter-row .icon-btn[hidden] { display: none; }
 /* The dots show once the row is narrow, and the buttons behind them show when they are
    opened, each named by its label. */

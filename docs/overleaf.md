@@ -56,10 +56,11 @@ address, so on the shared machine's own browser, open no page another account se
   its place on Overleaf shown under it, and moves onto its words once they reach the file.
 - A thread is open, resolved or gone as it is on Overleaf. **Resolve** and **Reopen**, on
   its card or on the picked threads, do it on Overleaf first, for everyone in the project,
-  and then here. What Overleaf refuses stays as it was. Overleaf has no archive and deletes
-  a thread only there, so the page offers neither. A message reworded or deleted there is
-  reworded or deleted here, a thread deleted there is deleted here, and one deleted here
-  comes back.
+  and then here. What Overleaf refuses stays as it was. Several threads at one press are
+  asked about first, and **Undo** on the line above the list puts them back on Overleaf too,
+  without asking. Overleaf has no archive and deletes a thread only there, so the page
+  offers neither. A message reworded or deleted there is reworded or deleted here, a thread
+  deleted there is deleted here, and one deleted here comes back.
 
 ## Replying
 
@@ -160,8 +161,9 @@ file you have open there, and their editors then tell where they are at once. No
 shown while the editor has no file open, a file that is not on Overleaf shows nothing, and
 with several pages open, the one whose cursor moved last is shown. A page that closes leaves its last place there until the page's session leaves the
 project, shortly after the last page closes, or another page's cursor moves. With **Hidden**
-they see no cursor of yours, and choosing it takes the one shown away at once, as the page
-joins the project again. Who is in the project still shows, but an Overleaf editor that sees
+they see no cursor of yours and Overleaf's editor does not show you as there, since it
+shows only those who sent a cursor. Choosing it takes the cursor shown away at once, as the
+page joins the project again. You still see who is in the project, but an Overleaf editor that sees
 no cursor but its own tells where it is every five minutes, so a co-author who works alone is
 shown where they were then. The page remembers the choice in each browser. It sends Overleaf
 no edit to the text unless the files follow it live or you press Send.

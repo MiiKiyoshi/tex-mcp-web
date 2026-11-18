@@ -111,6 +111,10 @@ const state = {
   // The page cannot reach its server, and a call to the agent waits for one to listen.
   serverGone: false,
   callWaits: false,
+  // The last change of status made on the page, which the line above the list offers to undo:
+  // what the line says, the status each comment it changed had before, and why some could not
+  // be put back. Null when there is nothing to undo.
+  undo: null,
   // Why applying a thread's suggestion was refused, with the suggestion it was refused for.
   unfitSuggestions: new Map(),
   view: "pdf",
@@ -3127,17 +3131,89 @@ function pickAll() {
   renderComments();
 }
 
-// The picked comments change status in one call, and the list is drawn again once. The
-// thread already holds what was said.
-async function setPickedStatus(ids, status) {
+// Comments sent to *status* in one call, the call the row, the cards, the keys and Undo all make.
+// It gives the ids that took it: all of them, or after a refusal those the server now has at
+// that status, since Overleaf takes threads one by one and stops at the first it refuses. *why*
+// is the refusal, or "".
+async function postStatus(ids, status) {
   const response = await fetch("/comments/status", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ids, status }),
   });
-  if (response.ok) for (const id of ids) state.picked.delete(id);
+  if (response.ok) return { took: ids, why: "" };
+  const why = await responseError(response);
+  const now = await fetch("/comments");
+  if (!now.ok) throw new Error(why);
+  const { comments } = await now.json();
+  return { took: comments.filter((comment) => ids.includes(comment.id) && comment.status === status)
+    .map((comment) => comment.id), why };
+}
+
+const STATUS_DONE = { resolved: "Resolved", open: "Reopened", archived: "Archived" };
+
+function counted(count, noun) {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
+// A change of status made on the page, from the row, a card or a key, and the list drawn again
+// once. The comments it changed are kept for Undo, each with the status it had in the list
+// just before, and the line above the list says what was done. A change that changed nothing
+// leaves the line as it was. The picked comments are let go once every one has changed.
+async function setStatus(ids, status) {
+  const before = new Map(state.comments.filter((comment) => ids.includes(comment.id) && comment.status !== status)
+    .map((comment) => [comment.id, comment.status]));
+  const noun = state.commentTab === "overleaf-comments" ? "thread" : "comment";
+  try {
+    const { took, why } = await postStatus(ids, status);
+    const changed = took.filter((id) => before.has(id));
+    if (changed.length > 0) {
+      state.undo = { said: `${STATUS_DONE[status]} ${counted(changed.length, noun)}.`, noun, why: "",
+                     before: new Map(changed.map((id) => [id, before.get(id)])) };
+    }
+    if (!why) for (const id of ids) state.picked.delete(id);
+    renderUndo();
+    await refreshComments();
+    if (why) throw new Error(why);
+  } catch (error) {
+    alert(`Could not save: ${error.message}`);
+  }
+}
+
+// Undo puts each comment of the last change back to the status it had, by the same call, so a
+// thread from Overleaf goes back there too. It only restores, so it asks nothing. Those the
+// server refuses stay on the line, which says how many and why, and Undo tries them again.
+async function undoStatus() {
+  const undo = state.undo;
+  if (undo === null) return;
+  state.undo = null;
+  renderUndo();
+  const left = new Map(undo.before);
+  let why = "";
+  for (const status of new Set(left.values())) {
+    try {
+      const answer = await postStatus([...left.keys()].filter((id) => left.get(id) === status), status);
+      for (const id of answer.took) left.delete(id);
+      why ||= answer.why;
+    } catch (error) {
+      why ||= error.message;
+    }
+  }
+  // A change made meanwhile has the line.
+  if (left.size > 0 && state.undo === null) state.undo = { ...undo, before: left, why };
+  renderUndo();
   await refreshComments();
-  if (!response.ok) throw new Error(await responseError(response));
+}
+
+// The line above the list after a change of status: what was done, or how many Undo could not
+// put back and why, with Undo and a close button. It stays through views and tabs until the next
+// change replaces it, and Undo, the close button or a reload takes it away.
+function renderUndo() {
+  const undo = state.undo;
+  $("#undo-line").hidden = undo === null;
+  if (undo === null) return;
+  $("#undo-text").textContent = undo.why
+    ? `${counted(undo.before.size, undo.noun)} could not be put back: ${undo.why}` : undo.said;
 }
 
 // A reply sent to its thread on Overleaf: null once sent, or why not, with the files its
@@ -3676,8 +3752,8 @@ function actionButtons(comment) {
       mutateAndRefresh(comment.id, "delete", null);
     }
   });
-  // Every status flip is one click: the thread already holds what was said, so an
-  // empty summary flips the status without adding an entry. An archived thread still
+  // Every status flip is one click, made as the row's buttons make it: the thread already holds
+  // what was said, so the status flips without adding an entry. An archived thread still
   // takes replies, and goes back to open or resolved from the same row.
   const buttons = [];
   // A thread drafted for Overleaf takes replies here, about its draft, and is sent, or deleted
@@ -3691,21 +3767,21 @@ function actionButtons(comment) {
     return [
       actionButton("cmt-reply", "Reply privately", () => setActiveForm(comment.id, "reply")),
       comment.status === "open"
-        ? actionButton("cmt-resolve", "Resolve", () => mutateAndRefresh(comment.id, "resolve", { summary: "" }))
-        : actionButton("cmt-reopen", "Reopen", () => mutateAndRefresh(comment.id, "reopen", {})),
+        ? actionButton("cmt-resolve", "Resolve", () => setStatus([comment.id], "resolved"))
+        : actionButton("cmt-reopen", "Reopen", () => setStatus([comment.id], "open")),
     ];
   }
   if (comment.status !== "resolved") {
     buttons.push(actionButton("cmt-reply", "Reply privately", () => setActiveForm(comment.id, "reply")));
   }
   if (comment.status !== "open") {
-    buttons.push(actionButton("cmt-reopen", "Reopen", () => mutateAndRefresh(comment.id, "reopen", {})));
+    buttons.push(actionButton("cmt-reopen", "Reopen", () => setStatus([comment.id], "open")));
   }
   if (comment.status !== "resolved") {
-    buttons.push(actionButton("cmt-resolve", "Resolve", () => closeComment(comment.id, "resolve", "summary")));
+    buttons.push(actionButton("cmt-resolve", "Resolve", () => closeComment(comment.id)));
   }
   if (comment.status !== "archived") {
-    buttons.push(actionButton("cmt-archive", "Archive", () => mutateAndRefresh(comment.id, "archive", {})));
+    buttons.push(actionButton("cmt-archive", "Archive", () => setStatus([comment.id], "archived")));
   }
   buttons.push(deleteButton);
   return buttons;
@@ -3732,9 +3808,9 @@ function setActiveForm(commentId, mode) {
   input.focus({ preventScroll: true });
 }
 
-async function closeComment(commentId, action, key) {
+async function closeComment(commentId) {
   if (state.activeForm?.commentId === commentId) state.activeForm = null;
-  await mutateAndRefresh(commentId, action, { [key]: "" });
+  await setStatus([commentId], "resolved");
 }
 
 const FORM_CONFIG = {
@@ -5093,6 +5169,8 @@ const COMMENT_KEYS = [
     { keys: ["A"], does: "Archive it", button: ["cmt-archive"], picked: true,
       run: () => pressPickedOr(["#archive-picked-btn"], ".cmt-archive"),
       range: () => pressForRange(["#archive-picked-btn"]) },
+    { keys: ["u"], does: "Undo the last change of status, while the line above the list offers it", button: ["undo-go"],
+      run: () => undoStatus().catch((error) => console.error(error)) },
     { keys: ["aa"], does: "Apply its suggestion to the file, or accept a suggested edit on Overleaf",
       button: ["sugg-apply", "change-accept"], run: () => pressCard(".sugg-apply, .change-accept") },
     { keys: ["nn"], does: "Reject its suggestion, or with none its draft for Overleaf",
@@ -6165,15 +6243,16 @@ async function init() {
       if (id === "#resolve-picked-btn" && there > 1
         && !confirm(`${status === "open" ? "Reopen" : "Resolve"} ${there} threads on Overleaf, for everyone in the project?`)) return;
       button.disabled = true;
-      try {
-        await setPickedStatus(ids, status);
-      } catch (error) {
-        alert(`Could not save: ${error.message}`);
-      } finally {
-        renderPickedActions();
-      }
+      await setStatus(ids, status);
+      renderPickedActions();
     });
   }
+  $("#undo-btn").title = `Put back what was just changed${keyHint("undo-go")}`;
+  $("#undo-btn").addEventListener("click", () => undoStatus().catch((error) => console.error(error)));
+  $("#undo-close").addEventListener("click", () => {
+    state.undo = null;
+    renderUndo();
+  });
   $("#paper-comment-btn").addEventListener("click", () =>
     openCompose({ kind: "paper" }, "Paper-level comment"));
   $("#keys-btn").addEventListener("click", () => showCommentKeys());

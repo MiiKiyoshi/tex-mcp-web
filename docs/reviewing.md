@@ -90,6 +90,13 @@ last line of the PDF. Running heads, page numbers and the words inside an includ
   message deletes the thread.
 - **Resolve** a thread whose edit satisfies you, or **Reply privately** in it when it does not.
   **Archive** sets a thread aside, and it still takes replies.
+- After **Resolve**, **Reopen** or **Archive**, on a card, on the picked threads or by key, a
+  line above the list says what was done, as "Resolved 3 comments.", with **Undo**, which `u`
+  presses too. Undo puts each of those threads back to the status it had, a thread from
+  Overleaf on Overleaf too, without asking. Only the last change can be undone: the line stays
+  through views and tabs until the next change takes its place, and Undo, its ×, or a reload
+  takes it away. What Overleaf refuses to put back stays on the line, which says how many and
+  why.
 - A proposed edit shows as the source lines the agent would change, as a −/+ pair, and the
   Source tab marks the same text in red. **Apply suggestion** writes the change into the
   file. **Reject** takes the proposal off the card, leaves the file as it is, and notes in
@@ -139,6 +146,7 @@ typing.
 | Escape | Leave a box: a reply or an edit being written is dropped, a reply for Overleaf keeps its words |
 | `R` | Resolve, or reopen a comment that is not open |
 | `A` | Archive |
+| `u` | Undo the last change of status, while the line above the list offers it |
 | `aa` | Apply the suggestion to the file, or accept a suggested edit on Overleaf |
 | `nn` | Reject the suggestion, or with none the draft for Overleaf |
 | `ss` | Send the public reply to Overleaf, for everyone in the project |

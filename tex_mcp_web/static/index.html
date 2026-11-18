@@ -228,17 +228,25 @@
         <!-- Shown while the search box has the focus: a click puts the condition into the box at
              the cursor. The list under them offers the tab's writers for from: and its files for file:. -->
         <div id="search-terms" class="search-terms" hidden>
-          <button type="button" tabindex="-1" data-insert="from:" title="Someone whose name holds the word wrote in the thread">from:</button>
-          <button type="button" tabindex="-1" data-insert="file:" title="On a file whose path holds the word">file:</button>
-          <button type="button" tabindex="-1" data-insert='""' title="The words together, as written">"phrase"</button>
-          <button type="button" tabindex="-1" data-insert="-" title="Must not hold what follows">-not</button>
-          <button type="button" tabindex="-1" data-insert="OR" title="Either side">OR</button>
-          <button type="button" tabindex="-1" data-insert="after:" title="Written in on or after a day: 11-13, 2026-11-13, 11-13T09:30">after:</button>
-          <button type="button" tabindex="-1" data-insert="before:" title="Written in before a day: 11-13, 2026-11-13, 11-13T09:30">before:</button>
+          <button type="button" tabindex="-1" data-insert="from:" title="Written by: a name, or part of one. from:me is you, from:agent is the agent">from:</button>
+          <button type="button" tabindex="-1" data-insert="file:" title="On a file: its name, or part of it">file:</button>
+          <button type="button" tabindex="-1" data-insert='""' title="These words together, exactly as written">"phrase"</button>
+          <button type="button" tabindex="-1" data-insert="-" title="Leave out the comments that hold the next word">-not</button>
+          <button type="button" tabindex="-1" data-insert="OR" title="Either the word before or the word after">OR</button>
+          <button type="button" tabindex="-1" data-insert="after:" title="Written on or after a day: 11-13, 2026-11-13 or 11-13T09:30">after:</button>
+          <button type="button" tabindex="-1" data-insert="before:" title="Written before a day: 11-13, 2026-11-13 or 11-13T09:30">before:</button>
           <div id="search-pick" class="search-pick" role="listbox" aria-label="Pick one" hidden></div>
         </div>
         <!-- Said after a call to the agent that no agent heard, until one listens. -->
         <p id="call-agent-why" class="sync-why" role="status" hidden></p>
+        <!-- Said after comments change status from the page, with Undo, until the next change. -->
+        <p id="undo-line" class="sync-why undo-line" role="status" hidden>
+          <span id="undo-text"></span>
+          <button id="undo-btn" class="sync-why-go undo-go" type="button">Undo</button>
+          <button id="undo-close" class="undo-close" type="button" aria-label="Close" title="Close">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+          </button>
+        </p>
         <div id="comments-list" class="comments-list" tabindex="-1"></div>
       </div>
 
@@ -287,7 +295,7 @@
     <fieldset id="overleaf-cursor" class="overleaf-mode" hidden>
       <legend>Your cursor on Overleaf</legend>
       <label><input type="radio" name="overleaf-cursor" value="show"><span><b>Show my cursor</b> <span class="overleaf-mode-note">Your co-authors see your cursor where it is in this page's editor, in the file open there, and you see their cursors as they move.</span></span></label>
-      <label><input type="radio" name="overleaf-cursor" value="hidden"><span><b>Hidden</b> <span class="overleaf-mode-note">Your co-authors see no cursor of yours. You still see who is in the project, and their cursors may be up to five minutes old.</span></span></label>
+      <label><input type="radio" name="overleaf-cursor" value="hidden"><span><b>Hidden</b> <span class="overleaf-mode-note">Your co-authors see no cursor of yours, and Overleaf does not show you as there. You still see who is in the project, and their cursors may be up to five minutes old.</span></span></label>
     </fieldset>
     <!-- Who is in the project, and the files edited there that this folder does not hold yet. -->
     <section id="overleaf-live" class="overleaf-direct" hidden>
