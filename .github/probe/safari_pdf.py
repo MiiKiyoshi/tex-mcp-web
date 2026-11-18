@@ -13,6 +13,18 @@ from tex_mcp_web.config import load_config  # noqa: E402
 from tex_mcp_web.mcp_client import SharedProjectServer  # noqa: E402
 
 IMAGES = 'return document.querySelector("embedpdf-container")?.shadowRoot?.querySelectorAll("img").length ?? -1;'
+CANVAS = '''
+const done = arguments[arguments.length - 1];
+const within = (promise, ms) => Promise.race([promise, new Promise((ok) => setTimeout(() => ok("no answer in " + ms + " ms"), ms))]);
+const encode = (w, h) => within(new Promise((ok) => { const t = performance.now();
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  const g = c.getContext("2d"); g.fillStyle = "#c33"; g.fillRect(0, 0, w, h);
+  g.putImageData(g.createImageData(Math.min(w, 50), Math.min(h, 50)), 0, 0);
+  c.toBlob((blob) => ok((blob ? blob.size + " bytes" : "null") + " in " + Math.round(performance.now() - t) + " ms")); }), 8000);
+const bitmap = within(createImageBitmap(new ImageData(40, 40)).then(() => "ok", (e) => "fails: " + e), 8000);
+Promise.all([encode(40, 40), encode(1224, 1584), bitmap]).then(([small, page, bitmap]) =>
+  done(JSON.stringify({small, page, bitmap, gl: Boolean(document.createElement("canvas").getContext("webgl"))})));
+'''
 
 out = Path(sys.argv[1]); out.mkdir(parents=True, exist_ok=True)
 folder = Path(tempfile.mkdtemp())
@@ -25,33 +37,14 @@ shared = SharedProjectServer(load_config(folder / ".tex-mcp-web.yaml"))
 shared.ensure()
 wait_for_build(shared)
 try:
-    for trial in range(10):
-        variant = ("size-then-open", "open-then-size", "open-only", "size-open-1500", "size-then-open")[trial % 5]
+    for trial in range(3):
         browser = chrome.launch()
         try:
-            started = time.monotonic()
-            if variant == "size-then-open":
-                browser.set_window_rect(x=0, y=0, width=1200, height=800)
-            if variant == "size-open-1500":
-                browser.set_window_rect(x=0, y=0, width=1500, height=1000)
+            browser.set_window_rect(x=0, y=0, width=1200, height=800)
             browser.navigate(f"http://127.0.0.1:{port}")
-            if variant == "open-then-size":
-                browser.set_window_rect(x=0, y=0, width=1200, height=800)
-            seen = None
-            while time.monotonic() - started < 20:
-                if browser.execute_script(IMAGES) > 0:
-                    seen = round(time.monotonic() - started, 1)
-                    break
-                time.sleep(0.2)
-            inner = browser.execute_script("return [innerWidth, innerHeight, document.visibilityState, document.hasFocus()]")
-            print("trial", trial, variant, "image after", seen, inner, flush=True)
-            if seen is None:
-                browser.set_window_rect(x=0, y=0, width=1000, height=700)
-                time.sleep(5)
-                print("   after a resize:", browser.execute_script(IMAGES), flush=True)
-                browser.refresh()
-                time.sleep(8)
-                print("   after a reload:", browser.execute_script(IMAGES), flush=True)
+            time.sleep(5)
+            print("trial", trial, "images", browser.execute_script(IMAGES), "canvas", browser.driver.execute_async_script(CANVAS), flush=True)
+            print("   images after", browser.execute_script(IMAGES), flush=True)
         finally:
             browser.quit()
 finally:
