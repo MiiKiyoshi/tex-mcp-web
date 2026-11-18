@@ -111,8 +111,8 @@ last line of the PDF. Running heads, page numbers and the words inside an includ
   **Resolve**, which reads **Reopen** when the picked threads are resolved or archived and,
   as `R` does, resolves the open ones of a mix; **Archive**, or in the Overleaf tab **Accept**,
   **Reject** and **Send to Overleaf**; then the sync button and **Call agent**. On a narrow
-  panel the word **Resolve** goes first and the sort list shrinks to its icon, then the sort
-  list, **Expand all**, the sync button and **Call agent** wait behind **⋯** with their
+  panel the sort list shrinks to its icon first and the word **Resolve** goes next, then the
+  sort list, **Expand all**, the sync button and **Call agent** wait behind **⋯** with their
   names. What acts on the picked threads stays in the
   row, which takes two lines only when even that does not fit.
 
@@ -211,6 +211,9 @@ extension off for the review page's address.
   down the editor as the keys move it, Vim keys or not, so the text moves and the eyes stay.
   The first lines stay at the top and the last ones at the bottom, and a click leaves the
   text where it is. **Anywhere** lets the cursor move over the text as usual.
+- **Translation in Split**, once `translation` is set, puts the translation **Under the
+  Preview**, where the page starts, **Under the Source**, **Beside the Source**, or **In place
+  of the Source** while the view is Split. See [Translation](#translation).
 - **Download PDF** in the ⋯ menu saves the PDF. As on Overleaf, the file is named after the
   Overleaf project, with each character other than a letter or a digit turned to `_`. A
   paper with no Overleaf project keeps the PDF's own name, such as `paper.pdf`.
@@ -230,12 +233,24 @@ stops the page asking for the newest release.
 
 ## Translation
 
-With `translation` set, the language's button shows the source translated under the Preview
-or the editor. In Split, the menu beside the view tabs puts it under the Preview, under
-Source, beside Source, or instead of Source. The grips between panes are dragged to share the
+**Translation** in the ⋯ menu atop the page shows the source translated under the Preview or
+the editor, and hides it again. With `translation` set, the item names the language, as in
+**Translation: Korean**, with a check mark while the translation shows; without it, the item
+reads **Translation…** and opens the pane all the same. In Split, **Translation in Split** in
+Settings puts it under the Preview, under the Source, beside the Source, or in place of the
+Source. The grips between panes are dragged to share the
 room, each place keeps its own share, and the page remembers both. Each paragraph shows its
 source lines, and the one under the editor's cursor is marked and brought into view. The
 **A−** and **A+** buttons step the type size.
+
+What translates is the command line in `translation: {command: ...}`, in the paper's
+[configuration](configuration.md) or in `~/.config/tex-mcp-web/config.yaml` for every paper:
+any LLM tool that reads the text on its standard input, or where `{prompt}` stands in its
+arguments, and prints only the translation. The pane's head names it by its program and the
+model it names, with the whole line on hover. Until a language and a command are set, the pane
+says which is missing and how to set it up: ask your agent to set up translation to your
+language, and it proposes a line from the installed tool's own help and tests it once before
+writing it.
 
 ## Listening
 

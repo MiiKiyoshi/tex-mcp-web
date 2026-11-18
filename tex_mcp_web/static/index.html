@@ -27,17 +27,9 @@
       <button class="view-tab" type="button" data-view="source">Source</button>
       <button class="view-tab" type="button" data-view="split">Split</button>
     </nav>
-    <select id="layout-select" class="hidden" aria-label="Where Split puts the translation"
-            title="Where Split puts the translation">
-      <option value="preview">Translation under Preview</option>
-      <option value="source">Translation under Source</option>
-      <option value="column">Translation beside Source</option>
-      <option value="replace">Translation instead of Source</option>
-    </select>
     <span id="compile-status" class="compile-status">idle</span>
     <div class="actions">
       <button id="compile-btn" type="button" title="Compile (Ctrl+Enter, :make with Vim keys)" aria-label="Compile"><svg class="narrow-icon" viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v16l13-8z"/></svg><span class="wide-label">Compile</span></button>
-      <button id="translation-btn" class="hidden" type="button" title="The source translated, beside the Preview or the editor">Translation</button>
       <!-- A face for each collaborator in the Overleaf project, which goes to where they are.
            The leaf button shows only to connect the paper, or when something needs a look. -->
       <span class="overleaf-live">
@@ -55,6 +47,9 @@
         <button id="more-btn" type="button" title="More" aria-label="More" aria-haspopup="menu" aria-expanded="false"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg></button>
         <div id="more-menu" class="more-menu" role="menu" hidden>
           <button id="paper-comment-btn" type="button" role="menuitem">Add a paper note…</button>
+          <!-- The source translated, under the Preview or the editor: a check mark once a language
+               is configured, and with none the pane all the same. -->
+          <button id="translation-btn" type="button" role="menuitem">Translation…</button>
           <button id="keys-btn" type="button" role="menuitem">Keyboard shortcuts (?)</button>
           <button id="download-pdf-btn" type="button" role="menuitem">Download PDF</button>
           <button id="settings-menu-btn" type="button" role="menuitem">Settings…</button>
@@ -128,7 +123,7 @@
           <select id="translation-file" aria-label="Source file to read translated">
             <option value="">Auto</option>
           </select>
-          <span id="translation-page"></span><span id="translation-status"></span>
+          <span id="translation-page"></span><span id="translation-status"></span><span id="translation-tool"></span>
           <button id="translation-font-smaller-btn" type="button" title="Smaller translation text" aria-label="Smaller translation text"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18 8 6l5 12M4.8 14h6.4M15 12h6"/></svg></button>
           <button id="translation-font-larger-btn" type="button" title="Larger translation text" aria-label="Larger translation text"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18 8 6l5 12M4.8 14h6.4M15 12h6M18 9v6"/></svg></button></div>
         <div id="translation-body"></div>
@@ -161,8 +156,8 @@
             <span class="pick"><span id="comment-filter-name" class="pick-name" aria-hidden="true">to do</span><select id="comment-filter" aria-label="Comment status">
               <option value="todo" selected>to do</option>
             </select></span>
-            <!-- The order of the list, kept for each comment tab. Once the row's words are gone it
-                 is its icon alone, with the list lying clear over it. -->
+            <!-- The order of the list, kept for each comment tab. In a row short of room it is its
+                 icon alone, with the list lying clear over it. -->
             <span id="comment-sort-pick" class="pick sort-pick"><span class="icon-btn sort-icon" aria-hidden="true">
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4h6M2 8h4.5M2 12h3M12 3v10M9.5 10.5 12 13l2.5-2.5"/></svg>
               </span><span id="comment-sort-name" class="pick-name" aria-hidden="true">paper order</span><select id="comment-sort" aria-label="Order" title="Order of the list: paper order (o)">
@@ -342,6 +337,16 @@
       <button type="button" role="radio" data-cursor-choice="free" aria-checked="true" title="The cursor moves over the text, which scrolls only at the editor's edges">Anywhere</button>
       <button type="button" role="radio" data-cursor-choice="third" aria-checked="false" title="The cursor's line stays 1/3 of the way down the editor, and the text moves under it">1/3 down</button>
       <button type="button" role="radio" data-cursor-choice="half" aria-checked="false" title="The cursor's line stays in the middle of the editor, and the text moves under it">1/2 down</button>
+    </div>
+    <!-- Where Split puts the translation. Shown once a language is configured. -->
+    <div id="translation-place" hidden>
+      <h4>Translation in Split</h4>
+      <div class="theme-choice" role="radiogroup" aria-label="Where Split puts the translation">
+        <button type="button" role="radio" data-place-choice="preview" aria-checked="true">Under the Preview</button>
+        <button type="button" role="radio" data-place-choice="source" aria-checked="false">Under the Source</button>
+        <button type="button" role="radio" data-place-choice="column" aria-checked="false">Beside the Source</button>
+        <button type="button" role="radio" data-place-choice="replace" aria-checked="false">In place of the Source</button>
+      </div>
     </div>
     <p id="overleaf-status" class="overleaf-status" role="status"></p>
     <div class="dialog-actions">

@@ -227,6 +227,8 @@ textarea {
 #settings-form h4 { margin: 0.4rem 0 0; font-size: var(--text-fine); letter-spacing: 0.04em; text-transform: uppercase; color: var(--fg-dim); }
 #settings-form a { color: inherit; text-decoration-color: var(--accent); }
 #settings-form input[type="radio"] { accent-color: var(--accent); }
+/* The translation's setting lays out as the others do, its heading and choices in the form's column. */
+#translation-place { display: contents; }
 .overleaf-direct { display: flex; flex-direction: column; gap: 0.4rem; }
 .overleaf-direct[hidden], #settings-dialog [hidden] { display: none; }
 #overleaf-connect { padding-bottom: 0.5rem; border-bottom: 1px solid var(--border); }
@@ -281,7 +283,7 @@ textarea {
   min-height: 0;
   background: var(--bg-elev);
 }
-/* The view and the layout menu choose the panes; the script writes the grid that holds
+/* The view and the translation's place choose the panes; the script writes the grid that holds
    them, so each pane and grip names only its area here. */
 #pdf-pane { grid-area: preview; }
 #source-pane { grid-area: source; }
@@ -310,7 +312,6 @@ textarea {
 .workspace-grip[aria-orientation="horizontal"]::after { width: 32px; height: 3px; }
 .workspace-grip:hover::after, .workspace-grip:focus-visible::after,
 .workspace-grip.dragging::after { background: var(--accent); }
-#layout-select { font-size: var(--text-fine); max-width: 15rem; }
 /* A narrow editor takes its buttons onto a second row rather than past its edge. */
 .source-toolbar {
   display: flex;
@@ -378,12 +379,12 @@ textarea {
    on every screen. */
 .source-toolbar #source-comment-btn { min-width: 44px; justify-content: center; }
 #source-leaf-btn.active { background: var(--accent-soft); border-color: var(--accent); }
-/* The editor's ⋯ menu: the text size steps in one row, and a choice that is on ends in a
-   check mark. */
+/* The editor's ⋯ menu has the text size steps in one row. In either ⋯ menu a choice that is
+   on ends in a check mark. */
 .menu-step { display: flex; align-items: center; gap: 0.3rem; padding: 0.2rem 0.3rem 0.2rem 0.6rem; font-size: var(--text-body); }
 .menu-step span { flex: 1; }
 .source-toolbar .menu-step button { justify-content: center; min-width: 1.9rem; padding: 0.25rem 0.4rem; border: 1px solid var(--border); }
-.more-menu [role="menuitemcheckbox"] { justify-content: space-between; gap: 1rem; }
+.more-menu [role="menuitemcheckbox"] { display: flex; justify-content: space-between; gap: 1rem; }
 .more-menu [role="menuitemcheckbox"][aria-checked="true"]::after { content: "\2713"; color: var(--accent); }
 .source-status {
   flex: 1;
@@ -578,6 +579,7 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 #translation-file { font-size: var(--text-small); max-width: 14rem; }
 #translation-page, #translation-status { color: var(--fg-dim); }
+#translation-tool { font-size: var(--text-fine); color: var(--fg-dim); }
 #translation-font-smaller-btn { margin-left: auto; }
 .translation-head button { flex: none; padding: 0.15rem 0.3rem; }
 #translation-body {
@@ -606,7 +608,6 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 .translation-para.pending { color: var(--fg-dim); font-style: italic; }
 .translation-para.on-page { border-left: 3px solid var(--warn); padding-left: 0.5rem; }
 .translation-para:not(.on-page) { padding-left: calc(0.5rem + 3px); }
-#translation-btn.active { background: var(--accent-soft); }
 /* The active tool's ring is 1px outside its button, and the toolbar sits on the top edge of
    the viewer host, which clips: two pixels of room. */
 #pdf-viewer embedpdf-container { padding-top: 2px; }
@@ -729,13 +730,15 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 .row-group + .row-group { padding-left: var(--row-gap); border-left: 1px solid var(--border); }
 .row-group:not(:has(> :not([hidden]))) { display: none; }
 .filter-row > .row-group:first-child { margin-right: auto; }
-.filter-row.wordless :is(.wide-label, #call-agent-word) { display: none; }
-/* Wordless, the sort list in the row is its icon alone, with the list lying clear over it and
+/* Wordless, the buttons' words go, but Resolve's, which goes after them. */
+.filter-row.wordless #call-agent-word,
+.filter-row.resolve-wordless .wide-label { display: none; }
+/* Shrunk, the sort list in the row is its icon alone, with the list lying clear over it and
    still opening on a click, a tap or the keys. Behind the dots it shows its words. */
 .sort-pick .sort-icon { display: none; }
-.filter-row.wordless .row-group > .sort-pick .sort-icon { display: inline-flex; }
-.filter-row.wordless .row-group > .sort-pick .pick-name { display: none; }
-.filter-row.wordless .row-group > .sort-pick select {
+.filter-row.sort-shrunk .row-group > .sort-pick .sort-icon { display: inline-flex; }
+.filter-row.sort-shrunk .row-group > .sort-pick .pick-name { display: none; }
+.filter-row.sort-shrunk .row-group > .sort-pick select {
   position: absolute; inset: 0; width: 100%; height: 100%; min-width: 0; opacity: 0;
 }
 .sort-pick:hover .sort-icon { background: var(--accent-soft); }

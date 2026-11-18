@@ -66,13 +66,44 @@ class TestConfig:
         plain = Config.from_dict({"main": "a.tex"})
         assert plain.translation_language is None and "translation" not in plain.to_dict()
 
-    def test_translation_may_name_its_model(self):
-        config = Config.from_dict({"main": "a.tex", "translation": {"language": "Korean", "model": "sonnet"}})
-        assert config.translation_model == "sonnet"
-        assert config.to_dict()["translation"] == {"language": "Korean", "model": "sonnet"}
-        assert Config.from_dict({"main": "a.tex", "translation": {"language": "Korean"}}).translation_model is None
-        with pytest.raises(ValueError, match="translation.model needs translation.language"):
-            Config.from_dict({"main": "a.tex", "translation": {"model": "sonnet"}})
+    def test_translation_command_is_a_command_line_or_a_list_of_its_words(self):
+        def command(raw):
+            return Config.from_dict({"main": "a.tex", "translation": {"language": "Korean", "command": raw}})
+
+        line = command("llm-tool run --model 'mid size' -")
+        assert line.translation_command == ["llm-tool", "run", "--model", "mid size", "-"]
+        assert line.to_dict()["translation"] == {"language": "Korean",
+                                                 "command": ["llm-tool", "run", "--model", "mid size", "-"]}
+        assert command(["llm-tool", "--ask", "{prompt}"]).translation_command == ["llm-tool", "--ask", "{prompt}"]
+        assert command("").translation_command is None and command([]).translation_command is None
+        with pytest.raises(ValueError, match="translation.command needs translation.language"):
+            Config.from_dict({"main": "a.tex", "translation": {"command": "llm-tool"}})
+        with pytest.raises(ValueError, match="translation.command must be a command line"):
+            command({"run": "llm-tool"})
+        with pytest.raises(ValueError, match="translation.command: No closing quotation"):
+            command("llm-tool 'open")
+
+    def test_the_users_own_file_gives_the_command_a_paper_does_not_set(self):
+        import re
+
+        from tex_mcp_web import config as module
+
+        user = module.user_config_file()
+        paper = Config.from_dict({"main": "a.tex", "translation": {"language": "Korean"}})
+        assert module.translation_command(paper) is None                      # no file
+        user.parent.mkdir(parents=True)
+        user.write_text("translation:\n  command: user-tool --model mid\n", encoding="utf-8")
+        assert module.translation_command(paper) == ["user-tool", "--model", "mid"]
+        own = Config.from_dict({"main": "a.tex", "translation": {"language": "Korean", "command": ["paper-tool"]}})
+        assert module.translation_command(own) == ["paper-tool"]              # the paper's wins
+        user.write_text("translation:\n  command: [user-tool, '{prompt}']\n", encoding="utf-8")
+        assert module.translation_command(paper) == ["user-tool", "{prompt}"]  # needs no language there
+        user.write_text("translation: user-tool\n", encoding="utf-8")
+        with pytest.raises(ValueError, match=re.escape(str(user)) + ": translation must be a mapping"):
+            module.translation_command(paper)
+        user.write_text("translation: {command: 'user-tool\n", encoding="utf-8")
+        with pytest.raises(ValueError, match=re.escape(str(user))):
+            module.translation_command(paper)
 
     def test_translation_must_be_a_mapping_with_a_language(self):
         with pytest.raises(ValueError):

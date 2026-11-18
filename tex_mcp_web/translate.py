@@ -1,11 +1,11 @@
 """Reading aid: source paragraphs translated once and kept by their text.
 
-The language is the one ``translation: {language: ...}`` names in the configuration.
-A paragraph is translated only when its text has not been translated into that
-language before, so a compile after an edit sends just the paragraphs that changed.
-The translation runs ``claude -p`` on the model ``translation: {model: ...}`` names, MODEL
-when it names none: a paper has hundreds of paragraphs, and the model the user writes with
-is more than reading them in another language needs. The effort is Claude Code's own.
+The language is the one ``translation: {language: ...}`` names in the configuration, and
+the command that translates is ``translation: {command: ...}``: the command line of any LLM
+tool that reads the request on its standard input, or where ``{prompt}`` stands in its
+words, and prints the answer. A paragraph is translated only when its text has not been
+translated into that language before, so a compile after an edit sends just the paragraphs
+that changed.
 """
 
 from __future__ import annotations
@@ -197,73 +197,77 @@ def build_request(paragraphs: list[Paragraph], glossary: list[str]) -> tuple[str
 
 
 def parse_reply(reply: str, ids: list[str]) -> dict[str, str]:
-    """The ``{"t": {...}}`` object in the model's reply, restricted to *ids*."""
+    """The ``{"t": {...}}`` object in the reply, restricted to *ids*. The object is read from
+    the reply's first ``{`` to its last ``}``, since a tool may wrap it in a code fence or
+    a line of its own."""
     start, end = reply.find("{"), reply.rfind("}")
-    if start < 0 or end <= start:
-        raise ValueError("no JSON object in the reply")
-    translated = json.loads(reply[start:end + 1]).get("t", {})
+    try:
+        translated = json.loads(reply[start:end + 1]).get("t", {}) if 0 <= start < end else None
+    except ValueError:
+        translated = None
+    if translated is None:
+        raise ValueError("no JSON object in the reply: " + (reply.strip()[:300] or "it printed nothing"))
     return {pid: str(translated[pid]).strip() for pid in ids if pid in translated and str(translated[pid]).strip()}
 
 
 # Environment the review server inherits from the Claude Code session that started
-# it; a child Claude must not read the session's own effort or nesting markers.
+# it; a child must not read the session's own effort or nesting markers.
 _SESSION_ENV = ("CLAUDE_EFFORT", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT")
 
-
-# The model a translation runs on unless the configuration names one: an alias Claude Code
-# keeps pointed at its current small model, which costs the least.
-MODEL = "haiku"
+# The word in a command's arguments that the request takes the place of.
+PROMPT = "{prompt}"
 
 
-def find_claude() -> str | None:
-    """The ``claude`` command: on the PATH, or where Claude Code's installers put it in the
-    user's folder. The server is registered with a short PATH of its own, which need not
-    hold that folder."""
-    home = Path.home()
-    return shutil.which("claude") or next(
-        (found for folder in (home / ".local" / "bin", home / ".claude" / "local")
-         if (found := shutil.which("claude", path=str(folder))) is not None), None)
-
-
-def run_claude(prompt: str, cwd: Path, system: str, model: str = MODEL) -> str:
-    """One ``claude -p`` call on *model*, with the user's effort setting."""
-    claude = find_claude()
-    if claude is None:
-        raise RuntimeError("the claude command was not found on the server's PATH or in ~/.local/bin: "
-                           "translation runs Claude Code's claude -p")
+def run_command(command: list[str], prompt: str, cwd: Path, system: str) -> str:
+    """What *command* prints for one request: *system*, then *prompt*. The request goes to
+    the command's standard input, or in place of ``{prompt}`` when its arguments hold it."""
+    executable = shutil.which(command[0])
+    if executable is None:
+        raise RuntimeError(f"{command[0]} was not found on the server's PATH, "
+                           "the short one the server was registered with")
+    request = f"{system}\n\n--- Request ---\n\n{prompt}"
+    in_arguments = any(PROMPT in word for word in command[1:])
     env = {key: value for key, value in os.environ.items() if key not in _SESSION_ENV}
     completed = subprocess.run(
-        [claude, "-p", "--model", model, "--tools", "", "--strict-mcp-config", "--disable-slash-commands",
-         "--no-session-persistence", "--output-format", "json",
-         "--settings", json.dumps({"disableAllHooks": True}),
-         "--system-prompt", system, prompt],
-        cwd=cwd, env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+        [executable, *(word.replace(PROMPT, request) for word in command[1:])],
+        cwd=cwd, env=env, input=None if in_arguments else request,
+        stdin=subprocess.DEVNULL if in_arguments else None, capture_output=True, encoding="utf-8",
         timeout=TIMEOUT, check=False,
     )
     if completed.returncode != 0:
-        raise RuntimeError((completed.stderr or completed.stdout).strip()[:300] or "claude failed")
-    result = json.loads(completed.stdout)
-    if result.get("is_error"):
-        raise RuntimeError(str(result.get("result"))[:300])
-    logger.info("translation call: %s, %.4f USD",
-                ",".join((result.get("modelUsage") or {}).keys()), result.get("total_cost_usd") or 0)
-    return str(result.get("result", ""))
+        raise RuntimeError((completed.stderr or completed.stdout).strip()[:300]
+                           or f"{command[0]} exited with {completed.returncode}")
+    return completed.stdout
+
+
+def command_label(command: list[str]) -> str:
+    """The command's program by its name, without its folder, and the model it names with
+    ``--model X``, ``--model=X`` or ``-m X``."""
+    name = Path(command[0]).name
+    for index, word in enumerate(command[1:], start=1):
+        if word.startswith("--model="):
+            return f"{name} · {word.removeprefix('--model=')}"
+        if word in ("--model", "-m") and index + 1 < len(command):
+            return f"{name} · {command[index + 1]}"
+    return name
 
 
 class Translator:
-    """Translates missing paragraphs in the background, one job at a time."""
+    """Translates missing paragraphs in the background, one job at a time, with *command*,
+    or with *runner* when one is given."""
 
     def __init__(self, store: TranslationStore, glossary: list[str], workdir: Path,
                  runner: Callable[[str, Path], str] | None = None, *,
-                 language: str = "English", instructions: str | None = None, model: str = MODEL):
+                 language: str = "English", instructions: str | None = None,
+                 command: list[str] | None = None):
         self.store = store
         self.glossary = glossary
         self.workdir = workdir
         self.language = language
         self.instructions = instructions
-        self.model = model
+        self.command = command
         system = system_prompt(language, instructions)
-        self.runner = runner or (lambda prompt, cwd: run_claude(prompt, cwd, system, model))
+        self.runner = runner or (lambda prompt, cwd: run_command(command, prompt, cwd, system))
         self._lock = threading.Lock()
         self._pending: set[str] = set()
         self.error: str | None = None

@@ -2,6 +2,7 @@
 
 import os
 import re
+import shlex
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -55,9 +56,9 @@ class Config:
             from ``translation: {language: ...}``. Unset means no translation panel.
         translation_instructions: Extra rules the translator follows, such as a field's
             terms to keep in English, from ``translation: {instructions: ...}``.
-        translation_model: The model the translation runs on, a name or an alias Claude
-            Code's ``--model`` takes, from ``translation: {model: ...}``. Unset means
-            translate.MODEL.
+        translation_command: The command line that translates, from ``translation:
+            {command: ...}``. Unset means the one in the user's own config file, if any:
+            see translation_command().
         overleaf_sync: Keep the paper's files and that project's the same, both ways.
         overleaf: The paper's Overleaf project, by its link, whose comments the page
             brings in with the reviewer's own session cookie. Unset means none.
@@ -80,7 +81,7 @@ class Config:
     guideline: str | None = None
     translation_language: str | None = None
     translation_instructions: str | None = None
-    translation_model: str | None = None
+    translation_command: list[str] | None = None
     overleaf: str | None = None
     overleaf_sync: bool = False
     overleaf_add: list[str] = field(default_factory=lambda: list(DEFAULT_OVERLEAF_ADD))
@@ -102,7 +103,7 @@ class Config:
             guideline=_guideline(data),
             translation_language=_translation(data).get("language"),
             translation_instructions=_translation(data).get("instructions"),
-            translation_model=_translation(data).get("model"),
+            translation_command=_translation(data).get("command"),
             overleaf=_overleaf(data),
             overleaf_sync=_overleaf_flag(data, "overleaf_sync"),
             overleaf_add=_patterns(data, "overleaf_add", DEFAULT_OVERLEAF_ADD),
@@ -130,8 +131,8 @@ class Config:
             d["translation"] = {"language": self.translation_language}
             if self.translation_instructions is not None:
                 d["translation"]["instructions"] = self.translation_instructions
-            if self.translation_model is not None:
-                d["translation"]["model"] = self.translation_model
+            if self.translation_command is not None:
+                d["translation"]["command"] = self.translation_command
         if self.overleaf is not None:
             d["overleaf"] = self.overleaf
         if self.overleaf_sync:
@@ -176,22 +177,68 @@ def _overleaf(data: dict[str, Any]) -> str | None:
     return str(raw).strip()
 
 
-def _translation(data: dict[str, Any]) -> dict[str, str]:
-    """``translation:`` as {language, instructions, model}, each a non-empty string when set."""
+def _translation(data: dict[str, Any]) -> dict[str, Any]:
+    """``translation:`` as {language, instructions, command}: the first two a non-empty
+    string when set, the command the list of its words."""
     raw = data.get("translation")
     if raw is None:
         return {}
     if not isinstance(raw, dict):
         raise ValueError("translation must be a mapping such as {language: Korean}")
-    out = {}
-    for key in ("language", "instructions", "model"):
+    out: dict[str, Any] = {}
+    for key in ("language", "instructions"):
         value = raw.get(key)
         if value is not None and str(value).strip():
             out[key] = str(value).strip()
-    for key in ("instructions", "model"):
+    command = _command(raw.get("command"))
+    if command is not None:
+        out["command"] = command
+    for key in ("instructions", "command"):
         if key in out and "language" not in out:
             raise ValueError(f"translation.{key} needs translation.language")
     return out
+
+
+def _command(raw: Any) -> list[str] | None:
+    """``translation.command`` as its words: a string split the way a POSIX shell splits
+    it, or a list of the words. Empty means unset."""
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        try:
+            words = shlex.split(raw)
+        except ValueError as error:
+            raise ValueError(f"translation.command: {error}") from None
+    elif isinstance(raw, list) and all(isinstance(word, str) for word in raw):
+        words = list(raw)
+    else:
+        raise ValueError("translation.command must be a command line or a list of its words")
+    return words or None
+
+
+def user_config_file() -> Path:
+    """The reviewer's own config file, for every paper. Only ``translation: {command: ...}``
+    is read from it."""
+    return user_config_dir() / "config.yaml"
+
+
+def translation_command(config: Config) -> list[str] | None:
+    """The command that translates: the paper's ``translation.command``, else the one in
+    the user's own config file, else None. The user's file is read on every call, so a
+    change to it applies without a restart."""
+    if config.translation_command is not None:
+        return config.translation_command
+    path = user_config_file()
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        translation = (data.get("translation") or {}) if isinstance(data, dict) else None
+        if not isinstance(translation, dict):
+            raise ValueError("translation must be a mapping such as {command: ...}")
+        return _command(translation.get("command"))
+    except FileNotFoundError:
+        return None
+    except (ValueError, yaml.YAMLError) as error:
+        raise ValueError(f"{path}: {error}") from None
 
 
 DEFAULT_CONFIG_NAME = ".tex-mcp-web.yaml"

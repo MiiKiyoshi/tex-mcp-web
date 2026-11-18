@@ -1,4 +1,5 @@
 import json
+import re
 from types import SimpleNamespace
 from pathlib import Path
 
@@ -178,38 +179,108 @@ def test_store_name_per_language():
     assert hashed.startswith("translations-") and hashed != store_name("日本語")
 
 
-def test_claude_is_found_in_the_users_folder_when_the_servers_path_lacks_it(tmp_path, monkeypatch) -> None:
-    """The server runs with a short PATH of its own. The command is still found where
-    Claude Code's installer puts it, and a machine with none says what was looked for."""
+def _fake_run(monkeypatch, returncode=0, stdout="", stderr=""):
+    """subprocess.run in the translation replaced by one that records each call."""
+    from tex_mcp_web import translate
+
+    calls = []
+
+    def run(arguments, **options):
+        calls.append((arguments, options))
+        return SimpleNamespace(returncode=returncode, stdout=stdout, stderr=stderr)
+
+    monkeypatch.setattr(translate.subprocess, "run", run)
+    return calls
+
+
+def test_the_request_goes_to_the_commands_input_after_the_system_text(tmp_path, monkeypatch) -> None:
     import sys
 
-    from tex_mcp_web import translate
+    from tex_mcp_web.translate import run_command
 
-    monkeypatch.setenv("PATH", str(tmp_path / "nothing"))
-    monkeypatch.setattr(translate.Path, "home", lambda: tmp_path)
-    assert translate.find_claude() is None
-    with pytest.raises(RuntimeError, match="claude command was not found"):
-        translate.run_claude("words", tmp_path, "rules")
-    folder = tmp_path / ".local" / "bin"
-    folder.mkdir(parents=True)
-    command = folder / ("claude.exe" if sys.platform == "win32" else "claude")
-    command.write_text("", encoding="utf-8")
-    command.chmod(0o755)
-    assert translate.find_claude() == str(command)
+    calls = _fake_run(monkeypatch, stdout="the answer")
+    monkeypatch.setenv("CLAUDECODE", "1")
+    assert run_command([sys.executable, "--flag"], "the paragraphs", tmp_path, "the rules") == "the answer"
+    [(arguments, options)] = calls
+    assert arguments[1:] == ["--flag"]
+    assert options["input"] == "the rules\n\n--- Request ---\n\nthe paragraphs"
+    assert options["stdin"] is None and options["cwd"] == tmp_path
+    assert "CLAUDECODE" not in options["env"]                         # the session's own marker
 
 
-def test_the_translation_runs_on_the_model_named_and_on_the_small_one_otherwise(tmp_path, monkeypatch) -> None:
-    from tex_mcp_web import translate
+def test_a_prompt_placeholder_takes_the_request_and_the_input_is_closed(tmp_path, monkeypatch) -> None:
+    import subprocess
+    import sys
 
-    ran = []
+    from tex_mcp_web.translate import run_command
 
-    def run(command, **_):
-        ran.append(command)
-        return SimpleNamespace(returncode=0, stdout=json.dumps({"result": "done"}), stderr="")
+    calls = _fake_run(monkeypatch, stdout="the answer")
+    run_command([sys.executable, "ask", "--message={prompt}"], "the paragraphs", tmp_path, "the rules")
+    [(arguments, options)] = calls
+    assert arguments[1:] == ["ask", "--message=the rules\n\n--- Request ---\n\nthe paragraphs"]
+    assert options["input"] is None and options["stdin"] is subprocess.DEVNULL
 
-    monkeypatch.setattr(translate, "find_claude", lambda: "claude")
-    monkeypatch.setattr(translate.subprocess, "run", run)
-    translate.run_claude("words", tmp_path, "rules")
-    translate.run_claude("words", tmp_path, "rules", "sonnet")
-    assert [command[command.index("--model") + 1] for command in ran] == [translate.MODEL, "sonnet"]
-    assert translate.MODEL == "haiku"
+
+def test_a_failed_command_says_what_it_printed(tmp_path, monkeypatch) -> None:
+    import sys
+
+    from tex_mcp_web.translate import run_command
+
+    _fake_run(monkeypatch, returncode=2, stdout="", stderr="  not logged in" + "x" * 400)
+    with pytest.raises(RuntimeError) as failed:
+        run_command([sys.executable], "words", tmp_path, "rules")
+    assert str(failed.value) == ("not logged in" + "x" * 400)[:300]
+    _fake_run(monkeypatch, returncode=1)
+    with pytest.raises(RuntimeError, match="exited with 1"):
+        run_command([sys.executable], "words", tmp_path, "rules")
+
+
+def test_a_command_not_on_the_servers_path_is_named(tmp_path) -> None:
+    from tex_mcp_web.translate import run_command
+
+    with pytest.raises(RuntimeError, match="no-such-llm-tool was not found on the server's PATH"):
+        run_command(["no-such-llm-tool", "--model", "mid"], "words", tmp_path, "rules")
+
+
+def test_a_stand_in_command_translates_through_its_input_and_chatter_around_the_json(tmp_path) -> None:
+    """A real child process: a script that reads the request on its input and wraps its
+    answer in a line of its own and a code fence, as LLM tools do."""
+    import sys
+
+    script = tmp_path / "stand_in.py"
+    script.write_text(
+        "import json, sys\n"
+        "request = sys.stdin.read()\n"
+        "assert request.startswith('You translate paragraphs')\n"
+        "blocks = json.loads(request.split('Paragraphs (JSON):\\n', 1)[1])\n"
+        "print('Here is the translation:')\n"
+        "print('```json')\n"
+        "print(json.dumps({'t': {pid: 'KO ' + text for pid, text in blocks.items()}}))\n"
+        "print('```')\n", encoding="utf-8")
+    translator = Translator(TranslationStore(tmp_path / "t.json"), [], tmp_path,
+                            language="Korean", command=[sys.executable, str(script)])
+    paragraphs = split_paragraphs("Alpha beta gamma.\n\nDelta epsilon zeta.\n", "a.tex")
+    translator.translate(paragraphs)
+    assert translator.error is None
+    assert [translator.store.get(p.key) for p in paragraphs] == ["KO Alpha beta gamma.", "KO Delta epsilon zeta."]
+
+
+def test_a_reply_without_json_shows_what_was_printed():
+    with pytest.raises(ValueError, match="no JSON object in the reply: I cannot help"):
+        parse_reply("I cannot help with that.", ["p1"])
+    with pytest.raises(ValueError, match=re.escape("no JSON object in the reply: {not json}")):
+        parse_reply("{not json}", ["p1"])
+    with pytest.raises(ValueError, match="it printed nothing"):
+        parse_reply("", ["p1"])
+    assert parse_reply('Sure.\n```json\n{"t": {"p1": "번역"}}\n```', ["p1"]) == {"p1": "번역"}
+
+
+def test_the_label_is_the_commands_first_word_and_the_model_it_names():
+    from tex_mcp_web.translate import command_label
+
+    assert command_label(["llm-tool", "-p", "--model", "mid"]) == "llm-tool · mid"
+    assert command_label(["llm-tool", "--model=mid-2"]) == "llm-tool · mid-2"
+    assert command_label(["llm-tool", "run", "-m", "provider/mid"]) == "llm-tool · provider/mid"
+    assert command_label(["/opt/tools/bin/llm-tool", "-m", "mid"]) == "llm-tool · mid"
+    assert command_label(["llm-tool", "run"]) == "llm-tool"
+    assert command_label(["llm-tool", "--model"]) == "llm-tool"

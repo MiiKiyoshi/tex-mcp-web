@@ -236,17 +236,32 @@ def test_mcp_check_names_the_tools_without_a_paper(tmp_path: Path, monkeypatch, 
 def test_no_process_the_server_starts_is_given_the_servers_own_input() -> None:
     """Under an agent the server's input is the pipe the agent talks to it through. A child
     that inherits it holds it, and on Windows git and latexmk then never start: every
-    process the package starts names its own input."""
+    process the package starts is given stdin=DEVNULL. The one exception is the
+    translation command, which reads the request on its input: input= gives it a pipe of
+    its own that carries the request, and DEVNULL when its arguments carry the request."""
     import ast
 
     package = Path(__file__).parents[1] / "tex_mcp_web"
+    fed = "translate.py:run_command"
     missing = []
     for path in sorted(package.glob("*.py")):
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        owner = {}
+        for function in ast.walk(tree):
+            if isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                for node in ast.walk(function):
+                    owner[node] = function.name   # the innermost function, walked last
+        for node in ast.walk(tree):
             if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
                 continue
             if node.func.attr in ("create_subprocess_exec", "Popen") or (
                     node.func.attr == "run" and getattr(node.func.value, "id", "") == "subprocess"):
-                if not any(keyword.arg in ("stdin", "input") for keyword in node.keywords):
+                keywords = {keyword.arg: keyword.value for keyword in node.keywords}
+                if f"{path.name}:{owner.get(node)}" == fed:
+                    given = "input" in keywords
+                else:
+                    stdin = keywords.get("stdin")
+                    given = isinstance(stdin, ast.Attribute) and stdin.attr == "DEVNULL"
+                if not given:
                     missing.append(f"{path.name}:{node.lineno}")
     assert missing == []

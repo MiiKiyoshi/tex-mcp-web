@@ -22,6 +22,7 @@ import json
 import logging
 import os
 import re
+import shlex
 import stat
 import tempfile
 import time
@@ -58,7 +59,7 @@ from .comments import (
     source_offset,
 )
 from .compiler import CompileResult, compile_tex, source_dependencies
-from .config import Config, get_main_file, get_watch_dir, load_config
+from .config import Config, get_main_file, get_watch_dir, load_config, translation_command
 from .mcp_server import short_time
 from .structure import (
     AmbiguousSection,
@@ -90,7 +91,8 @@ from . import overleaf_ot
 from .overleaf_live import TRACKED, LivePresence
 from .overleaf_sync import HandSync, NotConnected, ProjectSync, Uploads
 from .completion import bib_entries, defined_commands, defined_environments, labels
-from .translate import MODEL, Translator, TranslationStore, load_glossary, split_paragraphs, store_name
+from .translate import (Translator, TranslationStore, command_label, load_glossary, split_paragraphs,
+                        store_name)
 from .watcher import Watcher, is_watched_source, matches_patterns
 
 logger = logging.getLogger(__name__)
@@ -2960,12 +2962,19 @@ class TexMcpWebServer:
         SyncTeX places most on that page. ``on_page`` marks the paragraphs
         typeset on ``page``. Paragraphs already translated come from the store;
         the rest start one background job and come back with ``text: null``.
+        ``translator`` names the command that translates, and ``command`` gives it whole.
+        With no language or no command set, the status says which, and ``help`` says what
+        translation is and how to set it up.
         """
         language = self.config.translation_language
-        if language is None:
-            return web.json_response(
-                {"error": "no translation language is configured; set translation: "
-                          "{language: ...} in .tex-mcp-web.yaml"}, status=404)
+        try:
+            command = None if language is None else translation_command(self.config)
+        except ValueError as error:
+            return web.json_response({"error": str(error)}, status=400)
+        if command is None:
+            return web.json_response({"language": language,
+                                      "status": "no-language" if language is None else "no-command",
+                                      "help": self._translation_help(language)})
         raw_page = request.query.get("page")
         try:
             page = int(raw_page) if raw_page is not None else None
@@ -2987,7 +2996,7 @@ class TexMcpWebServer:
         except web.HTTPException as error:
             return web.json_response({"error": error.text}, status=error.status)
         file = path.relative_to(self.watch_dir.resolve()).as_posix()
-        translator = self._translator(language)
+        translator = self._translator(language, command)
         text, _ = self._read_source(path)
         paragraphs = split_paragraphs(text, file)
         on_page = lines.get(file, set())
@@ -2995,6 +3004,8 @@ class TexMcpWebServer:
         failed = bool(missing) and translator.error is not None and not translator.busy()
         body = {
             "language": language,
+            "translator": command_label(command),
+            "command": shlex.join(command),
             "file": file,
             "status": "error" if failed else "pending" if missing else "ready",
             "error": translator.error,
@@ -3006,21 +3017,39 @@ class TexMcpWebServer:
             translator.start(paragraphs)   # an error clears when this retry succeeds
         return web.json_response(body)
 
-    def _translator(self, language: str) -> Translator:
-        """The translator for the configured language, instructions and model. Its store is kept
-        beside the comments; the reference term list it keeps as written is the one
+    def _translator(self, language: str, command: list[str]) -> Translator:
+        """The translator for the configured language, instructions and command. Its store is
+        kept beside the comments; the reference term list it keeps as written is the one
         guide() reads, beside the configuration file."""
-        instructions, model = self.config.translation_instructions, self.config.translation_model or MODEL
+        instructions = self.config.translation_instructions
         current = self.translator
-        if current is None or (current.language, current.instructions, current.model) != (language, instructions, model):
+        if current is None or (current.language, current.instructions, current.command) != (language, instructions, command):
             state = self.watch_dir / ".tex-mcp-web"
             config_dir = (self.config.config_path.resolve().parent
                           if self.config.config_path is not None else self.watch_dir)
             current = self.translator = Translator(
                 TranslationStore(state / store_name(language)),
                 load_glossary(config_dir / ".tex-mcp-web" / "terms.md"), state,
-                language=language, instructions=instructions, model=model)
+                language=language, instructions=instructions, command=command)
         return current
+
+    def _translation_help(self, language: str | None) -> list[str]:
+        """What the translation pane says while translation is not set up: with no language,
+        what translation is; with a language, that no command is set. Then how to set it up,
+        by asking the agent or by hand."""
+        from .config import user_config_file
+
+        paper = self.config.config_path or ".tex-mcp-web.yaml"
+        command = (f"or in {user_config_file()} for every paper, to any command that reads the "
+                   "text on its standard input and prints the translation.")
+        if language is None:
+            return ["Translation shows each paragraph of the source in your language, beside the text. "
+                    "Each paragraph is translated once and kept.",
+                    "Ask your agent: set up translation to <your language>",
+                    f"By hand: set translation.language in {paper}. Set translation.command there, {command}"]
+        return ["translation.command is not set, so nothing translates the source yet.",
+                f"Ask your agent: set up translation to {language}",
+                f"By hand: set translation.command in {paper}, {command}"]
 
     async def _handle_synctex_backward(self, request: web.Request) -> web.Response:
         """Selected PDF lines -> the source lines they come from: {page, rects, pdf_digest}

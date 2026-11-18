@@ -43,6 +43,9 @@ connection has been verified.
   entries. Mark an entry without GUIDELINE.md, which cannot be chosen. None is the default.
 - Page token: off is the default. Every account on a machine can reach the page's port, so on
   a machine other people log in to, such as a lab server, the page token keeps them out.
+- Translation: `setup_info()` reports it under `translation`. It is off while `language` is
+  unset. Do not ask about it here. Set it up only when the user asks for it, as the last
+  section says.
 
 ## 2. Confirm
 
@@ -106,4 +109,50 @@ prints in the paper's folder, to open once in each browser. Leave the checks you
 If restarting the MCP process remains necessary, say that one action and what it is for.
 To follow an Overleaf project, the user presses Connect Overleaf in the page's top bar (in
 the ⋯ menu on a phone) and follows what it asks. Tell them so in one line.
+If translation is off, say so in one line, and say that they can ask you to turn it on, for
+example: "set up translation to Korean".
 With the plugin, Claude Code started in the folder later listens on its own.
+
+## Set up translation
+
+Follow these steps when the user asks for translation, during init or at any other time,
+for example "set up translation to Korean". The page then shows each paragraph of the
+source in that language, beside the text.
+
+1. Call `setup_info()`. Read its `translation` part: `language`, `command`, and
+   `user_config`, the path of the user's own config file.
+2. Open the paper's config file, `discovered_config_path`, with your file tools. If it is
+   null, set up review first with the sections above, then come back here. Under
+   `translation:`, write `language:` with the language the user named. If the user gave
+   rules for the translation, such as terms to keep in English, also write `instructions:`,
+   one rule per line. `tex-mcp-web config` does not set these keys.
+3. If `command` is already set, go to step 8.
+4. Find an LLM command on this machine. Prefer the command of the agent you run in. If there
+   is none, tell the user in one line that translation stays off, and stop.
+5. Build a command line for that tool. The line must do all of this:
+   - Run once and exit, without asking anything.
+   - Read the text on standard input. If the tool takes the text only as an argument, put
+     `{prompt}` in that argument. The server puts the text there.
+   - Print only the answer on standard output.
+   - Name its model. Choose a mid-sized model, not the largest one.
+   - Start nothing it does not need: no tools, no MCP servers, no saved session. A run that
+     starts the user's MCP servers starts tex-mcp again.
+
+   Read the tool's help first: `<tool> --help`, and the help of the subcommand that runs
+   once. Take each flag from this help, under the name this version uses. Take the model
+   name from the help or from the tool's list of models. Start the line with the tool's
+   full path, from `command -v <tool>`. The server runs with a short PATH of its own.
+6. Test the line once. Send a one-line request on standard input, for example
+   `echo 'Translate into Korean: Good morning.' | <the line>`. If the line has `{prompt}`,
+   put the request there instead. The output must be the answer and nothing else. If it is
+   not, change the line and test it again.
+7. Show the user the exact line. Say in a few words that a larger model costs more, because a
+   paper has hundreds of paragraphs. Ask one short question, with this line as the default.
+   When the user agrees, write the line to the user's own file, `user_config`, as `command:`
+   under `translation:`. Create the file if it does not exist. A command there serves every
+   paper. If the line holds `#` or `: `, write it as a YAML list instead, one word per item.
+8. Tell the user which line translates and which file holds it. Say that they can change
+   its model there. Then tell them to reload the page.
+
+The server reads the paper's config file again each time it is saved. It reads the user's
+file each time the page asks for a translation. Neither needs a restart.

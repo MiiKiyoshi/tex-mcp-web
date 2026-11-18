@@ -3061,13 +3061,14 @@ function renderPickedActions() {
   fitCommentRow();
 }
 
-// How the row gives way, one step at a time while it would spill over: the words beside the
-// icons go and the sort list shrinks to its icon, the sort list waits behind the dots as the
-// gaps narrow, then Expand all, the view list gives up the room its longest view needs, and
-// the sync button and then Call agent wait behind the dots too. What acts on the picked
-// comments stays in the row, which takes two lines when even that is too wide.
-const ROW_STEPS = [["wordless"], ["narrow", "#comment-sort-pick"], ["foldless", "#fold-all-btn"], ["squeezed"],
-  ["unsynced", "#overleaf-sync-comments-btn"], ["uncalled", "#call-agent-btn"], ["wrapped"]];
+// How the row gives way, one step at a time while it would spill over: the sort list shrinks
+// to its icon, the words beside the other icons go, then Resolve's, the sort list waits behind
+// the dots as the gaps narrow, then Expand all, the view list gives up the room its longest
+// view needs, and the sync button and then Call agent wait behind the dots too. What acts on
+// the picked comments stays in the row, which takes two lines when even that is too wide.
+const ROW_STEPS = [["sort-shrunk"], ["wordless"], ["resolve-wordless"], ["narrow", "#comment-sort-pick"],
+  ["foldless", "#fold-all-btn"], ["squeezed"], ["unsynced", "#overleaf-sync-comments-btn"],
+  ["uncalled", "#call-agent-btn"], ["wrapped"]];
 
 function fitCommentRow() {
   const row = $(".filter-row");
@@ -4448,8 +4449,10 @@ function renderCompileStatus() {
 // translates a paragraph only the first time its text is seen, so paging, switching files
 // and recompiling cost nothing except for changed paragraphs. The file is the one chosen
 // in the panel, else the editor's file (Source/Split), else the file SyncTeX places most on
-// the current page. Without a configured language the button and the panel stay hidden.
-const translation = { on: false, language: null, page: 0, file: null, timer: null };
+// the current page. The ⋯ menu's item opens the panel with or without a configured
+// language; without one the item has no check mark, the panel translates nothing, and the
+// Settings choice stays hidden. The language is undefined until the paper is read.
+const translation = { on: false, language: undefined, page: 0, file: null, timer: null };
 
 function setTranslation(on) {
   translation.on = on;
@@ -4461,24 +4464,39 @@ function applyTranslationLanguage(language) {
   if (language === translation.language) return;
   translation.language = language;
   translation.file = null;
-  $("#translation-btn").classList.toggle("hidden", !language);
-  $("#translation-btn").textContent = language || "Translation";
+  $("#translation-btn").textContent = language ? `Translation: ${language}` : "Translation…";
+  $("#translation-btn").setAttribute("role", language ? "menuitemcheckbox" : "menuitem");
+  $("#translation-place").hidden = !language;
   $("#translation-language").textContent = language || "Translation";
   showTranslation();
 }
 
 function translationShown() {
+  return translation.on;
+}
+
+function translating() {
   return translation.on && Boolean(translation.language);
 }
 
 function showTranslation() {
-  const shown = translationShown();
-  $("#translation-btn").classList.toggle("active", shown);
+  const item = $("#translation-btn");
+  if (translation.language) item.setAttribute("aria-checked", String(translationShown()));
+  else item.removeAttribute("aria-checked");
   applyLayout();
-  if (shown) {
+  if (translating()) {
     syncTranslationFiles().catch((error) => console.error(error));
     scheduleTranslation(0);
+  } else if (translationShown() && translation.language === null) {
+    fetch("/translations").then((response) => response.json()).then(showTranslationHelp)
+      .catch((error) => console.error(error));
   }
+}
+
+// What the pane says while translation is not set up, in the words /translations gives.
+function showTranslationHelp(data) {
+  for (const id of ["#translation-page", "#translation-status", "#translation-tool"]) $(id).textContent = "";
+  $("#translation-body").replaceChildren(...data.help.map((line) => h("p", { text: line })));
 }
 
 async function syncTranslationFiles() {
@@ -4493,13 +4511,13 @@ async function syncTranslationFiles() {
 }
 
 function scheduleTranslation(delay = 800) {
-  if (!translationShown()) return;
+  if (!translating()) return;
   clearTimeout(translation.timer);
   translation.timer = setTimeout(() => loadTranslation().catch((error) => console.error(error)), delay);
 }
 
 async function loadTranslation() {
-  if (!translationShown() || !state.scroll) return;
+  if (!translating() || !state.scroll) return;
   const page = state.scroll.getCurrentPage();
   const chosen = $("#translation-file").value || (state.view !== "pdf" ? state.sourcePath : null);
   const params = new URLSearchParams({ page: String(page) });
@@ -4513,6 +4531,13 @@ async function loadTranslation() {
     return;
   }
   const data = await response.json();
+  if (data.help) {
+    translation.file = null;
+    showTranslationHelp(data);
+    return;
+  }
+  $("#translation-tool").textContent = data.translator;
+  $("#translation-tool").title = data.command;
   const body = $("#translation-body");
   const sameFile = data.file === translation.file;
   const pageChanged = page !== translation.page;
@@ -4560,7 +4585,7 @@ function markTranslationCursor() {
 }
 
 function followSourceCursor() {
-  if (!translationShown()) return;
+  if (!translating()) return;
   const item = markTranslationCursor();
   if (item === null) return;
   const body = $("#translation-body");
@@ -4735,7 +4760,8 @@ async function callAgent() {
     word.textContent = "Failed";
     console.error(error);
   } finally {
-    // The word gone, the row fits itself again: a word hidden or behind the dots changes no width it sees.
+    // The row fits itself to the word, and again once the word is gone.
+    fitCommentRow();
     setTimeout(() => { word.textContent = ""; button.disabled = false; fitCommentRow(); }, 2000);
   }
 }
@@ -5718,7 +5744,7 @@ function attachSidebarWidthResize() {
 // or two or three side by side or stacked, each pair parted by a grip dragged to share the
 // room between them. A layout is a pane's name or [direction, first, second, grip]: "row"
 // puts the two side by side and "col" stacks them. Preview and Source put the translation
-// under their pane; Split puts it where the layout menu says. At 950px wide or less every
+// under their pane; Split puts it where Settings says. At 950px wide or less every
 // pair is stacked, as Split always stacked its two panes there.
 const WORKSPACE_PANES = { preview: "#pdf-pane", source: "#source-pane", translation: "#translation-pane" };
 const WORKSPACE_GRIPS = { split: "#split-grip", tgrip: "#translation-grip" };
@@ -5854,9 +5880,9 @@ function applyLayout(refit = true) {
     element.setAttribute("aria-valuenow", String(Math.round(shareOf(grip) * 100)));
     element.setAttribute("aria-controls", layoutPanes(node).map((pane) => WORKSPACE_PANES[pane].slice(1)).join(" "));
   }
-  const menu = $("#layout-select");
-  menu.classList.toggle("hidden", !(state.view === "split" && translationShown()));
-  menu.value = workspaceLayout.place;
+  for (const button of $$("[data-place-choice]")) {
+    button.setAttribute("aria-checked", String(button.dataset.placeChoice === workspaceLayout.place));
+  }
   state.editor?.resize();
   if (refit) requestAnimationFrame(refitWorkspace);
 }
@@ -5936,12 +5962,14 @@ function attachWorkspaceLayout() {
     keep: keepLayout,
   };
   for (const grip of Object.keys(WORKSPACE_GRIPS)) attachWorkspaceGrip(grip);
-  $("#layout-select").addEventListener("change", (event) => {
-    workspaceLayout.place = event.target.value;
-    keepLayout();
-    applyLayout();
-    if (layoutShows("source")) initializeSourceEditor().catch((error) => console.error(error));
-  });
+  for (const button of $$("[data-place-choice]")) {
+    button.addEventListener("click", () => {
+      workspaceLayout.place = button.dataset.placeChoice;
+      keepLayout();
+      applyLayout();
+      if (layoutShows("source")) initializeSourceEditor().catch((error) => console.error(error));
+    });
+  }
   stackedWorkspace.addEventListener("change", () => applyLayout());
   applyLayout();
 }

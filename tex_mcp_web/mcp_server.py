@@ -647,7 +647,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             "After replying, write in chat only what no thread carries, such as a failed tool or a choice left to the user, not the replies or the edits they report. Call listen() when the user asks to listen and follow "
             "how. Do not poll or duplicate it. Unacknowledged presses stay queued. "
             "The config sits in the startup directory, and its dir can name the paper's folder anywhere. "
-            f"Setup: read {INIT_GUIDE}."
+            f"To set up review or translation, read {INIT_GUIDE}."
         ),
     )
     # A path, not the list: the agent reads it with its own file tool, and the plugin's
@@ -1269,13 +1269,25 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
     @mcp.tool(structured_output=False)
     async def setup_info() -> str:
         """Report setup paths, the existing binding with the paper's folder it serves, the
-        guidelines to choose from and the path of the tex-mcp-web command, without connecting
-        or changing files."""
-        from .config import find_config, list_guidelines
+        guidelines to choose from, the path of the tex-mcp-web command, and whether translation
+        is set up, without connecting or changing files."""
+        import yaml
+
+        from .config import Config, find_config, list_guidelines, load_config, translation_command, user_config_file
         from .mcp_client import CLI
 
         discovered = find_config(binding.start_dir)
         bound = binding.bound_config_path()
+        # The language from the paper's config, the command from it or from the user's own
+        # config file, and that file's path, where a command for every paper goes.
+        try:
+            paper = Config(main="main.tex") if discovered is None else load_config(discovered)
+            command = translation_command(paper)
+            translation: dict[str, Any] = {"language": paper.translation_language,
+                                           "command": None if command is None else shlex.join(command)}
+        except (OSError, TypeError, ValueError, yaml.YAMLError) as error:
+            translation = {"error": str(error)}
+        translation["user_config"] = str(user_config_file())
         return _ok({
             "startup_dir": str(binding.start_dir),
             "discovered_config_path": None if discovered is None else str(discovered.resolve()),
@@ -1286,6 +1298,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             "guidelines": list_guidelines(),
             # The shell an agent runs commands in need not have this on its PATH.
             "cli": str(CLI),
+            "translation": translation,
         })
 
     return mcp

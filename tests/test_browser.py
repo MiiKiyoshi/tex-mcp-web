@@ -1738,9 +1738,10 @@ def test_shift_picks_the_run_between_two_boxes(tmp_path: Path) -> None:
         click(ids[0], shift=False)
         click(ids[3], shift=False)
 
-        # However narrow the panel, the row stays one line inside it. The words beside the
-        # icons go first, then Expand all waits behind the dots, named there by its words,
-        # while Archive and the rest of what acts on the picked comments stay in the row.
+        # However narrow the panel, the row stays one line inside it. The sort list's words and
+        # then the words beside the icons go first, then Expand all waits behind the dots, named
+        # there by its words, while Archive and the rest of what acts on the picked comments
+        # stay in the row.
         row = '''const row = document.querySelector(".filter-row");
           const edge = row.getBoundingClientRect();
           const archive = document.querySelector("#archive-picked-btn").getBoundingClientRect();
@@ -2150,8 +2151,8 @@ def test_the_sort_list_orders_each_tab_and_its_search_and_the_keys_follow(tmp_pa
     """Beside the views, the sort list puts the list in paper order, latest first or oldest
     first, by when each thread was last written in, in a view and in a search alike. j, k and a
     range follow the order shown, o steps to the next order, and each comment tab keeps its own
-    across a reload. The row stays one line: the list shrinks to its icon with the row's words,
-    then waits behind the dots before Expand all does."""
+    across a reload. The row stays one line: the list shrinks to its icon before the word on
+    Resolve goes, then waits behind the dots before Expand all does."""
     from tex_mcp_web.comments import CommentStore, PaperAnchor
 
     (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
@@ -2243,8 +2244,9 @@ def test_the_sort_list_orders_each_tab_and_its_search_and_the_keys_follow(tmp_pa
         script('document.querySelector(\'.tab-btn[data-tab="comments"]\').click()')
         wait_until(lambda: shown_sort() == ["latest", "latest first"])
         # However narrow the panel, the row stays one line. The sort list shows its words, then
-        # its icon alone once the row's words are gone, with the list lying over the icon, then
-        # waits behind the dots, and Expand all goes there only after it.
+        # its icon alone, with the list lying over the icon, while the word on Resolve stays;
+        # the word goes before the list waits behind the dots, and Expand all goes there only
+        # after it.
         steps = script('''return (async () => {
           const layout = document.querySelector(".layout");
           const row = document.querySelector(".filter-row");
@@ -2273,7 +2275,12 @@ def test_the_sort_list_orders_each_tab_and_its_search_and_the_keys_follow(tmp_pa
         assert states[0] == "words" and states[-1] == "behind" and "icon" in states, states
         assert states == sorted(states, key=["words", "icon", "behind"].index), states
         assert all(step["over"] for step in steps if step["sort"] == "icon"), steps
-        assert all(not step["words"] for step in steps if step["sort"] != "words"), steps
+        words = [step["words"] for step in steps]
+        assert words == sorted(words, reverse=True), steps
+        assert all(step["words"] for step in steps if step["sort"] == "words"), steps
+        assert any(step["sort"] == "icon" and step["words"] for step in steps), steps
+        assert any(step["sort"] == "icon" and not step["words"] for step in steps), steps
+        assert all(not step["words"] for step in steps if step["sort"] == "behind"), steps
         assert all(step["sort"] == "behind" for step in steps if step["fold"]) and steps[-1]["fold"], steps
         assert any(step["sort"] == "behind" and not step["fold"] for step in steps), steps
         # Behind the dots it is the list with its words, and an order chosen there closes them.
@@ -3200,14 +3207,13 @@ def test_archived_threads_have_their_own_view_and_picked_archive_action(tmp_path
 
 
 @needs_chrome
-def test_split_puts_the_translation_where_the_layout_menu_says(tmp_path: Path, monkeypatch) -> None:
-    """The translation sits under the Preview in Preview, under the editor in Source, and in
-    Split where the layout menu puts it; each place keeps its grip's share and the choice
-    survives a reload. A narrow window stacks every pane."""
+def test_split_puts_the_translation_where_settings_says(tmp_path: Path, monkeypatch) -> None:
+    """The ⋯ menu's item names the language and is checked while the translation shows. The
+    translation sits under the Preview in Preview, under the editor in Source, and in Split
+    where Settings puts it; each place keeps its grip's share and the choice survives a
+    reload. A narrow window stacks every pane."""
     import pymupdf
 
-    monkeypatch.setattr("tex_mcp_web.translate.run_claude",
-                        lambda prompt, cwd, system: json.dumps({"t": {}}))
     (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
     with pymupdf.open() as pdf:
         pdf.new_page().insert_text((72, 72), "Hello world.")
@@ -3241,37 +3247,49 @@ def test_split_puts_the_translation_where_the_layout_menu_says(tmp_path: Path, m
             """)
 
         def choose(place):
-            browser.execute_script(f"""
-              const menu = document.querySelector("#layout-select");
-              menu.value = "{place}";
-              menu.dispatchEvent(new Event("change", {{bubbles: true}}));
-            """)
+            browser.execute_script(f'document.querySelector("[data-place-choice={place}]").click();')
             return wait_until(lambda: (lambda shown: shown if len(shown) >= 2 else False)(boxes()))
 
         def view(name):
             browser.execute_script(f'document.querySelector(".view-tab[data-view={name}]").click();')
 
-        button = wait_until(lambda: browser.execute_script(
-            'const b = document.querySelector("#translation-btn");'
-            'return b.classList.contains("hidden") ? false : b.textContent;'))
-        assert button == "Korean"
+        # The item in the ⋯ menu names the language, and its check mark follows the pane.
+        item = '''const item = document.querySelector("#translation-btn");
+          return [item.getClientRects().length > 0, item.textContent, item.getAttribute("role"),
+                  item.getAttribute("aria-checked"), getComputedStyle(item, "::after").content];'''
+        wait_until(lambda: browser.execute_script(item)[1] == "Translation: Korean")
+        browser.execute_script('document.querySelector("#more-btn").click();')
+        assert browser.execute_script(item) == [True, "Translation: Korean", "menuitemcheckbox", "false", "none"]
         assert set(boxes()) == {"preview"}
-
-        browser.execute_script('document.querySelector("#translation-btn").click();')
+        browser.find_element("css selector", "#translation-btn").click()
         shown = wait_until(lambda: (lambda b: b if "translation" in b else False)(boxes()))
         assert shown["translation"][1] > shown["preview"][3]           # under the Preview
         assert shown["translation"][0] == shown["preview"][0]
-        assert browser.execute_script(
-            'return document.querySelector("#layout-select").classList.contains("hidden");')
+        # A language with no command: the pane says the command is not set and how to set it.
+        wait_until(lambda: browser.execute_script('return document.querySelector("#translation-body p")?.textContent')
+                   == "translation.command is not set, so nothing translates the source yet.")
+        assert browser.execute_script('return document.querySelector("#more-menu").hidden') is True
+        browser.execute_script('document.querySelector("#more-btn").click();')
+        assert browser.execute_script(item)[3:] == ["true", '"✓"']
+        browser.find_element("css selector", "#translation-btn").click()
+        wait_until(lambda: set(boxes()) == {"preview"})
+        assert browser.execute_script(item)[3:] == ["false", "none"]
+        browser.execute_script('document.querySelector("#translation-btn").click();')
+        wait_until(lambda: "translation" in boxes())
 
         view("source")
         shown = wait_until(lambda: (lambda b: b if "source" in b else False)(boxes()))
         assert set(shown) == {"source", "translation"}
         assert shown["translation"][1] > shown["source"][3]
 
+        # Settings offers the four places, the remembered one marked.
         view("split")
-        wait_until(lambda: not browser.execute_script(
-            'return document.querySelector("#layout-select").classList.contains("hidden");'))
+        browser.execute_script('document.querySelector("#settings-btn").click();')
+        wait_until(lambda: browser.execute_script('return document.querySelector("#settings-dialog").open'))
+        assert browser.execute_script('''return [...document.querySelectorAll("[data-place-choice]")].map((choice) =>
+          [choice.getClientRects().length > 0, choice.textContent, choice.getAttribute("aria-checked")]);''') == [
+            [True, "Under the Preview", "true"], [True, "Under the Source", "false"],
+            [True, "Beside the Source", "false"], [True, "In place of the Source", "false"]]
         shown = choose("preview")
         assert shown["translation"][1] > shown["preview"][3]
         assert shown["source"][0] > shown["preview"][2] and shown["source"][0] > shown["translation"][2]
@@ -3300,11 +3318,18 @@ def test_split_puts_the_translation_where_the_layout_menu_says(tmp_path: Path, m
         shown = choose("replace")
         assert set(shown) == {"preview", "translation"}
         assert shown["translation"][0] > shown["preview"][2]
+        # The choice is Split's: Preview keeps the translation under its pane.
+        view("pdf")
+        shown = wait_until(lambda: (lambda b: b if set(b) == {"preview", "translation"}
+                                    and b["translation"][1] > b["preview"][3] else False)(boxes()))
+        view("split")
 
         choose("column")
+        browser.execute_script('document.querySelector("#settings-dialog").close();')
         browser.refresh()
         shown = wait_until(lambda: (lambda b: b if len(b) == 3 else False)(boxes()))
-        assert browser.execute_script('return document.querySelector("#layout-select").value;') == "column"
+        assert browser.execute_script(
+            'return document.querySelector("[aria-checked=true][data-place-choice]").dataset.placeChoice;') == "column"
         assert shown["translation"][0] == moved["translation"][0]
 
         # A narrow window stacks the three panes in the order the place reads.
@@ -3615,6 +3640,25 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
             f'const card = {here}.getBoundingClientRect();'
             f' return [...{here}.querySelectorAll(".thread-meta")].every((meta) => [...meta.children].every((part) =>'
             ' part.getBoundingClientRect().right <= card.right + 0.5 && part.getBoundingClientRect().left >= card.left));') is True
+        browser.execute_script('document.querySelector(".layout").style.removeProperty("--tex-mcp-sidebar-width")')
+        # Resolve on several picked threads from Overleaf would resolve them there, for
+        # everyone: the press asks first, with their number, and a no leaves all as they were.
+        browser.execute_script(f"document.querySelector('{leaf_tab}').click()")
+        show_view(browser, "open")
+        wait_until(lambda: browser.execute_script(
+            'return document.querySelectorAll("#comments-list [data-comment-id]").length') > 1)
+        browser.execute_script("window.asked = []; window.confirm = (words) => { window.asked.push(words); return false; };")
+        if not browser.execute_script('return document.querySelector("#pick-all-btn").checked'):
+            browser.execute_script('document.querySelector("#pick-all-btn").click()')
+        picked = browser.execute_script('return document.querySelector("#resolve-picked-btn").dataset.ids.split(" ").length')
+        assert picked > 1
+        browser.execute_script('document.querySelector("#resolve-picked-btn").click()')
+        assert browser.execute_script("return window.asked") == [
+            f"Resolve {picked} threads on Overleaf, for everyone in the project?"]
+        assert browser.execute_script(
+            'return document.querySelector("#resolve-picked-btn").dataset.ids.split(" ").length') == picked
+        assert browser.execute_script(
+            'return [...document.querySelectorAll("#comments-list [data-comment-id]")].length') >= picked
     finally:
         if browser is not None:
             browser.quit()
@@ -3751,8 +3795,9 @@ def test_the_more_menu_updates_the_install_and_says_what_is_left(tmp_path: Path,
 @needs_chrome
 def test_the_more_menu_downloads_the_pdf_and_a_section_comment_keeps_its_heading(tmp_path: Path) -> None:
     """Download PDF in the more menu saves the PDF, under its own name while no Overleaf
-    project is named. + comment in the Sections tab lands on the heading it was pressed
-    on, though another heading has the same title."""
+    project is named. With no translation configured the menu offers it all the same, with
+    no check mark, and Settings has no place for it. + comment in the Sections tab lands on
+    the heading it was pressed on, though another heading has the same title."""
     import pymupdf
 
     (tmp_path / "paper.tex").write_text(
@@ -3784,6 +3829,30 @@ def test_the_more_menu_downloads_the_pdf_and_a_section_comment_keeps_its_heading
         wait_until(lambda: saved.is_file() and not list(downloads.glob("*.crdownload")))
         with urllib.request.urlopen(f"{base}/pdf", timeout=3) as response:
             assert saved.read_bytes() == response.read()
+
+        # No translation is configured: the item reads Translation… with no check mark and opens
+        # the pane all the same, and Settings shows no place to put it.
+        script = browser.execute_script
+        script('document.querySelector("#more-btn").click()')
+        assert script('''const item = document.querySelector("#translation-btn");
+          return [item.getClientRects().length > 0, item.textContent, item.getAttribute("role"),
+                  item.getAttribute("aria-checked"), getComputedStyle(item, "::after").content];''') == \
+            [True, "Translation…", "menuitem", None, "none"]
+        browser.find_element("css selector", "#translation-btn").click()
+        wait_until(lambda: script('return document.querySelector("#translation-pane").getBoundingClientRect().height > 0'))
+        # The pane says what translation is and how to set it up.
+        help_lines = 'return [...document.querySelectorAll("#translation-body p")].map((p) => p.textContent)'
+        wait_until(lambda: len(script(help_lines)) == 3)
+        assert script(help_lines)[1] == "Ask your agent: set up translation to <your language>"
+        script('document.querySelector("#more-btn").click()')
+        assert script('return getComputedStyle(document.querySelector("#translation-btn"), "::after").content') == "none"
+        script('document.querySelector("#more-btn").click()')
+        script('document.querySelector("#settings-btn").click()')
+        wait_until(lambda: script('return document.querySelector("#settings-dialog").open'))
+        assert script('return [...document.querySelectorAll("#settings-form h4")]'
+                      '.filter((h) => h.getClientRects().length).map((h) => h.textContent)')[-1] == "Editor cursor position"
+        assert script('return document.querySelector("[data-place-choice]").getClientRects().length') == 0
+        script('document.querySelector("#settings-dialog").close()')
 
         browser.execute_script('document.querySelectorAll(".paper-section")[3].querySelector(".comment-section-btn").click()')
         wait_until(lambda: browser.execute_script('return document.querySelector("#compose-dialog").open'))
@@ -4285,8 +4354,9 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
         assert text("#overleaf-sync-comments-btn .count") == "1"
         # However narrow the panel, the row over the threads stays one line inside it, with no
         # control over another: the buttons it has no room for wait behind the dots. At the
-        # panel's own width the sync button and Call agent are in the row, and at the narrowest
-        # Resolve and Send still are.
+        # panel's own width the sync button and Call agent are in the row, at 520px Resolve
+        # still shows its word, and at the narrowest Resolve and Send are still in the row,
+        # Resolve as its icon.
         fits = '''
           const row = document.querySelector(".filter-row");
           const box = row.getBoundingClientRect();
@@ -4307,6 +4377,15 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
                 f'document.querySelector(".layout").style.setProperty("--tex-mcp-sidebar-width", "{width}px")')
             wait_until(lambda: in_row("comment-filter", "comment-rare-btn" if width == 240 else "fold-all-btn",
                                       "pick-all-btn", "resolve-picked-btn", "send-picked-btn"), timeout=5)
+            resolve_word = ('return getComputedStyle(document.querySelector("#resolve-picked-btn .wide-label"))'
+                            '.display !== "none"')
+            assert browser.execute_script(resolve_word) is (width == 520)
+            if width == 520:
+                # The word Call agent shows after a press gives way before Resolve's does.
+                browser.execute_script('document.querySelector("#call-agent-btn").click()')
+                wait_until(lambda: text("#call-agent-word") == "Queued", timeout=5)
+                assert in_row("resolve-picked-btn", "call-agent-btn") and browser.execute_script(resolve_word)
+                wait_until(lambda: text("#call-agent-word") == "", timeout=5)
         browser.execute_script('document.querySelector(".layout").style.removeProperty("--tex-mcp-sidebar-width")')
         assert not browser.execute_script('return document.body.textContent.includes("Came in when asked.")')
         # The button atop the comment list syncs them in place, with no dialog.
@@ -5025,11 +5104,11 @@ def test_translation_numbers_its_source_lines_and_follows_the_editor(tmp_path: P
     cursor is marked and brought into view, and the type size steps and is kept."""
     import pymupdf
 
-    def translated(prompt, cwd, system, model):
+    def translated(command, prompt, cwd, system):
         blocks = json.loads(prompt.split("Paragraphs (JSON):\n", 1)[1])
         return json.dumps({"t": {pid: "T " + text for pid, text in blocks.items()}})
 
-    monkeypatch.setattr("tex_mcp_web.translate.run_claude", translated)
+    monkeypatch.setattr("tex_mcp_web.translate.run_command", translated)
     paragraphs = "\n\n".join(f"Paragraph number {n} has words\nacross two lines." for n in range(40))
     (tmp_path / "paper.tex").write_text(
         "\\documentclass{article}\n\\begin{document}\n\n" + paragraphs + "\n\n\\end{document}\n", encoding="utf-8")
@@ -5039,7 +5118,8 @@ def test_translation_numbers_its_source_lines_and_follows_the_editor(tmp_path: P
     port = available_port()
     config_path = tmp_path / ".tex-mcp-web.yaml"
     config_path.write_text(
-        f"main: paper.tex\nport: {port}\ntranslation:\n  language: Korean\n", encoding="utf-8")
+        f"main: paper.tex\nport: {port}\ntranslation:\n  language: Korean\n  command: llm-tool --model mid\n",
+        encoding="utf-8")
 
     shared = SharedProjectServer(load_config(config_path))
     browser = None
@@ -5051,8 +5131,8 @@ def test_translation_numbers_its_source_lines_and_follows_the_editor(tmp_path: P
         browser.set_window_rect(x=0, y=0, width=1500, height=1000)
         browser.navigate(base)
 
-        wait_until(lambda: not browser.execute_script(
-            'return document.querySelector("#translation-btn").classList.contains("hidden");'))
+        wait_until(lambda: browser.execute_script(
+            'return document.querySelector("#translation-btn").textContent;') == "Translation: Korean")
         browser.execute_script("""
           document.querySelector("#translation-btn").click();
           document.querySelector(".view-tab[data-view=split]").click();
@@ -5066,6 +5146,14 @@ def test_translation_numbers_its_source_lines_and_follows_the_editor(tmp_path: P
           return [...document.querySelectorAll(".translation-line")].slice(0, 2).map((x) => x.textContent);
         """)
         assert labels == ["4\u20135", "7\u20138"]
+        # The pane's head says what translates, in small dim type, with the whole command as its title.
+        assert browser.execute_script("""
+          const tool = document.querySelector("#translation-tool");
+          const style = getComputedStyle(tool), root = getComputedStyle(document.documentElement);
+          const fine = parseFloat(root.getPropertyValue("--text-fine")) * parseFloat(root.fontSize);
+          return [tool.textContent, tool.title, Math.abs(parseFloat(style.fontSize) - fine) < 0.05,
+                  style.color === getComputedStyle(document.querySelector("#translation-page")).color];
+        """) == ["llm-tool \u00b7 mid", "llm-tool --model mid", True, True]
         assert browser.execute_script(
             'return document.querySelector(".translation-text").textContent;'
         ) == "T Paragraph number 0 has words\nacross two lines."

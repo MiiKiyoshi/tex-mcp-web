@@ -1321,6 +1321,7 @@ async def test_setup_info_reports_paths_without_connecting(tmp_path, monkeypatch
     pytest.importorskip("mcp")
     import threading
 
+    from tex_mcp_web.config import user_config_file
     from tex_mcp_web.mcp_client import ProjectBinding
     from tex_mcp_web.mcp_server import create_server
 
@@ -1347,6 +1348,7 @@ async def test_setup_info_reports_paths_without_connecting(tmp_path, monkeypatch
             "bound_config_path": None,
             "bound_dir": None,
             "cli": str(Path(sys.executable).parent / "tex-mcp-web"),
+            "translation": {"language": None, "command": None, "user_config": str(user_config_file())},
         }
         # A report only: no server, no binding, no file.
         assert binding.bound_config_path() is None
@@ -3465,8 +3467,10 @@ def _translation_project(project, server, runner):
                        2: [(90.0, SourcePosition("body.tex", 6))]},
         source_to_pdf={}, input_files={1: "abs.tex", 2: "body.tex"})
     server.config.translation_language = "Korean"
+    server.config.translation_command = ["llm-tool", "--model", "mid"]
     server.translator = Translator(TranslationStore(project / ".tex-mcp-web" / "translations-korean.json"),
-                                   [], project, runner=runner, language="Korean")
+                                   [], project, runner=runner, language="Korean",
+                                   command=["llm-tool", "--model", "mid"])
     server.translator.start = lambda paragraphs: server.translator.translate(paragraphs) or True
 
 
@@ -3487,6 +3491,7 @@ async def test_translations_cover_a_whole_file_once(client, project):
     first = await (await tc.get("/translations?file=body.tex&page=2")).json()
     assert first["status"] == "pending" and first["file"] == "body.tex"
     assert first["language"] == "Korean"
+    assert first["translator"] == "llm-tool · mid" and first["command"] == "llm-tool --model mid"
     assert [(p["line_start"], p["text"], p["on_page"]) for p in first["paragraphs"]] == [
         (2, None, False), (4, None, False), (6, None, True)]
     assert calls == [["First paragraph of the body text.", "Second paragraph of the body text.",
@@ -3521,13 +3526,35 @@ async def test_translations_reject_bad_requests(client, project):
 
 
 @pytest.mark.asyncio
-async def test_translations_need_a_configured_language(client, project):
+async def test_translations_say_what_is_missing_and_how_to_set_it_up(client, project):
+    """With no language, the page says what translation is; with a language but no command,
+    that the command is not set. Both say how to ask the agent and where the command goes."""
+    from tex_mcp_web.config import user_config_file
+
     tc, server = client
     assert server.config.translation_language is None
     assert (await (await tc.get("/paper")).json())["translation_language"] is None
+    unset = await (await tc.get("/translations?file=paper.tex")).json()
+    assert unset["status"] == "no-language" and unset["language"] is None
+    assert unset["help"][0].startswith("Translation shows each paragraph of the source in your language")
+    assert unset["help"][1] == "Ask your agent: set up translation to <your language>"
+    assert "translation.language" in unset["help"][2] and str(user_config_file()) in unset["help"][2]
+
+    server.config.translation_language = "Korean"
+    unset = await (await tc.get("/translations?file=paper.tex")).json()
+    assert unset["status"] == "no-command" and unset["language"] == "Korean"
+    assert unset["help"][0] == "translation.command is not set, so nothing translates the source yet."
+    assert unset["help"][1] == "Ask your agent: set up translation to Korean"
+    assert str(server.config.config_path) in unset["help"][2] and str(user_config_file()) in unset["help"][2]
+    assert server.translator is None                                   # nothing was built to run
+
+    user_config_file().parent.mkdir(parents=True)
+    user_config_file().write_text("translation:\n  command: user-tool --model=mid\n", encoding="utf-8")
+    data = await (await tc.get("/translations?file=paper.tex")).json()
+    assert data["translator"] == "user-tool · mid" and server.translator.command == ["user-tool", "--model=mid"]
+    user_config_file().write_text("translation: user-tool\n", encoding="utf-8")
     response = await tc.get("/translations?file=paper.tex")
-    assert response.status == 404
-    assert "translation" in (await response.json())["error"]
+    assert response.status == 400 and "translation must be a mapping" in (await response.json())["error"]
 
 
 @pytest.mark.asyncio
@@ -3540,11 +3567,16 @@ async def test_each_language_keeps_its_own_translations(client, project):
 
     server.config.translation_language = "Japanese"
     assert (await (await tc.get("/paper")).json())["translation_language"] == "Japanese"
-    translator = server._translator("Japanese")
+    command = server.config.translation_command
+    translator = server._translator("Japanese", command)
     assert translator.language == "Japanese"
     assert translator.store.path.name == "translations-japanese.json"
     assert translator.missing(split_paragraphs((project / "body.tex").read_text(encoding="utf-8"), "body.tex"))
-    assert server._translator("Japanese") is translator
+    assert server._translator("Japanese", command) is translator
+    # Another command is another translator, on the same store of translations.
+    other = server._translator("Japanese", ["other-tool"])
+    assert other is not translator and other.command == ["other-tool"]
+    assert other.store.path == translator.store.path
 
 
 

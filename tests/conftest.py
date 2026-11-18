@@ -1,6 +1,13 @@
 import pytest
 
-from tex_mcp_web import plugin_monitor, update
+from tex_mcp_web import config, plugin_monitor, update
+
+
+@pytest.fixture(autouse=True)
+def no_user_translation(tmp_path, monkeypatch):
+    """No test runs the translation command in the user's own config file, whatever that
+    file holds on the machine running the tests. A test of that file writes it here."""
+    monkeypatch.setattr(config, "user_config_file", lambda: tmp_path / "user-config" / "config.yaml")
 
 
 @pytest.fixture(autouse=True)
