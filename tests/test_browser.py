@@ -1466,7 +1466,7 @@ def test_browser_source_selection_and_split_resize(tmp_path: Path) -> None:
         ''', sandbox=None)
         type_keys(browser, [*"ggyy"])
         assert wait_until(lambda: browser.execute_script("return window.copied ?? null;", sandbox=None)) \
-            == browser.execute_script(f"return {editor}.session.getLine(0) + '\\n';")
+            == browser.execute_script(f"return {editor}.session.getLine(0) + {editor}.session.doc.getNewLineCharacter();")
         field = f"{editor}.textInput.getElement().readOnly"
         assert browser.execute_script(f"return {field};") is True
         type_keys(browser, ["i"])

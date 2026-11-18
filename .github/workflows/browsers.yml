@@ -24,6 +24,7 @@ jobs:
           packages: |
             scheme-basic
             latexmk
+            synctex
       - name: Python packages
         run: pip install -e ".[dev]"
       - name: Browser tests
