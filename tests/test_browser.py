@@ -2582,6 +2582,49 @@ def test_the_editor_holds_the_cursor_line_a_third_down_when_chosen(tmp_path: Pat
 
 
 @needs_chrome
+def test_on_a_mac_the_page_names_the_keys_a_mac_has(tmp_path: Path) -> None:
+    """A Mac holds the page's shortcuts with Cmd and Option. Its tooltips, the keys dialog and
+    the notes name them so, while Ctrl+[ stays Ctrl, and another system reads Ctrl and Alt."""
+    import pymupdf
+
+    (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
+    with pymupdf.open() as pdf:
+        pdf.new_page().insert_text((72, 72), "Hello world.")
+        pdf.save(tmp_path / "paper.pdf")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    browser = None
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        browser = chrome.launch()
+        names = '''
+          const said = [document.querySelector("#compile-btn").title, document.querySelector("#call-agent-btn").title,
+                        document.querySelector("#source-pdf-btn").title, document.querySelector("#keys-dialog").textContent];
+          document.querySelector("#keys-dialog").close();
+          return said;'''
+        for platform, held, alt in (("MacIntel", "Cmd", "Option"), ("Win32", "Ctrl", "Alt")):
+            browser.platform(platform)
+            browser.navigate(base)
+            wait_until(lambda: browser.execute_script('return document.querySelector("#comments-list") !== null'))
+            wait_until(lambda: f"{held}+{alt}+Enter" in browser.execute_script('return document.querySelector("#call-agent-btn").title'))
+            browser.execute_script('document.querySelector("#keys-btn").click()')
+            compile_title, call_title, preview_title, keys = browser.execute_script(names)
+            assert f"({held}+Enter" in compile_title and f"{held}+{alt}+Enter" in call_title
+            assert f"{held}+{alt}+P" in preview_title
+            assert f"{held}+{alt}+K" in keys
+            other = "Ctrl+Alt+" if held == "Cmd" else "Cmd+Option+"
+            assert other not in compile_title + call_title + preview_title + keys
+    finally:
+        if browser is not None:
+            browser.quit()
+        shared.stop()
+
+
+@needs_chrome
 def test_the_editors_menu_holds_text_size_wrap_and_vim_keys(tmp_path: Path) -> None:
     """The editor's bar keeps the text size, wrapping and Vim keys in its ⋯ menu, named there
     and checked as remembered. The menu stays open as the size steps, and Vim keys, Escape or
@@ -5518,6 +5561,7 @@ def test_the_editor_completes_labels_citations_environments_files_and_commands(t
         assert browser.execute_script(f"return {editor}.getCursorPosition().row;") == row + 1
 
         type_at_end_of(row + 1, "\\item")
+        wait_until(lambda: shown() is None)                             # the list the backslash opened has closed
         enter()                                                         # a command typed whole
         wait_until(lambda: browser.execute_script(f"return {editor}.getCursorPosition().row;") == row + 2)
         assert line(row + 1).strip() == "\\item"

@@ -79,6 +79,14 @@ def cmd_link(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 
+def _main_here() -> str:
+    """The folder's main file: the one .tex file here that has \\documentclass, or paper.tex
+    when there is none or more than one to choose from."""
+    mains = [path.name for path in sorted(Path.cwd().glob("*.tex"))
+             if "\\documentclass" in path.read_text(encoding="utf-8", errors="replace")]
+    return mains[0] if len(mains) == 1 else "paper.tex"
+
+
 def cmd_init(args: argparse.Namespace) -> int:
     existing = find_config()
     if existing and not args.force:
@@ -91,7 +99,7 @@ def cmd_init(args: argparse.Namespace) -> int:
             print("--force writes a new config here, which takes precedence for this folder. "
                   "The parent is not changed.", file=sys.stderr)
         return 1
-    path = create_config(main=args.main, port=args.port or DEFAULT_PORT)
+    path = create_config(main=args.main or _main_here(), port=args.port or DEFAULT_PORT)
     print(f"Wrote {path}", file=sys.stderr)
     return 0
 
@@ -291,7 +299,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_link)
 
     p = sub.add_parser("init", help="scaffold .tex-mcp-web.yaml")
-    p.add_argument("--main", default="paper.tex")
+    p.add_argument("--main", help="main .tex file (default: the one here with \\documentclass, else paper.tex)")
     p.add_argument("--force", action="store_true")
     p.set_defaults(func=cmd_init)
 

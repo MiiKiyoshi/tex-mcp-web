@@ -39,6 +39,20 @@ def test_init_creates_yaml(project_dir, capsys):
     assert data["main"] == "main.tex"
 
 
+def test_init_finds_the_folders_main_file(project_dir):
+    """With no --main, init takes the one .tex file here that has \\documentclass, and
+    paper.tex when the folder gives no single answer."""
+    held = sorted(path.name for path in project_dir.glob("*.tex")
+                  if "\\documentclass" in path.read_text(encoding="utf-8"))
+    assert len(held) == 1
+    (project_dir / "part.tex").write_text("A section of it.\n", encoding="utf-8", newline="")
+    assert main(["init"]) == 0
+    assert yaml.safe_load((project_dir / ".tex-mcp-web.yaml").read_text(encoding="utf-8"))["main"] == held[0]
+    (project_dir / "other.tex").write_text("\\documentclass{article}\n", encoding="utf-8", newline="")
+    assert main(["init", "--force"]) == 0
+    assert yaml.safe_load((project_dir / ".tex-mcp-web.yaml").read_text(encoding="utf-8"))["main"] == "paper.tex"
+
+
 def test_init_refuses_to_overwrite_existing(project_dir, capsys):
     main(["init", "--main", "main.tex"])
     capsys.readouterr()

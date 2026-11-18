@@ -151,6 +151,12 @@ class Chrome:
         self.driver.execute_cdp_cmd("Emulation.setEmulatedMedia", {
             "features": [{"name": "prefers-color-scheme", "value": scheme or "light"}]})
 
+    def platform(self, name: str) -> None:
+        """Have the browser say it runs on the system *name*, as navigator.platform gives it,
+        for the pages loaded from then on."""
+        self.driver.execute_cdp_cmd("Emulation.setUserAgentOverride", {
+            "userAgent": self.driver.execute_script("return navigator.userAgent"), "platform": name})
+
     def actions(self, kind: str, name: str, parameters: dict | None = None) -> Actions:
         return Actions(self, kind, name, parameters)
 

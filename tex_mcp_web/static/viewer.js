@@ -6324,7 +6324,52 @@ async function init() {
   connectWebSocket();
 }
 
+// A Mac holds the page's shortcuts with Cmd, and its Option key is the Alt of other keyboards.
+// The page's texts name the keys as Windows and Linux have them, and on a Mac every tooltip
+// and label, and the texts of the keys dialog and of the notes above the lists, are shown
+// with the Mac's names. Ctrl+[, Ctrl+O and Ctrl+T are Ctrl on a Mac too.
+function macKeyNames(text) {
+  return text.replace(/Ctrl\+Alt\+/g, "Cmd+Option+").replace(/Ctrl\+(?=Enter\b|S\b)/g, "Cmd+");
+}
+
+function showMacKeyNames() {
+  if (!/Mac|iPhone|iPad|iPod/.test(navigator.platform)) return;
+  const named = (node) => {
+    for (const attribute of ["title", "aria-label"]) {
+      const text = node.getAttribute?.(attribute);
+      if (text && text !== macKeyNames(text)) node.setAttribute(attribute, macKeyNames(text));
+    }
+  };
+  const written = (node) => {
+    const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+    for (let text = walker.nextNode(); text; text = walker.nextNode()) {
+      if (text.data !== macKeyNames(text.data)) text.data = macKeyNames(text.data);
+    }
+  };
+  const texts = "#keys-dialog, .sync-why, #update-alert";
+  const seen = (node) => {
+    if (node.nodeType !== Node.ELEMENT_NODE) {
+      if (node.nodeType === Node.TEXT_NODE && node.parentElement?.closest(texts)) written(node.parentElement);
+      return;
+    }
+    named(node);
+    node.querySelectorAll("[title], [aria-label]").forEach(named);
+    if (node.closest(texts)) written(node);
+    else node.querySelectorAll(texts).forEach(written);
+  };
+  seen(document.body);
+  new MutationObserver((changes) => {
+    for (const change of changes) {
+      if (change.type === "attributes") named(change.target);
+      else if (change.type === "characterData") seen(change.target);
+      else change.addedNodes.forEach(seen);
+    }
+  }).observe(document.body, { subtree: true, childList: true, characterData: true,
+    attributes: true, attributeFilter: ["title", "aria-label"] });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
+  showMacKeyNames();
   init().catch((error) => {
     console.error(error);
     alert(`tex-mcp-web failed to start: ${error.message}`);
