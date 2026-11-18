@@ -1304,10 +1304,9 @@ def test_source_beside_comment_opens_the_selected_words_in_the_editor(tmp_path: 
         assert all(abs(got / page[2] - want) < 3 for got, want in zip(pointed, short["bbox"])), (pointed, short["bbox"])
         assert browser.execute_script('return document.querySelector(".layout").classList.contains("view-pdf")')
         # Pressed in the Preview alone, Show in Source turns the view to Split and selects the
-        # words. Its label names the shortcut that does the same on a word.
+        # words.
         select_words()
-        source_label = f"Show in Source ({'Cmd' if sys.platform == 'darwin' else 'Ctrl'}+double-click)"
-        wait_until(lambda: menu_button(source_label))
+        wait_until(lambda: menu_button("Show in Source"))
         browser.execute_script('''
           Array.from(document.querySelector("embedpdf-container").shadowRoot.querySelectorAll("button"))
             .find((button) => button.textContent.trim().startsWith("Show in Source")).click();
@@ -3747,7 +3746,7 @@ def test_on_a_mac_the_page_names_the_keys_a_mac_has(tmp_path: Path) -> None:
                 ' return !document.querySelector("#help-keys").hidden'
                 ' && pages.scrollHeight > pages.clientHeight && pages.scrollTop === 0'))
             editor_keys = browser.execute_script('return document.querySelector("#help-keys").textContent')
-            assert all(f"{held}+{key}" in editor_keys for key in ("S", "Enter", f"{alt}+M", f"{alt}+K"))
+            assert all(f"{held}+{key}" in editor_keys for key in ("S", "Enter", f"{alt}+M", f"{alt}+K", "double-click"))
             assert "Ctrl+[" in editor_keys and "Ctrl+Space" in editor_keys
             compile_title, call_title, preview_title, keys = browser.execute_script(names)
             assert f"({held}+Enter" in compile_title and f"{held}+{alt}+Enter" in call_title

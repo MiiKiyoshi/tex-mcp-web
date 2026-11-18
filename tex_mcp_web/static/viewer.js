@@ -611,12 +611,9 @@ async function initializePdfViewer(pdfView) {
     action: openTextSelectionCompose,
   });
   state.viewer.registerIcon("tex-source", { viewBox: "0 0 24 24", path: "M8 7l-5 5 5 5 M16 7l5 5-5 5", strokeWidth: 2 });
-  // Its label names the shortcut that does the same on a word, where a mouse has the keys:
-  // Ctrl (Cmd on a Mac) with a double click.
-  const sourceClick = /Mac|iPhone|iPad|iPod/.test(navigator.platform) ? "Cmd+double-click" : "Ctrl+double-click";
   commands.registerCommand({
     id: "tex-web:selection-source",
-    label: matchMedia("(pointer: coarse)").matches ? "Show in Source" : `Show in Source (${sourceClick})`,
+    label: "Show in Source",
     icon: "tex-source",
     action: () => openSelectionInSource().catch((error) => alert(`Could not open the source: ${error.message}`)),
   });
@@ -6749,7 +6746,7 @@ async function init() {
 // and label, and the texts of Help and of the notes above the lists, are shown
 // with the Mac's names. Ctrl+[, Ctrl+O and Ctrl+T are Ctrl on a Mac too.
 function macKeyNames(text) {
-  return text.replace(/Ctrl\+Alt\+/g, "Cmd+Option+").replace(/Ctrl\+(?=Enter\b|S\b)/g, "Cmd+");
+  return text.replace(/Ctrl\+Alt\+/g, "Cmd+Option+").replace(/Ctrl\+(?=Enter\b|S\b|double-click\b)/g, "Cmd+");
 }
 
 function showMacKeyNames() {
