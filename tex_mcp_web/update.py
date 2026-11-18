@@ -16,6 +16,8 @@ import sys
 import time
 from pathlib import Path
 
+import psutil
+
 from . import __version__
 
 # Where the newest release is read, at most once in ASK_EVERY seconds by one process, and
@@ -97,11 +99,28 @@ async def _run(*command: str) -> None:
         raise UpdateError("\n".join(said) or f"{Path(command[0]).name} failed")
 
 
+def running_launchers() -> list[str]:
+    """The programs of this install that are running: tex-mcp.exe and its kin in the
+    environment's Scripts folder. Windows locks a running program's file, and an update
+    replaces these files."""
+    scripts = (Path(sys.prefix) / "Scripts").resolve()
+    found = set()
+    for process in psutil.process_iter(["exe"]):
+        exe = Path(process.info["exe"] or "")
+        if exe.name.lower().startswith("tex-mcp") and exe.parent.resolve() == scripts:
+            found.add(exe.name)
+    return sorted(found)
+
+
 async def run() -> str:
     """Bring this install to the newest release, and give the version then on disk."""
     how = way()
     if how is None:
         raise UpdateError("This install cannot update itself. Ask your agent to update tex-mcp-web.")
+    if sys.platform == "win32" and (held := running_launchers()):
+        raise UpdateError(f"{' and '.join(held)} is running, and Windows does not let a running program be "
+                          "replaced. Ask your agent to update tex-mcp-web: it registers the server so that "
+                          "later updates work from this page.")
     pip = (sys.executable, "-m", "pip", "install", "-q", "--disable-pip-version-check")
     if how == "checkout":
         await _run(shutil.which("git") or "git", "-C", str(ROOT), "pull", "-q", "--ff-only")

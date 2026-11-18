@@ -57,8 +57,14 @@ Remove any registration the user agreed to replace (`claude mcp remove --scope u
 
     BIN="$DIR/.venv/bin"
     P="$BIN:<latexmk directory>:<translation command directory>:/usr/bin:/bin"   # the directory of the command translation runs, if you use one
-    claude mcp add --scope user tex-mcp -e PATH="$P" -- "$BIN/tex-mcp"
-    codex mcp add tex-mcp --env PATH="$P" -- "$BIN/tex-mcp"
+    claude mcp add --scope user tex-mcp -e PATH="$P" -- "$BIN/python" -m tex_mcp_web.cli mcp
+    codex mcp add tex-mcp --env PATH="$P" -- "$BIN/python" -m tex_mcp_web.cli mcp
+
+The server is registered as a Python module, not as the `tex-mcp` program in the same
+folder. Windows locks a program's file while it runs, so a server started from `tex-mcp.exe`
+would block every later update, which replaces that file. If an existing registration on
+Windows runs `tex-mcp.exe`, replace the registration first, ask the user to restart the
+agent, and run step 3 after the restart: until then the running server holds the file.
 
 On Windows, join the PATH entries with `;` and use Windows folders: the directories above,
 then `C:\Windows\System32` and `C:\Windows`, the folder of `git`, which syncing with Overleaf

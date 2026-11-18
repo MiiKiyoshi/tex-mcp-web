@@ -39,6 +39,9 @@ needs_chrome = pytest.mark.skipif(binary() is None, reason="Google Chrome is req
 
 # The keys a test presses, by the names it writes them with.
 ENTER, CONTROL, SHIFT, ALT, META, ESCAPE = "\ue007", "\ue009", "\ue008", "\ue00a", "\ue03d", "\ue00c"
+# The key the page's own shortcuts are held with: Cmd on a Mac, where Option stands for Alt, and
+# Ctrl elsewhere.
+MOD = META if sys.platform == "darwin" else CONTROL
 
 
 class Actions:
@@ -97,6 +100,9 @@ class Chrome:
                 "plugins.always_open_pdf_externally": True})
         self.driver = webdriver.Chrome(options=options)
         self.driver.set_script_timeout(60)
+        # The tests are written for a light system. A machine set to dark, whose setting
+        # reaches headless Chrome, would otherwise turn System to dark.
+        self.prefer_scheme(None)
         if touch:
             # A finger is a coarse pointer, which the page's touch rules key off.
             self.driver.execute_cdp_cmd("Emulation.setTouchEmulationEnabled", {"enabled": True, "maxTouchPoints": 2})
@@ -140,9 +146,10 @@ class Chrome:
         return self.driver.switch_to.alert
 
     def prefer_scheme(self, scheme: str | None) -> None:
-        """Have the system say it prefers dark or light, or with None say what it does."""
+        """Have the system say it prefers dark or light, or with None light, the scheme the
+        tests take a system to have whatever this machine is set to."""
         self.driver.execute_cdp_cmd("Emulation.setEmulatedMedia", {
-            "features": [{"name": "prefers-color-scheme", "value": scheme or ""}]})
+            "features": [{"name": "prefers-color-scheme", "value": scheme or "light"}]})
 
     def actions(self, kind: str, name: str, parameters: dict | None = None) -> Actions:
         return Actions(self, kind, name, parameters)

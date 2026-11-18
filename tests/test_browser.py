@@ -1047,8 +1047,8 @@ def test_source_beside_comment_opens_the_selected_words_in_the_editor(tmp_path: 
           editor.focus();
         ''')
         # Its keys, Ctrl+Alt+P, do what the button does.
-        browser.actions("key", "keyboard").key_down("\ue009").key_down("\ue00a").key_down("p") \
-            .key_up("p").key_up("\ue00a").key_up("\ue009").perform()
+        browser.actions("key", "keyboard").key_down(chrome.MOD).key_down("\ue00a").key_down("p") \
+            .key_up("p").key_up("\ue00a").key_up(chrome.MOD).perform()
         with pymupdf.open(shared.server.last_result.output_file) as pdf:
             printed = pdf[0].search_for("brown fox ju")[0]
         marked = wait_until(lambda: browser.execute_script('''
@@ -1357,6 +1357,9 @@ def test_browser_source_selection_and_split_resize(tmp_path: Path) -> None:
         browser.execute_script('document.querySelector("#source-font-smaller-btn").click()')
         # The moon button turns the page dark and back, keeps the choice, and takes the
         # editor and the PDF viewer with it.
+        # The viewer is there once the first build ends, which takes some TeX installs seconds.
+        wait_until(lambda: browser.execute_script('return document.querySelector("embedpdf-container") !== null'),
+                   timeout=60)
         theme = '''
           const page = window.wrappedJSObject || window;
           const viewer = document.querySelector("embedpdf-container");
@@ -1519,8 +1522,8 @@ def test_browser_source_selection_and_split_resize(tmp_path: Path) -> None:
         assert browser.execute_script(f"return {editor}.textInput.getElement().readOnly;") is False
         # Without Vim keys, Ctrl+Alt+M comments on the selection.
         browser.execute_script(f"{editor}.focus(); {editor}.selection.selectLine();")
-        browser.actions("key", "keyboard").key_down("\ue009").key_down("\ue00a").key_down("m") \
-            .key_up("m").key_up("\ue00a").key_up("\ue009").perform()
+        browser.actions("key", "keyboard").key_down(chrome.MOD).key_down("\ue00a").key_down("m") \
+            .key_up("m").key_up("\ue00a").key_up(chrome.MOD).perform()
         wait_until(lambda: browser.execute_script('return document.querySelector("#compose-dialog").open'))
         # Ctrl+[ drops the comment being written, as Escape does where Safari keeps Escape.
         browser.actions("key", "keyboard").key_down("\ue009").key_down("[") \
@@ -1570,8 +1573,8 @@ def test_browser_source_selection_and_split_resize(tmp_path: Path) -> None:
         wait_until(lambda: browser.execute_script(coverage) == [False, True, True, True, False])
         # Ctrl+Alt+K on the commented characters opens their comment in the comments.
         browser.execute_script('const e = (window.wrappedJSObject || window).ace.edit("source-editor"); e.focus(); e.moveCursorTo(3, 130);')
-        browser.actions("key", "keyboard").key_down("\ue009").key_down("\ue00a").key_down("k") \
-            .key_up("k").key_up("\ue00a").key_up("\ue009").perform()
+        browser.actions("key", "keyboard").key_down(chrome.MOD).key_down("\ue00a").key_down("k") \
+            .key_up("k").key_up("\ue00a").key_up(chrome.MOD).perform()
         wait_until(lambda: browser.execute_script(
             'return document.querySelector("[data-comment-id].is-focused")?.dataset.commentId') == comment["id"])
         grip = browser.execute_script('''
@@ -2896,8 +2899,8 @@ def test_the_comment_list_goes_by_keys(tmp_path: Path) -> None:
         # it was. Ctrl+Alt+K goes from the list as K does, and a paper note, with no words in
         # the source, takes the keys to the editor as they stand.
         def editor_k():
-            browser.actions("key", "keyboard").key_down("\ue009").key_down("\ue00a").key_down("k") \
-                .key_up("k").key_up("\ue00a").key_up("\ue009").perform()
+            browser.actions("key", "keyboard").key_down(chrome.MOD).key_down("\ue00a").key_down("k") \
+                .key_up("k").key_up("\ue00a").key_up(chrome.MOD).perform()
 
         in_editor = f'{editor} return editor.isFocused();'
         press("K")

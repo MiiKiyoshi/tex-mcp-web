@@ -61,3 +61,36 @@ async def test_an_update_runs_its_commands_apart_from_the_agents_connection(tmp_
     with pytest.raises(update.UpdateError, match="no such thing"):
         await update._run(sys.executable, "-c", "import sys; print('no such thing'); sys.exit(3)")
     await update._run(sys.executable, "-c", "print('quiet')")
+
+
+def test_on_windows_an_update_is_refused_while_the_installs_own_program_runs(tmp_path, monkeypatch):
+    """Windows locks a running program's file, and an update replaces tex-mcp.exe. A server
+    started from it is told so before anything is changed. One started as a Python module,
+    as INSTALL.md registers it, updates."""
+    import asyncio
+    from types import SimpleNamespace
+
+    scripts = tmp_path / "Scripts"
+    scripts.mkdir()
+    running = [SimpleNamespace(info={"exe": str(scripts / "tex-mcp.exe")}),
+               SimpleNamespace(info={"exe": str(tmp_path / "elsewhere" / "tex-mcp.exe")}),
+               SimpleNamespace(info={"exe": str(scripts / "python.exe")}),
+               SimpleNamespace(info={"exe": None})]
+    monkeypatch.setattr(update.sys, "prefix", str(tmp_path))
+    monkeypatch.setattr(update.psutil, "process_iter", lambda attrs: running)
+    assert update.running_launchers() == ["tex-mcp.exe"]
+
+    ran = []
+
+    async def record(*command):
+        ran.append(command)
+
+    monkeypatch.setattr(update, "way", lambda: "checkout")
+    monkeypatch.setattr(update, "_run", record)
+    monkeypatch.setattr(update.sys, "platform", "win32")
+    with pytest.raises(update.UpdateError, match="tex-mcp.exe is running"):
+        asyncio.run(update.run())
+    assert ran == []
+    del running[0]
+    asyncio.run(update.run())
+    assert len(ran) == 2

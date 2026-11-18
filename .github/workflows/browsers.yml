@@ -19,23 +19,11 @@ jobs:
         with:
           python-version: "3.13"
       # The page shows a PDF only once the paper builds, so most of these tests need LaTeX.
-      - name: LaTeX (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          brew install --cask basictex
-          eval "$(/usr/libexec/path_helper)"
-          echo "/Library/TeX/texbin" >> "$GITHUB_PATH"
-          sudo /Library/TeX/texbin/tlmgr update --self
-          sudo /Library/TeX/texbin/tlmgr install latexmk
-      - name: LaTeX (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          choco install miktex.install --no-progress -y
-          $bin = "C:\Program Files\MiKTeX\miktex\bin\x64"
-          echo $bin >> $env:GITHUB_PATH
-          & "$bin\initexmf.exe" --admin --set-config-value "[MPM]AutoInstall=1"
-          & "$bin\mpm.exe" --admin --install=latexmk
+      - uses: teatimeguest/setup-texlive-action@v3
+        with:
+          packages: |
+            scheme-basic
+            latexmk
       - name: Python packages
         run: pip install -e ".[dev]"
       - name: Browser tests
