@@ -7,12 +7,17 @@ on:
 
 jobs:
   browser:
+    name: ${{ matrix.kind }} on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
         os: [windows-latest, macos-latest]
+        kind: [chrome]
+        include:
+          - os: macos-latest
+            kind: safari
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -27,8 +32,17 @@ jobs:
             synctex
       - name: Python packages
         run: pip install -e ".[dev]"
+      # Safari is driven through its own driver, which is turned on once.
+      - name: Safari's driver
+        if: matrix.kind == 'safari'
+        run: |
+          sudo safaridriver --enable
+          sw_vers -productVersion
+          /usr/bin/safaridriver --version
       - name: Browser tests
         shell: bash
+        env:
+          TEX_MCP_BROWSER_KIND: ${{ matrix.kind }}
         run: |
           # The runner's own chromedriver can be older than its Chrome. Without it Selenium
           # fetches the one that fits.

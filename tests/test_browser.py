@@ -24,7 +24,7 @@ from tex_mcp_web.mcp_client import SharedProjectServer
 
 
 from tests import chrome
-from tests.chrome import needs_chrome
+from tests.chrome import needs_browser
 
 
 PAPER = (
@@ -107,7 +107,7 @@ def wait_until(check, timeout: float = 30.0):
     raise AssertionError(f"condition was not met: {last}")
 
 
-@needs_chrome
+@needs_browser
 def test_browser_comment_actions(tmp_path: Path) -> None:
     import pymupdf
 
@@ -432,7 +432,7 @@ def test_browser_comment_actions(tmp_path: Path) -> None:
         shared.stop()
 
 
-@needs_chrome
+@needs_browser
 def test_the_page_says_why_it_waits_and_catches_up_when_its_server_returns(tmp_path: Path) -> None:
     """Nothing greyed, waiting or out of date goes unexplained. A first build that fails says
     so in the Preview, a source changed since the build and a config the server cannot take
@@ -575,7 +575,7 @@ def test_the_page_says_why_it_waits_and_catches_up_when_its_server_returns(tmp_p
         shared.stop()
 
 
-@needs_chrome
+@needs_browser
 def test_highlight_badges_leave_pdf_text_selectable(tmp_path: Path) -> None:
     import pymupdf
 
@@ -850,7 +850,7 @@ def test_highlight_badges_leave_pdf_text_selectable(tmp_path: Path) -> None:
         shared.stop()
 
 
-@needs_chrome
+@needs_browser
 def test_the_area_button_draws_a_box_to_comment_on(tmp_path: Path) -> None:
     """With the viewer's Area tool on, a drag draws a box even where it starts on text, the
     box becomes an area comment in PDF points, and the next drag selects text again."""
@@ -930,7 +930,7 @@ def test_the_area_button_draws_a_box_to_comment_on(tmp_path: Path) -> None:
         shared.stop()
 
 
-@needs_chrome
+@needs_browser
 @pytest.mark.skipif(shutil.which("synctex") is None or shutil.which("latexmk") is None,
                     reason="latexmk and synctex are required")
 def test_source_beside_comment_opens_the_selected_words_in_the_editor(tmp_path: Path) -> None:
@@ -1089,7 +1089,8 @@ def test_source_beside_comment_opens_the_selected_words_in_the_editor(tmp_path: 
 
 @pytest.mark.xfail(reason="desktop Chrome's touch emulation selects the whole line where a held "
                           "finger selects a word: to be settled on a real touch screen", strict=False)
-@needs_chrome
+@chrome.not_in_safari("no touch input or touch emulation in safaridriver")
+@needs_browser
 def test_a_finger_held_on_a_word_selects_it(tmp_path: Path) -> None:
     """The viewer selects by a drag or a double click; a tablet asks with a finger held
     still. The hold selects the word under it, a highlight in between or not, the
@@ -1312,7 +1313,7 @@ def test_a_finger_held_on_a_word_selects_it(tmp_path: Path) -> None:
         shared.stop()
 
 
-@needs_chrome
+@needs_browser
 def test_browser_source_selection_and_split_resize(tmp_path: Path) -> None:
     import pymupdf
 
@@ -1663,7 +1664,7 @@ def test_browser_source_selection_and_split_resize(tmp_path: Path) -> None:
         shared.stop()
 
 
-@needs_chrome
+@needs_browser
 def test_shift_picks_the_run_between_two_boxes(tmp_path: Path) -> None:
     """Picking six threads one box at a time is six clicks. Shift takes the run from the
     box the pick started at to the one it ends at, the way a list of files does, and the
@@ -1778,7 +1779,7 @@ def test_shift_picks_the_run_between_two_boxes(tmp_path: Path) -> None:
         shared.stop()
 
 
-@needs_chrome
+@needs_browser
 def test_a_comment_highlight_shows_on_the_cursors_line_in_every_look(tmp_path: Path) -> None:
     """The editor bands the cursor's line. In every look the band lets a comment's highlight
     on that line show through, rather than painting over it."""
@@ -1834,7 +1835,7 @@ def test_a_comment_highlight_shows_on_the_cursors_line_in_every_look(tmp_path: P
         shared.stop()
 
 
-@needs_chrome
+@needs_browser
 def test_a_comment_opened_by_space_shows_its_line_a_third_of_the_way_down_the_editor(tmp_path: Path) -> None:
     """Space opening a comment puts the editor's cursor on its words and their line a third of
     the way down the editor, whether the line was out of sight or already in it."""
@@ -1892,7 +1893,7 @@ def test_a_comment_opened_by_space_shows_its_line_a_third_of_the_way_down_the_ed
         shared.stop()
 
 
-@needs_chrome
+@needs_browser
 def test_each_comment_tab_opens_on_what_waits_for_the_reviewer(tmp_path: Path) -> None:
     """The Comments tab opens on to do: the comments the agent has yet to answer and those
     whose suggestion waits to be applied. Answered with nothing to apply, a comment leaves
@@ -2040,7 +2041,7 @@ def stamp(store: Path, moments: dict[str, list[str]]) -> None:
     store.write_text(json.dumps(data), encoding="utf-8")
 
 
-@needs_chrome
+@needs_browser
 def test_the_search_reads_the_conditions_mail_and_code_search_have(tmp_path: Path) -> None:
     """Each word typed is held somewhere in a comment, in any letter case. OR in capitals takes
     either side and binds looser than the spaces, quotes hold a phrase together, and a minus
@@ -2150,7 +2151,7 @@ def test_the_search_reads_the_conditions_mail_and_code_search_have(tmp_path: Pat
         shared.stop()
 
 
-@needs_chrome
+@needs_browser
 def test_the_sort_list_orders_each_tab_and_its_search_and_the_keys_follow(tmp_path: Path) -> None:
     """Beside the views, the sort list puts the list in paper order, latest first or oldest
     first, by when each thread was last written in, in a view and in a search alike. j, k and a
@@ -2301,7 +2302,7 @@ def test_the_sort_list_orders_each_tab_and_its_search_and_the_keys_follow(tmp_pa
         shared.stop()
 
 
-@needs_chrome
+@needs_browser
 def test_a_reviewer_finds_a_co_authors_thread_by_its_writer_file_and_day(tmp_path: Path) -> None:
     """Several co-authors wrote threads on Overleaf. The reviewer remembers that one of them
     wrote about a step in 2_main.tex around a certain day: in the search box, focused, the
@@ -2439,7 +2440,7 @@ def test_a_reviewer_finds_a_co_authors_thread_by_its_writer_file_and_day(tmp_pat
         shared.stop()
 
 
-@needs_chrome
+@needs_browser
 def test_applying_a_suggestion_keeps_the_ring_where_it_is(tmp_path: Path) -> None:
     """A comment on PDF words opened earlier leaves its highlight selected. The highlights are
     drawn again whenever the list is, as after Apply suggestion on another comment, and that
@@ -2492,7 +2493,7 @@ def test_applying_a_suggestion_keeps_the_ring_where_it_is(tmp_path: Path) -> Non
         shared.stop()
 
 
-@needs_chrome
+@needs_browser
 def test_the_editor_holds_the_cursor_line_a_third_down_when_chosen(tmp_path: Path) -> None:
     """Chosen in Settings, the cursor's line stays a third of the way down the editor as Vim's
     keys move it, the last line too, and the first lines stay at the top."""
@@ -2581,7 +2582,7 @@ def test_the_editor_holds_the_cursor_line_a_third_down_when_chosen(tmp_path: Pat
         shared.stop()
 
 
-@needs_chrome
+@needs_browser
 def test_on_a_mac_the_page_names_the_keys_a_mac_has(tmp_path: Path) -> None:
     """A Mac holds the page's shortcuts with Cmd and Option. Its tooltips, the keys dialog and
     the notes name them so, while Ctrl+[ stays Ctrl, and another system reads Ctrl and Alt."""
@@ -2624,7 +2625,7 @@ def test_on_a_mac_the_page_names_the_keys_a_mac_has(tmp_path: Path) -> None:
         shared.stop()
 
 
-@needs_chrome
+@needs_browser
 def test_the_editors_menu_holds_text_size_wrap_and_vim_keys(tmp_path: Path) -> None:
     """The editor's bar keeps the text size, wrapping and Vim keys in its ⋯ menu, named there
     and checked as remembered. The menu stays open as the size steps, and Vim keys, Escape or
@@ -2711,7 +2712,7 @@ def test_the_editors_menu_holds_text_size_wrap_and_vim_keys(tmp_path: Path) -> N
         shared.stop()
 
 
-@needs_chrome
+@needs_browser
 def test_the_ring_holds_a_third_of_the_way_down_and_an_opened_card_shows_its_end(tmp_path: Path) -> None:
     """Moving by keys keeps the ringed card's middle a third of the way down the list, so
     the eye stays put, and a card opened by Space shows its end, where the latest words are."""
@@ -2800,7 +2801,7 @@ def test_the_ring_holds_a_third_of_the_way_down_and_an_opened_card_shows_its_end
         shared.stop()
 
 
-@needs_chrome
+@needs_browser
 def test_the_comment_list_goes_by_keys(tmp_path: Path) -> None:
     """The comments go by keys as a notebook's cells do: j and k move the ring and leave
     every card as it was, a key presses the ringed card's button, a key that changes the
@@ -3137,7 +3138,7 @@ def test_the_comment_list_goes_by_keys(tmp_path: Path) -> None:
         shared.stop()
 
 
-@needs_chrome
+@needs_browser
 def test_archived_threads_have_their_own_view_and_picked_archive_action(tmp_path: Path) -> None:
     """Archive is the third visible status: its view lists kept threads apart, and the
     archive-box action moves only picked threads there."""
@@ -3253,7 +3254,7 @@ def test_archived_threads_have_their_own_view_and_picked_archive_action(tmp_path
         shared.stop()
 
 
-@needs_chrome
+@needs_browser
 def test_undo_puts_the_last_change_of_status_back(tmp_path: Path) -> None:
     """A change of status made on the page, by key, from the row or on a card, is said in a
     line above the list with Undo, which u presses too and which puts each comment back to the
@@ -3356,7 +3357,7 @@ def test_undo_puts_the_last_change_of_status_back(tmp_path: Path) -> None:
         shared.stop()
 
 
-@needs_chrome
+@needs_browser
 def test_undo_puts_threads_back_on_overleaf_without_asking(tmp_path: Path, monkeypatch) -> None:
     """Two threads from Overleaf resolved at one press, once the reviewer says yes, are resolved
     there, and Undo reopens them there without asking. A thread Overleaf refuses to resolve is
@@ -3463,7 +3464,7 @@ def test_undo_puts_threads_back_on_overleaf_without_asking(tmp_path: Path, monke
         loop.call_soon_threadsafe(loop.stop)
 
 
-@needs_chrome
+@needs_browser
 def test_split_puts_the_translation_where_settings_says(tmp_path: Path, monkeypatch) -> None:
     """The ⋯ menu's item names the language and is checked while the translation shows. The
     translation sits under the Preview in Preview, under the editor in Source, and in Split
@@ -3602,7 +3603,7 @@ def test_split_puts_the_translation_where_settings_says(tmp_path: Path, monkeypa
         shared.stop()
 
 
-@needs_chrome
+@needs_browser
 def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_path: Path) -> None:
     """The top bar and the more menu open the Overleaf dialog, which asks for the
     project's link first. Comments from Overleaf are in the leaf Comments tab, apart from
@@ -3922,7 +3923,7 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
         shared.stop()
 
 
-@needs_chrome
+@needs_browser
 def test_the_more_menu_updates_the_install_and_says_what_is_left(tmp_path: Path, monkeypatch) -> None:
     """The ⋯ menu names the version that runs and offers Update only when a newer release is
     out. A click installs it, and a band stays across the page: first to reconnect the
@@ -4049,7 +4050,8 @@ def test_the_more_menu_updates_the_install_and_says_what_is_left(tmp_path: Path,
         shared.stop()
 
 
-@needs_chrome
+@chrome.not_in_safari("no download folder can be set for a test")
+@needs_browser
 def test_the_more_menu_downloads_the_pdf_and_a_section_comment_keeps_its_heading(tmp_path: Path) -> None:
     """Download PDF in the more menu saves the PDF, under its own name while no Overleaf
     project is named. With no translation configured the menu offers it all the same, with
@@ -4127,7 +4129,7 @@ def test_the_more_menu_downloads_the_pdf_and_a_section_comment_keeps_its_heading
         shared.stop()
 
 
-@needs_chrome
+@needs_browser
 def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path: Path, monkeypatch) -> None:
     """With the project named in the config, the dialog takes the reviewer's session cookie
     once, keeps it in their own config folder for them alone, never shows it again, and
@@ -4376,7 +4378,7 @@ def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path
         shared.stop()
 
 
-@needs_chrome
+@needs_browser
 def test_a_file_that_differs_from_overleaf_waits_for_a_choice_on_the_page(tmp_path: Path, monkeypatch) -> None:
     """With overleaf_sync, a file that differs from Overleaf's at the start is listed with
     a choice; choosing Overleaf's text writes it, and the panel says the file is in step."""
@@ -4454,7 +4456,7 @@ def test_a_file_that_differs_from_overleaf_waits_for_a_choice_on_the_page(tmp_pa
         loop.call_soon_threadsafe(loop.stop)
 
 
-@needs_chrome
+@needs_browser
 def test_a_folder_without_git_gets_and_sends_by_hand_from_the_top_bar(tmp_path: Path, monkeypatch) -> None:
     """By hand in a folder that is no git clone, the top bar's two buttons are Get and Send,
     with the leaf, shown when there are edits to move, each counting the files it moves."""
@@ -4529,7 +4531,7 @@ def test_a_folder_without_git_gets_and_sends_by_hand_from_the_top_bar(tmp_path: 
         loop.call_soon_threadsafe(loop.stop)
 
 
-@needs_chrome
+@needs_browser
 def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_changed(
         tmp_path: Path, monkeypatch) -> None:
     """With the project named and the cookie kept, an open page sits in the Overleaf project:
@@ -4838,7 +4840,7 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
         loop.call_soon_threadsafe(loop.stop)
 
 
-@needs_chrome
+@needs_browser
 def test_the_page_shows_the_reviewers_cursor_on_overleaf_until_settings_hides_it(tmp_path: Path, monkeypatch) -> None:
     """Show my cursor, where the page starts, tells Overleaf where the editor's cursor is;
     Hidden takes it off Overleaf and tells nothing more; Show again tells it again."""
@@ -4898,7 +4900,7 @@ def test_the_page_shows_the_reviewers_cursor_on_overleaf_until_settings_hides_it
         loop.call_soon_threadsafe(loop.stop)
 
 
-@needs_chrome
+@needs_browser
 def test_suggested_edits_from_overleaf_have_their_own_view_and_marks_in_the_editor(
         tmp_path: Path, monkeypatch) -> None:
     """Edits a co-author made on Overleaf with track changes on wait in the leaf tab's suggested
@@ -4983,7 +4985,7 @@ def test_suggested_edits_from_overleaf_have_their_own_view_and_marks_in_the_edit
         loop.call_soon_threadsafe(loop.stop)
 
 
-@needs_chrome
+@needs_browser
 def test_the_leaf_beside_comment_starts_a_thread_for_overleaf(tmp_path: Path, monkeypatch) -> None:
     """With the leaf pressed beside + Comment, a comment on source text starts a thread for
     Overleaf, in two boxes, either of which will do. The top one is the thread's first
@@ -5176,7 +5178,7 @@ def test_the_leaf_beside_comment_starts_a_thread_for_overleaf(tmp_path: Path, mo
         loop.call_soon_threadsafe(loop.stop)
 
 
-@needs_chrome
+@needs_browser
 def test_a_page_with_its_token_on_opens_from_its_link_and_then_from_its_plain_address(
         tmp_path: Path, monkeypatch) -> None:
     """With page_token on, a browser opens the page once from its link. The token leaves the
@@ -5228,7 +5230,7 @@ def test_a_page_with_its_token_on_opens_from_its_link_and_then_from_its_plain_ad
         shared.stop()
 
 
-@needs_chrome
+@needs_browser
 def test_keys_typed_in_the_pdf_viewers_own_boxes_stay_there(tmp_path: Path) -> None:
     """The PDF viewer draws its search and zoom boxes in its own shadow root. A letter typed
     there is the box's, not a comment key's, and a backslash does not fold the panel."""
@@ -5282,7 +5284,7 @@ def test_keys_typed_in_the_pdf_viewers_own_boxes_stay_there(tmp_path: Path) -> N
         shared.stop()
 
 
-@needs_chrome
+@needs_browser
 def test_go_to_definition_follows_input_ref_and_cite(tmp_path: Path) -> None:
     """gd with Vim keys, or F12, goes from \\input to the file, from \\ref to the \\label it
     names, and from \\cite to the .bib entry, the name under the cursor in a list; Ctrl+T or
@@ -5359,7 +5361,7 @@ def test_go_to_definition_follows_input_ref_and_cite(tmp_path: Path) -> None:
         shared.stop()
 
 
-@needs_chrome
+@needs_browser
 def test_translation_numbers_its_source_lines_and_follows_the_editor(tmp_path: Path, monkeypatch) -> None:
     """Each translated paragraph shows its source lines, the paragraph under the editor's
     cursor is marked and brought into view, and the type size steps and is kept."""
@@ -5464,7 +5466,7 @@ def test_translation_numbers_its_source_lines_and_follows_the_editor(tmp_path: P
         shared.stop()
 
 
-@needs_chrome
+@needs_browser
 def test_the_editor_completes_labels_citations_environments_files_and_commands(tmp_path: Path) -> None:
     """Typing in the editor opens what fits there: labels after \\ref, bib entries after
     \\cite (a title's words find them), environments after \\begin and \\end, files after

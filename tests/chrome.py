@@ -1,8 +1,11 @@
-"""The review page in Google Chrome, the browser most of its readers use, for the tests.
+"""The review page in Google Chrome, or in Safari on macOS, for the tests.
 
 Chrome is driven through Selenium, which finds the driver that fits the installed Chrome by
 itself. ``launch()`` gives a headless window. ``TEX_MCP_BROWSER=headed`` shows it, to watch
-a test run.
+a test run. ``TEX_MCP_BROWSER_KIND=safari`` runs the same tests in Safari through
+safaridriver, which must be enabled once (``safaridriver --enable``). Safari has no headless
+window and runs one automation session at a time, so its window shows and the tests take it
+in turn. What Safari cannot be made to do, a test marks with ``not_in_safari``.
 """
 
 from __future__ import annotations
@@ -10,14 +13,20 @@ from __future__ import annotations
 import base64
 import os
 import shutil
+import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
 
 selenium = pytest.importorskip("selenium")
 from selenium import webdriver  # noqa: E402
+from selenium.common.exceptions import SessionNotCreatedException  # noqa: E402
 from selenium.webdriver.common.by import By  # noqa: E402
+
+KIND = os.environ.get("TEX_MCP_BROWSER_KIND", "chrome")
+assert KIND in ("chrome", "safari"), f"TEX_MCP_BROWSER_KIND is chrome or safari, not {KIND}"
 
 # Where Chrome is on each system, when it is not on the PATH.
 _INSTALLED = {
@@ -35,7 +44,15 @@ def binary() -> str | None:
     return next((path for path in _INSTALLED.get(sys.platform, []) if Path(path).is_file()), None)
 
 
-needs_chrome = pytest.mark.skipif(binary() is None, reason="Google Chrome is required")
+if KIND == "chrome":
+    needs_browser = pytest.mark.skipif(binary() is None, reason="Google Chrome is required")
+else:
+    needs_browser = pytest.mark.skipif(shutil.which("safaridriver") is None, reason="Safari on macOS is required")
+
+
+def not_in_safari(reason: str):
+    """Skip a test in Safari, which cannot do what the reason says."""
+    return pytest.mark.skipif(KIND == "safari", reason=f"Safari: {reason}")
 
 # The keys a test presses, by the names it writes them with.
 ENTER, CONTROL, SHIFT, ALT, META, ESCAPE = "\ue007", "\ue009", "\ue008", "\ue00a", "\ue03d", "\ue00c"
@@ -165,13 +182,92 @@ class Chrome:
         self.driver.execute("actions", {"actions": sources})
 
 
+def osascript(script: str) -> str:
+    return subprocess.run(["osascript", "-e", script], check=True, capture_output=True, text=True,
+                          stdin=subprocess.DEVNULL).stdout.strip()
+
+
+class Safari(Chrome):
+    """A Safari window on the review page. It shows on the screen, since Safari has no
+    headless window, and its viewport is sized by sizing the window around it."""
+
+    def __init__(self, downloads: Path | None = None, touch: bool = False):
+        assert downloads is None and not touch, "a test that needs these is marked not_in_safari"
+        options = webdriver.SafariOptions()
+        options.set_capability("unhandledPromptBehavior", "ignore")
+        # One session at a time: the one before may still be closing.
+        deadline = time.monotonic() + 30
+        while True:
+            try:
+                self.driver = webdriver.Safari(options=options)
+                break
+            except SessionNotCreatedException:
+                if time.monotonic() > deadline:
+                    raise
+                time.sleep(1)
+        self.driver.set_script_timeout(60)
+        # Safari may open the window in full screen, which no window size changes.
+        window = 'tell application "System Events" to tell process "Safari" to '
+        if osascript(window + 'get value of attribute "AXFullScreen" of every window') == "true":
+            osascript(window + 'set value of attribute "AXFullScreen" of window 1 to false')
+            time.sleep(2)
+        self.set_window_rect()
+        self.system_dark = None
+        self.prefer_scheme(None)
+
+    def quit(self) -> None:
+        if self.system_dark is not None:
+            self.dark(self.system_dark)
+        super().quit()
+
+    def set_window_rect(self, x: int = 0, y: int = 0, width: int = 1500, height: int = 1000) -> None:
+        """Size the window so that the viewport inside it has the size asked for."""
+        self.driver.set_window_rect(x=x, y=y, width=width, height=height)
+        for _ in range(3):
+            inner = self.driver.execute_script("return [innerWidth, innerHeight]")
+            if inner == [width, height]:
+                return
+            rect = self.driver.get_window_rect()
+            self.driver.set_window_rect(x=x, y=y, width=rect["width"] + width - inner[0],
+                                        height=rect["height"] + height - inner[1])
+
+    def screenshot(self, format: str = "base64"):
+        """The viewport at one image pixel per CSS pixel, as the tests measure it."""
+        import pymupdf
+        shot = base64.b64decode(self.driver.get_screenshot_as_base64())
+        pixmap = pymupdf.Pixmap(shot)
+        ratio = round(pixmap.width / self.driver.execute_script("return innerWidth"))
+        if ratio > 1:
+            pixmap.shrink(ratio.bit_length() - 1)
+            shot = pixmap.tobytes("png")
+        return shot if format == "binary" else base64.b64encode(shot).decode()
+
+    def platform(self, name: str) -> None:
+        pytest.skip("Safari: the system a browser says it runs on cannot be set")
+
+    @staticmethod
+    def dark(value: bool | None = None) -> bool:
+        """The system's appearance is dark, or is set to dark or light."""
+        script = 'tell application "System Events" to tell appearance preferences to '
+        return osascript(script + ("get dark mode" if value is None
+                                   else f"set dark mode to {str(value).lower()}")) == "true"
+
+    def prefer_scheme(self, scheme: str | None) -> None:
+        """Safari takes the colour scheme from the system alone, so this sets the system's
+        appearance, dark or light (None), and quitting puts back the one it had."""
+        if self.system_dark is None:
+            self.system_dark = self.dark()
+        if self.dark() != (scheme == "dark"):
+            self.dark(scheme == "dark")
+
+
 def launch(downloads: Path | None = None, touch: bool = False) -> Chrome:
-    return Chrome(downloads, touch)
+    return (Safari if KIND == "safari" else Chrome)(downloads, touch)
 
 
 @pytest.fixture
 def browser():
-    """A Chrome window, closed when the test ends."""
+    """A browser window, closed when the test ends."""
     window = launch()
     yield window
     window.quit()
