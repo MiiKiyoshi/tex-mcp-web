@@ -613,7 +613,7 @@ async function initializePdfViewer(pdfView) {
   state.viewer.registerIcon("tex-source", { viewBox: "0 0 24 24", path: "M8 7l-5 5 5 5 M16 7l5 5-5 5", strokeWidth: 2 });
   commands.registerCommand({
     id: "tex-web:selection-source",
-    label: "Show in Source",
+    label: "Source",
     icon: "tex-source",
     action: () => openSelectionInSource().catch((error) => alert(`Could not open the source: ${error.message}`)),
   });

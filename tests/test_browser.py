@@ -1303,13 +1303,13 @@ def test_source_beside_comment_opens_the_selected_words_in_the_editor(tmp_path: 
         '''))
         assert all(abs(got / page[2] - want) < 3 for got, want in zip(pointed, short["bbox"])), (pointed, short["bbox"])
         assert browser.execute_script('return document.querySelector(".layout").classList.contains("view-pdf")')
-        # Pressed in the Preview alone, Show in Source turns the view to Split and selects the
+        # Pressed in the Preview alone, Source turns the view to Split and selects the
         # words.
         select_words()
-        wait_until(lambda: menu_button("Show in Source"))
+        wait_until(lambda: menu_button("Source"))
         browser.execute_script('''
           Array.from(document.querySelector("embedpdf-container").shadowRoot.querySelectorAll("button"))
-            .find((button) => button.textContent.trim().startsWith("Show in Source")).click();
+            .find((button) => button.textContent.trim() === "Source").click();
         ''')
         opened = wait_until(lambda: browser.execute_script('''
           const editor = (window.wrappedJSObject || window).ace?.edit("source-editor");
@@ -1375,7 +1375,7 @@ def test_source_beside_comment_opens_the_selected_words_in_the_editor(tmp_path: 
 
 @needs_browser
 def test_the_selection_bubble_goes_with_the_selection(tmp_path: Path) -> None:
-    """Words selected in the PDF show a bubble with Comment and Show in Source. The comment
+    """Words selected in the PDF show a bubble with Comment and Source. The comment
     dialog that Comment opens takes the selection with it when it closes, by Escape, Cancel
     or Ctrl+[, or by posting, and the bubble goes with the selection, also when the
     selection is cleared on its own."""

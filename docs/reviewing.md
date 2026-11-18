@@ -21,7 +21,7 @@
   connects. The agent edits the source, compiles and replies in each comment's thread. You can
   also ask the agent in chat to handle the comments.
 
-To find selected PDF text in the source, choose **Show in Source** next to **Comment**, or
+To find selected PDF text in the source, choose **Source** next to **Comment**, or
 Ctrl+double-click a word (Cmd+double-click on macOS). The editor opens beside the Preview, in
 Split, and selects the same words, or the lines SyncTeX names when a macro prints them. In the
 other direction, select text in the Source and press the eye button in the editor's toolbar to
