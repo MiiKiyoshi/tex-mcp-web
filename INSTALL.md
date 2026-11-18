@@ -52,7 +52,7 @@ Remove a registration the user agreed to replace (`claude mcp remove --scope use
 `codex mcp remove tex-mcp`), then:
 
     BIN="$DIR/.venv/bin"
-    P="$BIN:<latexmk directory>:/usr/bin:/bin"
+    P="$BIN:<latexmk directory>:<claude directory>:/usr/bin:/bin"   # claude's, when there is one: translation runs it
     claude mcp add --scope user tex-mcp -e PATH="$P" -- "$BIN/tex-mcp"
     codex mcp add tex-mcp --env PATH="$P" -- "$BIN/tex-mcp"
 

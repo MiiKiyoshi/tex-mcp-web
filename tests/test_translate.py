@@ -176,3 +176,22 @@ def test_store_name_per_language():
     hashed = store_name("한국어")
     assert hashed.startswith("translations-") and hashed != store_name("日本語")
 
+
+def test_claude_is_found_in_the_users_folder_when_the_servers_path_lacks_it(tmp_path, monkeypatch) -> None:
+    """The server runs with a short PATH of its own. The command is still found where
+    Claude Code's installer puts it, and a machine with none says what was looked for."""
+    import sys
+
+    from tex_mcp_web import translate
+
+    monkeypatch.setenv("PATH", str(tmp_path / "nothing"))
+    monkeypatch.setattr(translate.Path, "home", lambda: tmp_path)
+    assert translate.find_claude() is None
+    with pytest.raises(RuntimeError, match="claude command was not found"):
+        translate.run_claude("words", tmp_path, "rules")
+    folder = tmp_path / ".local" / "bin"
+    folder.mkdir(parents=True)
+    command = folder / ("claude.exe" if sys.platform == "win32" else "claude")
+    command.write_text("", encoding="utf-8")
+    command.chmod(0o755)
+    assert translate.find_claude() == str(command)

@@ -210,11 +210,22 @@ def parse_reply(reply: str, ids: list[str]) -> dict[str, str]:
 _SESSION_ENV = ("CLAUDE_EFFORT", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT")
 
 
+def find_claude() -> str | None:
+    """The ``claude`` command: on the PATH, or where Claude Code's installers put it in the
+    user's folder. The server is registered with a short PATH of its own, which need not
+    hold that folder."""
+    home = Path.home()
+    return shutil.which("claude") or next(
+        (found for folder in (home / ".local" / "bin", home / ".claude" / "local")
+         if (found := shutil.which("claude", path=str(folder))) is not None), None)
+
+
 def run_claude(prompt: str, cwd: Path, system: str) -> str:
     """One ``claude -p`` call with the user's model and effort settings."""
-    claude = shutil.which("claude")
+    claude = find_claude()
     if claude is None:
-        raise RuntimeError("claude CLI not found")
+        raise RuntimeError("the claude command was not found on the server's PATH or in ~/.local/bin: "
+                           "translation runs Claude Code's claude -p")
     env = {key: value for key, value in os.environ.items() if key not in _SESSION_ENV}
     completed = subprocess.run(
         [claude, "-p", "--tools", "", "--strict-mcp-config", "--disable-slash-commands",
