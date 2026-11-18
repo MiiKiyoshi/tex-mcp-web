@@ -1,0 +1,27 @@
+name: browsers
+
+# The review page's browser tests in Chrome on Windows and macOS, started by hand. The
+# screenshots a test saves on failure are kept with the run.
+on:
+  workflow_dispatch:
+
+jobs:
+  browser:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Python packages
+        run: pip install -e ".[dev]"
+      - name: Browser tests
+        shell: bash
+        run: |
+          python -m pytest -o addopts="" -o faulthandler_timeout=300 -q -rf tests/test_browser.py \
+            || python -m pytest -o addopts="" -o faulthandler_timeout=300 -q -rf --last-failed tests/test_browser.py
