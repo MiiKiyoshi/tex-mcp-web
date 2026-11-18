@@ -59,6 +59,8 @@ ENTER, CONTROL, SHIFT, ALT, META, ESCAPE = "\ue007", "\ue009", "\ue008", "\ue00a
 # The key the page's own shortcuts are held with: Cmd on a Mac, where Option stands for Alt, and
 # Ctrl elsewhere.
 MOD = META if sys.platform == "darwin" else CONTROL
+# The names the page gives those keys, in its tooltips and its keys dialog.
+MOD_ALT = "Cmd+Option" if sys.platform == "darwin" else "Ctrl+Alt"
 
 
 class Actions:
@@ -195,19 +197,27 @@ class Safari(Chrome):
         assert downloads is None and not touch, "a test that needs these is marked not_in_safari"
         options = webdriver.SafariOptions()
         options.set_capability("unhandledPromptBehavior", "ignore")
-        # One session at a time: the one before may still be closing.
-        deadline = time.monotonic() + 30
+        # One session at a time: the one before may still be closing. One that never closes,
+        # left by a test that hung, would refuse every test after it, so Safari and its driver
+        # are then ended and started afresh.
+        deadline, ended = time.monotonic() + 30, False
         while True:
             try:
                 self.driver = webdriver.Safari(options=options)
                 break
             except SessionNotCreatedException:
                 if time.monotonic() > deadline:
-                    raise
+                    if ended:
+                        raise
+                    for program in ("Safari", "safaridriver"):
+                        subprocess.run(["pkill", "-x", program], stdin=subprocess.DEVNULL, check=False)
+                    deadline, ended = time.monotonic() + 30, True
                 time.sleep(1)
         self.driver.set_script_timeout(60)
-        # Safari may open the window in full screen, which no window size changes.
+        # Safari may open the window in full screen, which no window size changes, and
+        # behind another program's window, where no pointer or key action reaches its page.
         window = 'tell application "System Events" to tell process "Safari" to '
+        osascript(window + "set frontmost to true")
         if osascript(window + 'get value of attribute "AXFullScreen" of every window') == "true":
             osascript(window + 'set value of attribute "AXFullScreen" of window 1 to false')
             time.sleep(2)
@@ -219,6 +229,21 @@ class Safari(Chrome):
         if self.system_dark is not None:
             self.dark(self.system_dark)
         super().quit()
+
+    def _loaded(self) -> None:
+        """Wait for the page's scripts to have run: Safari's driver gives a page back while
+        it is still loading, before the page has wired up what a test presses next."""
+        deadline = time.monotonic() + 30
+        while self.driver.execute_script("return document.readyState") != "complete" and time.monotonic() < deadline:
+            time.sleep(0.05)
+
+    def navigate(self, url: str) -> None:
+        super().navigate(url)
+        self._loaded()
+
+    def refresh(self) -> None:
+        super().refresh()
+        self._loaded()
 
     def set_window_rect(self, x: int = 0, y: int = 0, width: int = 1500, height: int = 1000) -> None:
         """Size the window so that the viewport inside it has the size asked for."""

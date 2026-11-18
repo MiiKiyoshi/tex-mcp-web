@@ -58,7 +58,7 @@ from .comments import (
     locate_fragments,
     source_offset,
 )
-from .compiler import CompileResult, compile_tex, source_dependencies
+from .compiler import CompileResult, compile_tex, earlier_pdf, output_pdf, source_dependencies
 from .config import Config, get_main_file, get_watch_dir, load_config, translation_command
 from .mcp_server import short_time
 from .structure import (
@@ -518,6 +518,10 @@ class TexMcpWebServer:
         self.structure: DocumentStructure | None = None
         self.compiling = False
         self.pdf_digest: str | None = None
+        # The bytes of the PDF an earlier build left, which the page shows from the start
+        # until a build of this session succeeds. The compiler rewrites that file in place
+        # while it runs, so the page is served these instead.
+        self._earlier_pdf: bytes | None = None
         self._compile_task: asyncio.Task[CompileResult] | None = None
         # Per-page text hashes from the previous compile, for change
         # detection.  Empty after process startup; populated on each
@@ -580,6 +584,7 @@ class TexMcpWebServer:
         self._updating = asyncio.Lock()
         self._store_watch: asyncio.Task[None] | None = None
         self._initial_compile: asyncio.Task[CompileResult] | None = None
+        self._earlier_synctex: asyncio.Task[None] | None = None
 
         self.app = self._build_app()
 
@@ -719,6 +724,7 @@ class TexMcpWebServer:
                     except Exception:  # a PDF this cannot read still compiled
                         logger.exception("Layout check failed")
                 self.pdf_digest = pdf_digest(self.last_result.output_file)
+                self._earlier_pdf = None
                 self.comments.refresh_anchors(
                     self.watch_dir,
                     self.last_result.output_file,
@@ -841,6 +847,7 @@ class TexMcpWebServer:
                 "type": "state",
                 "compiling": self.compiling,
                 "result": _result_to_dict(self.last_result),
+                "pdf_digest": self.pdf_digest,
                 "review_waiters": self.review_waiters,
             }
         )
@@ -2069,15 +2076,17 @@ class TexMcpWebServer:
             raise web.HTTPNotFound()
         return web.FileResponse(target, headers={"Cache-Control": "no-cache"})
 
-    async def _handle_pdf(self, request: web.Request) -> web.StreamResponse:
+    def _pdf_response(self, headers: dict[str, str]) -> web.StreamResponse:
+        """The PDF that pdf_digest names: an earlier build's, from the bytes kept of it, or
+        the last build's file."""
+        if self._earlier_pdf is not None:
+            return web.Response(body=self._earlier_pdf, content_type="application/pdf", headers=headers)
         if self.last_result is None or self.last_result.output_file is None:
-            return web.json_response(
-                {"error": "no PDF available"}, status=404
-            )
-        return web.FileResponse(
-            self.last_result.output_file,
-            headers={"Cache-Control": "no-store"},
-        )
+            return web.json_response({"error": "no PDF available"}, status=404)
+        return web.FileResponse(self.last_result.output_file, headers=headers)
+
+    async def _handle_pdf(self, request: web.Request) -> web.StreamResponse:
+        return self._pdf_response({"Cache-Control": "no-store"})
 
     async def _handle_pdf_download(self, request: web.Request) -> web.StreamResponse:
         """The PDF as a file to keep, named as Overleaf names it: after the project, with
@@ -2085,13 +2094,11 @@ class TexMcpWebServer:
         project keeps the PDF's own name."""
         from urllib.parse import quote
 
-        if self.last_result is None or self.last_result.output_file is None:
-            return web.json_response({"error": "no PDF available"}, status=404)
         project = self.overleaf_live.project_name if self.overleaf_live is not None else ""
         name = ("".join(c if c.isalpha() or c.isdecimal() else "_" for c in project) + ".pdf"
-                if project else self.last_result.output_file.name)
+                if project else output_pdf(self.main_file, self.watch_dir).name)
         plain = "".join(c if c.isascii() and c.isprintable() and c not in '"\\' else "_" for c in name)
-        return web.FileResponse(self.last_result.output_file, headers={
+        return self._pdf_response({
             "Cache-Control": "no-store",
             "Content-Disposition": f"attachment; filename=\"{plain}\"; filename*=UTF-8''{quote(name, safe='')}"})
 
@@ -2385,10 +2392,12 @@ class TexMcpWebServer:
                 {"error": "anchor and text are required"}, status=400
             )
         # A compile writes the PDF in place, so until it ends the file is neither the PDF
-        # the selection was made on nor the next one, which the page has yet to load.
+        # the selection was made on nor the next one, which the page has yet to load. The
+        # reason tells the page that a new selection will do, once the build ends or now.
         if anchor_d.get("kind") in ("text_selection", "area") and self.compiling:
             return web.json_response(
-                {"error": "the PDF is being rebuilt. Select again once it reloads"}, status=409
+                {"error": "the PDF is being rebuilt. Select again once it reloads", "reason": "rebuilding"},
+                status=409,
             )
         try:
             # A box carries what its pixels show now, read from the PDF it was drawn on.
@@ -2418,7 +2427,7 @@ class TexMcpWebServer:
                 )
             if self.pdf_digest is None or anchor.pdf_digest != self.pdf_digest:
                 return web.json_response(
-                    {"error": "the PDF changed after this text was selected"}, status=409
+                    {"error": "the PDF changed after this text was selected", "reason": "rebuilt"}, status=409
                 )
             if self.last_result is None or self.last_result.output_file is None:
                 return web.json_response({"error": "no PDF available"}, status=409)
@@ -2434,7 +2443,7 @@ class TexMcpWebServer:
         if isinstance(anchor, AreaAnchor):
             if self.pdf_digest is None or anchor.pdf_digest != self.pdf_digest:
                 return web.json_response(
-                    {"error": "the PDF changed after this area was selected"}, status=409
+                    {"error": "the PDF changed after this area was selected", "reason": "rebuilt"}, status=409
                 )
 
         try:
@@ -3412,8 +3421,8 @@ class TexMcpWebServer:
             await asyncio.sleep(1.0)
 
     async def setup(self, port: int) -> None:
-        """Keep the records out of git, bind the port, start watching, and kick off the
-        first compile.
+        """Keep the records out of git, bind the port, start watching, take up the PDF an
+        earlier build left, if any, and kick off the first compile.
 
         The port binds before compiling so a caller that waits for readiness
         is not blocked by a LaTeX run.
@@ -3434,7 +3443,27 @@ class TexMcpWebServer:
         )
         self.watcher.start(loop)
         self._store_watch = asyncio.create_task(self._watch_comment_store())
+        # A PDF an earlier build left shows while the first build runs, which for a long
+        # paper or a TeX install that is slow to start takes a while.
+        earlier = earlier_pdf(self.main_file, self.watch_dir)
+        if earlier is not None:
+            self._earlier_pdf = earlier.read_bytes()
+            self.last_result = CompileResult(success=True, output_file=earlier)
+            self.pdf_digest = pdf_digest(earlier)
+            if self.main_file.suffix.lower() == ".tex" and (synctex_path := find_synctex_file(earlier)):
+                self._earlier_synctex = asyncio.create_task(self._read_earlier_synctex(synctex_path))
+        # The first build runs from here on, before its task first runs, so that a request
+        # answered in between does not take the earlier PDF for this build's.
+        self.compiling = True
         self._initial_compile = asyncio.create_task(self.do_compile())
+
+    async def _read_earlier_synctex(self, synctex_path: Path) -> None:
+        """The SyncTeX record of the PDF an earlier build left, read off the loop: a long
+        paper's takes seconds to parse, and the page is served meanwhile. A build that has
+        read its own record by then keeps it."""
+        data = await asyncio.to_thread(parse_synctex, synctex_path)
+        if self.synctex_data is None:
+            self.synctex_data = data
 
     def source_roots(self) -> list[Path]:
         """Directories the paper's sources live in: the main file's, those of the
@@ -3454,7 +3483,7 @@ class TexMcpWebServer:
         # do_compile shields the build, so the build task is cancelled directly.
         # Awaiting the cancellation lets a running compiler subprocess close its
         # transport while the loop is still alive.
-        for task in (self._store_watch, self._initial_compile, self._compile_task):
+        for task in (self._store_watch, self._initial_compile, self._compile_task, self._earlier_synctex):
             if task is not None:
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
@@ -3462,6 +3491,7 @@ class TexMcpWebServer:
         self._store_watch = None
         self._initial_compile = None
         self._compile_task = None
+        self._earlier_synctex = None
         if self.watcher:
             self.watcher.stop()
             self.watcher = None

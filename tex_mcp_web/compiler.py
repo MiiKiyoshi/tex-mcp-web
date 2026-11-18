@@ -126,7 +126,7 @@ def _get_compiler_command(
             "pandoc",
             str(main_file_relative),
             "-o",
-            main_file.stem + ".pdf",
+            output_pdf(main_file, work_dir).name,
         ]
     elif compiler == "latexmk":
         command = [
@@ -249,6 +249,19 @@ def _pdf_validation_error(pdf_path: Path) -> str | None:
     except Exception as error:
         return f"Output PDF could not be parsed: {error}"
     return None
+
+
+def output_pdf(main_file: Path, work_dir: Path) -> Path:
+    """Where a build of *main_file* leaves its PDF. Every compiler runs in *work_dir*: a TeX
+    engine names its PDF after the main file, and pandoc is told the same name."""
+    return work_dir / (main_file.stem + ".pdf")
+
+
+def earlier_pdf(main_file: Path, work_dir: Path) -> Path | None:
+    """The PDF an earlier build left where the next build writes it, when it is one that
+    compile_tex would report as built; None otherwise."""
+    pdf_path = output_pdf(main_file, work_dir)
+    return pdf_path if _pdf_validation_error(pdf_path) is None else None
 
 
 def _compiler_output_tail(output: str, limit: int = 2000) -> str:
@@ -383,7 +396,7 @@ async def compile_tex(
 
     start_time = datetime.now(timezone.utc)
     is_pandoc = resolved_compiler == "pandoc"
-    pdf_path = work_dir / (main_file.stem + ".pdf")
+    pdf_path = output_pdf(main_file, work_dir)
     # latexmk calls a PDF up to date though it was built outside without SyncTeX.
     force_rebuild = resolved_compiler == "latexmk" and (
         _pdf_validation_error(pdf_path) is not None

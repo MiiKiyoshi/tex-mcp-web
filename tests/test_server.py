@@ -2196,7 +2196,8 @@ async def test_a_selection_saved_while_the_pdf_is_rebuilt_is_refused_as_changed(
         resp = await tc.post("/comments", json={
             "anchor": {**anchor, "pdf_digest": server.pdf_digest}, "text": "review this"})
         assert resp.status == 409
-        assert "being rebuilt" in (await resp.json())["error"]
+        refusal = await resp.json()
+        assert "being rebuilt" in refusal["error"] and refusal["reason"] == "rebuilding"
     assert server.comments.list() == []
 
 
@@ -2238,24 +2239,26 @@ async def test_text_selection_records_verified_source(
 
 @pytest.mark.asyncio
 async def test_text_selection_rejects_old_pdf_digest(client_with_pdf):
-    tc, _ = client_with_pdf
-    resp = await tc.post(
-        "/comments",
-        json={
-            "anchor": {
-                "kind": "text_selection",
-                "quote": "Page 1",
-                "selection": {
-                    "page": 1,
-                    "bbox": [70, 60, 110, 80],
-                    "rects": [[70, 60, 110, 80]],
-                },
-                "pdf_digest": "old",
-            },
-            "text": "review this text",
+    """A selection made on a PDF since rebuilt is refused with the reason that says a new
+    selection will do. One the server has no PDF to check against is refused without it."""
+    tc, server = client_with_pdf
+    anchor = {
+        "kind": "text_selection",
+        "quote": "Page 1",
+        "selection": {
+            "page": 1,
+            "bbox": [70, 60, 110, 80],
+            "rects": [[70, 60, 110, 80]],
         },
-    )
+    }
+    resp = await tc.post("/comments", json={"anchor": {**anchor, "pdf_digest": "old"}, "text": "review this text"})
     assert resp.status == 409
+    assert (await resp.json())["reason"] == "rebuilt"
+    server.last_result.output_file = None
+    resp = await tc.post("/comments", json={"anchor": {**anchor, "pdf_digest": server.pdf_digest},
+                                            "text": "review this text"})
+    assert resp.status == 409
+    assert await resp.json() == {"error": "no PDF available"}
 
 
 @pytest.mark.asyncio

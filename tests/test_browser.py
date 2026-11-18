@@ -107,6 +107,30 @@ def wait_until(check, timeout: float = 30.0):
     raise AssertionError(f"condition was not met: {last}")
 
 
+def wait_for_build(shared, timeout: float = 60.0) -> None:
+    """Wait until the server runs no build and has a build's result. A PDF an earlier build
+    left on disk shows from the start, so a digest or a viewer on the page does not say that
+    the first build has ended."""
+    wait_until(lambda: not shared.server.compiling and shared.server.last_result is not None, timeout)
+
+
+# The Preview's first page as drawn, and the Comment button of the bubble over a selection.
+PREVIEW_PAGE = '''const rect = document.querySelector("embedpdf-container")?.shadowRoot
+  ?.querySelector("img")?.getBoundingClientRect();'''
+BUBBLE_COMMENT = '''Array.from(document.querySelector("embedpdf-container").shadowRoot.querySelectorAll("button"))
+  .find((button) => button.textContent.trim() === "Comment" && button.getBoundingClientRect().width > 0)'''
+
+
+def select_in_preview(browser, words, page_width: float) -> None:
+    """Drag across *words*, a box in PDF points on the first page of *page_width* points."""
+    left, top, scale = browser.execute_script(
+        f"{PREVIEW_PAGE} return [rect.left, rect.top, rect.width / {page_width}];")
+    y = top + (words.y0 + words.y1) / 2 * scale
+    browser.actions("pointer", "mouse", {"pointerType": "mouse"}) \
+        .pointer_move(left + (words.x0 + 1) * scale, y).pointer_down() \
+        .pointer_move(left + (words.x1 - 1) * scale, y, duration=300).pointer_up().perform()
+
+
 @needs_browser
 def test_browser_comment_actions(tmp_path: Path) -> None:
     import pymupdf
@@ -126,7 +150,7 @@ def test_browser_comment_actions(tmp_path: Path) -> None:
     try:
         shared.ensure()
         base = f"http://127.0.0.1:{port}"
-        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        wait_for_build(shared)
         comment = post_json(f"{base}/comments", {
             "anchor": {"kind": "paper"},
             "text": "typo herre",
@@ -291,7 +315,7 @@ def test_browser_comment_actions(tmp_path: Path) -> None:
           return [button.classList.contains("agent-offline"), button.disabled,
             button.getAttribute("aria-label"), button.title, getComputedStyle(button).color];
         ''') == [True, False, "Queue call for agent",
-                 "No agent is listening. The call will be queued until one connects (Ctrl+Alt+Enter)", "rgb(180, 74, 67)"]
+                 f"No agent is listening. The call will be queued until one connects ({chrome.MOD_ALT}+Enter)", "rgb(180, 74, 67)"]
         with ThreadPoolExecutor(max_workers=1) as pool:
             waiter = pool.submit(lambda: urllib.request.urlopen(
                 f"{base}/wait-review?listener=one&pid={os.getpid()}", timeout=10).read())
@@ -299,9 +323,9 @@ def test_browser_comment_actions(tmp_path: Path) -> None:
               const button = document.querySelector("#call-agent-btn");
               return button.classList.contains("agent-ready")
                 && button.getAttribute("aria-label") === "Call agent"
-                && button.title === "Call the agent (Ctrl+Alt+Enter)"
+                && button.title === arguments[0]
                 && getComputedStyle(button).color === "rgb(79, 119, 88)";
-            '''))
+            ''', [f"Call the agent ({chrome.MOD_ALT}+Enter)"]))
             browser.execute_script('document.querySelector("#call-agent-btn").click()')
             wait_until(lambda: browser.execute_script(
                 'return document.querySelector("#call-agent-word").textContent === "Called"'))
@@ -568,8 +592,192 @@ def test_the_page_says_why_it_waits_and_catches_up_when_its_server_returns(tmp_p
             and bell() == "The review page's server cannot be reached")
         shared.ensure()
         wait_until(lambda: not shown("#server-alert")
-                   and bell() == "No agent is listening. The call will be queued until one connects (Ctrl+Alt+Enter)")
+                   and bell() == f"No agent is listening. The call will be queued until one connects ({chrome.MOD_ALT}+Enter)")
     finally:
+        if browser is not None:
+            browser.quit()
+        shared.stop()
+
+
+def write_page_pdf(path: Path, width: float, height: float, line: str) -> None:
+    """A PDF of one page with words to comment on, always at one place, and *line* under
+    them, which tells one build's PDF from another's."""
+    import pymupdf
+
+    with pymupdf.open() as pdf:
+        page = pdf.new_page(width=width, height=height)
+        page.insert_text((40, 60), "A sentence to comment on.")
+        page.insert_text((40, 120), line)
+        pdf.save(path)
+
+
+def builds_by_hand(monkeypatch) -> list:
+    """Put builds in the server's hands that end when the test opens their gates, which the
+    list given back holds in the order the builds start. A TeX engine cuts its PDF short as
+    soon as it starts writing it, and so does each of these, which then writes a landscape
+    page."""
+    import asyncio
+    import threading
+
+    from tex_mcp_web import server as server_module
+    from tex_mcp_web.compiler import CompileResult
+
+    gates: list[threading.Event] = []
+
+    async def build(main_file, compiler, work_dir):
+        gate = threading.Event()
+        gates.append(gate)
+        pdf = work_dir / "paper.pdf"
+        pdf.write_bytes(b"%PDF-1.5\n")
+        while not gate.is_set():
+            await asyncio.sleep(0.05)
+        write_page_pdf(pdf, 450, 300, f"Build {len(gates)}.")
+        return CompileResult(success=True, output_file=pdf, duration_seconds=1.0)
+
+    monkeypatch.setattr(server_module, "compile_tex", build)
+    return gates
+
+
+@needs_browser
+def test_a_pdf_from_an_earlier_build_shows_while_the_first_build_runs(tmp_path: Path, monkeypatch) -> None:
+    """The PDF an earlier build left shows as soon as the page opens, though the compiler
+    rewrites that file as it starts, and the top bar says a build is running. When the build
+    ends, the Preview shows its PDF. A comment on words selected in a PDF that a build has
+    made out of date is not placed: the page says to select them again, and what was written
+    waits in the next comment box."""
+    import hashlib
+
+    import pymupdf
+
+    (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
+    write_page_pdf(tmp_path / "paper.pdf", 300, 450, "An earlier build.")
+    earlier = (tmp_path / "paper.pdf").read_bytes()
+    gates = builds_by_hand(monkeypatch)
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    browser = None
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        # The build has started and the file on disk is no PDF now: the server serves the
+        # earlier one, under its digest, and says that a build runs.
+        wait_until(lambda: gates)
+        paper = get_json(f"{base}/paper")
+        assert paper["compiling"] is True and paper["pdf_digest"] == hashlib.sha256(earlier).hexdigest()
+        with urllib.request.urlopen(f"{base}/pdf", timeout=3) as response:
+            assert response.read() == earlier
+
+        browser = chrome.launch()
+        browser.set_window_rect(x=0, y=0, width=1200, height=800)
+        browser.navigate(base)
+        script = browser.execute_script
+        shape = lambda: script(f"""{PREVIEW_PAGE} return rect && rect.width > 50
+          ? (rect.width < rect.height ? "portrait" : "landscape") : null;""")
+        status = lambda: script('return document.querySelector("#compile-status").textContent')
+        wait_until(lambda: shape() == "portrait")
+        assert status() == "compiling… · showing the previous build"
+        script("window.alerted = []; window.alert = (words) => window.alerted.push(words);")
+        with pymupdf.open(stream=earlier) as pdf:
+            words = pdf[0].search_for("sentence to comment")[0]
+        bubble = lambda: script(f"return Boolean({BUBBLE_COMMENT});")
+        dialog_open = lambda: script('return document.querySelector("#compose-dialog").open')
+        written = lambda: script('return document.querySelector("#compose-text").value')
+
+        def comment_on_words(page_width):
+            select_in_preview(browser, words, page_width)
+            wait_until(bubble)
+            script(f"{BUBBLE_COMMENT}.click();")
+            wait_until(dialog_open)
+
+        # Posted while the build runs, the comment is refused, and the page says what to do.
+        comment_on_words(300)
+        script('''document.querySelector("#compose-text").value = "Say it more plainly.";
+                  document.querySelector("#compose-form").requestSubmit();''')
+        wait_until(lambda: script("return window.alerted.length") == 1)
+        assert script("return window.alerted[0]") == (
+            "The PDF is being rebuilt, so this comment can't be placed on it yet. When the new PDF "
+            "appears, select the text again. What you wrote will still be in the comment box.")
+        wait_until(lambda: not dialog_open() and not bubble(), timeout=5)
+        assert get_json(f"{base}/comments")["comments"] == []
+        # The next comment box holds what was written. Posted from a box left open while the
+        # build ended, it is refused again, since the PDF changed under it.
+        comment_on_words(300)
+        assert written() == "Say it more plainly."
+        gates[0].set()
+        wait_for_build(shared)
+        wait_until(lambda: shape() == "landscape" and status().startswith("✓ ok"))
+        script('document.querySelector("#compose-form").requestSubmit();')
+        wait_until(lambda: script("return window.alerted.length") == 2)
+        assert script("return window.alerted[1]") == (
+            "The PDF was rebuilt after you made this selection, so the comment wasn't posted. "
+            "Please select the text again. What you wrote will still be in the comment box.")
+        # Selected again in the new PDF, the words take the comment.
+        comment_on_words(450)
+        assert written() == "Say it more plainly."
+        script('document.querySelector("#compose-form").requestSubmit();')
+        (comment,) = wait_until(lambda: get_json(f"{base}/comments")["comments"])
+        assert comment["thread"][0]["text"] == "Say it more plainly."
+        assert comment["anchor"]["pdf_digest"] == shared.server.pdf_digest != hashlib.sha256(earlier).hexdigest()
+        assert script("return window.alerted.length") == 2
+    finally:
+        for gate in gates:
+            gate.set()
+        if browser is not None:
+            browser.quit()
+        shared.stop()
+
+
+@chrome.not_in_safari("holding the page's requests needs a script that runs before the page's own")
+@needs_browser
+def test_a_build_that_ends_while_the_page_loads_shows_its_pdf(tmp_path: Path, monkeypatch) -> None:
+    """A build that ends after the page read the paper and before its socket opened, which
+    the page takes a moment to open while it loads the earlier PDF, shows its PDF all the
+    same."""
+    (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
+    write_page_pdf(tmp_path / "paper.pdf", 300, 450, "An earlier build.")
+    gates = builds_by_hand(monkeypatch)
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    browser = None
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: gates)
+        browser = chrome.launch()
+        browser.set_window_rect(x=0, y=0, width=1200, height=800)
+        # The page's socket opens only when the test says so: the page has read the paper and
+        # shows the earlier PDF by then.
+        browser.driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {"source": '''
+          const Socket = window.WebSocket;
+          const held = new Promise((resolve) => { window.goOn = resolve; });
+          window.WebSocket = function (url) {
+            const socket = { send: (data) => socket.real.send(data), close: () => socket.real?.close(),
+                             get readyState() { return socket.real?.readyState ?? 0; } };
+            held.then(() => {
+              socket.real = new Socket(url);
+              for (const name of ["onopen", "onmessage", "onclose", "onerror"]) {
+                socket.real[name] = (event) => socket[name]?.(event);
+              }
+            });
+            return socket;
+          };'''})
+        browser.navigate(base)
+        script = browser.execute_script
+        status = lambda: script('return document.querySelector("#compile-status").textContent')
+        shape = lambda: script(f"""{PREVIEW_PAGE} return rect && rect.width > 50
+          ? (rect.width < rect.height ? "portrait" : "landscape") : null;""")
+        wait_until(lambda: shape() == "portrait" and status() == "compiling… · showing the previous build")
+        gates[0].set()
+        wait_for_build(shared)
+        script("window.goOn();")
+        wait_until(lambda: shape() == "landscape" and status().startswith("✓ ok"))
+    finally:
+        for gate in gates:
+            gate.set()
         if browser is not None:
             browser.quit()
         shared.stop()
@@ -605,7 +813,7 @@ def test_highlight_badges_leave_pdf_text_selectable(tmp_path: Path) -> None:
         shared.ensure()
         base = f"http://127.0.0.1:{port}"
         wait_until(lambda: get_json(f"{base}/paper") is not None)
-        wait_until(lambda: shared.server.pdf_digest is not None)
+        wait_for_build(shared)
         digest = shared.server.pdf_digest
         ids = []
         for quote, bbox in selections:
@@ -872,7 +1080,7 @@ def test_the_area_button_draws_a_box_to_comment_on(tmp_path: Path) -> None:
     try:
         shared.ensure()
         base = f"http://127.0.0.1:{port}"
-        wait_until(lambda: shared.server.pdf_digest is not None)
+        wait_for_build(shared)
         with pymupdf.open(shared.server.last_result.output_file) as pdf:
             words = pdf[0].search_for("quick brown fox")[0]
             page_width = pdf[0].rect.width
@@ -955,7 +1163,7 @@ def test_source_beside_comment_opens_the_selected_words_in_the_editor(tmp_path: 
     try:
         shared.ensure()
         base = f"http://127.0.0.1:{port}"
-        wait_until(lambda: shared.server.pdf_digest is not None)
+        wait_for_build(shared)
         with pymupdf.open(shared.server.last_result.output_file) as pdf:
             words = pdf[0].search_for("quick brown fox")[0]
             page_width = pdf[0].rect.width
@@ -1087,6 +1295,74 @@ def test_source_beside_comment_opens_the_selected_words_in_the_editor(tmp_path: 
         shared.stop()
 
 
+@needs_browser
+def test_the_selection_bubble_goes_with_the_selection(tmp_path: Path) -> None:
+    """Words selected in the PDF show a bubble with Comment and Show in Source. The comment
+    dialog that Comment opens takes the selection with it when it closes, by Escape, Cancel
+    or Ctrl+[, or by posting, and the bubble goes with the selection, also when the
+    selection is cleared on its own."""
+    import pymupdf
+
+    sentence = "The quick brown fox jumps over the lazy dog."
+    (tmp_path / "paper.tex").write_text(
+        f"\\documentclass{{article}}\n\\begin{{document}}\n{sentence}\n\\end{{document}}\n", encoding="utf-8")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    browser = None
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_for_build(shared)
+        with pymupdf.open(shared.server.last_result.output_file) as pdf:
+            words = pdf[0].search_for("quick brown fox")[0]
+            page_width = pdf[0].rect.width
+        browser = chrome.launch()
+        browser.set_window_rect(x=0, y=0, width=1200, height=800)
+        browser.navigate(base)
+        script = browser.execute_script
+        wait_until(lambda: script(f"{PREVIEW_PAGE} return rect !== undefined && rect.width > 100;"))
+        select_words = lambda: select_in_preview(browser, words, page_width)
+        bubble = lambda: script(f"return Boolean({BUBBLE_COMMENT});")
+        dialog_open = lambda: script('return document.querySelector("#compose-dialog").open')
+
+        def comment_on_words():
+            select_words()
+            wait_until(bubble)
+            script(f"{BUBBLE_COMMENT}.click();")
+            wait_until(dialog_open)
+
+        # Escape closes the dialog, and the bubble goes with the selection.
+        comment_on_words()
+        browser.actions("key", "keyboard").key_down(chrome.ESCAPE).key_up(chrome.ESCAPE).perform()
+        wait_until(lambda: not dialog_open())
+        wait_until(lambda: not bubble(), timeout=5)
+        # So do Cancel and Ctrl+[, which does what Escape does.
+        comment_on_words()
+        script('document.querySelector("#compose-cancel").click();')
+        wait_until(lambda: not dialog_open() and not bubble(), timeout=5)
+        comment_on_words()
+        type_keys(browser, ["<C-[>"])
+        wait_until(lambda: not dialog_open() and not bubble(), timeout=5)
+        # A posted comment takes the selection along too.
+        comment_on_words()
+        script('''document.querySelector("#compose-text").value = "On these words.";
+                  document.querySelector("#compose-form").requestSubmit();''')
+        wait_until(lambda: len(get_json(f"{base}/comments")["comments"]) == 1)
+        wait_until(lambda: not dialog_open() and not bubble(), timeout=5)
+        # A selection cleared by the viewer's own call takes the bubble along.
+        select_words()
+        wait_until(bubble)
+        script('''return document.querySelector("embedpdf-container").registry.then((registry) =>
+          registry.getPlugin("selection").provides().forDocument("paper").clear());''')
+        wait_until(lambda: not bubble(), timeout=5)
+    finally:
+        if browser is not None:
+            browser.quit()
+        shared.stop()
+
+
 @pytest.mark.xfail(reason="desktop Chrome's touch emulation selects the whole line where a held "
                           "finger selects a word: to be settled on a real touch screen", strict=False)
 @chrome.not_in_safari("no touch input or touch emulation in safaridriver")
@@ -1122,7 +1398,7 @@ def test_a_finger_held_on_a_word_selects_it(tmp_path: Path) -> None:
         shared.ensure()
         base = f"http://127.0.0.1:{port}"
         wait_until(lambda: get_json(f"{base}/paper") is not None)
-        wait_until(lambda: shared.server.pdf_digest is not None)
+        wait_for_build(shared)
         post_json(f"{base}/comments", {
             "anchor": {
                 "kind": "text_selection",
@@ -1358,9 +1634,10 @@ def test_browser_source_selection_and_split_resize(tmp_path: Path) -> None:
         browser.execute_script('document.querySelector("#source-font-smaller-btn").click()')
         # The moon button turns the page dark and back, keeps the choice, and takes the
         # editor and the PDF viewer with it.
-        # The viewer is there once the first build ends, which takes some TeX installs seconds.
-        wait_until(lambda: browser.execute_script('return document.querySelector("embedpdf-container") !== null'),
-                   timeout=60)
+        # The first build ends, which takes some TeX installs seconds, and Compile is free again
+        # once the page has put that build's PDF in the viewer.
+        wait_for_build(shared)
+        wait_until(lambda: not browser.execute_script('return document.querySelector("#compile-btn").disabled'))
         theme = '''
           const page = window.wrappedJSObject || window;
           const viewer = document.querySelector("embedpdf-container");
@@ -1893,6 +2170,7 @@ def test_a_comment_opened_by_space_shows_its_line_a_third_of_the_way_down_the_ed
         shared.stop()
 
 
+@chrome.not_in_safari("a key that opens a confirm() does not return until the dialog closes, and the driver takes no command meanwhile")
 @needs_browser
 def test_each_comment_tab_opens_on_what_waits_for_the_reviewer(tmp_path: Path) -> None:
     """The Comments tab opens on to do: the comments the agent has yet to answer and those
@@ -2458,7 +2736,7 @@ def test_applying_a_suggestion_keeps_the_ring_where_it_is(tmp_path: Path) -> Non
     try:
         shared.ensure()
         base = f"http://127.0.0.1:{port}"
-        wait_until(lambda: shared.server.pdf_digest is not None, timeout=60)
+        wait_for_build(shared)
         with pymupdf.open(tmp_path / "paper.pdf") as pdf:
             box = list(pdf[0].search_for("Sentence 1 of")[0])
         post_json(f"{base}/comments", {"anchor": {"kind": "text_selection", "quote": "Sentence 1 of",
@@ -3973,7 +4251,7 @@ def test_the_more_menu_updates_the_install_and_says_what_is_left(tmp_path: Path,
     try:
         shared.ensure()
         base = f"http://127.0.0.1:{port}"
-        wait_until(lambda: get_json(f"{base}/paper")["pdf_digest"])
+        wait_for_build(shared)
         browser = chrome.launch()
         browser.navigate(base)
         # With no newer release the menu names the version and offers no update.
@@ -4076,7 +4354,7 @@ def test_the_more_menu_downloads_the_pdf_and_a_section_comment_keeps_its_heading
     try:
         shared.ensure()
         base = f"http://127.0.0.1:{port}"
-        wait_until(lambda: get_json(f"{base}/paper")["pdf_digest"])
+        wait_for_build(shared)
         browser = chrome.launch(downloads)
         browser.navigate(base)
         wait_until(lambda: browser.execute_script('return document.querySelectorAll(".paper-section").length') == 4)
@@ -5248,7 +5526,7 @@ def test_keys_typed_in_the_pdf_viewers_own_boxes_stay_there(tmp_path: Path) -> N
     try:
         shared.ensure()
         base = f"http://127.0.0.1:{port}"
-        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        wait_for_build(shared)
         for text in ("First note.", "Second note."):
             post_json(f"{base}/comments", {"anchor": {"kind": "paper"}, "text": text})
         browser = chrome.launch()
@@ -5461,6 +5739,93 @@ def test_translation_numbers_its_source_lines_and_follows_the_editor(tmp_path: P
             'return document.querySelectorAll(".translation-para").length === 40;'))
         assert size() == before + 1
     finally:
+        if browser is not None:
+            browser.quit()
+        shared.stop()
+
+
+@needs_browser
+def test_the_translation_says_what_it_waits_for_until_there_is_a_pdf(tmp_path: Path, monkeypatch) -> None:
+    """With no PDF yet the translation has no page to follow. It says that it waits for the
+    PDF, and after a failed build says so and opens Problems. A file chosen in it is
+    translated all the same, and once a build makes a PDF it follows the PDF's page."""
+    import asyncio
+    import threading
+
+    from tex_mcp_web import server as server_module
+    from tex_mcp_web.compiler import CompileMessage, CompileResult, compile_tex
+
+    def translated(command, prompt, cwd, system):
+        blocks = json.loads(prompt.split("Paragraphs (JSON):\n", 1)[1])
+        return json.dumps({"t": {pid: "T " + text for pid, text in blocks.items()}})
+
+    monkeypatch.setattr("tex_mcp_web.translate.run_command", translated)
+    gate = threading.Event()
+    builds = []
+
+    async def first_build_fails(main_file, compiler, work_dir):
+        """The first build ends when the test opens the gate, and fails. The rest are real."""
+        builds.append(main_file)
+        if len(builds) > 1:
+            return await compile_tex(main_file=main_file, compiler=compiler, work_dir=work_dir)
+        while not gate.is_set():
+            await asyncio.sleep(0.05)
+        return CompileResult(success=False, errors=[
+            CompileMessage(file="paper.tex", line=4, message="Undefined control sequence.", type="error")])
+
+    monkeypatch.setattr(server_module, "compile_tex", first_build_fails)
+    (tmp_path / "paper.tex").write_text(
+        "\\documentclass{article}\n\\begin{document}\n\nThe first paragraph.\n\nThe second paragraph.\n\n"
+        "\\end{document}\n", encoding="utf-8")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(
+        f"main: paper.tex\nport: {port}\ntranslation:\n  language: Korean\n  command: llm-tool --model mid\n",
+        encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    browser = None
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: builds)
+        browser = chrome.launch()
+        browser.set_window_rect(x=0, y=0, width=1500, height=1000)
+        browser.navigate(base)
+        script = browser.execute_script
+        wait_until(lambda: script('return document.querySelector("#translation-btn").textContent;')
+                   == "Translation: Korean")
+        script('document.querySelector("#translation-btn").click();')
+        pane = lambda: script('return document.querySelector("#translation-body").textContent;')
+        page = lambda: script('return document.querySelector("#translation-page").textContent;')
+        wait_until(lambda: pane() == "The translation will appear when the PDF is ready.")
+
+        # The build fails: the pane says so, and its button opens Problems.
+        gate.set()
+        wait_until(lambda: pane() == "The build failed. The translation will appear after a successful build. "
+                                     "Show Problems")
+        script('document.querySelector("#translation-body button").click();')
+        wait_until(lambda: script(
+            'return document.querySelector(".tab-btn[data-tab=compile]").classList.contains("active");'))
+
+        # A file chosen in the pane needs no PDF.
+        choose = '''const select = document.querySelector("#translation-file");
+          select.value = arguments[0]; select.dispatchEvent(new Event("change"));'''
+        wait_until(lambda: script('return [...document.querySelectorAll("#translation-file option")]'
+                                  '.some((option) => option.value === "paper.tex");'))
+        script(choose, script_args=["paper.tex"])
+        wait_until(lambda: script('return [...document.querySelectorAll(".translation-text")]'
+                                  '.map((item) => item.textContent);')
+                   == ["T The first paragraph.", "T The second paragraph."])
+        assert page() == ""
+        script(choose, script_args=[""])
+        wait_until(lambda: pane().startswith("The build failed."))
+
+        # A build that makes a PDF gives the pane its page and the file the page comes from.
+        script('document.querySelector("#compile-btn").click();')
+        wait_until(lambda: page() == "p. 1" and script(
+            'return document.querySelectorAll(".translation-para.on-page").length;') == 2, timeout=60)
+    finally:
+        gate.set()
         if browser is not None:
             browser.quit()
         shared.stop()

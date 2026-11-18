@@ -28,6 +28,9 @@ const state = {
   pendingAnchor: null,
   pendingSourceRevision: null,
   pendingHeading: null,
+  // A comment written on a PDF selection that a rebuild made out of date, for the next
+  // comment box opened.
+  keptComment: "",
   composeSubmitting: false,
   errors: [],
   warnings: [],
@@ -108,6 +111,9 @@ const state = {
   compileStatus: "idle",
   sourceAhead: false,
   configError: "",
+  // Whether the last build failed, which the Preview and the translation say while there is
+  // no PDF.
+  buildFailed: false,
   // The page cannot reach its server, and a call to the agent waits for one to listen.
   serverGone: false,
   callWaits: false,
@@ -847,7 +853,8 @@ function openCompose(anchor, label, heading = null, forOverleaf = false) {
     : "leave a private comment for the coding agent…";
   $("#compose-anchor").textContent = label;
   $("#compose-message").value = "";
-  $("#compose-text").value = "";
+  $("#compose-text").value = state.keptComment;
+  state.keptComment = "";
   $("#compose-dialog").showModal();
   for (const box of $$("#compose-form textarea")) fitComposeBox(box);
   setTimeout(() => $(forOverleaf ? "#compose-message" : "#compose-text").focus(), 50);
@@ -868,12 +875,19 @@ function clearPendingSelection() {
 }
 
 async function responseError(response) {
+  return (await responseRefusal(response)).error;
+}
+
+// What a refused request says: its reason in words, and the kind of reason, when the server
+// names one, for the page to act on.
+async function responseRefusal(response) {
   const text = await response.text();
-  if (!text) return String(response.status);
+  if (!text) return { error: String(response.status) };
   try {
-    return JSON.parse(text).error;
+    const { error, reason } = JSON.parse(text);
+    return { error, reason };
   } catch (error) {
-    return `${response.status}: ${text}`;
+    return { error: `${response.status}: ${text}` };
   }
 }
 
@@ -2728,12 +2742,26 @@ async function submitCompose(event) {
       body: JSON.stringify(body),
     });
     if (!response.ok) {
-      alert(`Could not save comment: ${await responseError(response)}`);
+      const refusal = await responseRefusal(response);
+      if (refusal.reason === "rebuilding" || refusal.reason === "rebuilt") {
+        // The PDF the selection was made on is being rebuilt, or was rebuilt since: a comment
+        // is placed only on a selection made on the PDF the server has. What was written
+        // waits in the comment box for the next selection.
+        state.keptComment = $("#compose-text").value;
+        $("#compose-dialog").close();
+        const redo = body.anchor.kind === "area" ? "draw the box again" : "select the text again";
+        alert(refusal.reason === "rebuilding"
+          ? `The PDF is being rebuilt, so this comment can't be placed on it yet. When the new PDF appears, ${redo}. `
+            + "What you wrote will still be in the comment box."
+          : `The PDF was rebuilt after you made this selection, so the comment wasn't posted. Please ${redo}. `
+            + "What you wrote will still be in the comment box.");
+        return;
+      }
+      alert(`Could not save comment: ${refusal.error}`);
       return;
     }
     started = await response.json();
     $("#compose-dialog").close();
-    clearPendingSelection();
     // A thread started for Overleaf is among the new threads, waiting for the agent's draft
     // or opened there, and a comment for the agent among the open ones.
     const tab = state.pendingForOverleaf ? "overleaf-comments" : "comments";
@@ -4510,11 +4538,19 @@ function applyCompileResult(result) {
   badge.classList.toggle("hidden", total === 0);
   badge.classList.toggle("has-errors", state.errors.length > 0);
   renderErrorBanner();
-  // Until a build makes a PDF, the Preview says why there is none and where to read it.
+  state.buildFailed = !result.success;
+  // Until a build makes a PDF, the Preview says why there is none and where to read it, and
+  // so does the translation, which follows the PDF's pages.
   if (!result.success && !state.viewer) {
     $("#pdf-viewer").replaceChildren(h("p", { class: "placeholder" }, "The build failed. See Problems for details. ",
-      h("button", { type: "button", onclick: () => { setSidebarCollapsed(false); switchTab("compile"); } }, "Show Problems")));
+      h("button", { type: "button", onclick: showProblems }, "Show Problems")));
   }
+  if (!state.pdfDigest) scheduleTranslation(0);
+}
+
+function showProblems() {
+  setSidebarCollapsed(false);
+  switchTab("compile");
 }
 
 function applyCompiling(compiling) {
@@ -4522,8 +4558,9 @@ function applyCompiling(compiling) {
   button.disabled = compiling;
   button.querySelector(".wide-label").textContent = compiling ? "Compiling…" : "Compile";
   if (compiling) {
-    // A build that starts now reads the sources as they are.
-    state.compileStatus = "compiling…";
+    // A build that starts now reads the sources as they are. Until it ends, the Preview
+    // shows the PDF of the build before it, when there is one.
+    state.compileStatus = state.pdfDigest ? "compiling… · showing the previous build" : "compiling…";
     state.sourceAhead = false;
     state.configError = "";
     renderCompileStatus();
@@ -4585,6 +4622,17 @@ function showTranslation() {
   }
 }
 
+// What the pane says while there is no PDF to follow: that it waits for one, or after a
+// failed build, that a build has to succeed first.
+function showTranslationWait() {
+  for (const id of ["#translation-page", "#translation-status", "#translation-tool"]) $(id).textContent = "";
+  translation.file = null;
+  $("#translation-body").replaceChildren(state.buildFailed
+    ? h("p", { class: "placeholder" }, "The build failed. The translation will appear after a successful build. ",
+      h("button", { type: "button", onclick: showProblems }, "Show Problems"))
+    : placeholder("The translation will appear when the PDF is ready."));
+}
+
 // What the pane says while translation is not set up, in the words /translations gives.
 function showTranslationHelp(data) {
   for (const id of ["#translation-page", "#translation-status", "#translation-tool"]) $(id).textContent = "";
@@ -4609,10 +4657,21 @@ function scheduleTranslation(delay = 800) {
 }
 
 async function loadTranslation() {
-  if (!translating() || !state.scroll) return;
-  const page = state.scroll.getCurrentPage();
+  if (!translating()) return;
   const chosen = $("#translation-file").value || (state.view !== "pdf" ? state.sourcePath : null);
-  const params = new URLSearchParams({ page: String(page) });
+  // The Preview's page marks its paragraphs, and with no file chosen, picks the file. With
+  // no PDF yet a chosen file is translated without marks, and with none chosen the pane
+  // says what it waits for. A PDF the Preview is still loading asks again once laid out.
+  if (!state.scroll) {
+    if (state.pdfDigest) return;
+    if (!chosen) {
+      showTranslationWait();
+      return;
+    }
+  }
+  const page = state.scroll ? state.scroll.getCurrentPage() : null;
+  const params = new URLSearchParams();
+  if (page !== null) params.set("page", String(page));
   if (chosen) params.set("file", chosen);
   const request = params.toString();
   translation.request = request;
@@ -4636,7 +4695,7 @@ async function loadTranslation() {
   const keepScroll = body.scrollTop;
   translation.file = data.file;
   translation.page = page;
-  $("#translation-page").textContent = `p. ${page}`;
+  $("#translation-page").textContent = page === null ? "" : `p. ${page}`;
   $("#translation-status").textContent = data.status === "pending" ? "Translating…"
     : data.status === "error" ? `Translation failed: ${data.error}` : "";
   const items = data.paragraphs.map((paragraph) => h("p", {
@@ -4795,6 +4854,9 @@ async function handleWebSocketMessage(message) {
       // A build that ended while the page could not hear of it leaves Compile free again.
       applyCompiling(Boolean(message.compiling));
       if (message.review_waiters !== undefined) showAgentWaiting(message.review_waiters);
+      // A build that ended after the page first read the paper and before its socket opened
+      // left a PDF the page has not shown. A page that reconnects catches up as it opens.
+      if (socketCloses === 0 && message.pdf_digest !== state.pdfDigest) await catchUp();
       break;
     case "review_waiters":
       showAgentWaiting(message.waiters);
@@ -6279,10 +6341,12 @@ async function init() {
     sendOn(box, () => $("#compose-form").requestSubmit());
     box.addEventListener("input", () => fitComposeBox(box));
   }
+  // However the dialog closes, by Post, Cancel, Escape or Ctrl+[, the selection it was opened
+  // on goes, and the viewer's bubble with it.
+  $("#compose-dialog").addEventListener("close", clearPendingSelection);
   $("#compose-cancel").addEventListener("click", (event) => {
     event.preventDefault();
     $("#compose-dialog").close();
-    clearPendingSelection();
   });
   for (const tab of ["comments", "overleaf-comments"]) {
     try { state.commentSorts[tab] = localStorage.getItem(`texMcpCommentSort-${tab}`); } catch { /* paper order */ }
@@ -6315,6 +6379,8 @@ async function init() {
   });
 
   await refreshPaper();
+  // A build already running says so from the start, before the page's socket connects.
+  applyCompiling(state.paper.compiling);
   await refreshComments();
   // A git clone of the Overleaf project: where it stands shows in the top bar from the start.
   loadOverleafStanding().catch((error) => console.error(error));
