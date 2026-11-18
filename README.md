@@ -30,7 +30,7 @@ the work it has already done.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/pdf-review-dark.webp">
-  <img alt="A sentence selected in the PDF gets a comment asking for a number, and the agent proposes new wording as a −/+ pair while the source editor marks the words it would replace. Applying the proposal with aa clears the to do list, and after compiling, the PDF shows the new sentence." src="docs/images/pdf-review.webp">
+  <img alt="A sentence selected in the PDF gets a comment asking for a number, and the agent proposes new wording as a −/+ pair while the source editor marks the words it would replace. Once the proposal is applied with aa, the comment is no longer marked unanswered. R resolves it, and after compiling, the PDF shows the new sentence." src="docs/images/pdf-review.webp">
 </picture>
 
 Select words in the PDF, or draw a box over part of a figure, and write what should change.
@@ -98,7 +98,7 @@ your reply.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/overleaf-thread-dark.webp">
-  <img alt="In a co-author's thread from Overleaf, the agent has misread the request and drafted a gushing reply. After a private reply corrects it, the agent fixes the sentence, the PDF shows the change, and the draft for Overleaf shrinks to one short line, which is sent with ss." src="docs/images/overleaf-thread.webp">
+  <img alt="In a co-author's thread from Overleaf, the agent has misread the request and drafted a gushing reply. After a private reply corrects it, the agent fixes the sentence, the PDF shows the change, and the draft for Overleaf shrinks to one short line, which is sent with ss. The thread is then no longer marked unanswered." src="docs/images/overleaf-thread.webp">
 </picture>
 
 Every entry in a thread is either **private** or **public**. A private entry stays on the page,
@@ -122,7 +122,7 @@ live.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/new-thread-dark.webp">
-  <img alt="With the leaf button pressed, the words room temperature are selected in the source with v and gc, and a rough private note tells the agent what to ask the co-author. The agent drafts a polite question, which is sent with ss, so only the question appears on Overleaf while the note stays on the page, marked private." src="docs/images/new-thread.webp">
+  <img alt="With the leaf button pressed, the words room temperature are selected in the source with v and gc, and a rough note in the dialog's lower box tells the agent what to ask the co-author. The note appears in the drafts view, and the agent drafts a polite question. Once the question is sent with ss, it leaves the drafts view, and in the open view the thread shows the question marked public and the note marked private." src="docs/images/new-thread.webp">
 </picture>
 
 To start a thread, turn on the leaf button next to the comment button (the speech bubble) in
@@ -139,7 +139,7 @@ thread, and it drafts that one the same way.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/suggested-edits-dark.webp">
-  <img alt="A co-author's tracked changes from Overleaf appear in the leaf tab's to do list: a replaced word, an insertion and a deletion, each shown in the source when opened with Space. Two are accepted with aa and one is rejected with dd, Get brings the rejection into the file, and the to do list is empty." src="docs/images/suggested-edits.webp">
+  <img alt="A co-author's tracked changes from Overleaf appear in the leaf tab's open view, and the tab shows how many there are. They are a replaced word, an insertion and a deletion, each shown in the source when opened with Space. Two are accepted with aa and one is rejected with dd, Get brings the rejection into the file, and the list is empty, with no count left on the tab." src="docs/images/suggested-edits.webp">
 </picture>
 
 Edits your co-authors make on Overleaf with track changes on arrive as suggested edits. Each
@@ -178,6 +178,14 @@ start moving with the keys, the buttons on the marked comment show their key let
 box understands `from:`, `file:`, `after:` and `before:`, quoted phrases, `-` to exclude a
 word, and `OR`. [Reviewing in detail](docs/reviewing.md) lists every key, including the
 editor's Vim keys.
+
+When several co-authors comment on the same paper, the search terms narrow the list to the
+thread you want, such as the one a co-author left on 2_main.tex on a particular morning.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/search-dark.webp">
+  <img alt="The leaf tab lists threads from Overleaf by three co-authors. Clicking the search box shows the search terms below it. After from: is typed, the names of the people in the tab appear, and Ann Lee is chosen. Adding file:2_main, then after: and before: with a date and time, narrows the list to the one thread she left on 2_main.tex on the morning of November 13. The thread is opened, a private reply asks the agent about it, and the bell calls the agent." src="docs/images/search.webp">
+</picture>
 
 ## Review on a tablet or phone
 
