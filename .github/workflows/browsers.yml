@@ -23,5 +23,9 @@ jobs:
       - name: Browser tests
         shell: bash
         run: |
+          # The runner's own chromedriver can be older than its Chrome. Without it Selenium
+          # fetches the one that fits.
+          while command -v chromedriver >/dev/null; do rm -f "$(command -v chromedriver)" || break; done
+          unset CHROMEWEBDRIVER
           python -m pytest -o addopts="" -o faulthandler_timeout=300 -q -rf tests/test_browser.py \
             || python -m pytest -o addopts="" -o faulthandler_timeout=300 -q -rf --last-failed tests/test_browser.py
