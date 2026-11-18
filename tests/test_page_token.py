@@ -122,3 +122,24 @@ async def test_the_agent_finds_its_page_running_when_the_page_asks_for_the_token
     config.port = client.server.port
     shared = SharedProjectServer(config)
     assert await asyncio.to_thread(shared._remote_identity) == str(config.config_path)
+
+
+def test_the_token_and_the_cookie_are_kept_where_os_has_no_fchmod(tmp_path, monkeypatch) -> None:
+    """Windows has os.fchmod only from Python 3.13 on. Without it the page token is still
+    made and the Overleaf cookie still saved."""
+    import os
+
+    from tex_mcp_web import overleaf, page_token
+
+    monkeypatch.delattr(os, "fchmod", raising=False)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    overleaf.save_cookie("overleaf_session2=s%3Ainvented")
+    assert overleaf.cookie_path().read_text(encoding="utf-8").strip() == "overleaf_session2=s%3Ainvented"
+    assert str(tmp_path) in str(overleaf.cookie_path())
+    assert str(tmp_path) in str(page_token.token_path())
+    token = page_token.ensure_token()
+    assert token and page_token.read_token() == token

@@ -100,7 +100,10 @@ def save_cookie(pasted: str) -> None:
     temporary = path.with_name(path.name + ".new")
     descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     try:
-        os.fchmod(descriptor, 0o600)
+        # Windows has this call only from Python 3.13 on, and no such modes: a file in the
+        # user's own folder there is the user's alone as it is.
+        if hasattr(os, "fchmod"):
+            os.fchmod(descriptor, 0o600)
         os.write(descriptor, f"{name}={value}\n".encode())
     finally:
         os.close(descriptor)

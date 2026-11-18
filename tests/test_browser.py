@@ -472,10 +472,11 @@ def test_the_page_says_why_it_waits_and_catches_up_when_its_server_returns(tmp_p
         script('document.querySelector("[data-view=split]").click()')
         wait_until(lambda: script(f'return {editor}.getValue().includes("badcommand")'))
         paper.write_text(PAPER, encoding="utf-8")
-        wait_until(lambda: script(f'return {editor}.getValue()') == PAPER)
+        # The editor shows the file as it is on disk, line ends included, which Windows writes as CRLF.
+        wait_until(lambda: script(f'return {editor}.getValue()') == paper.read_bytes().decode("utf-8"))
         wait_until(lambda: status().endswith(ahead))
         paper.write_text(PAPER + "% again\n", encoding="utf-8")
-        wait_until(lambda: script(f'return {editor}.getValue()').endswith("% again\n"))
+        wait_until(lambda: script(f'return {editor}.getValue()').rstrip().endswith("% again"))
         wait_until(lambda: status().count("source changed") == 1)
         # The build that follows shows the PDF in the Preview's place.
         script('document.querySelector("#compile-btn").click()')
@@ -4205,7 +4206,8 @@ def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path
         assert cookie not in browser.execute_script("return document.documentElement.outerHTML")
         kept = config_home / "tex-mcp-web" / "overleaf-cookie"
         assert kept.read_text(encoding="utf-8").strip() == f"overleaf_session2={cookie}"
-        assert stat.S_IMODE(kept.stat().st_mode) == 0o600
+        # Windows has no such modes: the file is the user's alone by where it is.
+        assert os.name != "posix" or stat.S_IMODE(kept.stat().st_mode) == 0o600
 
         # Overleaf has a commit the folder lacks: Pull shows in the top bar with the count, and
         # comments wait for it.
@@ -5274,7 +5276,7 @@ def test_go_to_definition_follows_input_ref_and_cite(tmp_path: Path) -> None:
               page.document.querySelector("#source-file").dispatchEvent(new Event("change"));''', script_args=[file])
             # The menu shows the file at once, and the editor gets its text when the fetch
             # returns, which puts the cursor at the top: a cursor placed before that is lost.
-            text = (tmp_path / file).read_text(encoding="utf-8")
+            text = (tmp_path / file).read_bytes().decode("utf-8")
             wait_until(lambda: browser.execute_script(f"return {editor}.getValue();") == text)
             browser.execute_script(f"{editor}.focus(); {editor}.gotoLine({row}, {column});")
             browser.actions("key", "keyboard").key_down("\ue03c").key_up("\ue03c").perform()

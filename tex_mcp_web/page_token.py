@@ -43,7 +43,10 @@ def ensure_token() -> str:
     token = secrets.token_urlsafe(32)
     descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
-        os.fchmod(descriptor, 0o600)
+        # Windows has this call only from Python 3.13 on, and no such modes: a file in the
+        # user's own folder there is the user's alone as it is.
+        if hasattr(os, "fchmod"):
+            os.fchmod(descriptor, 0o600)
         os.write(descriptor, f"{token}\n".encode())
     finally:
         os.close(descriptor)
