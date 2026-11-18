@@ -1,7 +1,7 @@
 name: browsers
 
-# The review page's browser tests in Chrome on Windows and macOS, started by hand. The
-# screenshots a test saves on failure are kept with the run.
+# The review page's browser tests in Safari on macOS, started by hand. Chrome on Windows and
+# macOS runs at every push, in tests.yml.
 on:
   workflow_dispatch:
 
@@ -13,11 +13,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest]
-        kind: [chrome]
-        include:
-          - os: macos-latest
-            kind: safari
+        os: [macos-latest]
+        kind: [safari]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
