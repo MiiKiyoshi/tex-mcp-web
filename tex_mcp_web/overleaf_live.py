@@ -4,10 +4,10 @@ read from the session Overleaf's own editor keeps open, signed in with the revie
 Overleaf's editor talks to its real-time service over socket.io 0.9: a handshake names the
 project, the service answers with the project's files, and from then on it tells the editor
 who moved where (clientTracking.*) and every edit applied to any file (otUpdateApplied).
-This reads that and sends no edit to the text. It asks once who is connected, and says once where the
-reviewer is, the top of the main file, which needs that file opened (joinDoc) first: an
-editor that sees no one else sends its cursor every five minutes, and one that sees the
-reviewer sends it twice a second. To the others it is one more tab of the reviewer's, idle.
+This reads that and sends no edit to the text and no cursor: the reviewer has no place in
+the others' editors. It asks once who is connected, and opens the main file (joinDoc) to
+learn what kind of file it is. An editor that sees no cursor but its own sends its place
+every five minutes, so a collaborator who works alone is shown where they were then.
 The service also says when a comment changes, and when an edit made with track changes on
 comes or a suggested edit is accepted, which is passed on for the server to read.
 When the reviewer sends a new thread, the session puts it on its words with an edit that
@@ -329,8 +329,6 @@ class LivePresence:
                     reply = json.loads(acked.group(2) or "[null]")
                     if reply and reply[0] is None:
                         self.doc_type = str(reply[5]) if len(reply) > 5 else ""
-                        await ws.send_str("5:::" + json.dumps({"name": "clientTracking.updatePosition", "args": [
-                            {"row": 0, "column": 0, "doc_id": self._main_doc}]}))
                     else:
                         logger.info("Overleaf presence: could not open the main file: %s", reply[0] if reply else "")
 

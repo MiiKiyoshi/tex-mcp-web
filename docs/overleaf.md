@@ -151,10 +151,10 @@ a face for each collaborator there, which goes to the file and line they are on,
 cursors are drawn in the editor on that file, and a file edited there says so above the
 editor until this folder holds those edits too. Settings lists who is where and those files.
 A leaf button shows in the top bar only when something needs a look: signed out,
-reconnecting, comments not coming in, or files waiting for a choice. The page opens the main
-file and puts one cursor at its top, which is what makes the others' editors send their
-cursors at once, so to them it is one more of your tabs, idle. It sends Overleaf no edit to
-the text unless the files follow it live or you press Send.
+reconnecting, comments not coming in, or files waiting for a choice. The page puts no cursor
+of yours in their editors. An Overleaf editor that sees no cursor but its own tells where it
+is every five minutes, so a co-author who works alone is shown where they were then. The
+page sends Overleaf no edit to the text unless the files follow it live or you press Send.
 
 ## Keeping the files in step
 

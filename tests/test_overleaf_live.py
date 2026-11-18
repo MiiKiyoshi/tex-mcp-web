@@ -1,5 +1,5 @@
 """Who is in the Overleaf project, where their cursors are, and what they changed, read from
-Overleaf's editor session, which is sent no edit: only who is there, and one cursor."""
+Overleaf's editor session, which is sent no edit and no cursor: only a question about who is there."""
 
 import asyncio
 import json
@@ -301,15 +301,12 @@ async def test_the_project_shows_who_is_there_where_they_are_and_what_they_chang
         assert changes
     finally:
         await live.stop()
-    # No edit: a question about who is there, the main file opened so that one cursor at its
-    # top says this reviewer is here, and heartbeats.
+    # No edit and no cursor, which the others would see standing in their editors: a question
+    # about who is there, the main file opened, and heartbeats.
     events = [json.loads(re.match(r"^5:\d*\+?:[^:]*:(.*)$", frame, re.S).group(1))
               for frame in fake.sent if frame != "2::"]
-    assert [e["name"] for e in events] == ["clientTracking.getConnectedUsers", "joinDoc", "clientTracking.updatePosition"]
+    assert [e["name"] for e in events] == ["clientTracking.getConnectedUsers", "joinDoc"]
     assert events[1]["args"][0] == "d-main" and events[1]["args"][2]["supportsHistoryOT"] is True
-    assert events[2]["args"] == [{"row": 0, "column": 0, "doc_id": "d-main"}]
-    assert fake.sent.index(next(f for f in fake.sent if "updatePosition" in f)) > fake.sent.index(
-        next(f for f in fake.sent if "joinDoc" in f))
     assert live.snapshot()["status"] == "off"
 
 
