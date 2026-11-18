@@ -66,6 +66,14 @@ class TestConfig:
         plain = Config.from_dict({"main": "a.tex"})
         assert plain.translation_language is None and "translation" not in plain.to_dict()
 
+    def test_translation_may_name_its_model(self):
+        config = Config.from_dict({"main": "a.tex", "translation": {"language": "Korean", "model": "sonnet"}})
+        assert config.translation_model == "sonnet"
+        assert config.to_dict()["translation"] == {"language": "Korean", "model": "sonnet"}
+        assert Config.from_dict({"main": "a.tex", "translation": {"language": "Korean"}}).translation_model is None
+        with pytest.raises(ValueError, match="translation.model needs translation.language"):
+            Config.from_dict({"main": "a.tex", "translation": {"model": "sonnet"}})
+
     def test_translation_must_be_a_mapping_with_a_language(self):
         with pytest.raises(ValueError):
             Config.from_dict({"main": "a.tex", "translation": "Korean"})

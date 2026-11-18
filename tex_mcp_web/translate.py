@@ -3,9 +3,9 @@
 The language is the one ``translation: {language: ...}`` names in the configuration.
 A paragraph is translated only when its text has not been translated into that
 language before, so a compile after an edit sends just the paragraphs that changed.
-The translation runs ``claude -p`` without ``--model`` or ``--effort``: Claude Code
-takes both from the user's own settings, so the translation follows whatever those
-settings say.
+The translation runs ``claude -p`` on the model ``translation: {model: ...}`` names, MODEL
+when it names none: a paper has hundreds of paragraphs, and the model the user writes with
+is more than reading them in another language needs. The effort is Claude Code's own.
 """
 
 from __future__ import annotations
@@ -210,6 +210,11 @@ def parse_reply(reply: str, ids: list[str]) -> dict[str, str]:
 _SESSION_ENV = ("CLAUDE_EFFORT", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT")
 
 
+# The model a translation runs on unless the configuration names one: an alias Claude Code
+# keeps pointed at its current small model, which costs the least.
+MODEL = "haiku"
+
+
 def find_claude() -> str | None:
     """The ``claude`` command: on the PATH, or where Claude Code's installers put it in the
     user's folder. The server is registered with a short PATH of its own, which need not
@@ -220,15 +225,15 @@ def find_claude() -> str | None:
          if (found := shutil.which("claude", path=str(folder))) is not None), None)
 
 
-def run_claude(prompt: str, cwd: Path, system: str) -> str:
-    """One ``claude -p`` call with the user's model and effort settings."""
+def run_claude(prompt: str, cwd: Path, system: str, model: str = MODEL) -> str:
+    """One ``claude -p`` call on *model*, with the user's effort setting."""
     claude = find_claude()
     if claude is None:
         raise RuntimeError("the claude command was not found on the server's PATH or in ~/.local/bin: "
                            "translation runs Claude Code's claude -p")
     env = {key: value for key, value in os.environ.items() if key not in _SESSION_ENV}
     completed = subprocess.run(
-        [claude, "-p", "--tools", "", "--strict-mcp-config", "--disable-slash-commands",
+        [claude, "-p", "--model", model, "--tools", "", "--strict-mcp-config", "--disable-slash-commands",
          "--no-session-persistence", "--output-format", "json",
          "--settings", json.dumps({"disableAllHooks": True}),
          "--system-prompt", system, prompt],
@@ -250,14 +255,15 @@ class Translator:
 
     def __init__(self, store: TranslationStore, glossary: list[str], workdir: Path,
                  runner: Callable[[str, Path], str] | None = None, *,
-                 language: str = "English", instructions: str | None = None):
+                 language: str = "English", instructions: str | None = None, model: str = MODEL):
         self.store = store
         self.glossary = glossary
         self.workdir = workdir
         self.language = language
         self.instructions = instructions
+        self.model = model
         system = system_prompt(language, instructions)
-        self.runner = runner or (lambda prompt, cwd: run_claude(prompt, cwd, system))
+        self.runner = runner or (lambda prompt, cwd: run_claude(prompt, cwd, system, model))
         self._lock = threading.Lock()
         self._pending: set[str] = set()
         self.error: str | None = None

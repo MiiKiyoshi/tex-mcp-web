@@ -55,6 +55,9 @@ class Config:
             from ``translation: {language: ...}``. Unset means no translation panel.
         translation_instructions: Extra rules the translator follows, such as a field's
             terms to keep in English, from ``translation: {instructions: ...}``.
+        translation_model: The model the translation runs on, a name or an alias Claude
+            Code's ``--model`` takes, from ``translation: {model: ...}``. Unset means
+            translate.MODEL.
         overleaf_sync: Keep the paper's files and that project's the same, both ways.
         overleaf: The paper's Overleaf project, by its link, whose comments the page
             brings in with the reviewer's own session cookie. Unset means none.
@@ -77,6 +80,7 @@ class Config:
     guideline: str | None = None
     translation_language: str | None = None
     translation_instructions: str | None = None
+    translation_model: str | None = None
     overleaf: str | None = None
     overleaf_sync: bool = False
     overleaf_add: list[str] = field(default_factory=lambda: list(DEFAULT_OVERLEAF_ADD))
@@ -98,6 +102,7 @@ class Config:
             guideline=_guideline(data),
             translation_language=_translation(data).get("language"),
             translation_instructions=_translation(data).get("instructions"),
+            translation_model=_translation(data).get("model"),
             overleaf=_overleaf(data),
             overleaf_sync=_overleaf_flag(data, "overleaf_sync"),
             overleaf_add=_patterns(data, "overleaf_add", DEFAULT_OVERLEAF_ADD),
@@ -125,6 +130,8 @@ class Config:
             d["translation"] = {"language": self.translation_language}
             if self.translation_instructions is not None:
                 d["translation"]["instructions"] = self.translation_instructions
+            if self.translation_model is not None:
+                d["translation"]["model"] = self.translation_model
         if self.overleaf is not None:
             d["overleaf"] = self.overleaf
         if self.overleaf_sync:
@@ -170,19 +177,20 @@ def _overleaf(data: dict[str, Any]) -> str | None:
 
 
 def _translation(data: dict[str, Any]) -> dict[str, str]:
-    """``translation:`` as {language, instructions}, each a non-empty string when set."""
+    """``translation:`` as {language, instructions, model}, each a non-empty string when set."""
     raw = data.get("translation")
     if raw is None:
         return {}
     if not isinstance(raw, dict):
         raise ValueError("translation must be a mapping such as {language: Korean}")
     out = {}
-    for key in ("language", "instructions"):
+    for key in ("language", "instructions", "model"):
         value = raw.get(key)
         if value is not None and str(value).strip():
             out[key] = str(value).strip()
-    if "instructions" in out and "language" not in out:
-        raise ValueError("translation.instructions needs translation.language")
+    for key in ("instructions", "model"):
+        if key in out and "language" not in out:
+            raise ValueError(f"translation.{key} needs translation.language")
     return out
 
 

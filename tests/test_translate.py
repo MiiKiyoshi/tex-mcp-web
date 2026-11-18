@@ -1,4 +1,5 @@
 import json
+from types import SimpleNamespace
 from pathlib import Path
 
 import pytest
@@ -195,3 +196,20 @@ def test_claude_is_found_in_the_users_folder_when_the_servers_path_lacks_it(tmp_
     command.write_text("", encoding="utf-8")
     command.chmod(0o755)
     assert translate.find_claude() == str(command)
+
+
+def test_the_translation_runs_on_the_model_named_and_on_the_small_one_otherwise(tmp_path, monkeypatch) -> None:
+    from tex_mcp_web import translate
+
+    ran = []
+
+    def run(command, **_):
+        ran.append(command)
+        return SimpleNamespace(returncode=0, stdout=json.dumps({"result": "done"}), stderr="")
+
+    monkeypatch.setattr(translate, "find_claude", lambda: "claude")
+    monkeypatch.setattr(translate.subprocess, "run", run)
+    translate.run_claude("words", tmp_path, "rules")
+    translate.run_claude("words", tmp_path, "rules", "sonnet")
+    assert [command[command.index("--model") + 1] for command in ran] == [translate.MODEL, "sonnet"]
+    assert translate.MODEL == "haiku"
