@@ -2,11 +2,19 @@
    Design priority: get out of the way of the PDF, make comments scannable. */
 
 :root {
-  /* The page's own text, the top bar and the panels, as Settings sizes it. The editor, the
-     translation and the PDF keep sizes of their own, and so do the panel's tabs and the
-     dialogs. */
+  /* The page's own text, in the top bar, the panels and the dialogs, as Settings sizes it. The
+     editor, the translation and the PDF keep sizes of their own, and so do the panel's tabs
+     and the Settings dialog. */
   --text-base: 14px;
   --text-scale: 1;
+  /* The three sizes of that text, 13, 12 and 11.5px at 100%: what is read (comments,
+     sections, problems, notes and status lines, the row above the comments), what labels it
+     (ids, places, times, the buttons on a card, the bars over the panes), and the fine print
+     of the top bar's tabs and buttons, the badges and the key letters. Headings and the top
+     bar's title are larger. */
+  --text-body: 0.93rem;
+  --text-small: 0.86rem;
+  --text-fine: 0.82rem;
   --bg: #faf8f2;
   --bg-elev: #fffdf8;
   --bg-pdf: #faf8f2;
@@ -98,7 +106,7 @@ textarea {
 }
 .topbar .main-file {
   font-family: var(--mono);
-  font-size: 0.82rem;
+  font-size: var(--text-fine);
   color: var(--fg-dim);
 }
 .view-tabs {
@@ -124,13 +132,13 @@ textarea {
 .topbar .compile-status {
   margin-left: auto;
   font-family: var(--mono);
-  font-size: 0.82rem;
+  font-size: var(--text-body);
   color: var(--fg-dim);
 }
 .topbar .actions { display: flex; gap: 0.5rem; }
 .topbar button {
   padding: 0.1rem 0.55rem;
-  font-size: 0.82rem;
+  font-size: var(--text-fine);
   border: 1px solid var(--border);
   background: var(--bg);
   border-radius: 3px;
@@ -148,7 +156,7 @@ textarea {
 .overleaf-live-btn.off { color: var(--fg-dim); }
 .overleaf-faces { display: inline-flex; }
 .overleaf-faces:empty { display: none; }
-.topbar .overleaf-face { display: inline-grid; place-items: center; width: 1.5rem; height: 1.5rem; padding: 0; margin-left: -0.3rem; border-radius: 50%; border: 2px solid var(--bg-elev); color: white; font-size: 0.65rem; font-weight: 600; cursor: pointer; }
+.topbar .overleaf-face { display: inline-grid; place-items: center; width: 1.5rem; height: 1.5rem; padding: 0; margin-left: -0.3rem; border-radius: 50%; border: 2px solid var(--bg-elev); color: white; font-size: var(--text-fine); font-weight: 600; cursor: pointer; }
 .topbar .overleaf-face:first-child { margin-left: 0; }
 .topbar .overleaf-face:hover { filter: brightness(1.12); }
 .overleaf-faces:not(:empty) + .overleaf-live-btn:not([hidden]) { margin-left: 0.35rem; }
@@ -159,13 +167,13 @@ textarea {
 .overleaf-live-list:empty { display: none; }
 .overleaf-live-list button { display: flex; align-items: center; gap: 0.4rem; width: 100%; padding: 0.3rem 0.4rem; border: 0; border-radius: 3px; background: transparent; color: inherit; text-align: left; font: inherit; cursor: pointer; }
 .overleaf-live-list button:hover { background: var(--accent-soft); }
-.overleaf-live-list .where { margin-left: auto; color: var(--fg-dim); font-family: var(--mono); font-size: 0.8rem; white-space: nowrap; }
+.overleaf-live-list .where { margin-left: auto; color: var(--fg-dim); font-family: var(--mono); font-size: var(--text-small); white-space: nowrap; }
 .overleaf-dot { flex: none; width: 0.6rem; height: 0.6rem; border-radius: 50%; }
-.overleaf-file-notice { margin: 0; padding: 0.3rem 0.6rem; border-bottom: 1px solid var(--border); background: var(--accent-soft); font-size: 0.85rem; }
+.overleaf-file-notice { margin: 0; padding: 0.3rem 0.6rem; border-bottom: 1px solid var(--border); background: var(--accent-soft); font-size: var(--text-body); }
 .overleaf-file-notice[hidden] { display: none; }
 .overleaf-file-notice.waiting { color: var(--fg); background: var(--wait-soft); border-left: 3px solid var(--warn); font-weight: 600; }
 /* Files that wait for a choice, across the top of the page until each is settled. */
-.overleaf-sync-alert { padding: 0.45rem 0.8rem; border-bottom: 1px solid var(--warn); border-left: 4px solid var(--warn); background: var(--wait-soft); color: var(--fg); font-size: 0.88rem; }
+.overleaf-sync-alert { padding: 0.45rem 0.8rem; border-bottom: 1px solid var(--warn); border-left: 4px solid var(--warn); background: var(--wait-soft); color: var(--fg); font-size: var(--text-body); }
 .overleaf-sync-alert[hidden] { display: none; }
 .overleaf-sync-alert-head { margin: 0 0 0.2rem; font-weight: 600; }
 .overleaf-sync-alert-head::before { content: "⚠"; margin-right: 0.4rem; color: var(--warn); }
@@ -178,7 +186,7 @@ textarea {
 /* A collaborator's cursor in the source editor, drawn over the text. */
 .overleaf-cursors { position: absolute; inset: 0; z-index: 6; overflow: hidden; pointer-events: none; }
 .overleaf-cursor { position: absolute; width: 2px; }
-.overleaf-cursor-name { position: absolute; bottom: 100%; left: -1px; padding: 0 0.25rem; border-radius: 2px 2px 2px 0; color: white; font: 600 0.65rem/1.3 var(--sans); white-space: nowrap; }
+.overleaf-cursor-name { position: absolute; bottom: 100%; left: -1px; padding: 0 0.25rem; border-radius: 2px 2px 2px 0; color: white; font: 600 var(--text-fine)/1.3 var(--sans); white-space: nowrap; }
 .more-menu {
   position: absolute;
   top: calc(100% + 4px);
@@ -194,7 +202,7 @@ textarea {
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
 }
 .more-menu[hidden] { display: none; }
-.topbar .more-menu button { border: 0; border-radius: 3px; background: transparent; text-align: left; white-space: nowrap; padding: 0.35rem 0.6rem; }
+.topbar .more-menu button { border: 0; border-radius: 3px; background: transparent; text-align: left; white-space: nowrap; padding: 0.35rem 0.6rem; font-size: var(--text-body); }
 .topbar .more-menu button:hover:not(:disabled) { background: var(--accent-soft); }
 .topbar .more-menu button:disabled { opacity: 0.45; cursor: default; }
 .theme-choice { display: flex; gap: 2px; }
@@ -203,10 +211,10 @@ textarea {
 /* The ⋯ menu offers Settings only on a phone, where the top bar has no room for its button. */
 .more-menu #settings-menu-btn { display: none; }
 .topbar .more-menu #update-btn { color: var(--accent); font-weight: 600; }
-.more-menu .version-line { margin: 0.2rem 0 0; padding: 0.3rem 0.6rem 0.1rem; border-top: 1px solid var(--border); color: var(--fg-dim); font-size: 0.8rem; white-space: nowrap; }
+.more-menu .version-line { margin: 0.2rem 0 0; padding: 0.3rem 0.6rem 0.1rem; border-top: 1px solid var(--border); color: var(--fg-dim); font-size: var(--text-small); white-space: nowrap; }
 .more-menu .version-line:empty { display: none; }
 /* An update on disk the running server does not use yet, across the top until it does. */
-.update-alert { display: flex; align-items: center; gap: 0.7rem; padding: 0.45rem 0.8rem; border-bottom: 1px solid var(--border); border-left: 4px solid var(--accent); background: var(--accent-soft); color: var(--fg); font-size: 0.88rem; white-space: pre-line; }
+.update-alert { display: flex; align-items: center; gap: 0.7rem; padding: 0.45rem 0.8rem; border-bottom: 1px solid var(--border); border-left: 4px solid var(--accent); background: var(--accent-soft); color: var(--fg); font-size: var(--text-body); white-space: pre-line; }
 .update-alert[hidden] { display: none; }
 .update-alert a { color: var(--accent); }
 .update-alert button { padding: 0.15rem 0.6rem; border: 1px solid var(--border); border-radius: 3px; background: var(--bg-elev); color: var(--fg); }
@@ -214,14 +222,14 @@ textarea {
 #settings-dialog { max-width: 30rem; }
 #settings-form { display: flex; flex-direction: column; gap: 0.6rem; }
 #settings-form h3 { margin: 0; font-size: 1rem; }
-#settings-form h4 { margin: 0.4rem 0 0; font-size: 0.75rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--fg-dim); }
+#settings-form h4 { margin: 0.4rem 0 0; font-size: var(--text-fine); letter-spacing: 0.04em; text-transform: uppercase; color: var(--fg-dim); }
 #settings-form a { color: inherit; text-decoration-color: var(--accent); }
 #settings-form input[type="radio"] { accent-color: var(--accent); }
 .overleaf-direct { display: flex; flex-direction: column; gap: 0.4rem; }
 .overleaf-direct[hidden], #settings-dialog [hidden] { display: none; }
 #overleaf-connect { padding-bottom: 0.5rem; border-bottom: 1px solid var(--border); }
 .overleaf-mode { display: flex; flex-direction: column; gap: 0.35rem; margin: 0; padding: 0.4rem 0.6rem; border: 1px solid var(--border); border-radius: 4px; }
-.overleaf-mode legend { padding: 0 0.25rem; font-size: 0.85rem; }
+.overleaf-mode legend { padding: 0 0.25rem; font-size: var(--text-small); }
 .overleaf-mode label { display: flex; align-items: baseline; gap: 0.4rem; }
 .overleaf-mode-note { color: var(--fg-dim); font-size: 0.85em; }
 .overleaf-mode-note svg { width: 1.15em; height: 1.15em; vertical-align: -0.25em; }
@@ -230,10 +238,10 @@ textarea {
 .overleaf-cookie { display: flex; gap: 0.4rem; }
 .overleaf-cookie input { flex: 1; min-width: 0; padding: 0.35rem 0.5rem; border: 1px solid var(--border); border-radius: 3px; background: var(--bg); color: inherit; font: inherit; }
 .overleaf-cookie button, .overleaf-forget { padding: 0.35rem 0.7rem; border: 1px solid var(--border); border-radius: 3px; background: var(--bg); color: inherit; }
-.overleaf-help { font-size: 0.85rem; }
+.overleaf-help { font-size: var(--text-small); }
 .overleaf-help summary { cursor: pointer; color: var(--accent); }
 .overleaf-help p { margin: 0.3rem 0 0; line-height: 1.5; }
-.overleaf-signed { font-size: 0.9rem; }
+.overleaf-signed { font-size: var(--text-body); }
 #overleaf-git, #overleaf-live { padding-top: 0.5rem; border-top: 1px solid var(--border); }
 #overleaf-git p { margin: 0; overflow-wrap: anywhere; }
 .topbar .git-btn { display: inline-flex; align-items: center; gap: 0.25rem; }
@@ -241,7 +249,7 @@ textarea {
 .topbar .git-btn:disabled { opacity: 0.55; cursor: wait; }
 .git-count { font-variant-numeric: tabular-nums; font-weight: 600; }
 .overleaf-status:empty { display: none; }
-.overleaf-status { margin: 0; padding: 0.4rem 0.6rem; border-left: 3px solid var(--accent); background: var(--accent-soft); font-size: 0.85rem; }
+.overleaf-status { margin: 0; padding: 0.4rem 0.6rem; border-left: 3px solid var(--accent); background: var(--accent-soft); font-size: var(--text-body); }
 #compile-btn:disabled { cursor: wait; }
 /* Green reaches a parked waiter now; red queues the call for the next waiter. */
 .agent-dot { width: 8px; height: 8px; border-radius: 50%; }
@@ -300,7 +308,7 @@ textarea {
 .workspace-grip[aria-orientation="horizontal"]::after { width: 32px; height: 3px; }
 .workspace-grip:hover::after, .workspace-grip:focus-visible::after,
 .workspace-grip.dragging::after { background: var(--accent); }
-#layout-select { font-size: 0.82rem; max-width: 15rem; }
+#layout-select { font-size: var(--text-fine); max-width: 15rem; }
 /* A narrow editor takes its buttons onto a second row rather than past its edge. */
 .source-toolbar {
   display: flex;
@@ -330,7 +338,7 @@ textarea {
     background: var(--bg-elev);
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 0.8rem;
+    font-size: var(--text-body);
   }
   .pick-name::after { content: "\25BE"; position: absolute; right: 0.4rem; top: 50%; transform: translateY(-50%); color: var(--fg-dim); }
   .pick select {
@@ -338,7 +346,7 @@ textarea {
     min-width: 0 !important; max-width: none !important; opacity: 0;
   }
 }
-.source-file-pick .pick-name { font: 0.8rem var(--mono); }
+.source-file-pick .pick-name { font: var(--text-small) var(--mono); }
 .filter-row .pick { flex: none; }
 .source-toolbar select {
   min-width: 12rem;
@@ -346,7 +354,7 @@ textarea {
   padding: 0.2rem 0.35rem;
   border: 1px solid var(--border);
   border-radius: 3px;
-  font: 0.8rem var(--mono);
+  font: var(--text-small) var(--mono);
 }
 .source-toolbar button,
 .translation-head button {
@@ -374,7 +382,7 @@ textarea {
   min-width: 0;
   overflow: hidden;
   color: var(--fg-dim);
-  font: 0.78rem var(--mono);
+  font: var(--text-body) var(--mono);
   text-align: right;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -511,7 +519,7 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
   .topbar { flex-wrap: nowrap; gap: 0.4rem; padding: 0.3rem 0.5rem; }
   .topbar .main-file, .topbar h1 { display: none; }
   .topbar .view-tab { min-width: 0; padding: 0.2rem 0.45rem; }
-  .topbar .compile-status { overflow: hidden; min-width: 0; text-overflow: ellipsis; white-space: nowrap; font-size: 0.7rem; }
+  .topbar .compile-status { overflow: hidden; min-width: 0; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-fine); }
   .topbar .actions { gap: 0.3rem; }
   .topbar button { padding: 0.1rem 0.35rem; }
   .topbar .wide-label { display: none; }
@@ -530,7 +538,7 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
   .source-toolbar { flex-wrap: nowrap; gap: 0.25rem; padding: 0.1rem 0.35rem; }
   .source-toolbar button { padding: 0.2rem 0.25rem; }
   .source-toolbar button svg { width: 14px; height: 14px; }
-  .source-status { order: 2; flex: 0 0 auto; font-size: 0.62rem; }
+  .source-status { order: 2; flex: 0 0 auto; font-size: var(--text-fine); }
   /* The room the row has to spare goes between the file and the buttons, which keep to
      the right beside Saved. */
   #source-font-smaller-btn { margin-left: auto; }
@@ -557,10 +565,10 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
   align-items: center;
   min-height: var(--panel-bar);
   padding: 0 0.6rem;
-  font-size: 0.8rem;
+  font-size: var(--text-small);
   border-bottom: 1px solid var(--border);
 }
-#translation-file { font-size: 0.8rem; max-width: 14rem; }
+#translation-file { font-size: var(--text-small); max-width: 14rem; }
 #translation-page, #translation-status { color: var(--fg-dim); }
 #translation-font-smaller-btn { margin-left: auto; }
 .translation-head button { flex: none; padding: 0.15rem 0.3rem; }
@@ -659,7 +667,7 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
   margin-left: 0.49em;
   padding: 0 0.44em;
   border-radius: 8px;
-  font-size: 0.72em;
+  font-size: 0.82em;
   font-weight: 700;
   color: white;
 }
@@ -719,16 +727,17 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 .filter-row.narrow { --row-gap: 3px; }
 .filter-row.narrow .icon-btn { padding: 4px; }
 .filter-row.squeezed > .row-group:first-child { flex: 0 1 auto; }
-.filter-row.squeezed .pick { flex: 0 1 auto; min-width: 66px; }
+.filter-row.squeezed .pick { flex: 0 1 auto; min-width: 4.7rem; }
 .filter-row.squeezed .pick select { width: 100%; text-overflow: ellipsis; }
 /* Too narrow even then, the row takes two lines rather than going past its edge. */
 .filter-row.wrapped { flex-wrap: wrap; row-gap: var(--row-gap); }
 .comment-search {
-  flex: none; margin-bottom: 0.5rem; padding: 0.2rem 0.5rem; font: inherit; font-size: 0.857rem;
+  flex: none; margin-bottom: 0.5rem; padding: 0.2rem 0.5rem; font: inherit; font-size: var(--text-body);
   border: 1px solid var(--border); border-radius: 3px; background: var(--bg); color: var(--fg);
 }
 .filter-row select {
   padding: 0.25rem 0.5rem;
+  font-size: var(--text-body);
   border: 1px solid var(--border);
   border-radius: 3px;
   background: var(--bg);
@@ -740,7 +749,7 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .icon-btn {
   flex: none; display: inline-flex; align-items: center; gap: 4px;
-  padding: 4px 6px; font-size: 0.857rem; line-height: 1; white-space: nowrap;
+  padding: 4px 6px; font-size: var(--text-body); line-height: 1; white-space: nowrap;
   border: 1px solid var(--border); border-radius: 3px; background: var(--bg);
 }
 .icon-btn:hover:not(:disabled) { background: var(--accent-soft); }
@@ -749,7 +758,7 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 .icon-btn:disabled { opacity: .45; }
 /* Notes above the list: why the leaf tab's comments cannot sync yet, and that a call to the
    agent waits for one to listen. A note that opens what clears it reads as a link. */
-.sync-why { margin: 0; padding: 6px 10px; font-size: .85em; color: var(--muted, inherit); border-bottom: 1px solid var(--border, currentColor); }
+.sync-why { margin: 0; padding: 6px 10px; font-size: var(--text-body); color: var(--muted, inherit); border-bottom: 1px solid var(--border, currentColor); }
 .sync-why[hidden] { display: none; }
 .sync-why-go { padding: 0; border: 0; background: none; font: inherit; color: var(--accent); text-align: left; text-decoration: underline; cursor: pointer; }
 .filter-row .icon-btn[hidden] { display: none; }
@@ -808,7 +817,7 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
   background: var(--accent);
   color: white;
   font-family: var(--mono);
-  font-size: 0.65rem;
+  font-size: var(--text-fine);
   line-height: 1.2;
   pointer-events: none;
 }
@@ -834,13 +843,13 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
   padding: 0.4rem 0.5rem;
   border-radius: 4px 4px 0 0;
   flex-wrap: wrap;
-  font-size: 0.85rem;
+  font-size: var(--text-small);
   cursor: pointer;
   user-select: none;
 }
 .cmt-head:hover { background: var(--accent-soft); }
 .cmt-toggle {
-  font-size: 0.9rem;
+  font-size: var(--text-body);
   font-weight: 600;
   color: var(--accent);
   white-space: nowrap;
@@ -848,30 +857,30 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 .cmt-id {
   font-family: var(--mono);
   color: var(--fg-dim);
-  font-size: 0.78rem;
+  font-size: var(--text-small);
 }
 .cmt-status {
   font-family: var(--mono);
-  font-size: 0.78rem;
+  font-size: var(--text-small);
   color: var(--fg-dim);
 }
 .cmt-anchor {
   font-family: var(--mono);
-  font-size: 0.78rem;
+  font-size: var(--text-small);
   color: var(--fg-dim);
   margin-left: auto;
 }
 .reanchored {
   background: var(--warn);
   color: white;
-  font-size: 0.7rem;
+  font-size: var(--text-fine);
   padding: 0.05rem 0.3rem;
   border-radius: 3px;
 }
 .stale {
   background: var(--err);
   color: white;
-  font-size: 0.7rem;
+  font-size: var(--text-fine);
   padding: 0.05rem 0.3rem;
   border-radius: 3px;
 }
@@ -880,11 +889,11 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
   user-select: none;
 }
 .cmt-preview {
-  font-size: 0.9rem;
+  font-size: var(--text-body);
   white-space: pre-wrap;
 }
 .cmt-latest {
-  font-size: 0.85rem;
+  font-size: var(--text-body);
   white-space: pre-wrap;
   margin-top: 0.35rem;
   padding-left: 0.5rem;
@@ -911,22 +920,25 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .thread-entry.author-agent { border-left-color: var(--accent); }
 .thread-entry.author-human { border-left-color: var(--ok); }
+/* Who wrote an entry and when, who reads it, and its Edit and Delete. A line too narrow for
+   them all takes Edit and Delete onto a line of their own, at its right end. */
 .thread-meta {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
-  gap: 0.5rem;
-  font-size: 0.75rem;
+  gap: 0 0.5rem;
+  font-size: var(--text-small);
   color: var(--fg-dim);
   font-family: var(--mono);
 }
-.entry-actions { display: inline-flex; gap: 0.6rem; }
+.entry-actions { display: inline-flex; gap: 0.6rem; margin-left: auto; }
 .cmt-edit, .entry-delete {
   padding: 0;
   border: none;
   background: none;
   color: var(--fg-dim);
-  font-size: 0.75rem;
+  font-size: var(--text-small);
   font-family: var(--mono);
   text-decoration: underline;
   cursor: pointer;
@@ -934,7 +946,7 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 .cmt-edit:hover { color: var(--fg); }
 .entry-delete:hover { color: var(--err); }
 .thread-text {
-  font-size: 0.9rem;
+  font-size: var(--text-body);
   white-space: pre-wrap;
   margin: 0.2rem 0;
 }
@@ -946,7 +958,7 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .edit {
   font-family: var(--mono);
-  font-size: 0.78rem;
+  font-size: var(--text-small);
   color: var(--fg-dim);
 }
 .edit .stale, .edit .reanchored {
@@ -959,7 +971,7 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
   flex-wrap: wrap;
 }
 .cmt-actions button {
-  font-size: 0.8rem;
+  font-size: var(--text-small);
   padding: 0.25rem 0.5rem;
   border: 1px solid var(--border);
   background: var(--bg);
@@ -973,7 +985,7 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 .cmt-suggestion {
   margin: 0.4rem 0;
   font-family: var(--mono);
-  font-size: 0.78rem;
+  font-size: var(--text-small);
   border: 1px solid var(--border);
   border-radius: 3px;
   overflow: hidden;
@@ -1008,6 +1020,7 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .cmt-suggestion .sugg-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   padding: 0.35rem 0.5rem;
   border-top: 1px solid var(--border);
@@ -1020,6 +1033,7 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
   border-radius: 3px;
   background: var(--bg);
   font: inherit;
+  white-space: nowrap;
 }
 .cmt-suggestion .sugg-apply.is-applied {
   color: var(--ok);
@@ -1037,18 +1051,18 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
   flex-direction: column;
   gap: 0.35rem;
 }
-.cmt-overleaf-head { display: flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; font-weight: 600; }
-.overleaf-reply-note { font-size: 0.8rem; color: var(--warn); overflow-wrap: anywhere; }
+.cmt-overleaf-head { display: flex; align-items: center; gap: 0.3rem; font-size: var(--text-small); font-weight: 600; }
+.overleaf-reply-note { font-size: var(--text-small); color: var(--warn); overflow-wrap: anywhere; }
 .overleaf-reply-note:empty { display: none; }
 .cmt-form-actions .overleaf-send { display: inline-flex; align-items: center; gap: 0.25rem; }
 .thread-meta .entry-overleaf { margin-right: auto; display: inline-flex; align-items: center; gap: 0.2rem; white-space: nowrap; }
 .entry-overleaf.here { color: var(--fg-dim); font-style: italic; }
-.cmt-unplaced { display: flex; align-items: baseline; gap: 0.3rem; margin: 0.25rem 0; font-size: 0.8rem; color: var(--fg-dim); }
+.cmt-unplaced { display: flex; align-items: baseline; gap: 0.3rem; margin: 0.25rem 0; font-size: var(--text-small); color: var(--fg-dim); }
 /* A suggested edit from Overleaf: its author by the colour Overleaf's faces carry, when, and
    its words as − and + lines, long ones cut to four lines until the card is opened. */
 .suggested-by { padding-left: 0.35rem; border-left: 3px solid; font-weight: 600; }
-.cmt-when { font-size: 0.78rem; color: var(--fg-dim); }
-.suggested-words { font-family: inherit; font-size: 0.85rem; cursor: pointer; }
+.cmt-when { font-size: var(--text-small); color: var(--fg-dim); }
+.suggested-words { font-family: inherit; font-size: var(--text-body); cursor: pointer; }
 .suggested-words.clamped .sugg-text {
   display: -webkit-box;
   -webkit-line-clamp: 4;
@@ -1068,14 +1082,14 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
   gap: 0.4rem;
 }
 .cmt-form-title {
-  font-size: 0.8rem;
+  font-size: var(--text-small);
   font-weight: 600;
   color: var(--fg);
 }
 .cmt-form-input {
   width: 100%;
   font-family: var(--sans);
-  font-size: 0.9rem;
+  font-size: var(--text-body);
   padding: 0.4rem;
   border: 1px solid var(--border);
   border-radius: 3px;
@@ -1084,11 +1098,13 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 .cmt-form.mode-resolve .cmt-form-input { border-left: 3px solid var(--ok); }
 .cmt-form-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.4rem;
   justify-content: flex-end;
 }
 .cmt-form-actions button {
-  font-size: 0.8rem;
+  white-space: nowrap;
+  font-size: var(--text-small);
   padding: 0.25rem 0.7rem;
   border: 1px solid var(--border);
   background: var(--bg);
@@ -1123,27 +1139,34 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 .err-item.err-warning { border-left-color: var(--warn); }
 .err-level {
   font-family: var(--mono);
-  font-size: 0.7rem;
+  font-size: var(--text-fine);
   font-weight: 700;
   margin-right: 0.4rem;
   padding: 0 0.25rem;
   border-radius: 2px;
   color: white;
+  white-space: nowrap;
 }
 .err-level-error { background: var(--err); }
 .err-level-warning { background: var(--warn); }
 .err-level-info { background: var(--fg-dim); }
 .err-item.err-goes { cursor: pointer; }
 .err-item.err-goes:hover { background: var(--accent-soft); }
+/* The level and the place, which takes the line under the level when the two do not fit,
+   and breaks anywhere when it is longer than the line. */
 .err-loc {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  overflow-wrap: anywhere;
   font-family: var(--mono);
-  font-size: 0.78rem;
+  font-size: var(--text-small);
   color: var(--fg-dim);
 }
-.err-msg { font-size: 0.88rem; margin: 0.2rem 0; }
+.err-msg { font-size: var(--text-body); margin: 0.2rem 0; }
 .err-context {
   font-family: var(--mono);
-  font-size: 0.75rem;
+  font-size: var(--text-small);
   background: var(--bg-pdf);
   padding: 0.4rem;
   margin: 0.2rem 0 0;
@@ -1161,10 +1184,13 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
   flex-direction: column;
   gap: 0.15rem;
 }
+/* A heading and its + comment at the right end of its line. A line with less room beside the
+   button than a short heading takes, 8em, puts the button at the right end of the line under
+   the heading. */
 .paper-section {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 0.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem 0.5rem;
   align-items: baseline;
   padding: 0.2rem 0.4rem;
   border-radius: 3px;
@@ -1172,17 +1198,19 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 .paper-section:hover { background: var(--accent-soft); }
 .paper-section.level-subsection .paper-section-title { padding-left: 1rem; }
 .paper-section.level-subsubsection .paper-section-title { padding-left: 2rem; }
-.paper-section-title { font-size: 0.9rem; cursor: pointer; }
+.paper-section-title { flex: 1 1 8em; font-size: var(--text-body); cursor: pointer; }
 .paper-section-title:hover { text-decoration: underline; }
 .section-number {
   font-family: var(--mono);
-  font-size: 0.78rem;
+  font-size: var(--text-small);
   font-weight: 700;
   color: var(--accent);
   margin-right: 0.45rem;
 }
 .comment-section-btn {
-  font-size: 0.75rem;
+  margin-left: auto;
+  white-space: nowrap;
+  font-size: var(--text-small);
   background: var(--bg);
   border: 1px solid var(--border);
   padding: 0.1rem 0.4rem;
@@ -1196,30 +1224,32 @@ dialog {
   border-radius: 6px;
   padding: 1rem;
   background: var(--bg-elev);
-  max-width: 500px;
+  max-width: 36rem;
   width: 90%;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
 }
 dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
-/* A dialog keeps the page's own size whatever Settings makes the text, Settings among them. */
-dialog { zoom: calc(1 / var(--text-scale)); }
+/* The dialogs take the text size Settings chooses, all but Settings itself, which keeps its
+   own size so that it holds still under the hand while the size is chosen. */
+#settings-dialog { zoom: calc(1 / var(--text-scale)); }
+#compose-dialog { max-width: 46rem; }
 #compose-form, #commit-form, #keys-form { display: flex; flex-direction: column; gap: 0.5rem; }
 #compose-form h3, #commit-form h3, #keys-form h3 { margin: 0; font-size: 1rem; }
 #commit-form p, #keys-form p { margin: 0; }
 #keys-dialog { max-width: 34rem; }
-#keys-form p { font-size: 0.85rem; }
+#keys-form p { font-size: var(--text-body); }
 #keys-list {
   display: grid;
   grid-template-columns: max-content 1fr;
   gap: 0.25rem 0.75rem;
   align-items: start;
-  font-size: 0.85rem;
+  font-size: var(--text-body);
 }
-#keys-list h4 { grid-column: 1 / -1; margin: 0.4rem 0 0; font-size: 0.8rem; color: var(--fg-dim); }
+#keys-list h4 { grid-column: 1 / -1; margin: 0.4rem 0 0; font-size: var(--text-small); color: var(--fg-dim); }
 .keys-of { display: flex; gap: 0.25rem; white-space: nowrap; }
 .keys-of kbd {
   font-family: var(--mono);
-  font-size: 0.8rem;
+  font-size: var(--text-small);
   padding: 0 0.35rem;
   border: 1px solid var(--border);
   border-radius: 3px;
@@ -1229,20 +1259,20 @@ dialog { zoom: calc(1 / var(--text-scale)); }
   margin: 0;
   padding-left: 1.2rem;
   font-family: var(--mono);
-  font-size: 0.8rem;
+  font-size: var(--text-small);
   max-height: 12rem;
   overflow-y: auto;
 }
 #commit-message {
   font-family: var(--mono);
-  font-size: 0.9rem;
+  font-size: var(--text-body);
   padding: 0.4rem;
   border: 1px solid var(--border);
   border-radius: 3px;
 }
 .compose-anchor {
   font-family: var(--mono);
-  font-size: 0.8rem;
+  font-size: var(--text-small);
   color: var(--fg-dim);
   background: var(--bg);
   padding: 0.4rem;
@@ -1253,15 +1283,20 @@ dialog { zoom: calc(1 / var(--text-scale)); }
 }
 .compose-public { display: flex; flex-direction: column; gap: 0.25rem; }
 .compose-public[hidden] { display: none; }
-.compose-public-note { margin: 0; font-size: 0.8rem; color: var(--fg-dim); }
+.compose-public-note { margin: 0; font-size: var(--text-small); color: var(--fg-dim); }
+/* A box starts at the rows the page gives it and grows with what is typed (fitComposeBox in
+   viewer.js) up to about a third of the screen's height, past which it scrolls. Each of the
+   two boxes for a thread on Overleaf stops at a quarter, so that both full fit the screen. */
 #compose-text, #compose-message {
   font-family: var(--sans);
-  font-size: 0.95rem;
+  font-size: var(--text-body);
   padding: 0.5rem;
   border: 1px solid var(--border);
   border-radius: 3px;
   resize: vertical;
+  max-height: 35vh;
 }
+#compose-message, .compose-public:not([hidden]) ~ #compose-text { max-height: 25vh; }
 .dialog-actions {
   display: flex;
   justify-content: flex-end;
@@ -1343,7 +1378,7 @@ dialog { zoom: calc(1 / var(--text-scale)); }
 #source-editor.steady-cursor .ace_cursor { animation: none !important; }
 .overleaf-sync-file { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.5rem; padding: 0.35rem 0.4rem; border-top: 1px solid var(--border, #ddd); }
 .overleaf-sync-file strong { font-weight: 600; }
-.overleaf-sync-file span { flex-basis: 100%; font-size: 0.85em; opacity: 0.85; }
+.overleaf-sync-file span { flex-basis: 100%; font-size: var(--text-small); opacity: 0.85; }
 .overleaf-live-list .overleaf-sync-file button { width: auto; padding: 0.2rem 0.5rem; border: 1px solid var(--border, #ccc); }
 
 /* ----- Warm theme -----

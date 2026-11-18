@@ -2350,11 +2350,19 @@ def test_the_comment_list_goes_by_keys(tmp_path: Path) -> None:
         press("j", "k")
         assert browser.execute_script(letters)[0] is True
         assert ringed() == source
-        # Text size in Settings sizes the page's own text.
-        browser.execute_script('document.querySelector(\'[data-text-choice="130"]\').click()')
-        assert browser.execute_script('return getComputedStyle(document.body).fontSize') == "18.2px"
+        # Text size in Settings sizes the page's own text and the dialogs', up to 150%, and
+        # Settings itself holds still while its size buttons are pressed.
+        heading = 'return document.querySelector("#settings-form h3").getBoundingClientRect().height'
+        sizes = ('return [getComputedStyle(document.body).fontSize,'
+                 ' getComputedStyle(document.querySelector("#compose-title")).fontSize]')
+        browser.execute_script('document.querySelector("#settings-dialog").showModal()')
+        held = browser.execute_script(heading)
+        browser.execute_script('document.querySelector(\'[data-text-choice="150"]\').click()')
+        assert browser.execute_script(sizes) == ["21px", "21px"]
+        assert abs(browser.execute_script(heading) - held) < 0.5
         browser.execute_script('document.querySelector(\'[data-text-choice="100"]\').click()')
-        assert browser.execute_script('return getComputedStyle(document.body).fontSize') == "14px"
+        assert browser.execute_script(sizes) == ["14px", "14px"]
+        browser.execute_script('document.querySelector("#settings-dialog").close()')
 
         # Space opening a card shows the comment's words in the source, and the keys stay with
         # the list. Closing it shows nothing.
@@ -3089,7 +3097,7 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
             f'const look = (node) => {{ const s = getComputedStyle(node);'
             ' return [s.textDecorationLine, s.borderTopWidth, s.backgroundColor, s.fontSize]; };'
             f' return [".cmt-edit", ".entry-delete"].map((name) => look({mine}.querySelector(name)));') \
-            == [["underline", "0px", "rgba(0, 0, 0, 0)", "10.5px"]] * 2
+            == [["underline", "0px", "rgba(0, 0, 0, 0)", "12.04px"]] * 2
         # Each entry says who reads it: public on Overleaf, written there or sent there, and
         # private in a comment written here, where the line still fits a narrow panel with
         # its Edit and Delete.
@@ -3983,6 +3991,66 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
 
 
 @needs_chrome
+def test_the_page_shows_the_reviewers_cursor_on_overleaf_until_settings_hides_it(tmp_path: Path, monkeypatch) -> None:
+    """Show my cursor, where the page starts, tells Overleaf where the editor's cursor is;
+    Hidden takes it off Overleaf and tells nothing more; Show again tells it again."""
+    import asyncio
+    import pymupdf
+    import threading
+    from aiohttp.test_utils import TestServer
+    from tests.test_overleaf_live import MAIN, PROJECT_ID, FakeRealtime, positions
+    from tex_mcp_web import overleaf
+
+    loop = asyncio.new_event_loop()
+    threading.Thread(target=loop.run_forever, daemon=True).start()
+    fake = FakeRealtime()
+    realtime = TestServer(fake.app, loop=loop)
+    asyncio.run_coroutine_threadsafe(realtime.start_server(), loop).result(10)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config-home"))
+    monkeypatch.delenv(overleaf.COOKIE_ENV, raising=False)
+    overleaf.save_cookie(fake.cookie)
+    (tmp_path / "main.tex").write_text(MAIN, encoding="utf-8")
+    with pymupdf.open() as pdf:
+        pdf.new_page().insert_text((72, 72), "Hi there.")
+        pdf.save(tmp_path / "main.pdf")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: main.tex\nport: {port}\n"
+                           f"overleaf: http://127.0.0.1:{realtime.port}/project/{PROJECT_ID}\n", encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    browser = None
+    editor = '(window.wrappedJSObject || window).ace.edit("source-editor")'
+    click = lambda selector: browser.execute_script(f'document.querySelector("{selector}").click()')
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        browser = chrome.launch()
+        browser.navigate(base)
+        click(".view-tab[data-view=source]")
+        wait_until(lambda: positions(fake))
+        browser.execute_script(f"{editor}.gotoLine(3, 2);")
+        wait_until(lambda: positions(fake)[-1] == {"row": 2, "column": 2, "doc_id": "d-main"})
+        click("#settings-btn")
+        assert browser.execute_script("return document.querySelector('#overleaf-cursor').hidden") is False
+        assert browser.execute_script("return document.querySelector('#overleaf-cursor input[value=show]').checked") is True
+        before = len(fake.sent)
+        click("#overleaf-cursor input[value=hidden]")
+        wait_until(lambda: len(fake.handshakes) == 2)
+        browser.execute_script(f"{editor}.gotoLine(1, 0);")
+        time.sleep(1.5)
+        assert positions(fake, before) == []
+        click("#overleaf-cursor input[value=show]")
+        wait_until(lambda: positions(fake, before) == [{"row": 0, "column": 0, "doc_id": "d-main"}])
+    finally:
+        if browser is not None:
+            browser.quit()
+        shared.stop()
+        asyncio.run_coroutine_threadsafe(realtime.close(), loop).result(10)
+        loop.call_soon_threadsafe(loop.stop)
+
+
+@needs_chrome
 def test_suggested_edits_from_overleaf_have_their_own_view_and_marks_in_the_editor(
         tmp_path: Path, monkeypatch) -> None:
     """Edits a co-author made on Overleaf with track changes on wait in the leaf tab's suggested
@@ -4146,6 +4214,20 @@ def test_the_leaf_beside_comment_starts_a_thread_for_overleaf(tmp_path: Path, mo
             "New public thread on Overleaf", ["compose-message", "compose-text"],
             "Posted to Overleaf at once, for everyone in the project.", False]
         wait_until(lambda: script('return document.activeElement.id') == "compose-message")
+        # The message's box is the larger, and the note's starts at half its rows. A box grows
+        # with what is typed up to the height the page allows it, scrolls past that, and is as
+        # it started once emptied.
+        assert script(f'return {boxes}.map((box) => box.rows)') == [6, 3]
+        start, grown, cap, scrolls, emptied = script('''
+          const box = document.querySelector("#compose-message");
+          const start = box.offsetHeight;
+          box.value = "a line\\n".repeat(80);
+          box.dispatchEvent(new Event("input", {bubbles: true}));
+          const grown = box.offsetHeight, scrolls = box.scrollHeight > box.clientHeight;
+          box.value = "";
+          box.dispatchEvent(new Event("input", {bubbles: true}));
+          return [start, grown, parseFloat(getComputedStyle(box).maxHeight), scrolls, box.offsetHeight];''')
+        assert start < grown and abs(grown - cap) < 1 and scrolls and emptied == start
         # Both empty, nothing is posted.
         script('document.querySelector("#compose-form").requestSubmit()')
         time.sleep(0.5)
@@ -4230,13 +4312,13 @@ def test_the_leaf_beside_comment_starts_a_thread_for_overleaf(tmp_path: Path, mo
         assert len(fake.threads) == 2
 
         # The next comment from the editor goes the same way until the leaf is let go, and then
-        # the dialog is the private comment's, with its one box.
+        # the dialog is the private comment's, with its one box, at the rows of the larger.
         script('document.querySelector("#source-leaf-btn").click()')
         assert script('return document.querySelector("#source-leaf-btn").getAttribute("aria-pressed")') == "false"
         compose(2)
         assert script(f'return [document.querySelector("#compose-title").textContent, {boxes}.map((box) => box.id),'
-                      ' document.querySelector("#compose-text").required]') == [
-            "New private comment", ["compose-text"], True]
+                      ' document.querySelector("#compose-text").required, document.querySelector("#compose-text").rows]') == [
+            "New private comment", ["compose-text"], True, 6]
         script('document.querySelector("#compose-cancel").click()')
     finally:
         if browser is not None:

@@ -825,7 +825,8 @@ function selectQuoteInLines(quote, first, last) {
 // A section comment names the heading it was pressed on too, since headings can share a title.
 // A comment *forOverleaf* starts a thread for Overleaf, in two boxes, either of which will do:
 // the first holds its first message there, posted at once, and the second a private note for
-// the agent, which drafts that message when the first box is left empty.
+// the agent, which drafts that message when the first box is left empty. The box for the
+// message is the larger, and the note under it starts at half its rows.
 function openCompose(anchor, label, heading = null, forOverleaf = false) {
   state.pendingAnchor = anchor;
   state.pendingSourceRevision = anchor.kind === "source_range" ? state.sourceRevision : null;
@@ -834,6 +835,7 @@ function openCompose(anchor, label, heading = null, forOverleaf = false) {
   $("#compose-title").textContent = forOverleaf ? "New public thread on Overleaf" : "New private comment";
   $("#compose-public").hidden = !forOverleaf;
   $("#compose-text").required = !forOverleaf;
+  $("#compose-text").rows = forOverleaf ? 3 : 6;
   $("#compose-text").placeholder = forOverleaf
     ? "a private note for the agent. With the box above empty, it drafts the message…"
     : "leave a private comment for the coding agent…";
@@ -841,7 +843,17 @@ function openCompose(anchor, label, heading = null, forOverleaf = false) {
   $("#compose-message").value = "";
   $("#compose-text").value = "";
   $("#compose-dialog").showModal();
+  for (const box of $$("#compose-form textarea")) fitComposeBox(box);
   setTimeout(() => $(forOverleaf ? "#compose-message" : "#compose-text").focus(), 50);
+}
+
+// A comment box as tall as what is typed in it, and never shorter than its rows: the
+// stylesheet caps the height, and past that the box scrolls.
+function fitComposeBox(box) {
+  box.style.height = "";
+  if (box.scrollHeight > box.clientHeight) {
+    box.style.height = `${box.scrollHeight + box.offsetHeight - box.clientHeight}px`;
+  }
 }
 
 function clearPendingSelection() {
@@ -1087,6 +1099,7 @@ async function openSource(path, line = null, force = false, focus = true) {
   state.editor.setValue(source.text, -1);
   state.sourceLoading = false;
   state.sourcePath = source.path;
+  tellCursor();
   state.sourceRevision = source.revision;
   state.sourceDirty = false;
   showSourceFile(source.path);
@@ -1202,6 +1215,10 @@ function renderOverleafStatus({ project, cookie, sync = false, live = false, set
   for (const box of $$('#overleaf-mode input[name="overleaf-mode"]')) {
     box.checked = box.value === (sync ? "live" : "hand");
     box.disabled = !settable;
+  }
+  $("#overleaf-cursor").hidden = !project;
+  for (const box of $$('#overleaf-cursor input[name="overleaf-cursor"]')) {
+    box.checked = box.value === (overleafCursorShown() ? "show" : "hidden");
   }
   // The sync button and the tab it is in show drawings, so the note shows them too.
   const syncDrawing = [...$("#overleaf-sync-comments-btn").querySelectorAll("svg")].map((svg) => svg.cloneNode(true));
@@ -2490,6 +2507,7 @@ async function initializeSourceEditor() {
   });
   state.editor.on("changeSelection", updateSourceCommentButton);
   state.editor.selection.on("changeCursor", followSourceCursor);
+  state.editor.selection.on("changeCursor", tellCursor);
   state.editor.on("guttermousedown", (event) => {
     const row = event.getDocumentPosition().row;
     // A suggested edit's mark beside its line opens it in the leaf tab.
@@ -4592,15 +4610,47 @@ async function catchUp() {
   await loadOverleafStatus();
 }
 
+// The socket to the server, which the page also tells where the editor's cursor is.
+let pageSocket = null;
+let cursorTelling = null;
+
+// Settings shows the reviewer's cursor on Overleaf unless the viewer chose Hidden.
+function overleafCursorShown() {
+  try { return localStorage.getItem("texMcpOverleafCursor") !== "hidden"; } catch { return true; }
+}
+
+// Where the editor's cursor is, in the file open there, told at most twice a second and
+// always at its last place, read when told: the server shows it as the reviewer's cursor on
+// Overleaf. Nothing is told while no file is open, the cursor is hidden, or the page is out of
+// sight, as a tab behind another is when a file changing on disk moves its cursor.
+function tellCursor() {
+  if (cursorTelling !== null) return;
+  cursorTelling = setTimeout(() => {
+    cursorTelling = null;
+    if (!state.editor || !state.sourcePath || !overleafCursorShown() || document.visibilityState !== "visible"
+      || pageSocket?.readyState !== WebSocket.OPEN) return;
+    const { row, column } = state.editor.getCursorPosition();
+    pageSocket.send(JSON.stringify({ type: "cursor", path: state.sourcePath, row, column }));
+  }, 500);
+}
+
+function chooseOverleafCursor(choice) {
+  try { localStorage.setItem("texMcpOverleafCursor", choice); } catch { /* the page keeps showing it */ }
+  if (choice === "show") tellCursor();
+  else if (pageSocket?.readyState === WebSocket.OPEN) pageSocket.send(JSON.stringify({ type: "cursor", hidden: true }));
+}
+
 function connectWebSocket() {
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
   const socket = new WebSocket(`${protocol}//${location.host}/ws`);
+  pageSocket = socket;
   socket.onopen = () => {
     // A server that comes back may be a new version's: the page asks which runs now.
     readUpdate().catch((error) => console.error(error));
     if (socketCloses > 0) catchUp().catch((error) => console.error(error));
     socketCloses = 0;
     showServerGone(false);
+    tellCursor();
   };
   socket.onmessage = (event) => {
     const message = JSON.parse(event.data);
@@ -5204,6 +5254,9 @@ function attachSidebarToggle() {
   for (const box of $$('#overleaf-mode input[name="overleaf-mode"]')) {
     box.addEventListener("change", () => switchOverleafMode(box.value === "live"));
   }
+  for (const box of $$('#overleaf-cursor input[name="overleaf-cursor"]')) {
+    box.addEventListener("change", () => chooseOverleafCursor(box.value));
+  }
   $("#overleaf-live-btn").addEventListener("click", () => showSettings());
   // Ctrl+Enter (Cmd+Enter) compiles from anywhere but a field being written in, where it
   // sends what is written, and an open dialog.
@@ -5267,7 +5320,8 @@ function attachSidebarToggle() {
     if (themeChosen === null) applyTheme();
   });
   applyTheme();
-  // The top bar's and the panels' text at the size Settings chooses, kept for next time.
+  // The text of the top bar, the panels and the dialogs at the size Settings chooses, kept for
+  // next time.
   const applyTextSize = (percent) => {
     document.documentElement.style.setProperty("--text-scale", String(percent / 100));
     for (const button of document.querySelectorAll("[data-text-choice]")) {
@@ -5862,6 +5916,7 @@ async function init() {
   });
   for (const box of $$("#compose-form textarea")) {
     sendOn(box, () => $("#compose-form").requestSubmit());
+    box.addEventListener("input", () => fitComposeBox(box));
   }
   $("#compose-cancel").addEventListener("click", (event) => {
     event.preventDefault();

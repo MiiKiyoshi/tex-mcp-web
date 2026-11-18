@@ -166,11 +166,16 @@ extension off for the review page's address.
 
 ## Settings and the ⋯ menu
 
+- **Your cursor on Overleaf**, once the paper names its Overleaf project: **Show my cursor**,
+  where the page starts, shows your co-authors your cursor in this page's editor as your
+  cursor on Overleaf; **Hidden** shows them none, and their cursors here may then be up to
+  five minutes old. [Working with Overleaf](overleaf.md#your-co-authors-on-the-page) says more.
 - **Theme** picks **System**, where the page starts, which follows the system's light or dark
   as it changes, or **Light**, **Dark**, or **Warm**, a softer paper tone for long writing.
   The PDF's pages stay as compiled in each.
-- **Text size of the top bar and panels** sets their text from 90% to 130%, and leaves the
-  editor, the translation, the PDF, the panel's tabs and the dialogs as they are.
+- **Text size of the top bar, panels and dialogs** sets their text from 90% to 150%, and
+  leaves the editor, the translation, the PDF, the panel's tabs and Settings itself as they
+  are.
 - **Send a comment with** chooses whether Enter or Shift+Enter sends a comment being written.
 - **Shortcut letters on a comment's buttons** shows or hides the keys' letters on the ringed
   comment's buttons.
