@@ -2,277 +2,297 @@
 
 ## Commenting
 
-- Drag over PDF text and write what should change.
-- With a paper that follows an Overleaf project, the leaf beside the comment button (the
-  speech bubble) in the editor's bar makes a comment on source text start a thread for Overleaf: its first
-  message, posted at once, a private note from which the agent drafts that message for you to send, or both.
-  [Working with Overleaf](overleaf.md) says more.
-- The box tool, beside pan and pointer in the PDF's toolbar, turns a drag on the PDF into a
-  box to comment on what has no text to select, such as part of a figure. The box holds
-  while a compile leaves what it covers as it was.
-- **Comment on the whole paper…** in the ⋯ menu adds a comment on the whole paper, and the **Sections** tab comments on a section. A
-  section comment stays on the heading it was made on as the file is edited, also when
-  another heading has the same title. Text selected in the Source tab takes a comment by
-  the comment button, the speech bubble in the editor's bar.
-- **Show in Source** beside **Comment** on a PDF selection selects the same words in the source
-  editor, at the lines SyncTeX names, or those lines when a macro prints the words. The
-  other way, the button after the comment button in the editor's bar, which reads
-  *show it in the Preview* when pointed at, marks where the Preview
-  prints the selected words. Either turns the view to Split. Both need a PDF built with
-  SyncTeX, which **Compile** builds. Cmd (macOS) or Ctrl with a double click on a PDF word
-  does what **Show in Source** does for that word.
-- Press **Call agent**, the bell in the Comments tab, when your comments are ready. The
-  listening agent edits the source, compiles, and replies in the same thread. Without
-  listen, ask the agent in chat to handle the tex comments.
+- To comment on text in the PDF, select it in the Preview and choose **Comment**.
+- For a figure, a table or anything else without text to select, choose the box tool in the
+  Preview's toolbar, next to the pan and pointer tools, and draw a box over it. The comment
+  stays on the box while later builds leave that area unchanged, and is marked **STALE** once
+  a build changes it.
+- To comment on source text, select it in the Source and press the comment button (the speech
+  bubble) in the editor's toolbar.
+- To comment on a section, use **+ comment** beside its heading in the **Sections** tab. The
+  comment stays with that heading as the file is edited, even when another heading has the
+  same title.
+- To comment on the paper as a whole, choose **Comment on the whole paper…** in the ⋯ menu.
+- Once the paper is connected to Overleaf, a leaf button appears next to the comment button.
+  While it is on, a comment on source text starts a thread on Overleaf instead (see [Working
+  with Overleaf](overleaf.md#replying)).
+- When your comments are ready, press **Call agent**, the bell above the comment list. The
+  bell is green while an agent is listening. When it is red, the call is queued until an agent
+  connects. The agent edits the source, compiles and replies in each comment's thread. You can
+  also ask the agent in chat to handle the comments.
+
+To find selected PDF text in the source, choose **Show in Source** next to **Comment**, or
+Ctrl+double-click a word (Cmd+double-click on macOS). The editor opens beside the Preview, in
+Split, and selects the same words, or the lines SyncTeX names when a macro prints them. In the
+other direction, select text in the Source and press the eye button in the editor's toolbar to
+mark where the Preview prints it. Both need a PDF built with SyncTeX, which **Compile**
+produces.
 
 ## The PDF
 
-A wheel or pinch over one column of a two-column page keeps that column in view: whole while
-it fits the pane, and filling the pane's width once it is wider. Over the middle of the page the
-zoom centres on the pointer. A mouse-wheel notch zooms by a quarter. Two fingers on a touch
-screen zoom and move the page as they go, the point between them staying between them.
+To zoom, hold Ctrl (Cmd on macOS) and turn the mouse wheel, or pinch on a trackpad or touch
+screen. Each notch of the wheel zooms by a factor of 1.25. With the pointer over one column of
+a two-column page, zooming keeps that column in view: whole while it fits, and filling the
+pane's width once it is wider. Over the middle of the page, the zoom centers on the pointer.
+On a touch screen, the page follows your two fingers as they zoom and move.
 
-A click on a link in the PDF, such as a citation or a reference to a figure or a section,
-shows the text it points to in a popup beside the pointer. A click on the popup selects its
-text to copy, and a click anywhere else closes it.
+Clicking a link in the PDF, such as a citation or a reference to a figure or section, shows
+the text it points to in a popup next to the pointer. Click the popup to select its text for
+copying, or click anywhere else to close it.
 
 ## Problems
 
-The **Problems** tab lists what the last build said, errors first and then warnings, and
-under them where the paper stands against a page limit. **BODY END** is the last line before
-the bibliography: its page and column, and how many more lines fit under it in that column,
-once the paper has full columns to measure by. Each **SHORT LINE** is a paragraph whose last line is narrower than
-a quarter of its column, in a list item or a centered caption too, with the words on it: a slightly shorter paragraph pulls such a
-line up and gives the line back. A click on either marks the line in the
-Preview, where the layout is, and in Split also moves the editor to its source line, which
-for a paragraph is the line that holds its last words. The number on the tab counts the errors, the warnings
-and the short lines. The agent's `compile()` reports the same two things, so you and the
-agent look at one list.
+The **Problems** tab lists the errors and warnings from the last build, errors first. Below
+them, it shows how the paper fits a page limit:
 
-The bibliography is known by its `.bbl` file, through SyncTeX, at the paper's end. A paper
-that sets its references otherwise, or puts an appendix after them, has its body end at the
-last line of the PDF. Running heads, page numbers and the words inside an included picture are left out.
+- **BODY END** is the last line before the bibliography, with its page and column and, once
+  the paper has full columns to measure against, how many more lines fit below it.
+- **SHORT LINE** is a paragraph, list item or centered caption whose last line is narrower
+  than a quarter of the column. The entry quotes that line. Shortening the paragraph slightly
+  pulls the line up and saves a line.
+
+Click an entry to mark its line in the Preview. In Split, the click also moves the editor to
+the source line, which for a paragraph is the line with its last words. The number on the tab
+counts the errors, warnings and short lines. The agent's `compile()` tool reports the same
+list, so you and the agent work from the same information.
+
+The bibliography is found through SyncTeX, as the lines at the end of the paper that come from
+its `.bbl` file. If a paper sets its references another way, or puts an appendix after them,
+the body ends at the last line of the PDF. Running heads, page numbers and text inside
+included images are ignored.
 
 ## Threads
 
-- What is said in a thread is **private** or **public**, and each entry says which. A
-  private entry stays on this page, for you and the agent. A public entry is on Overleaf,
-  for everyone in the project. Everything in the Comments tab is private. A thread from
-  [Overleaf](overleaf.md) holds both: your co-authors' messages and the replies you sent
-  are public, and your talk with the agent between them is private.
-- The Comments tab opens on **open**, which lists every open comment. A comment is
-  unanswered when its last message is from the agent: its card is marked **unanswered**, the
-  **unanswered** view lists it, and the number on the tab counts it. A comment you wrote that
-  the agent has not answered yet is simply open. The PDF and the editor mark every open comment of the tab, whatever the list shows,
-  and a comment opened from its mark shows in **open** when the view shown leaves it out.
-- The search box above the comments, which `/` goes to, lists the tab's comments that meet
-  what is typed, in any letter case and whatever their status. A word is looked for in a
-  comment or a reply, the name of whoever wrote in it on Overleaf, the words it is on, its
-  file, its suggestion or its draft for Overleaf. While the box has the focus, the
-  conditions below show under it, and a click puts one in at the cursor. `from:` and
-  `file:`, clicked or typed, list the tab's writers or files to pick from with a click, or
-  with the arrow keys and Enter; Escape closes the list. Enter gives the keys to the
-  comments found, and Escape in the box, or choosing a view, puts the search away. While
-  words are in the box the view list reads **all**, greyed, and it shows its view again once
-  the search is put away.
+- Every message in a thread is labeled **private** or **public**. A private message stays on
+  this page, between you and the agent. A public message is on Overleaf, where everyone in the
+  project can read it. Everything in the first Comments tab is private. A thread from
+  [Overleaf](overleaf.md) has both: your co-authors' messages and the replies you sent are
+  public, and your conversation with the agent in between is private.
+- The Comments tab opens on the **open** view, which lists every open comment. A comment is
+  unanswered when its last message is from the agent. Its card is marked **unanswered**, the
+  **unanswered** view lists only those comments, and the number on the tab counts them. A
+  comment the agent has not answered yet is simply open. The other views are **archived**,
+  **resolved** and **all**. The PDF and the editor mark every open comment of the tab,
+  whatever the view shows, and a comment you open from its mark switches the list to **open**
+  if the current view leaves it out.
+- You can **Edit** or **Delete** any message you wrote. Deleting the first message of a thread
+  deletes the whole thread.
+- When the agent's edit is what you wanted, press **Resolve**. If it is not, use **Reply
+  privately**. **Archive** sets a thread aside without resolving it, and you can still reply
+  to it.
+- After you resolve, reopen, archive, hide or show threads, a line above the list says what
+  was done, for example "Resolved 3 comments.", with an **Undo** button. **Undo**, or the `u`
+  key, restores the status each thread had, and the time it was resolved, without asking. A
+  thread from Overleaf is restored on Overleaf too. Only the last change can be undone. The
+  line stays as you switch views and tabs until the next change replaces it, or until you
+  press **Undo**, close the line or reload the page. If Overleaf refuses to restore some
+  threads, or some were deleted in the meantime, the line says how many and why.
+- When the agent proposes an edit instead of making it, the card shows the source lines it
+  would change as a −/+ pair, and the Source highlights the same text in red. **Apply
+  suggestion** writes the change into the file. **Reject** removes the proposal, leaves the
+  file unchanged and records in the thread what you turned down. To explain why, reply
+  privately. The next time you press **Call agent**, the agent is told once which you chose. A
+  new proposal replaces the previous one.
+- A comment on source text follows edits to its file the way a comment on Overleaf does. Text
+  inserted before it moves it, text inserted inside it widens it, words typed over its words
+  keep it, and deleting all of its words leaves it where they were. A moved paragraph takes
+  its comments along. The card shows **EDITED** once the commented words have changed, and
+  **STALE** only when the file is gone.
 
-  | Type | Finds the threads that | Example |
-  |---|---|---|
-  | words | hold every word | `bound loose` |
-  | `OR` | meet either side; the spaces bind first | `cite OR survey` |
-  | `"…"` | hold the words together, as written | `"induction base"` |
-  | `-` | do not meet what follows | `loose -"the bound"` |
-  | `from:` | someone whose name holds the word wrote in; you are `me`, the agent `agent` | `from:"Ann Lee"` |
-  | `file:` | are on a file whose path holds the word | `file:2_main` |
-  | `after:` | have an entry written on that day or later | `after:11-12` |
-  | `before:` | have an entry written before that day, or that minute | `before:"11-13 09:30"` |
+### Searching
 
-  Each condition is met by the thread, so `from:` and `after:` may be met by two of its
-  entries. A day is `MM-DD` of this year or `YYYY-MM-DD`, read in your computer's time, in
-  which the cards show when each entry was written. A minute follows it as `11-13T09` or `11-13T09:30`, or in quotes as the cards show it,
-  `"11-13 09:30"`. Any other word with a colon is an ordinary word.
-- What you wrote in a thread carries **Edit** and **Delete**. **Delete** on a thread's first
-  message deletes the thread.
-- **Resolve** a thread whose edit satisfies you, or **Reply privately** in it when it does not.
-  **Archive** sets a thread aside, and it still takes replies.
-- After **Resolve**, **Reopen** or **Archive**, on a card, on the picked threads or by key, a
-  line above the list says what was done, as "Resolved 3 comments.", with **Undo**, which `u`
-  presses too. Undo puts each of those threads back to the status it had, with the time it
-  was resolved at if it was resolved, a thread from Overleaf on Overleaf too, without asking.
-  Only the last change can be undone: the line stays through views and tabs until the next
-  change takes its place, and Undo, its ×, or a reload takes it away. What Overleaf refuses to
-  put back stays on the line, which says how many and why, and so does the number of threads
-  deleted since, which cannot be put back.
-- A proposed edit shows as the source lines the agent would change, as a −/+ pair, and the
-  Source tab marks the same text in red. **Apply suggestion** writes the change into the
-  file. **Reject** takes the proposal off the card, leaves the file as it is, and notes in
-  the thread what was turned down. Say why in a private reply. Your next **Call agent** tells
-  the agent once which of the two you did. Proposing again replaces the proposal.
-- A comment on source text follows the file's edits as a comment on Overleaf does: text
-  inserted before it moves it, inside it widens it, words written over its words take it,
-  and deleting all of them leaves it where they were. A paragraph moved elsewhere takes its
-  comments along. The card says **EDITED** once its words changed, and **STALE** only when
-  its file is gone.
-- The sort list beside the view list orders the list. **paper order** keeps each view's own
-  order: the comments here as they were written, Overleaf's threads as the paper reads
-  them, the last closed first in **resolved**, the last touched first in **archived**, and
-  the newest thread first in **all**. A search keeps the order of **open**. **latest first** and **oldest first**
-  order any view, and a search, by when each thread was last written in. Each comment tab
-  keeps its own choice, and `o` steps to the next.
-- The row above the comments acts on the threads picked by their boxes. From the left: the
-  view list, the sort list and **Expand all**; the box that picks every thread listed or lets them all go;
-  **Resolve**, which reads **Reopen** when the picked threads are resolved or archived and,
-  as `R` does, resolves the open ones of a mix; **Archive**, or in the Overleaf tab **Accept**,
-  **Reject** and **Send to Overleaf**, with **Hide** where the other tab has **Archive**; then the sync
-  button and **Call agent**. On a narrow
-  panel the sort list shrinks to its icon first and the word **Resolve** goes next, then the
-  sort list, **Expand all**, the sync button and **Call agent** wait behind **⋯** with their
-  names. In the Overleaf tab **Send to Overleaf** then drops its leaf, and **Accept** and
-  **Reject**, which each suggested edit's card has too, wait behind **⋯**, followed by **Hide**. Last the view
-  list shrinks to its icon. **Resolve**, **Archive** and **Send to Overleaf** stay in the
-  row, which takes two lines only when even that does not fit.
+The search box above the comment list finds comments in the current tab, in any status. Press
+`/` to go to it. It looks in the messages and their writers' names, the text a comment is on,
+its file name, proposed changes and drafts for Overleaf, and ignores letter case. While the
+box has the focus, the search terms appear below it, and clicking one inserts it. After
+`from:` or `file:`, a list of the tab's writers or files appears, to choose from with a click
+or with the arrow keys and Enter. Press Enter to move to the results. To clear the search,
+press Escape in the box or choose a view. While you search, the view list shows **all**,
+grayed out.
+
+| Search | Finds threads that |
+|---|---|
+| `caption width` | contain both words, in any order |
+| `figure OR table` | contain either word. OR, in capitals, splits the search into alternatives. |
+| `"base case"` | contain the exact phrase |
+| `-appendix` | don't contain the word. A minus also works before a phrase or a term, as in `-from:agent`. |
+| `from:ann` | have a message from someone whose name contains "ann". Use `from:me` for your own messages, `from:agent` for the agent's, and quotes for a name with a space. |
+| `file:2_main` | are on a file whose path contains "2_main" |
+| `after:11-12` | have a message written on or after November 12 |
+| `before:11-14` | have a message written before November 14 |
+
+A date is `MM-DD` in the current year or `YYYY-MM-DD`, in your computer's time zone, and means
+the start of that day. Add a time as `11-13T09`, `11-13T09:30`, or `"11-13 09:30"` in quotes
+as the cards show it. Each term is checked against the whole thread, so `from:ann after:11-12`
+also finds a thread Ann Lee wrote in earlier if someone else replied on November 12. Any other
+word with a colon is searched for as ordinary text. The **Search** page of Help walks through
+an example.
+
+### Sorting and the row above the list
+
+The sort list next to the view list sets the order. **paper order** uses each view's own
+order: comments in the first Comments tab as you wrote them, threads from Overleaf as they
+appear in the paper, the most recently resolved first in **resolved**, the most recently
+changed first in **archived**, and the newest first in **all**. A search keeps the order of
+**open**. **latest first** and **oldest first** sort any view, and a search, by each thread's
+most recent message. Each comment tab remembers its own order, and `o` switches to the next.
+
+The row above the comment list acts on the threads you select with their check boxes. From the
+left, it has the view list, the sort list, **Expand all**, a check box that selects or clears
+every thread in the view, **Resolve**, **Archive**, the sync button and **Call agent**.
+**Resolve** reads **Reopen** when every selected thread is resolved or archived, and with a
+mix it resolves the open ones, as `R` does. In the leaf tab, **Hide** replaces **Archive**,
+followed by **Accept** and **Reject** when the list has suggested edits, and **Send to
+Overleaf**. On a narrow panel, labels are dropped and the less used buttons move into a **⋯**
+menu, while **Resolve**, **Archive** and **Send to Overleaf** always stay in the row.
 
 ## Comment keys
 
-The comments go by keys, as a notebook's cells do. These shortcuts act on the current comment
-when the Comments tab is open and you are not typing. `?`, or **Help** in the ⋯ menu, opens
-Help, whose **Keys** page lists them with the Source editor's keys. Its other pages are
-**Start here**, **Search**, which walks through finding a co-author's comment and lists every
-search term, and **Overleaf**. A comment's buttons name their keys in their tooltips. Once you move through the comments by keys, the ringed comment's buttons show
-their keys' letters at their top-left corners, until the mouse moves or a box takes the
-typing.
+You can work through the comment list with the keyboard, much as you move through the cells of
+a notebook. These shortcuts act on the current comment, marked with a ring, when the Comments
+tab is open and you are not typing. For a doubled letter such as `dd`, press the key twice.
+`?`, or **Help (?)** in the ⋯ menu, opens Help, whose **Keys** page lists these keys and the
+Source editor's. Its other pages are **Start here**, **Search** and **Overleaf**.
 
-| Keys | Do |
+A button's tooltip names its key. Once you move through the comments with the keys, the
+current comment's buttons also show their key letters, until you move the mouse or start
+typing in a box.
+
+| Key | Action |
 |---|---|
-| `j` `k`, ↓ ↑ | Next and previous comment. The ringed card stays a third of the way down the list, and one that leaves the view, resolved, archived, deleted, applied or sent, hands the ring to the next in that same place. |
+| `j` `k`, ↓ ↑ | Next and previous comment. The current comment stays a third of the way down the list. When it leaves the view, for example because it was resolved or sent, the next comment takes its place. |
 | `gg` `G`, Home End | First and last comment |
-| Space | Expand or collapse the card; expanding also shows the comment's place in the PDF or the source, its line a third of the way down the editor |
+| Space | Expand or collapse the comment. Expanding it also shows its place in the PDF or the source. |
 | Shift+Space | Expand or collapse all comments |
-| `K`, Ctrl+Alt+K | Jump to the comment's text in the source and move keyboard focus there. Press `K` in the editor (Ctrl+Alt+K without Vim keys) to come back |
+| `K`, Ctrl+Alt+K | Jump to the comment's text in the source. Press `K` in the editor (Ctrl+Alt+K without Vim keys) to come back. |
 | `r` | Write a private reply that the agent sees and Overleaf does not |
-| `i` | Write the thread's reply for Overleaf |
+| `i` | Write the thread's public reply for Overleaf |
 | `e` | Edit your last message in the thread, here or on Overleaf |
 | `c` | Comment on the whole paper |
-| Escape | Leave the text box. An unsent private reply or edit is discarded; a reply for Overleaf is kept |
+| Escape | Leave the text box. An unsent private reply or edit is discarded, and a reply for Overleaf is kept. |
 | `R` | Resolve, or reopen a comment that is not open |
-| `A` | Archive, or in the leaf Comments tab hide the thread, or show it again in the hidden view |
+| `A` | Archive. In the leaf tab, hide the thread, or show it again in the **hidden** view. |
 | `u` | Undo the last status change, while **Undo** is shown above the list |
 | `aa` | Apply the suggestion to the file, or accept a suggested edit on Overleaf |
-| `nn` | Reject the suggestion, or the Overleaf draft if there is none |
+| `nn` | Reject the suggestion, or the draft for Overleaf if there is no suggestion |
 | `ss` | Send the public reply to Overleaf, for everyone in the project |
-| `dd` | Delete (after confirmation), or reject a suggested edit on Overleaf |
+| `dd` | Delete the comment (after confirmation), or reject a suggested edit on Overleaf |
 | `D` | Delete your last message in the thread, here or on Overleaf (after confirmation) |
 | `x` | Select or deselect the comment, or the whole range while one is marked |
 | `*` | Select all comments, or clear the selection |
-| `v` | Start a range at the comment (or at the first comment) and extend it with the movement keys. `R`, `A`, `ss` and `x` then act on the whole range; Escape or `v` clears it |
+| `v` | Start a range at the comment and extend it with the movement keys. `R`, `A`, `ss` and `x` then act on the whole range. Escape or `v` clears it. |
 | `/` | Search this tab's comments in any status |
 | `f` `F` | Next and previous view (open, unanswered, …) |
 | `o` | Next sort order (paper order, latest first, oldest first) |
 | `t` `T` | Next and previous tab |
 | `?` | Open Help |
 
-With comments selected, `R`, `A` and `ss` act on the selection. A click on a card puts the ring on it,
-and choosing a comment tab, a view or an order in the lists atop gives the keys back to the comments.
-With a Korean input method on, a letter key is read by where it sits on the keyboard, so the
-keys work as they are.
+With comments selected, `R`, `A` and `ss` act on the selection. Clicking a card makes it the
+current comment, and choosing a tab, a view or a sort order returns keyboard focus to the
+comment list. With a Korean input method on, letter keys are read by their position on the
+keyboard, so the shortcuts work as usual.
 
 ## Editor keys
 
-**Vim keys** in the ⋯ menu at the end of the editor's bar turns on Vim keys, and the page
-remembers the choice. The same menu steps the editor's text size and turns the wrapping of
-long lines on or off, each remembered too.
+To use Vim keys, turn on **Vim keys** in the ⋯ menu at the end of the editor's toolbar. The
+same menu changes the editor's text size and turns **Wrap long lines** on or off, and the page
+remembers each choice. With Vim keys on, these keys work along with Vim's usual ones:
 
 - `:w` saves and `:make` compiles. `jj` typed quickly, Escape or Ctrl+[ leaves Insert mode.
-- `gc` comments on the text a motion or a visual selection covers, and `gs` marks that text
-  in the Preview.
-- `K` opens the comment under the cursor in the Comments tab, or the edit suggested on
-  Overleaf in the leaf tab's suggested edits view, where the comment keys then act on it, and
-  off any comment gives the keys to the list as it was. `K` in the list comes
-  back to the comment's words.
-- `gd` or Ctrl+] goes from `\input`, `\ref` or `\cite` to the file, label or `.bib` entry,
-  and Ctrl+O or Ctrl+T comes back. Browsers on Windows keep Ctrl+T for a new tab.
-- A yank also goes to the system clipboard.
+- `gc` comments on the text a motion or selection covers, as in `gcc` for the line or `gcip`
+  for the paragraph. `gs` shows that text in the Preview, as in `gss` for the line.
+- `K` goes to the comment at the cursor in the comment list, or to a suggested edit from
+  Overleaf in the leaf tab's **suggested edits** view, and the comment keys then act on it.
+  Away from any comment, it moves keyboard focus to the comment list. Press `K` in the list to
+  come back to the text.
+- `gd` or Ctrl+] goes from `\input`, `\ref` or `\cite` to the file, label or `.bib` entry it
+  names, and Ctrl+O or Ctrl+T goes back. On Windows, use Ctrl+O, since the browser opens a new
+  tab with Ctrl+T.
+- Text you yank is also copied to the system clipboard.
 
-With or without Vim keys, Ctrl+S saves, F12 and Shift+F12 go to a definition and back,
-Ctrl+Alt+M comments on the selection, Ctrl+Alt+P marks it in the Preview, and Ctrl+Alt+K
-does what `K` does, in the editor and in the list alike. Ctrl+Enter compiles, or sends a comment being written,
-and Ctrl+Alt+Enter presses Call agent. On macOS, Cmd takes the place of Ctrl and Option of
-Alt in these. Ctrl+[ drops a comment being written, with Ctrl on macOS too.
+With or without Vim keys, Ctrl+S saves and Ctrl+Enter compiles. F12 goes to a definition and
+Shift+F12 goes back. Ctrl+Alt+M comments on the selection, Ctrl+Alt+P shows it in the Preview,
+and Ctrl+Alt+K does what `K` does, in the editor and in the comment list. Ctrl+Alt+Enter calls
+the agent. While you write a comment, Ctrl+Enter sends it and Ctrl+[ cancels it. On macOS, use
+Cmd for Ctrl and Option for Alt, except in Ctrl+[.
 
-As you type, the editor offers what fits there: the paper's labels after `\ref` and its kin,
-its `.bib` entries after `\cite` and its kin (a title's words find an entry too),
-environments after `\begin` (which then gets its `\end`) and the open one after `\end`,
-`.tex` files after `\input`, pictures after `\includegraphics`, and commands after a
-backslash, those the paper defines among them. Enter or Tab takes the choice, and Enter after
-a command typed out in full starts the next line. Ctrl+Space opens the list by hand.
+As you type, the editor suggests what fits: labels after `\ref` and similar commands, `.bib`
+entries after `\cite` and similar commands (words from a title find an entry too),
+environments after `\begin`, which then gets its `\end`, the open environment after `\end`,
+`.tex` files after `\input`, images after `\includegraphics`, and commands after a backslash,
+including those the paper defines. Enter or Tab inserts the selected suggestion, but Enter
+after a command typed out in full starts a new line. Ctrl+Space opens the list.
 
-A browser extension that drives pages with Vim keys takes Escape and Ctrl+[ before the editor
-does and moves the focus out of it, which leaves the editor in Insert mode. Turn the
+A browser extension that adds Vim keys to web pages takes Escape and Ctrl+[ before the editor
+does and moves the focus out of it, which leaves the editor in Insert mode. Turn such an
 extension off for the review page's address.
 
 ## Settings and the ⋯ menu
 
-- **Your cursor on Overleaf**, once the paper names its Overleaf project: **Show my cursor**,
-  where the page starts, shows your co-authors your cursor in this page's editor as your
-  cursor on Overleaf; **Hidden** shows them none, and their cursors here may then be up to
-  five minutes old. [Working with Overleaf](overleaf.md#your-co-authors-on-the-page) says more.
-- **Theme** picks **System**, where the page starts, which follows the system's light or dark
-  as it changes, or **Light**, **Dark**, or **Warm**, a softer paper tone for long writing.
-  The PDF's pages stay as compiled in each.
-- **Text size of the top bar, panels and dialogs** sets their text from 90% to 150%, and
-  leaves the editor, the translation, the PDF, the panel's tabs and Settings itself as they
-  are.
-- **Send a comment with** chooses whether Enter or Shift+Enter sends a comment being written.
-- **Shortcut letters on a comment's buttons** shows or hides the keys' letters on the ringed
-  comment's buttons.
-- **Editor cursor position** at **1/3 down** or **1/2 down** keeps the cursor's line that far
-  down the editor as the keys move it, Vim keys or not, so the text moves and the eyes stay.
-  The first lines stay at the top and the last ones at the bottom, and a click leaves the
-  text where it is. **Anywhere** lets the cursor move over the text as usual.
-- **Translation in Split**, once `translation` is set, puts the translation **Under the
-  Preview**, where the page starts, **Under the Source**, **Beside the Source**, or **In place
-  of the Source** while the view is Split. See [Translation](#translation).
-- **Download PDF** in the ⋯ menu saves the PDF. As on Overleaf, the file is named after the
-  Overleaf project, with each character other than a letter or a digit turned to `_`. A
-  paper with no Overleaf project keeps the PDF's own name, such as `paper.pdf`.
+Open **Settings** with the gear button in the top bar or **Settings…** in the ⋯ menu. The page
+remembers each choice in this browser.
 
-The page remembers each choice. Edits in the Source tab are saved when you press **Save**.
+- **Your cursor on Overleaf**, shown once the paper is connected, chooses between **Show my
+  cursor** and **Hidden**, which decide whether your co-authors see your cursor. See [Working
+  with Overleaf](overleaf.md#your-co-authors-on-the-page).
+- **Theme** is **System** by default, which follows your system's light or dark setting. The
+  other choices are **Light**, **Dark** and **Warm**, a softer paper tone for long writing
+  sessions. The PDF looks as compiled in every theme.
+- **Text size of the top bar, panels and dialogs** ranges from 90% to 150%. It does not change
+  the editor, the translation, the PDF, the sidebar tabs or Settings itself.
+- **Send a comment with** chooses whether Shift+Enter, the default, or Enter sends a comment.
+- **Shortcut letters on a comment's buttons** shows or hides the key letters on the current
+  comment's buttons.
+- **Editor cursor position** set to **1/3 down** or **1/2 down** keeps the cursor's line that
+  far down the editor as you move with the keys, and scrolls the text instead. The first and
+  last lines stay at the edges, and a click does not scroll. **Anywhere**, the default, lets
+  the cursor move as usual.
+- **Translation in Split**, shown once `translation.language` is set, places the translation
+  **Under the Preview** (the default), **Under the Source**, **Beside the Source** or **In
+  place of the Source** in Split. See [Translation](#translation).
+
+**Download PDF** in the ⋯ menu saves the PDF. As on Overleaf, the file is named after the
+Overleaf project, with every character other than a letter or a digit replaced by `_`. Without
+an Overleaf project, it keeps the PDF's own name, such as `paper.pdf`.
+
+Edits in the Source are saved only when you press **Save** or Ctrl+S.
 
 ## Updating
 
-When a newer release is out, the ⋯ menu atop the page offers **Update to v…**, above the
-version that runs. A click installs it. The page's server runs inside the agent, which keeps
-the code it started with, so a band across the page then asks you to reconnect tex-mcp in
-your agent: Claude Code does from `/mcp`, and any agent does when it starts again. The page
-then asks to be reloaded. An install that cannot update itself, one made by another tool
-than [INSTALL.md](../INSTALL.md)'s steps or `pip` in a virtual environment, says to ask your
-agent to update tex-mcp-web. `update_check: false` in the [configuration](configuration.md)
-stops the page asking for the newest release.
+When a newer release is out, the ⋯ menu at the top of the page shows **Update to v…** above
+the running version. Click it to install the update. The page's server runs inside your agent,
+which keeps running the code it started with, so a band across the page then asks you to
+reconnect tex-mcp in your agent: in Claude Code with `/mcp`, and in any agent by starting it
+again. The page then asks you to reload it.
+
+An install that was not made with the steps in [INSTALL.md](../INSTALL.md) or with `pip` in a
+virtual environment cannot update itself, and the page tells you to ask your agent to update
+tex-mcp-web. To stop the daily check for new releases, set `update_check: false` in the
+[configuration](configuration.md).
 
 ## Translation
 
-**Translation** in the ⋯ menu atop the page shows the source translated under the Preview or
-the editor, and hides it again. With `translation` set, the item names the language, as in
-**Translation: Korean**, with a check mark while the translation shows; without it, the item
-reads **Translation…** and opens the pane all the same. In Split, **Translation in Split** in
-Settings puts it under the Preview, under the Source, beside the Source, or in place of the
-Source. The grips between panes are dragged to share the
-room, each place keeps its own share, and the page remembers both. Each paragraph shows its
-source lines, and the one under the editor's cursor is marked and brought into view. The
-**A−** and **A+** buttons step the type size.
+**Translation** in the ⋯ menu at the top of the page shows or hides the source translated
+under the Preview or the editor. With `translation.language` set, the item names the language,
+as in **Translation: Korean**, and is checked while the translation is shown. Otherwise it
+reads **Translation…**, and the pane explains how to set translation up.
 
-What translates is the command line in `translation: {command: ...}`, in the paper's
-[configuration](configuration.md) or in `~/.config/tex-mcp-web/config.yaml` for every paper:
-any LLM tool that reads the text on its standard input, or where `{prompt}` stands in its
-arguments, and prints only the translation. The pane's head names it by its program and the
-model it names, with the whole line on hover. Until a language and a command are set, the pane
-says which is missing and how to set it up: ask your agent to set up translation to your
-language, and it proposes a line from the installed tool's own help and tests it once before
-writing it.
+In Split, **Translation in Split** in Settings places the translation. Drag the dividers to
+resize the panes. Each placement keeps its own sizes, and the page remembers them. Each
+paragraph shows its source lines, the paragraphs on the current PDF page are marked, and the
+one at the editor's cursor is highlighted and scrolled into view. The **A−** and **A+**
+buttons change the text size.
+
+The command in `translation.command` does the translation, as the
+[configuration](configuration.md) describes. The pane's header names its program and model,
+and shows the full command when you point at it. Nothing is translated until a language and a
+command are set, and until then the pane says which is missing. The easiest way to set them is
+to ask your agent to set up translation to your language. It proposes a command from the
+installed tool's own help and tests it before saving it.
 
 ## Listening
 
-Presses of Call agent go to one session per paper. A Claude Code session that starts while
-another listens leaves the presses to it, and `do tex listen` in any session moves them
-there. When the session serving the page ends, the page goes with it, and the next session to
-call a tex tool serves it again and listens.
+A paper's **Call agent** presses go to one agent session. A Claude Code session that starts
+while another one is listening leaves the presses to it, and `do tex listen` in any session
+moves them to that session. When the session serving the page ends, the page stops too, and
+the next session that uses a tex tool serves it again and listens.

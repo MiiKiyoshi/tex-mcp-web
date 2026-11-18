@@ -1,7 +1,8 @@
 # Configuration
 
-`do tex init` writes `.tex-mcp-web.yaml` at the paper's root. A saved change applies at once,
-except `port` and `dir`, which apply when Claude Code or Codex restarts.
+`do tex init` writes `.tex-mcp-web.yaml` in the folder where the agent was started. Changes
+you save to the file take effect immediately, except `port` and `dir`, which take effect when
+the agent restarts.
 
 ```yaml
 main: main.tex
@@ -15,23 +16,44 @@ port: 8765
 guideline: my-field
 translation:
   language: Korean
-  instructions: Keep cell names in English.
+  instructions: Keep technical terms in English.
 overleaf: https://www.overleaf.com/project/0123456789abcdef01234567
 ```
 
-| Field | Effect |
-|---|---|
-| `main` | Top-level source file compiled into the PDF. |
-| `dir` | Folder holding the paper, relative to this file or absolute. Unset means this file's folder. |
-| `watch` | Source files the Source tab offers. |
-| `ignore` | Patterns excluded even when they match `watch`. |
-| `compiler` | `auto` (latexmk for LaTeX, pandoc for Markdown or text), `latexmk`, `pdflatex`, `xelatex`, `lualatex`, or `pandoc`. The PDF is always built in the same folder as the main file, so an `$out_dir` set in a `.latexmkrc` is not used. |
-| `port` | This paper's review page port. Any free port works. Init picks the first free one from 8765, so each paper can have its own. |
-| `guideline` | The writing guideline the agent reads before editing: the name of a folder of your own under `~/.config/tex-mcp-web/guidelines/<name>/` holding a `GUIDELINE.md`. A guideline whose file opens with front matter `extends: <name>` is read after the one it names. Unset means none. |
-| `references` | Folder holding only the papers yours builds on, converted to Markdown, relative to this file or absolute. Unset means no list of their terms. |
-| `translation` | `language` is what **Translation** in the ⋯ menu atop the page translates into: its pane shows each paragraph of the source in that language, with those on the current page marked. `command` is the command line that translates, a string split as a shell splits it or a list of its words: any LLM tool run once, non-interactively, that reads the request on its standard input and prints only the answer on its standard output. A tool that takes the request only as an argument gets `{prompt}` in that argument, and the request goes there instead. The command should name its model, a mid-sized one since a paper has hundreds of paragraphs, and start no tools or servers of its own. `command` may also be set for every paper in `~/.config/tex-mcp-web/config.yaml`, under the same `translation: {command: ...}`; nothing else is read from that file, and the paper's own `command` wins. Nothing translates until a command is set. Asked to set up translation, your agent proposes the line from the installed tool's own help and runs it once on a test before writing it. `instructions` adds rules for the translator, one per line. A paragraph is translated once per text and language, and of a figure or table only the caption is. Unset means no translation. |
-| `overleaf` | The paper's Overleaf project, by its link, which an open page follows and the sync button reads. Unset means none. |
-| `overleaf_add` | Patterns for the files only here that go to the Overleaf project, by **Send** or under **Live** by themselves, in a folder that is no git clone. Unset means the paper's sources and figures: `*.tex`, `*.bib`, `*.sty`, `*.cls`, `*.bst`, `*.png`, `*.jpg`, `*.jpeg`, `*.pdf`, `*.eps` and `*.svg`. A file of a kind the project already holds is added too, and the paper's compiled PDF never is. |
-| `page_token` | `true` makes the page answer only a browser that opened its link, which `tex-mcp-web link` prints with a token kept in `~/.config/tex-mcp-web/page-token` for your account alone, and the agent's tools, which read the token there. It is for a machine other people log in to, where any account can reach the page's port. A browser keeps the token after the first visit, so the plain address goes on opening the page there and serves as a bookmark. Unset means anyone on this machine can open the page. |
-| `update_check` | `false` stops the page asking the package index, once a day, for the newest release. Unset means it asks, and the ⋯ menu offers **Update to v…** when one is out. |
-| `overleaf_sync` | `true` is **Live** in Settings, which keeps the paper's files and the project's the same both ways while a page is open, and brings new threads in by themselves. Unset is **By hand**: files change only by git pull and commit & push in a git clone, or by Get and Send otherwise. |
+| Field | Default | Description |
+|---|---|---|
+| `main` | `main.tex` | The top-level source file that is compiled into the PDF, relative to the paper's folder. |
+| `dir` | This file's folder | The paper's folder, relative to this file or absolute. |
+| `watch` | `*.tex`, `*.bib` and the main file's type | Patterns for the source files that the Source tab lists and the page watches for changes. |
+| `ignore` | None | Patterns for files to leave out even when they match `watch`. |
+| `compiler` | `auto` | `auto` (latexmk for LaTeX, pandoc for Markdown or plain text), `latexmk`, `pdflatex`, `xelatex`, `lualatex` or `pandoc`. The PDF is always built in the paper's folder and named after the main file, so an `$out_dir` set in a `.latexmkrc` is not used. |
+| `port` | `8765` | The port of this paper's review page. Any free port works, and `do tex init` picks the first free one from 8765 up. |
+| `guideline` | None | The writing guideline the agent reads before it edits: the name of a folder under `~/.config/tex-mcp-web/guidelines/` that contains a `GUIDELINE.md`. If that file begins with the front matter `extends: <name>`, the agent reads the named guideline first. |
+| `references` | None | A folder, relative to this file or absolute, that contains only the papers yours builds on, converted to Markdown. The agent reads the terms those papers use. |
+| `translation` | None | Translation of the source. See below. |
+| `overleaf` | None | The link to the paper's Overleaf project, which **Connect** in Settings writes for you. |
+| `overleaf_sync` | `false` | `true` is **Live** and `false` is **By hand** under **How files sync with Overleaf** in Settings. [Keeping the files in step](overleaf.md#keeping-the-files-in-step) describes both. |
+| `overleaf_add` | Sources and figures | Patterns for files that exist only here and are added to the Overleaf project, by **Send** or automatically under **Live**, in a folder that is not a git clone. The default is `*.tex`, `*.bib`, `*.sty`, `*.cls`, `*.bst`, `*.png`, `*.jpg`, `*.jpeg`, `*.pdf`, `*.eps` and `*.svg`. Files of a type the project already has are added too, but never the compiled PDF. |
+| `page_token` | `false` | `true` makes the page answer only the agent's tools and browsers that opened its link, for a machine other people log in to. `tex-mcp-web link` prints the link, with a token kept in `~/.config/tex-mcp-web/page-token` that only you can read. After the first visit the browser keeps the token, so the plain address works there and can be bookmarked. |
+| `update_check` | `true` | Whether the page checks once a day for a newer release, which the ⋯ menu then offers as **Update to v…**. |
+
+`translation` has three keys:
+
+- `language` is the language the translation pane shows the source in.
+- `command` is the command line that translates, as one string, split the way a shell splits
+  it, or as a list of its words. It must run an LLM tool once without asking anything, read
+  the request on standard input, and print only the answer. If the tool takes the request only
+  as an argument, put `{prompt}` in that argument. The command should name its model,
+  preferably a mid-sized one, because a paper has hundreds of paragraphs, and should start no
+  tools or servers of its own.
+- `instructions` adds rules for the translator, one per line.
+
+You can also set `command` for every paper in `~/.config/tex-mcp-web/config.yaml`, under the
+same `translation: {command: ...}` key. Nothing else is read from that file, and a `command`
+in the paper's own file takes precedence. In the paper's file, `instructions` and `command`
+need `language`.
+
+Nothing is translated until both `language` and `command` are set. If you ask your agent to
+set up translation, it builds the command from the installed tool's own `--help`, tests it
+once, and asks you before saving it. Each paragraph is translated once for each version of its
+text and each language, and of a figure or table only the caption is translated.
