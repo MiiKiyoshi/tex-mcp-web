@@ -4,6 +4,8 @@ import gzip
 import logging
 import subprocess
 
+from types import SimpleNamespace
+
 import pytest
 
 from tex_mcp_web.synctex import (
@@ -488,3 +490,42 @@ def test_printed_words_drop_markup_and_keep_what_tex_prints() -> None:
     assert printed_words("The quick~brown \\emph{fox} jumps") == "The quick brown fox jumps"
     assert printed_words("costs 5\\% of $x$ % a note\nand more") == "costs 5% of x and more"
     assert printed_words("\\textbf[b]{bold}\n\n  words") == "bold words"
+
+
+def test_the_forward_search_asks_by_the_name_the_record_has_for_the_file(tmp_path, monkeypatch) -> None:
+    """``synctex view`` matches the file by the text of its name. A paper reached through a
+    link, a drive letter for a folder or a short name is recorded under that name, which is
+    not the resolved path, so the search asks by the record's own name for the file."""
+    import gzip
+
+    from tex_mcp_web import synctex
+
+    real = tmp_path / "a long folder name"
+    real.mkdir()
+    (real / "main.tex").write_text("Words.\n", encoding="utf-8", newline="")
+    (real / "main.pdf").write_bytes(b"%PDF-1.4\n")
+    link = tmp_path / "t"
+    try:
+        link.symlink_to(real, target_is_directory=True)
+    except OSError:
+        pytest.skip("this system does not let the test make a link")
+    recorded = f"{link.as_posix()}/./main.tex"
+    with gzip.open(real / "main.synctex.gz", "wt", encoding="utf-8") as record:
+        record.write(f"SyncTeX Version:1\nInput:1:{recorded}\nInput:2:/elsewhere/article.cls\nContent:\n")
+    assert synctex.recorded_name(real / "main.pdf", real / "main.tex") == recorded
+    assert synctex.recorded_name(link / "main.pdf", link / "main.tex") == recorded
+    # A file the record does not name is asked for by its resolved path.
+    (real / "other.tex").write_text("More.\n", encoding="utf-8", newline="")
+    assert synctex.recorded_name(real / "main.pdf", real / "other.tex") == str((real / "other.tex").resolve())
+
+    asked = []
+
+    def run(command, **_):
+        asked.append(command[3])
+        return SimpleNamespace(stdout="")
+
+    monkeypatch.setattr(synctex.shutil, "which", lambda name: "synctex")
+    monkeypatch.setattr(synctex.subprocess, "run", run)
+    synctex.source_lines_to_boxes(real / "main.pdf", real / "main.tex", 3, 3)
+    assert asked == [f"3:0:{recorded}"]
+

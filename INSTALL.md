@@ -43,6 +43,11 @@ scope.
 
 ## 3. Install
 
+On Windows, if step 1 found a registration that runs `tex-mcp.exe`, do step 4 first, ask the
+user to restart the agent, and come back to this step after the restart. Windows locks a
+program's file while it runs, the running server is that program, and this step replaces
+its file.
+
     DIR="$HOME/.local/share/tex-mcp-web"
     git clone https://github.com/MiiKiyoshi/tex-mcp-web.git "$DIR"   # update: git -C "$DIR" pull --ff-only
     python3 -m venv "$DIR/.venv"
@@ -61,10 +66,7 @@ Remove any registration the user agreed to replace (`claude mcp remove --scope u
     codex mcp add tex-mcp --env PATH="$P" -- "$BIN/python" -m tex_mcp_web.cli mcp
 
 The server is registered as a Python module, not as the `tex-mcp` program in the same
-folder. Windows locks a program's file while it runs, so a server started from `tex-mcp.exe`
-would block every later update, which replaces that file. If an existing registration on
-Windows runs `tex-mcp.exe`, replace the registration first, ask the user to restart the
-agent, and run step 3 after the restart: until then the running server holds the file.
+folder, so that an update can replace that program's file while the server runs.
 
 On Windows, join the PATH entries with `;` and use Windows folders: the directories above,
 then `C:\Windows\System32` and `C:\Windows`, the folder of `git`, which syncing with Overleaf
@@ -89,4 +91,6 @@ place, so updating the checkout also updates the plugin.
 The server loads when an agent session starts, so this session cannot use it yet. Tell the
 user the one thing left to do: start the agent again with the command that continues this
 conversation (`claude --continue`, `codex resume --last`) and say "do tex init". Say nothing
-else; that step sets up the paper, opens the review page and starts listening.
+else; that step sets up the paper, opens the review page and starts listening. After an
+update there is nothing to set up: tell the user only to start the agent again, and to
+reload the review page.

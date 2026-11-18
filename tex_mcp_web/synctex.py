@@ -308,6 +308,31 @@ _VIEW_RESULT_PATTERN = re.compile(
     r"^Page:(\d+)\n(?:.*\n)*?h:(-?[\d.]+)\nv:(-?[\d.]+)\nW:(-?[\d.]+)\nH:(-?[\d.]+)", re.MULTILINE)
 
 
+def recorded_name(pdf_path: Path, source: Path) -> str:
+    """The name the PDF's SyncTeX record has for *source*, which ``synctex view`` matches
+    as text. TeX writes the path as it was given the folder: through a drive letter that
+    stands for a folder, a short name or a link, the record's name and the resolved path are
+    the same file under two names. The resolved path when the record does not name it."""
+    record = find_synctex_file(pdf_path)
+    if record is not None:
+        try:
+            opened = gzip.open(record, "rt", encoding="utf-8", errors="replace") if record.suffix == ".gz" \
+                else open(record, encoding="utf-8", errors="replace")
+            with opened as lines:
+                for line in lines:
+                    if line.startswith("Content:"):
+                        break
+                    found = re.match(r"Input:\d+:(.+)$", line.rstrip("\r\n"))
+                    try:
+                        if found and (pdf_path.parent / found.group(1)).resolve() == source.resolve():
+                            return found.group(1)
+                    except OSError:
+                        continue
+        except (OSError, gzip.BadGzipFile):
+            pass
+    return str(source.resolve())
+
+
 def source_lines_to_boxes(
     pdf_path: Path, source: Path, line_start: int, line_end: int,
 ) -> list[tuple[int, tuple[float, float, float, float]]]:
@@ -319,10 +344,11 @@ def source_lines_to_boxes(
     if synctex is None or not pdf_path.is_file():
         return []
     boxes: list[tuple[int, tuple[float, float, float, float]]] = []
+    name = recorded_name(pdf_path, source)
     for line in range(line_start, min(line_end, line_start + 40) + 1):
         try:
             completed = subprocess.run(
-                [synctex, "view", "-i", f"{line}:0:{source.resolve()}", "-o", str(pdf_path)],
+                [synctex, "view", "-i", f"{line}:0:{name}", "-o", str(pdf_path)],
                 cwd=pdf_path.parent, stdin=subprocess.DEVNULL, text=True, capture_output=True, timeout=5, check=False,
             )
         except (OSError, subprocess.TimeoutExpired):
