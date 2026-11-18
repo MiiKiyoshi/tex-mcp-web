@@ -675,6 +675,7 @@ def test_a_pdf_from_an_earlier_build_shows_while_the_first_build_runs(tmp_path: 
         browser = chrome.launch()
         browser.set_window_rect(x=0, y=0, width=1200, height=800)
         browser.navigate(base)
+        chrome.needs_page_image(browser)
         script = browser.execute_script
         shape = lambda: script(f"""{PREVIEW_PAGE} return rect && rect.width > 50
           ? (rect.width < rect.height ? "portrait" : "landscape") : null;""")
@@ -1161,6 +1162,7 @@ def test_the_area_button_draws_a_box_to_comment_on(tmp_path: Path) -> None:
         browser = chrome.launch()
         browser.set_window_rect(x=0, y=0, width=1200, height=800)
         browser.navigate(base)
+        chrome.needs_page_image(browser)
         page = wait_until(lambda: browser.execute_script(f'''
           const image = document.querySelector("embedpdf-container")?.shadowRoot?.querySelector("img");
           const rect = image?.getBoundingClientRect();
@@ -1244,6 +1246,7 @@ def test_source_beside_comment_opens_the_selected_words_in_the_editor(tmp_path: 
         browser = chrome.launch()
         browser.set_window_rect(x=0, y=0, width=1400, height=900)
         browser.navigate(base)
+        chrome.needs_page_image(browser)
         page = wait_until(lambda: browser.execute_script(f'''
           const image = document.querySelector("embedpdf-container")?.shadowRoot?.querySelector("img");
           const rect = image?.getBoundingClientRect();
@@ -1397,6 +1400,7 @@ def test_the_selection_bubble_goes_with_the_selection(tmp_path: Path) -> None:
         browser = chrome.launch()
         browser.set_window_rect(x=0, y=0, width=1200, height=800)
         browser.navigate(base)
+        chrome.needs_page_image(browser)
         script = browser.execute_script
         wait_until(lambda: script(f"{PREVIEW_PAGE} return rect !== undefined && rect.width > 100;"))
         select_words = lambda: select_in_preview(browser, words, page_width)

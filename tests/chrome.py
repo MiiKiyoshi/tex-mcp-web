@@ -317,6 +317,22 @@ class Safari(Chrome):
             self.dark(scheme == "dark")
 
 
+# Whether the browser's canvas turns into an image. On some of the macOS machines CI runs on,
+# Safari's canvas gives none (toBlob gives null, even for a few pixels), so no page of any PDF
+# is drawn there, though the same Safari draws them on a Mac with a screen.
+_CANVAS_GIVES_AN_IMAGE = """const done = arguments[arguments.length - 1];
+const canvas = document.createElement("canvas");
+canvas.width = canvas.height = 8;
+canvas.getContext("2d").fillRect(0, 0, 8, 8);
+try { canvas.toBlob((blob) => done(blob !== null)); } catch (error) { done(false); }"""
+
+
+def needs_page_image(browser: Chrome) -> None:
+    """Skip a test that needs the PDF's pages drawn, on a machine whose Safari cannot draw them."""
+    if KIND == "safari" and not browser.driver.execute_async_script(_CANVAS_GIVES_AN_IMAGE):
+        pytest.skip("Safari: this machine's canvas gives no image, so no PDF page is drawn")
+
+
 def launch(downloads: Path | None = None, touch: bool = False) -> Chrome:
     return (Safari if KIND == "safari" else Chrome)(downloads, touch)
 
