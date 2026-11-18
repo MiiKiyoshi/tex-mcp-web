@@ -114,13 +114,30 @@ def _captions_only(float_match: re.Match) -> str:
     return "".join(kept)
 
 
+def _title_of_preamble(lines: list[str]) -> list[str]:
+    """*lines* with those before \\begin{document} made comment lines, all but the
+    \\title's: packages and definitions are no prose to translate."""
+    begin = next((i for i, line in enumerate(lines) if "\\begin{document}" in line), None)
+    if begin is None:
+        return lines
+    kept, depth = [], 0
+    for line in lines[:begin]:
+        if depth == 0 and not line.lstrip().startswith("\\title"):
+            kept.append("%" if line.strip() else line)
+            continue
+        depth += line.count("{") - line.count("}")
+        kept.append(line)
+    return kept + lines[begin:]
+
+
 def split_paragraphs(text: str, file: str) -> list[Paragraph]:
     """Blank-line separated paragraphs with % comments removed.
 
     Lines that are only a comment are dropped, so notes kept in comments are never
     translated. Of a figure or table only the caption is read: a drawing's labels and a
-    table's cells are not prose. A paragraph without at least three words of prose
-    (environment lines, \\label) is skipped.
+    table's cells are not prose. Of the preamble, the lines before \\begin{document}, only
+    the \\title is read. A paragraph without at least three words of prose (environment
+    lines, \\label) is skipped.
     """
     paragraphs: list[Paragraph] = []
     current: list[tuple[int, str]] = []
@@ -133,7 +150,7 @@ def split_paragraphs(text: str, file: str) -> list[Paragraph]:
             current.clear()
 
     uncommented = "\n".join(_COMMENT_LINE if raw.lstrip().startswith("%") else _INLINE_COMMENT.sub("", raw)
-                            for raw in text.split("\n"))
+                            for raw in _title_of_preamble(text.split("\n")))
     for number, raw in enumerate(_FLOAT.sub(_captions_only, uncommented).split("\n"), start=1):
         if raw == _COMMENT_LINE:
             continue

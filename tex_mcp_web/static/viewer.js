@@ -4900,6 +4900,10 @@ function scheduleTranslation(delay = 800) {
   translation.timer = setTimeout(() => loadTranslation().catch((error) => console.error(error)), delay);
 }
 
+// Codes of the languages whose lines break differently from English, by the name the
+// configuration gives a language.
+const TRANSLATION_LANGS = { korean: "ko", japanese: "ja", chinese: "zh" };
+
 async function loadTranslation() {
   if (!translating()) return;
   const chosen = $("#translation-file").value || (state.view !== "pdf" ? state.sourcePath : null);
@@ -4934,6 +4938,9 @@ async function loadTranslation() {
   $("#translation-tool").textContent = data.translator;
   $("#translation-tool").title = data.command;
   const body = $("#translation-body");
+  // The language's code lets the browser break its lines as that language does: Korean
+  // between words, not inside them.
+  body.lang = TRANSLATION_LANGS[data.language.toLowerCase()] ?? "";
   const sameFile = data.file === translation.file;
   const pageChanged = page !== translation.page;
   const keepScroll = body.scrollTop;

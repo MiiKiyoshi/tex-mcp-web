@@ -181,6 +181,19 @@ def test_a_program_that_is_gone_is_found_without_running_the_command(tmp_path: P
     assert translator.error == "llm-tool exited with 1"
 
 
+def test_of_the_preamble_only_the_title_is_translated():
+    """Packages and definitions before \\begin{document} are no prose: of them only the
+    \\title, over one line or several, is sent, numbered by its own lines."""
+    text = ("\\documentclass{article}\n\\usepackage[margin=2cm]{geometry}\n"
+            "\\newcommand{\\note}[1]{a note about the text: #1}\n\n"
+            "\\title{Keeping Tea Warm\n  in Four Kinds of Mug}\n\\author{A. Writer}\n\n"
+            "\\begin{document}\n\\maketitle\n\nTea left on a desk cools within minutes.\n\\end{document}\n")
+    paragraphs = split_paragraphs(text, "main.tex")
+    assert [(p.line_start, p.line_end) for p in paragraphs] == [(5, 6), (12, 13)]
+    assert paragraphs[0].text == "\\title{Keeping Tea Warm\n  in Four Kinds of Mug}"
+    assert "geometry" not in " ".join(p.text for p in paragraphs)
+
+
 def test_comment_line_inside_a_paragraph_does_not_split_it():
     paragraphs = split_paragraphs("Alpha beta gamma\n% a note\ndelta epsilon zeta.\n", "a.tex")
     assert [(p.line_start, p.line_end) for p in paragraphs] == [(1, 3)]

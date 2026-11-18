@@ -620,6 +620,7 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
   user-select: none;
 }
 .translation-text { flex: 1; min-width: 0; white-space: pre-wrap; }
+#translation-body:lang(ko) .translation-text { word-break: keep-all; overflow-wrap: anywhere; }
 .translation-para.pending { color: var(--fg-dim); font-style: italic; }
 .translation-para.on-page { border-left: 3px solid var(--warn); padding-left: 0.5rem; }
 .translation-para:not(.on-page) { padding-left: calc(0.5rem + 3px); }

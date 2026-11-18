@@ -6619,6 +6619,11 @@ def test_translation_numbers_its_source_lines_and_follows_the_editor(tmp_path: P
           const items = document.querySelectorAll(".translation-para");
           return items.length === 40 && !items[39].classList.contains("pending");
         """))
+        # Korean lines break between words, not inside them.
+        assert browser.execute_script("""
+          const body = document.querySelector("#translation-body");
+          return [body.lang, getComputedStyle(body.querySelector(".translation-text")).wordBreak];
+        """) == ["ko", "keep-all"]
 
         labels = browser.execute_script("""
           return [...document.querySelectorAll(".translation-line")].slice(0, 2).map((x) => x.textContent);
