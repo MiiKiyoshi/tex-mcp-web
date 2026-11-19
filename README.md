@@ -86,13 +86,6 @@ paragraph opens its lines in the source, and the paragraph you edit stays highli
 choose the program that translates, so you choose the model and the cost.
 [Translation](docs/reviewing.md#translation) describes the setup.
 
-## Fit the page limit
-
-The **Problems** tab shows where the text ends: the page, the column, and the lines left in
-that column. It also lists each paragraph whose last line is shorter than a quarter of the
-column. The agent receives the same list, so it can carry out
-`we are four lines over, pull up the short lines` and check the result.
-
 ## More
 
 - **Writing rules.** The agent reads your rules from a file before it edits, in every paper
