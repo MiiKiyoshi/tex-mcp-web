@@ -477,15 +477,17 @@ def test_a_folder_without_its_paper_says_what_brings_it(tmp_path: Path) -> None:
         said = lambda: browser.execute_script('return document.querySelector("#pdf-viewer")?.textContent ?? ""')
         wait_until(lambda: said() == "paper.tex is not in this folder. If the paper is on Overleaf, "
                                      "Connect Overleaf brings it here.")
-        # Connect Overleaf opens Settings at its head, where the link goes, in a short window too.
-        browser.set_window_rect(width=1100, height=400)
+        # Connect Overleaf opens Settings at its head, where the link goes, though the dialog is
+        # taller than its room and the focus is on Close at its foot.
+        dialog = lambda code: browser.execute_script(f'const d = document.querySelector("#settings-dialog"); {code}')
+        dialog('d.style.maxHeight = "220px";')
         browser.execute_script('document.querySelector("#overleaf-live-btn").click()')
-        wait_until(lambda: browser.execute_script('return document.querySelector("#settings-dialog").open'))
-        assert browser.execute_script(
-            'const d = document.querySelector("#settings-dialog");'
-            ' return d.scrollHeight > d.clientHeight && d.scrollTop === 0'
-            ' && document.querySelector("#overleaf-link").getBoundingClientRect().top > 0')
-        browser.execute_script('document.querySelector("#settings-dialog").close()')
+        wait_until(lambda: dialog("return d.open"))
+        assert dialog("return d.scrollHeight > d.clientHeight + 100")
+        wait_until(lambda: dialog("return d.scrollTop === 0"))
+        time.sleep(0.3)
+        assert dialog("return d.scrollTop") == 0
+        dialog('d.close(); d.style.maxHeight = "";')
         # Once the paper is written, Compile builds it.
         (tmp_path / "paper.tex").write_text(
             "\\documentclass{article}\n\\begin{document}\nTea.\n\\end{document}\n", encoding="utf-8")
