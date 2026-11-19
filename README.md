@@ -61,8 +61,9 @@ program when you set one, and the package index once a day for a newer release.
   <img alt="In a co-author's thread from Overleaf, the agent has misread the request and drafted a gushing reply. After a private reply corrects it, the agent fixes the sentence, the PDF shows the change, and the draft for Overleaf shrinks to one short line, which is sent with ss. The thread is then no longer marked unanswered." src="docs/images/overleaf-thread.webp">
 </picture>
 
-**Connect Overleaf** asks for the project's link and, once, your Overleaf sign-in cookie. Your
-co-authors' comments then appear on the page. Under each comment you talk with the agent in
+`do tex init` asks for the project's link, and **Connect Overleaf** on the page takes the same
+link. The page asks once for your Overleaf sign-in cookie. Your co-authors' comments then
+appear on the page. Under each comment you talk with the agent in
 private, and the agent drafts the reply. Only the reply you send appears on Overleaf.
 
 <picture>
