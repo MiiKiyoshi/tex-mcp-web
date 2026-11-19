@@ -1,9 +1,12 @@
 name: tests
 
+# The tests read neither the README nor the docs, so a change to those alone runs none.
 on:
   push:
     branches: [main]
+    paths-ignore: ["README.md", "docs/**"]
   pull_request:
+    paths-ignore: ["README.md", "docs/**"]
 
 jobs:
   tests:

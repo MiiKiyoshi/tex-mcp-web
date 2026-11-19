@@ -104,7 +104,7 @@ def wait_until(check, timeout: float = 30.0):
                 return last
         except Exception as error:
             last = error
-        time.sleep(0.2)
+        time.sleep(0.02)
     raise AssertionError(f"condition was not met: {last}")
 
 

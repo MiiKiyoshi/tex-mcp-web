@@ -349,7 +349,7 @@ async def test_a_session_overleaf_turns_away_stops_and_says_so(realtime) -> None
 
 async def test_a_dropped_connection_comes_back(realtime) -> None:
     fake, link = realtime
-    live = LivePresence(link, lambda: ("overleaf_session2", fake.cookie), lambda: None, retry_delays=(0.05,))
+    live = LivePresence(link, lambda: ("overleaf_session2", fake.cookie), lambda: None)
     await live.start()
     try:
         await wait_for(lambda: live.snapshot()["status"] == "live")

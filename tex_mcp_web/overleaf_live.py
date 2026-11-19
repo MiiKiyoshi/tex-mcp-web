@@ -139,9 +139,12 @@ class LivePresence:
     """One connection to the project's editor session, kept up until stopped, which changes
     no text unless a sync is attached."""
 
+    # Seconds before each try to connect again after a lost connection, the last for every
+    # try after it.
+    RETRY_DELAYS: tuple[float, ...] = (2, 5, 15, 30, 60)
+
     def __init__(self, link: str, cookie: Callable[[], tuple[str, str] | None], changed: Callable[[], Any], *,
-                 comments: Callable[[str, list], Any] = lambda name, args: None, sync: Any = None,
-                 retry_delays: tuple[float, ...] = (2, 5, 15, 30, 60)) -> None:
+                 comments: Callable[[str, list], Any] = lambda name, args: None, sync: Any = None) -> None:
         self.server, self.project = project_of(link)
         self.link = link
         self._cookie = cookie
@@ -153,7 +156,6 @@ class LivePresence:
         self._session_api: _Session | None = None
         self.comments_trouble = ""
         self.doc_type = ""
-        self._retry_delays = retry_delays
         self._task: asyncio.Task | None = None
         self.status = "off"
         self.message = ""
@@ -273,7 +275,7 @@ class LivePresence:
                 logger.info("Overleaf presence: %s", error)
                 message = f"Could not stay connected to Overleaf: {error}"
             self._users.clear()
-            delay = self._retry_delays[min(attempt, len(self._retry_delays) - 1)]
+            delay = self.RETRY_DELAYS[min(attempt, len(self.RETRY_DELAYS) - 1)]
             attempt += 1
             self._set("reconnecting", message)
             await asyncio.sleep(delay)
