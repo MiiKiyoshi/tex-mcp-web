@@ -87,10 +87,10 @@ replacement = '](https://github.com/MiiKiyoshi/tex-mcp-web/blob/main/\1)'
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-# The tests run side by side, one worker per core and at most eight, and the run ends with the
-# slowest ones and their times. A test still running after two minutes fails, with where each
-# thread stood.
-addopts = "-q -n auto --maxprocesses 8 --durations 15"
+# The tests run side by side, one worker per logical core and at most eight, and the run ends
+# with the slowest ones and their times. A test still running after two minutes fails, with
+# where each thread stood.
+addopts = "-q -n logical --maxprocesses 8 --durations 15"
 timeout = 120
 
 [tool.coverage.run]

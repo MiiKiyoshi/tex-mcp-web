@@ -5,6 +5,16 @@ const ANNOTATION_PREFIX = "tex-web:";
 const GOTO_ANNOTATION_ID = "tex-web-goto";
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => Array.from(document.querySelectorAll(selector));
+// The page's waits of a second or more, in milliseconds. Tests put shorter ones in
+// window.texMcpWaits before the page loads.
+const WAITS = {
+  reconnect: 2000,     // before trying again to reach a server that has gone
+  overleafGit: 4000,   // between reads of the folder's git state while comments wait on it
+  gitAfterEdit: 1000,  // before reading the folder's git state after a file changed here
+  calledWord: 2000,    // how long the word beside Call agent stays
+  translation: 3000,   // before asking again for paragraphs still being translated
+  ...window.texMcpWaits,
+};
 
 const state = {
   viewer: null,
@@ -1424,7 +1434,7 @@ function renderOverleafThreadSync() {
   // standing is read again every few seconds, which asks Overleaf nothing.
   clearInterval(state.overleafGitWatch);
   state.overleafGitWatch = why === gitWhy && gitWhy && !side.hidden
-    ? setInterval(() => { if (!document.hidden) readOverleafGitState().catch((error) => console.error(error)); }, 4000)
+    ? setInterval(() => { if (!document.hidden) readOverleafGitState().catch((error) => console.error(error)); }, WAITS.overleafGit)
     : null;
 }
 
@@ -1537,7 +1547,7 @@ function readOverleafGitStateSoon() {
   if (!state.overleafGit) return;
   clearTimeout(state.overleafGitStateTimer);
   state.overleafGitStateTimer = setTimeout(
-    () => readOverleafGitState().catch((error) => console.error(error)), 1000);
+    () => readOverleafGitState().catch((error) => console.error(error)), WAITS.gitAfterEdit);
 }
 
 // commit & push asks first: it lists the files whose edits go into one commit, under a
@@ -4974,7 +4984,7 @@ async function loadTranslation() {
   if ((!sameFile || pageChanged) && first) body.scrollTop = Math.max(0, first.offsetTop - 8);
   else if (sameFile) body.scrollTop = keepScroll;
   else body.scrollTop = 0;
-  if (data.status === "pending") translation.timer = setTimeout(() => scheduleTranslation(0), 3000);
+  if (data.status === "pending") translation.timer = setTimeout(() => scheduleTranslation(0), WAITS.translation);
   // A command that failed is tried again now and then, and the line goes once it works.
   else if (data.error) translation.timer = setTimeout(() => scheduleTranslation(0), 60000);
 }
@@ -5200,7 +5210,7 @@ async function callAgent() {
   } finally {
     // The row fits itself to the word, and again once the word is gone.
     fitCommentRow();
-    setTimeout(() => { word.textContent = ""; button.disabled = false; fitCommentRow(); }, 2000);
+    setTimeout(() => { word.textContent = ""; button.disabled = false; fitCommentRow(); }, WAITS.calledWord);
   }
 }
 
@@ -5333,7 +5343,7 @@ function connectWebSocket() {
   socket.onclose = () => {
     socketCloses += 1;
     showServerGone(socketCloses > 1);
-    setTimeout(connectWebSocket, 2000);
+    setTimeout(connectWebSocket, WAITS.reconnect);
   };
 }
 

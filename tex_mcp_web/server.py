@@ -921,6 +921,11 @@ class TexMcpWebServer:
     # Seconds of quiet after an edit made as a suggestion, someone's typing, before the
     # suggested edits are read.
     OVERLEAF_TRACKED_SETTLE = 3
+    # Seconds between looks at comments.json for changes another process made.
+    COMMENT_STORE_POLL = 1.0
+    # The page's own waits (WAITS in viewer.js), in milliseconds, given to it in place of its
+    # defaults: tests make them short.
+    PAGE_WAITS: dict[str, int] = {}
 
     async def _sync_overleaf_live(self, restart: bool = False) -> None:
         """Keep the Overleaf session open while a page is: the reviewer looking at
@@ -2149,6 +2154,8 @@ class TexMcpWebServer:
 
     async def _handle_root(self, request: web.Request) -> web.Response:
         page = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+        if self.PAGE_WAITS:
+            page = page.replace("</head>", f"<script>window.texMcpWaits = {json.dumps(self.PAGE_WAITS)};</script>\n</head>", 1)
         return web.Response(text=page.replace('"/static/', f'"/static/{self.static_tag()}/'),
                             content_type="text/html", charset="utf-8",
                             headers={"Cache-Control": "no-store"})
@@ -3530,7 +3537,7 @@ class TexMcpWebServer:
             if last is not None and mtime != last:
                 await self.broadcast({"type": "comments_changed"})
             last = mtime
-            await asyncio.sleep(1.0)
+            await asyncio.sleep(self.COMMENT_STORE_POLL)
 
     async def setup(self, port: int) -> None:
         """Keep the records out of git, bind the port, start watching, take up the PDF an

@@ -18,10 +18,11 @@ def no_plugin_monitor(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def no_overleaf_settling(monkeypatch):
-    """The server waits a few seconds after news from Overleaf for its writes to land, and
-    before it connects again, which a test's fake Overleaf does not need. A test of a wait
-    sets its own."""
+def short_server_waits(monkeypatch):
+    """The server waits a few seconds after news from Overleaf for its writes to land and
+    before it connects again, and looks for changes on disk every second. A test's fake
+    Overleaf needs no such waits, and a test sets its own where it tests one."""
+    from tex_mcp_web import overleaf_sync
     from tex_mcp_web.overleaf_live import LivePresence
     from tex_mcp_web.server import TexMcpWebServer
 
@@ -29,6 +30,12 @@ def no_overleaf_settling(monkeypatch):
     monkeypatch.setattr(TexMcpWebServer, "OVERLEAF_TRACKED_SETTLE", 0.01)
     # A connection the fake drops is made again at once.
     monkeypatch.setattr(LivePresence, "RETRY_DELAYS", (0.05,))
+    # What a test writes to the store or the folder itself is seen at once.
+    monkeypatch.setattr(TexMcpWebServer, "COMMENT_STORE_POLL", 0.05)
+    monkeypatch.setattr(overleaf_sync, "DISK_POLL", 0.05)
+    # The page's waits too, in every browser.
+    monkeypatch.setattr(TexMcpWebServer, "PAGE_WAITS", {
+        "reconnect": 100, "overleafGit": 200, "gitAfterEdit": 50, "calledWord": 500, "translation": 200})
 
 
 @pytest.fixture(autouse=True)
