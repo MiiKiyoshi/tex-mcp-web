@@ -68,6 +68,8 @@ jobs:
           while command -v chromedriver >/dev/null; do rm -f "$(command -v chromedriver)" || break; done
           unset CHROMEWEBDRIVER
           latexmk --version | head -2
+          # Where this system spends a browser test's time.
+          python -m tests.machine_times
           # A browser test that a loaded runner fails once is run again by itself.
           python -m pytest -rfs || python -m pytest -rfs --last-failed
 

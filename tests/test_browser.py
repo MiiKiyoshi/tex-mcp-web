@@ -2954,11 +2954,15 @@ def test_the_sort_list_orders_each_tab_and_its_search_and_the_keys_follow(tmp_pa
         sorted_by("oldest")
         wait_until(lambda: listed() == ["second", "third", "first"])
         # A search is ordered by the same list, and keeps its words while the order changes. In
-        # paper order it keeps the server's order, as the open view does.
+        # paper order it keeps the server's order, as the open view does. The view list reads
+        # "all" while words are in the box.
         script('const box = document.querySelector("#comment-search"); box.value = "request";'
                ' box.dispatchEvent(new Event("input"))')
-        wait_until(lambda: listed() == ["second", "third", "first"]
-                   and script('return document.querySelector("#comment-filter").value') == "open")
+        searched = lambda: (listed(), script('return document.querySelector("#comment-filter").value'))
+        try:
+            wait_until(lambda: searched() == (["second", "third", "first"], "all"))
+        except AssertionError:
+            raise AssertionError(f"the search shows {searched()}") from None
         sorted_by("latest")
         wait_until(lambda: listed() == ["first", "third", "second"])
         sorted_by("paper")
@@ -5751,6 +5755,18 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
     shared = SharedProjectServer(load_config(config_path))
     browser = None
     text = lambda selector: browser.execute_script(f'return document.querySelector("{selector}").textContent')
+
+    def draft(comment_id, *reply):
+        """Draft a reply on the thread as it stands. The server may be writing what it just
+        read from Overleaf to the same thread, and the draft is then made on what it wrote."""
+        def made():
+            try:
+                store.draft_overleaf(comment_id, store.get(comment_id).updated, *reply)
+            except ValueError:
+                return False
+            return True
+        wait_until(made, timeout=5)
+
     try:
         shared.ensure()
         base = f"http://127.0.0.1:{port}"
@@ -5845,7 +5861,7 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
 
         store = CommentStore(tmp_path / ".tex-mcp-web" / "comments.json")
         brought = store.list()[0]
-        store.draft_overleaf(brought.id, brought.updated, OverleafDraft("Drafted for Ann."), {})
+        draft(brought.id, OverleafDraft("Drafted for Ann."), {})
         wait_until(lambda: browser.execute_script(
             'const box = document.querySelector(".overleaf-reply-input"); return box ? box.value : ""')
             == "Drafted for Ann.", timeout=15)
@@ -5893,7 +5909,7 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
         # A reply Overleaf refuses brings its thread back to the drafts view, which it leaves at
         # the press, opened, with its words and the reason. The thread's last message on Overleaf
         # is the reviewer's, so the tab counts nothing.
-        store.draft_overleaf(brought.id, store.get(brought.id).updated, OverleafDraft("Refused once."), {})
+        draft(brought.id, OverleafDraft("Refused once."), {})
         show_view(browser, "drafts")
         wait_until(lambda: browser.execute_script(
             'return document.querySelector(".overleaf-reply-input")?.value || ""') == "Refused once.", timeout=15)
@@ -5929,8 +5945,8 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
         second = next(c for c in store.list() if "A second one." in c.thread[0].text)
         main = tmp_path / "main.tex"
         main.write_text(main.read_text().replace("Hello world.", "Hello world, reworded."))
-        store.draft_overleaf(brought.id, store.get(brought.id).updated, OverleafDraft("Both go, the first."), {})
-        store.draft_overleaf(second.id, second.updated, OverleafDraft("Both go, the second.", [DraftRange(
+        draft(brought.id, OverleafDraft("Both go, the first."), {})
+        draft(second.id, OverleafDraft("Both go, the second.", [DraftRange(
             "Hello world, reworded.", ResolvedSource("main.tex", 3, 3), capture_source_selector(main, 3, 3))]),
             {"main.tex": main.read_text()})
         wait_until(lambda: browser.execute_script(
@@ -5962,7 +5978,7 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
         click("#send-picked-btn")
         wait_until(lambda: fake.written[-1] == ("reply", "t2", "Both go, the second."), timeout=15)
         # Sent alone from its card, such a reply asks the same before it goes.
-        store.draft_overleaf(second.id, store.get(second.id).updated, OverleafDraft("Once more.", [DraftRange(
+        draft(second.id, OverleafDraft("Once more.", [DraftRange(
             "Hello world, reworded.", ResolvedSource("main.tex", 3, 3), capture_source_selector(main, 3, 3))]),
             {"main.tex": main.read_text()})
         wait_until(lambda: browser.execute_script(

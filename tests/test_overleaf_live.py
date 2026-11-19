@@ -902,6 +902,8 @@ async def test_a_reply_someone_else_wrote_in_the_same_moment_is_not_lost(review)
     read = fake.ranges_read
     await fake.push(event("new-comment", "t1", {}))
     await wait_for(lambda: fake.ranges_read >= read + 1)
+    # The reading names the writer of ours once it has matched it with Overleaf's.
+    await wait_for(lambda: all(name for name, _ in texts(server.comments.get(comment.id))[1:]))
     assert sorted(texts(server.comments.get(comment.id))[1:]) == [("Bo", "Theirs."), ("Me", "Mine.")]
     await page.close()
 

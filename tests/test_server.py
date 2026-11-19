@@ -1416,6 +1416,9 @@ async def test_setup_info_reports_paths_without_connecting(tmp_path, monkeypatch
         return json.loads((await mcp.call_tool("setup_info", {}))[0].text)
 
     files = sorted(tmp_path.rglob("*"))
+    # A server an earlier test stopped may still be ending its thread in this process.
+    servers = lambda: {thread for thread in threading.enumerate() if thread.name == "tex-mcp-web"}
+    before = servers()
     try:
         told = await setup_info()
         assert told.pop("guidelines")["entries"] is None
@@ -1429,7 +1432,7 @@ async def test_setup_info_reports_paths_without_connecting(tmp_path, monkeypatch
         }
         # A report only: no server, no binding, no file.
         assert binding.bound_config_path() is None
-        assert not any(thread.name == "tex-mcp-web" for thread in threading.enumerate())
+        assert servers() <= before
         assert sorted(tmp_path.rglob("*")) == files
         binding.require_shared()
         told = await setup_info()
