@@ -3,6 +3,21 @@ import pytest
 from tex_mcp_web import config, plugin_monitor, update
 
 
+def pytest_addoption(parser):
+    parser.addoption("--part", default="", help="run one part of the tests, as 2/3 for the second of three")
+
+
+def pytest_collection_modifyitems(config, items):
+    """With --part i/n, keep every nth test from the ith on. The CI jobs of a slow system each
+    run one part, side by side."""
+    if not config.getoption("--part"):
+        return
+    part, parts = (int(number) for number in config.getoption("--part").split("/"))
+    kept = items[part - 1::parts]
+    config.hook.pytest_deselected(items=[item for item in items if item not in kept])
+    items[:] = kept
+
+
 @pytest.fixture(autouse=True)
 def no_user_translation(tmp_path, monkeypatch):
     """No test runs the translation command in the user's own config file, whatever that

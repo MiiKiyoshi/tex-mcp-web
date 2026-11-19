@@ -45,8 +45,15 @@ jobs:
     timeout-minutes: 40
     strategy:
       fail-fast: false
+      # A system's tests run in parts, each on a runner of its own: the browser tests take
+      # these runners several times as long as Linux's.
       matrix:
-        os: [windows-latest, macos-latest]
+        include:
+          - {os: windows-latest, part: "1/3"}
+          - {os: windows-latest, part: "2/3"}
+          - {os: windows-latest, part: "3/3"}
+          - {os: macos-latest, part: "1/2"}
+          - {os: macos-latest, part: "2/2"}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -71,7 +78,7 @@ jobs:
           # Where this system spends a browser test's time.
           python -m tests.machine_times
           # A browser test that a loaded runner fails once is run again by itself.
-          python -m pytest -rfs || python -m pytest -rfs --last-failed
+          python -m pytest -rfs --part ${{ matrix.part }} || python -m pytest -rfs --last-failed
 
   # Mac users read the page in Safari, whose engine is not Chrome's: the browser tests run
   # in it too, through its own driver. It has no window without a screen and takes one
@@ -79,6 +86,10 @@ jobs:
   safari:
     runs-on: macos-latest
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        part: ["1/3", "2/3", "3/3"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -100,5 +111,5 @@ jobs:
         env:
           TEX_MCP_BROWSER_KIND: safari
         run: |
-          python -m pytest -n 0 -rfs tests/test_browser.py \
+          python -m pytest -n 0 -rfs --part ${{ matrix.part }} tests/test_browser.py \
             || python -m pytest -n 0 -rfs --last-failed tests/test_browser.py
