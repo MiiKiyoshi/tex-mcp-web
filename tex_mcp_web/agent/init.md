@@ -138,39 +138,40 @@ It needs no git and no download from Overleaf by hand.
    The command takes only a link on overleaf.com. For another Overleaf server the user
    writes the link into `.tex-mcp-web.yaml` themselves, since their cookie goes to it.
 
-4. Verify the connection as "Verify" describes, and give the user the page's address. The
-   page reads Overleaf only while a browser has it open, so ask the user to keep it open.
+4. Verify the connection as "Verify" describes. In a folder whose paper is still on
+   Overleaf, the main file is not there yet, and that is expected. Then finish the setup as
+   "Tell the user" describes, so that nothing more is needed from you: the page brings the
+   paper in and builds it.
 
-5. If `overleaf_cookie` is null, the user gives the cookie to the page, never to you: do
-   not ask for it in chat and do not read the file that keeps it. Tell them these steps and
-   nothing else in that message:
+5. Tell the user what to do on the page, as numbered steps and nothing else in that
+   message. The page reads Overleaf only while a browser has it open. If `overleaf_cookie`
+   is null, the user gives the cookie to the page, never to you: do not ask for it in chat
+   and do not read the file that keeps it.
 
        1. Open <the page's address> and press Connect Overleaf (in the ⋯ menu on a phone).
        2. In another tab, sign in to Overleaf and open the browser's developer tools:
           Application (Chrome, Edge) or Storage (Safari, Firefox), then Cookies, then
           overleaf.com. "Where to find the cookie" on the page links each browser's guide.
        3. Copy the value of overleaf_session2, paste it into the page, and press Save.
-       4. Tell me when it is saved.
+       4. Press Get in the top bar. The paper comes from Overleaf and is built.
 
-   The cookie signs in as them, is kept in their own config folder for every paper, and is
-   asked for once. When the user says it is saved, call `setup_info()` and check that
-   `overleaf_cookie` is no longer null.
+   With a cookie already saved, the steps are the first, as "Open <the page's address>",
+   and the last. With Live, the last step is not needed: the paper comes on its own. The
+   cookie signs in as the user, is kept in their own config folder for every paper, and is
+   asked for once.
 
-6. Bring the files in once the user has the page open. With By hand, call
-   `overleaf(action="get")`; with Live, they arrive on their own. If the call says no page
-   is in the project, the page is not open in a browser: ask the user to open it, and call
-   again when they say it is. Files the folder and Overleaf both have but differ in
-   wait for the user to choose on the page: say so, and do not choose for them.
+6. After the steps, say in one or two lines what follows: their co-authors' comments appear
+   on the page, and how files move. With By hand, the top bar shows Get and Send with a
+   count when there is something to move, and Send asks first. With Live, edits go both ways
+   while the page is open. In a folder that is a git clone of the project, the buttons are
+   git pull and commit & push instead; mention git only then. Use the user's words and no
+   tool names, and leave out what the user chose or did not ask about, such as the port and
+   the page token.
 
-7. Check that `main` in the config names a file that is there, set it with
-   `tex-mcp-web config main <file>` if it does not, and `compile()`.
-
-Then tell the user, in their words and without tool names, three things: the page's address,
-that their co-authors' comments appear there, and how files move. With By hand, the top bar
-shows Get and Send with a count when there is something to move. With Live, edits go both
-ways while the page is open. In a folder that is a git clone of the project, the buttons are
-git pull and commit & push instead; mention git only then. Leave out what the user chose or
-did not ask about, such as the port, the page token and a cookie that was already saved.
+When the user asks you to bring Overleaf's edits in, call `overleaf(action="get")`. If it
+says no page is in the project, the page is not open in a browser. Files the folder and
+Overleaf both have but differ in wait for the user to choose on the page: say so, and do
+not choose for them.
 
 ## 4. Verify
 

@@ -36,15 +36,15 @@ answers from that work, and nothing is copied into another tool.
 
    The agent says what it will install and installs once you agree.
 
-2. Say `do tex init` in the session where you work. The agent finds the main `.tex` file,
-   proposes the settings, and saves them once you agree. If the paper is on Overleaf, give
-   the agent the project's link, and it brings the files into a folder.
+2. Say `do tex init` in the session where you work. The agent finds the paper in the folder
+   and saves the settings once you agree. If the paper is on Overleaf, give the agent the
+   project's link, and the page brings the files in.
 
 3. Open the address the agent gives, comment on the PDF, and press **Call agent**.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/setup-dark.webp">
-  <img alt="In a terminal, a coding agent that has analyzed temperature logs is asked to write the findings up as a short paper, and then told do tex init. It lists the settings it proposes, asks whether other people log in to the machine, and saves the settings. The review page opens with the compiled paper." src="docs/images/setup.webp">
+  <img alt="In a terminal, a coding agent that has analyzed temperature logs is told do tex init. It finds no paper in the folder and asks where the paper is, and On Overleaf is picked from its three options. It asks whether other people log in to the machine, takes the project's link, and asks how files sync, where By hand is picked. It saves the settings and lists four steps for the page. On the review page, which says the paper is not in the folder yet, the Overleaf cookie is saved in Settings and Get is pressed. The paper comes from Overleaf and the page shows its compiled PDF." src="docs/images/setup.webp">
 </picture>
 
 You need Python 3.10 or newer and a LaTeX installation with `latexmk`. The agent checks both

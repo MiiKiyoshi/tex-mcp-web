@@ -1290,6 +1290,9 @@ function showSettings(status = "") {
   $("#overleaf-status").textContent = status;
   if (!$("#settings-dialog").open) {
     $("#settings-dialog").showModal();
+    // The focus goes to Close at the foot, which scrolls a dialog taller than the window down
+    // to it. It opens at its head, where Overleaf is, unless it opens to say something there.
+    if (!status) $("#settings-dialog").scrollTop = 0;
     // Opening reads Overleaf's branch afresh, so what the dialog says is what is there now.
     loadOverleafStanding().catch((error) => console.error(error));
   }
