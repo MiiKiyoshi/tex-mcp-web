@@ -1104,6 +1104,31 @@ def test_a_process_that_is_gone_has_no_session_above_it() -> None:
     assert plugin_monitor.session_of(ended.pid) is None
 
 
+def test_a_parent_pid_taken_again_by_a_younger_process_ends_the_walk(monkeypatch) -> None:
+    """Windows names a process's creator by pid after the creator has exited, and a younger
+    process, even one below, can have that pid by then. Such a parent, here this test's own
+    process above its parent, is no parent, or when both started within one tick of the clock,
+    leads to a pid the walk has passed. Either way the walk ends instead of going round."""
+    import os
+
+    import psutil
+
+    from tex_mcp_web import plugin_monitor
+
+    me, parent = os.getpid(), os.getppid()
+    real_ppid = psutil.Process.ppid
+    asked = []
+
+    def ppid(process):
+        asked.append(process.pid)
+        assert len(asked) < 20, "the walk goes round"
+        return me if process.pid == parent else real_ppid(process)
+
+    monkeypatch.setattr(psutil.Process, "ppid", ppid)
+    plugin_monitor.session_of(me)
+    assert asked == [me, parent]
+
+
 def test_the_monitor_looks_for_its_session_from_the_process_it_is_told(monkeypatch) -> None:
     """Where a monitor's own parents do not lead to Claude Code, its launcher names a process
     that does, and with no session above that one the monitor ends at once."""

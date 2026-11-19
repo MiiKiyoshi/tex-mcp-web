@@ -22,10 +22,14 @@ DIRECTORY = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "
 
 
 def _parent_and_name(pid: int) -> tuple[int, str] | None:
+    """*pid*'s parent, 0 when it has none, and its name. Windows keeps the pid of a process's
+    creator after the creator exits, and a younger process can take that pid, even one below:
+    a parent is taken only when it started before its child."""
     try:
         process = psutil.Process(pid)
+        parent = process.parent()
         # A program's name without the .exe Windows gives it.
-        return process.ppid(), process.name().casefold().removesuffix(".exe")
+        return parent.pid if parent else 0, process.name().casefold().removesuffix(".exe")
     except psutil.Error:
         return None
 
@@ -38,8 +42,12 @@ def claude_pid() -> int | None:
 
 
 def session_of(pid: int) -> int | None:
-    """The nearest process at or above *pid* named claude, unless a codex comes first."""
-    while pid > 1:
+    """The nearest process at or above *pid* named claude, unless a codex comes first. Two
+    processes started within one tick of the clock look equally old, so a taken pid can still
+    lead back down, and the walk ends at a pid it has passed."""
+    seen = set()
+    while pid > 1 and pid not in seen:
+        seen.add(pid)
         found = _parent_and_name(pid)
         if found is None:
             return None
