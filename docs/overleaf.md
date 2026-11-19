@@ -75,6 +75,16 @@ every port of the address, so don't open other accounts' pages in a browser on t
 
 ## Replying
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="images/overleaf-thread-dark.webp">
+  <img alt="In a co-author's thread from Overleaf, the agent has misread the request and drafted a gushing reply. After a private reply corrects it, the agent fixes the sentence, the PDF shows the change, and the draft for Overleaf shrinks to one short line, which is sent with ss. The thread is then no longer marked unanswered." src="images/overleaf-thread.webp">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="images/new-thread-dark.webp">
+  <img alt="With the leaf button pressed, the words room temperature are selected in the source with v and gc, and a rough note in the dialog's lower box tells the agent what to ask the co-author. The note appears in the drafts view, and the agent drafts a polite question. Once the question is sent with ss, it leaves the drafts view, and in the open view the thread shows the question marked public and the note marked private." src="images/new-thread.webp">
+</picture>
+
 - **Reply privately** on a thread is where you discuss the draft with the agent, which answers
   in the thread and revises the public reply as you go. This conversation never reaches
   Overleaf. It appears in time order among the messages from Overleaf and the replies you
@@ -133,6 +143,11 @@ push in a git clone or **Send** elsewhere. If those words are gone from the file
 page says the lines changed after the draft was written, so ask the agent to draft it again.
 
 ## Suggested edits
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="images/suggested-edits-dark.webp">
+  <img alt="A co-author's tracked changes from Overleaf appear in the leaf tab's open view, and the tab shows how many there are. They are a replaced word, an insertion and a deletion, each shown in the source when opened with Space. Two are accepted with aa and one is rejected with dd, Get brings the rejection into the file, and the list is empty, with no count left on the tab." src="images/suggested-edits.webp">
+</picture>
 
 An edit made on Overleaf with track changes on is a suggested edit until someone accepts or
 rejects it. Overleaf's text includes the words of a suggested insertion but not those of a

@@ -101,6 +101,11 @@ included images are ignored.
 
 ### Searching
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="images/search-dark.webp">
+  <img alt="The leaf tab lists threads from Overleaf by three co-authors. Clicking the search box shows the search terms below it. After from: is typed, the names of the people in the tab appear, and Ann Lee is chosen. Adding file:2_main, then after: and before: with a date and time, narrows the list to the one thread she left on 2_main.tex on the morning of November 13. The thread is opened, a private reply asks the agent about it, and the bell calls the agent." src="images/search.webp">
+</picture>
+
 The search box above the comment list finds comments in the current tab, in any status. Press
 `/` to go to it. It looks in the messages and their writers' names, the text a comment is on,
 its file name, proposed changes and drafts for Overleaf, and ignores letter case. While the
@@ -147,6 +152,11 @@ Overleaf**. On a narrow panel, labels are dropped and the less used buttons move
 menu, while **Resolve**, **Archive** and **Send to Overleaf** always stay in the row.
 
 ## Comment keys
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="images/keyboard-dark.webp">
+  <img alt="Everything done without the mouse: gd opens the introduction's file, v and gc comment on a sentence, Ctrl+Alt+Enter calls the agent, K jumps to its comment, Space and aa apply its proposal, K returns to the text, :make compiles, gss finds the sentence in the PDF, Ctrl+O goes back to main.tex, and R resolves the comment." src="images/keyboard.webp">
+</picture>
 
 You can work through the comment list with the keyboard, much as you move through the cells of
 a notebook. These shortcuts act on the current comment, marked with a ring, when the Comments
@@ -296,3 +306,33 @@ A paper's **Call agent** presses go to one agent session. A Claude Code session 
 while another one is listening leaves the presses to it, and `do tex listen` in any session
 moves them to that session. When the session serving the page ends, the page stops too, and
 the next session that uses a tex tool serves it again and listens.
+
+## Opening the page from another device
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="images/mobile-dark.png">
+  <img alt="The review page at tablet width and at phone width, both on the same comment: the PDF on top, zoomed to the commented sentence, and below it the thread with the agent's proposal." src="images/mobile.png">
+</picture>
+
+The page is served from the machine where the agent runs, at `http://localhost:8765` or the
+port `do tex init` chose, and works by touch on a tablet or phone. If the agent runs on a
+server you reach over SSH, forward that port by adding the server once to `~/.ssh/config` (on
+Windows, `C:\Users\<you>\.ssh\config`):
+
+```
+Host paper-server
+    HostName server.example.org
+    User you
+    LocalForward 8765 127.0.0.1:8765
+```
+
+While `ssh paper-server` is connected, `http://localhost:8765` opens the page in your
+computer's browser. Add a `LocalForward` line for each port you use.
+
+If the server is on a network you cannot reach from outside, such as at home or in an office,
+install [Tailscale](https://tailscale.com/docs/how-to/connect-to-devices) on the server and on
+your computer, and put the name Tailscale gives the server in `HostName`. On a phone, Termux on
+Android reads the same `~/.ssh/config`, and in Termius on iOS you add the forward as a Local
+rule on the Port Forwarding screen. If the page token is on, open the link that
+`tex-mcp-web link` prints on the server once in each browser. After that, the plain address
+works.
