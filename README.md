@@ -88,6 +88,9 @@ choose the program that translates, so you choose the model and the cost.
 
 ## More
 
+- **Page limit.** The agent sees where the text ends and how many lines are left, so it can
+  shorten the paper to fit and check the result. [Problems](docs/reviewing.md#problems)
+  describes the list.
 - **Writing rules.** The agent reads your rules from a file before it edits, in every paper
   that names the file. [Configuration](docs/configuration.md) describes `guideline` and
   `references`.
