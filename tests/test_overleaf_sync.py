@@ -981,6 +981,10 @@ async def test_the_page_connects_a_project_and_turns_each_switch_in_the_config(p
         assert (await client.post("/overleaf/connect", json={"sync": True})).status == 400
         assert (await client.post("/overleaf/connect",
                                   json={"project": f"https://evil.example/project/{PROJECT_ID}"})).status == 400
+        assert _overleaf_link(f"https://ko.overleaf.com/project/{PROJECT_ID}") == \
+            f"https://www.overleaf.com/project/{PROJECT_ID}"
+        with pytest.raises(ValueError):
+            _overleaf_link(f"https://notoverleaf.com/project/{PROJECT_ID}")
         assert _overleaf_link(f"https://overleaf.com/project/{PROJECT_ID}?a=1") == \
             f"https://www.overleaf.com/project/{PROJECT_ID}"
 

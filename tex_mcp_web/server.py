@@ -426,7 +426,9 @@ def load_synctex_for_main(main_file: Path) -> SyncTeXData | None:
 
 
 
-_OVERLEAF_HOSTS = ("www.overleaf.com", "overleaf.com")
+def _on_overleaf(host: str | None) -> bool:
+    """overleaf.com or one of its own names, such as the ko. and ja. the site serves by language."""
+    return host == "overleaf.com" or bool(host) and host.endswith(".overleaf.com")
 
 
 def _overleaf_link(raw: Any) -> str:
@@ -436,10 +438,10 @@ def _overleaf_link(raw: Any) -> str:
 
     server, project = overleaf.project_of(str(raw))
     host = urlsplit(server).hostname
-    if host not in _OVERLEAF_HOSTS and not server.startswith("http://"):
+    if not _on_overleaf(host) and not server.startswith("http://"):
         raise ValueError("use a project link on overleaf.com; for another server, set the link in "
                          ".tex-mcp-web.yaml")
-    if host in _OVERLEAF_HOSTS:
+    if _on_overleaf(host):
         server = "https://www.overleaf.com"
     return f"{server}/project/{project}"
 
