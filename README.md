@@ -44,7 +44,7 @@ answers from that work, and nothing is copied into another tool.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/setup-dark.webp">
-  <img alt="In a terminal, a coding agent that has analyzed temperature logs is told do tex init. It finds no paper in the folder and asks where the paper is, and On Overleaf is picked from its three options. It asks whether other people log in to the machine, takes the project's link, and asks how files sync, where By hand is picked. It saves the settings and lists four steps for the page. On the review page, which says the paper is not in the folder yet, the Overleaf cookie is saved in Settings and Get is pressed. The paper comes from Overleaf and the page shows its compiled PDF." src="docs/images/setup.webp">
+  <img alt="In a terminal, a coding agent that has analyzed temperature logs is told do tex init. It finds no paper in the folder and asks where the paper is, and On Overleaf is picked from its three options. It asks whether other people log in to the machine, takes the project's link, asks where the paper's files go, and asks how files sync, where By hand is picked. It saves the settings and lists four steps for the page. On the review page, which says the paper is not in the folder yet, the Overleaf cookie is saved in Settings and Get is pressed. The paper comes from Overleaf and the page shows its compiled PDF." src="docs/images/setup.webp">
 </picture>
 
 You need Python 3.10 or newer and a LaTeX installation with `latexmk`. The agent checks both

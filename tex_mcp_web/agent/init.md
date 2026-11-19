@@ -61,8 +61,8 @@ its connection has been verified.
 
 Decide what you can yourself, and show the user only what is theirs to decide, in their
 language. When your client has a tool that lets the user pick among options, ask every
-choice with it, the default first: where the paper is, page token on or off, By hand or Live,
-which guideline. Put all the choices that are known at once into one call. What the user
+choice with it, the default first: where the paper is, where its files go, page token on or
+off, By hand or Live, which guideline. Put all the choices that are known at once into one call. What the user
 types, such as a project's link or a folder's path, is asked in plain chat and never as an
 option to fill in. Without such a tool, show the choices as briefly as this:
 
@@ -123,10 +123,12 @@ It needs no git and no download from Overleaf by hand.
    By hand is the default. Choose Live only when the user picks it in answer to this
    question.
 
-2. Choose the paper's folder. A folder that already holds the paper stays the paper's
-   folder. Otherwise the paper gets a folder of its own, so that its files do not mix with
-   code or data: propose `paper` under the startup directory, and use the startup directory
-   itself only when it is empty.
+2. Ask where the paper's files go, as a choice, unless the folder already holds the paper,
+   which then stays the paper's folder. The files are the user's, so the user names the
+   place. Offer `paper` under the startup directory first, with its full path, then the
+   startup directory itself when it is empty, then another folder, whose path you ask for
+   in plain chat. The paper gets a folder of its own, so that its files do not mix with
+   code or data. A folder that has files in it is used only when the user names it.
 
 3. Write the settings. Without a paper in the folder, run init as "Write" describes, with
    `config dir <folder>` for the paper's folder, and leave `main` as init wrote it: the page
