@@ -60,7 +60,11 @@ its connection has been verified.
 ## 2. Confirm
 
 Decide what you can yourself, and show the user only what is theirs to decide, in their
-language and as briefly as this:
+language. When your client has a tool that lets the user pick among options, ask every
+choice with it, the default first: where the paper is, page token on or off, By hand or Live,
+which guideline. Put all the choices that are known at once into one call. What the user
+types, such as a project's link or a folder's path, is asked in plain chat and never as an
+option to fill in. Without such a tool, show the choices as briefly as this:
 
     paper      : paper2/main.tex
     page       : http://localhost:8765
@@ -106,8 +110,10 @@ without changing the parent. Do not use it to replace an existing local config.
 Follow this section when the paper is on Overleaf, with or without its files in the folder.
 It needs no git and no download from Overleaf by hand.
 
-1. Ask for the project's link in plain words, as its own question: the address the browser
-   shows on Overleaf (`https://www.overleaf.com/project/…`). Then ask how the files sync:
+1. Ask for the project's link in plain chat, in a message that asks nothing else and
+   reports nothing else: the address the browser shows on Overleaf
+   (`https://www.overleaf.com/project/…`). When the link has come, ask how the files sync,
+   as a choice:
 
        By hand : nothing moves until you press Get (Overleaf to here) or Send (here to
                  Overleaf). Send asks first.
