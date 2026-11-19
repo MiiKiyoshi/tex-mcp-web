@@ -17,24 +17,28 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      - name: LaTeX
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends latexmk texlive-latex-base
+      # TeX Live from its own action, which the runners keep between runs: apt took up to twelve
+      # minutes to install it.
+      - uses: TeX-Live/setup-texlive-action@v4
+        with:
+          packages: |
+            scheme-basic
+            latexmk
+            synctex
       - name: Python packages
         run: pip install -e ".[dev]"
       - name: Tests
         run: |
           google-chrome --version
           # A browser test that a loaded runner fails once is run again by itself.
-          python -m pytest -o addopts="" -q || python -m pytest -o addopts="" -q --last-failed
+          python -m pytest || python -m pytest --last-failed
 
   # The page's users are on Windows and macOS too: every test runs there as well, the browser's
   # in Chrome, with TeX Live for the papers they build.
   other-systems:
     runs-on: ${{ matrix.os }}
-    # The tests take about ten minutes. One that waits for ever is stopped, and says where it
-    # stood after five minutes.
+    # A test that waits for ever fails after two minutes (pyproject.toml), so the job ends well
+    # inside this.
     timeout-minutes: 40
     strategy:
       fail-fast: false
@@ -62,8 +66,7 @@ jobs:
           unset CHROMEWEBDRIVER
           latexmk --version | head -2
           # A browser test that a loaded runner fails once is run again by itself.
-          python -m pytest -o addopts="" -o faulthandler_timeout=300 -q -rfs \
-            || python -m pytest -o addopts="" -o faulthandler_timeout=300 -q -rfs --last-failed
+          python -m pytest -rfs || python -m pytest -rfs --last-failed
 
   # Mac users read the page in Safari, whose engine is not Chrome's: the browser tests run
   # in it too, through its own driver. It has no window without a screen and takes one
@@ -92,5 +95,5 @@ jobs:
         env:
           TEX_MCP_BROWSER_KIND: safari
         run: |
-          python -m pytest -o addopts="" -o faulthandler_timeout=300 -q -rfs tests/test_browser.py \
-            || python -m pytest -o addopts="" -o faulthandler_timeout=300 -q -rfs --last-failed tests/test_browser.py
+          python -m pytest -n 0 -rfs tests/test_browser.py \
+            || python -m pytest -n 0 -rfs --last-failed tests/test_browser.py
