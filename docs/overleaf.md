@@ -6,14 +6,30 @@ paper's files stay in sync with the project in one of three ways.
 
 ## Connecting
 
-Press **Connect Overleaf** in the top bar, or open **Settings**, and enter the project's link
-(`https://www.overleaf.com/project/…`). The page saves it in `.tex-mcp-web.yaml` as
-`overleaf:`, and **Disconnect** in Settings removes it. Settings accepts only links on
-overleaf.com, so the link to a project on another Overleaf server must be written into the
-file by hand.
+`do tex init` asks whether the paper is on Overleaf. Give the agent the project's link
+(`https://www.overleaf.com/project/…`) and choose how the files sync, and the agent saves
+both. A folder without the paper gets its files from Overleaf, so nothing is downloaded by
+hand.
+
+On the page, **Connect Overleaf** in the top bar and **Settings** take the same link. The
+page saves it in `.tex-mcp-web.yaml` as `overleaf:`, and **Disconnect** in Settings removes
+it. Both accept only links on overleaf.com, so the link to a project on another Overleaf
+server must be written into the file by hand.
 
 The page reads Overleaf with your session cookie, `overleaf_session2`, which you copy once
-from the browser's developer tools, as **Where to find the cookie** in Settings shows. It is
+from the browser's developer tools and paste into the page, not into the chat with the agent.
+
+1. Sign in to Overleaf in your browser.
+2. Open the developer tools and go to the cookies of overleaf.com, as your browser's own
+   guide shows: [Chrome](https://developer.chrome.com/docs/devtools/application/cookies),
+   [Edge](https://learn.microsoft.com/en-us/microsoft-edge/devtools/storage/cookies) or
+   [Firefox](https://firefox-source-docs.mozilla.org/devtools-user/storage_inspector/cookies/index.html).
+   In Safari, [turn on Web Inspector](https://webkit.org/web-inspector/enabling-web-inspector/)
+   first, then open its Storage tab.
+3. Copy the value of `overleaf_session2`, paste it under **Connect Overleaf** or in
+   **Settings**, and press **Save**.
+
+The cookie is
 saved in `~/.config/tex-mcp-web/overleaf-cookie`, which only you can read, and is used for
 every paper. The environment variable `TEX_MCP_WEB_OVERLEAF_COOKIE` can supply it instead and
 takes precedence.

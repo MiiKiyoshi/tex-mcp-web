@@ -37,7 +37,8 @@ answers from that work, and nothing is copied into another tool.
    The agent says what it will install and installs once you agree.
 
 2. Say `do tex init` in the session where you work. The agent finds the main `.tex` file,
-   proposes the settings, and saves them once you agree.
+   proposes the settings, and saves them once you agree. If the paper is on Overleaf, give
+   the agent the project's link, and it brings the files into a folder.
 
 3. Open the address the agent gives, comment on the PDF, and press **Call agent**.
 

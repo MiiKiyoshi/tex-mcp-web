@@ -8,7 +8,8 @@ existing binding may differ. A successful binding is retained until the MCP proc
 restarted.
 
 Resolve `dir` relative to the config's directory, and `main` relative to `dir`, or to the
-config's directory when `dir` is unset. Init creates the config, not the paper. Confirm only
+config's directory when `dir` is unset. Init creates the config, not the paper; a paper that
+is on Overleaf is brought in as "Start from Overleaf" describes. Confirm only
 choices the user has not already authorized. When the user explicitly asks you to set up
 another session, use that session's intended startup directory and report separately whether
 its connection has been verified.
@@ -35,7 +36,11 @@ its connection has been verified.
   (`/mcp` in Claude Code) or the agent starts again.
 - Main file: run `grep -l '\\documentclass' *.tex` in the paper's folder. If one file
   matches, propose it, and if several match, ask which one. If nothing matches in the startup
-  directory, ask where the paper is, and use that folder as `dir`.
+  directory, ask where the paper is: in a folder on this machine, which becomes `dir`, on
+  Overleaf, which "Start from Overleaf" covers, or not written yet. A paper not written yet
+  is written first, in a folder of its own, when the user asks for it; init follows it.
+- Overleaf: `setup_info()` gives `overleaf_cookie`, which is where the user's Overleaf
+  cookie comes from, or null when none is saved. It never gives the cookie.
 - Port: the first free port from 8765 upward (check with `ss -ltn`, with
   `lsof -iTCP -sTCP:LISTEN -P -n` on macOS, or with `netstat -ano -p tcp` on Windows). Also skip the port set in a `.html-mcp-web.yaml`
   in this folder, since both tools default to 8765.
@@ -60,6 +65,11 @@ language and as briefly as this:
     paper      : paper2/main.tex
     page       : http://localhost:8765
     page token : off  (on: the page opens only from its link, for a machine others log in to)
+
+When the folder has a paper, add one more line that asks whether it is also an Overleaf
+project, and continue with "Start from Overleaf" if the user gives its link:
+
+    overleaf   : none  (give the project's link to see your co-authors' comments here)
 
 Add a line only for what the user named or has to choose: `references` when they named a
 folder, `guideline` when they have any guidelines, and anything you could not settle, such as
@@ -91,6 +101,71 @@ In this setup, use `init --force` only after confirming that the existing config
 parent directory and creating a local config is authorized. It creates the local config
 without changing the parent. Do not use it to replace an existing local config.
 
+## Start from Overleaf
+
+Follow this section when the paper is on Overleaf, with or without its files in the folder.
+It needs no git and no download from Overleaf by hand.
+
+1. Ask for the project's link in plain words, as its own question: the address the browser
+   shows on Overleaf (`https://www.overleaf.com/project/…`). Then ask how the files sync:
+
+       By hand : nothing moves until you press Get (Overleaf to here) or Send (here to
+                 Overleaf). Send asks first.
+       Live    : while the page is open, edits here go to Overleaf at once, where your
+                 co-authors see them, and theirs come here.
+
+   By hand is the default. Choose Live only when the user picks it in answer to this
+   question.
+
+2. Choose the paper's folder. A folder that already holds the paper stays the paper's
+   folder. Otherwise the paper gets a folder of its own, so that its files do not mix with
+   code or data: propose `paper` under the startup directory, and use the startup directory
+   itself only when it is empty.
+
+3. Write the settings. Without a paper in the folder, run init as "Write" describes, with
+   `config dir <folder>` for the paper's folder, and leave `main` as init wrote it: the page
+   sets it to Overleaf's main file when the files arrive.
+
+       tex-mcp-web config overleaf <link>
+       tex-mcp-web config overleaf_sync true      # only when the user chose Live
+
+   The command takes only a link on overleaf.com. For another Overleaf server the user
+   writes the link into `.tex-mcp-web.yaml` themselves, since their cookie goes to it.
+
+4. Verify the connection as "Verify" describes, and give the user the page's address. The
+   page reads Overleaf only while a browser has it open, so ask the user to keep it open.
+
+5. If `overleaf_cookie` is null, the user gives the cookie to the page, never to you: do
+   not ask for it in chat and do not read the file that keeps it. Tell them these steps and
+   nothing else in that message:
+
+       1. Open <the page's address> and press Connect Overleaf (in the ⋯ menu on a phone).
+       2. In another tab, sign in to Overleaf and open the browser's developer tools:
+          Application (Chrome, Edge) or Storage (Safari, Firefox), then Cookies, then
+          overleaf.com. "Where to find the cookie" on the page links each browser's guide.
+       3. Copy the value of overleaf_session2, paste it into the page, and press Save.
+       4. Tell me when it is saved.
+
+   The cookie signs in as them, is kept in their own config folder for every paper, and is
+   asked for once. When the user says it is saved, call `setup_info()` and check that
+   `overleaf_cookie` is no longer null.
+
+6. Bring the files in once the user has the page open. With By hand, call
+   `overleaf(action="get")`; with Live, they arrive on their own. If the call says no page
+   is in the project, the page is not open in a browser: ask the user to open it, and call
+   again when they say it is. Files the folder and Overleaf both have but differ in
+   wait for the user to choose on the page: say so, and do not choose for them.
+
+7. Check that `main` in the config names a file that is there, set it with
+   `tex-mcp-web config main <file>` if it does not, and `compile()`.
+
+Then tell the user, in their words and without tool names, three things: the page's address,
+that their co-authors' comments appear there, and how files move. With By hand, the top bar
+shows Get and Send with a count when there is something to move. With Live, edits go both
+ways while the page is open. In a folder that is a git clone of the project, the buttons are
+git pull and commit & push instead; mention git only then. Leave out what the user chose or
+did not ask about, such as the port, the page token and a cookie that was already saved.
+
 ## 4. Verify
 
 Before reporting completion, confirm that configuration discovery selects the intended file,
@@ -114,9 +189,9 @@ that the user's first Call agent press reaches you without anything more being s
 tell the user one thing: the page's address to open, or, with the page token on, the link
 that `tex-mcp-web link` prints in the paper's folder, which they open once in each browser.
 Do not mention the checks you ran. If the MCP process still has to be restarted, tell the
-user that one action and why it is needed. To follow an Overleaf project, the user presses Connect
-Overleaf in the page's top bar (in the ⋯ menu on a phone) and follows what it asks; tell
-them so in one line. If translation is off, say so in one line, and say that they can ask
+user that one action and why it is needed. If the user did not connect Overleaf here, say
+in one line that they can ask you to at any time, or press Connect Overleaf in the page's
+top bar (in the ⋯ menu on a phone). If translation is off, say so in one line, and say that they can ask
 you to turn it on, for example with "set up translation to Korean". With the plugin
 installed, a Claude Code session started in this folder later listens on its own.
 

@@ -1303,8 +1303,9 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
     @mcp.tool(structured_output=False)
     async def setup_info() -> str:
         """Report setup paths, the existing binding with the paper's folder it serves, the
-        guidelines to choose from, the path of the tex-mcp-web command, and whether translation
-        is set up, without connecting or changing files."""
+        guidelines to choose from, the path of the tex-mcp-web command, whether translation
+        is set up, and whether the reviewer's Overleaf cookie is saved, without connecting or
+        changing files."""
         import yaml
 
         from .config import Config, find_config, list_guidelines, load_config, translation_command, user_config_file
@@ -1322,6 +1323,8 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         except (OSError, TypeError, ValueError, yaml.YAMLError) as error:
             translation = {"error": str(error)}
         translation["user_config"] = str(user_config_file())
+        from . import overleaf as overleaf_site
+
         return _ok({
             "startup_dir": str(binding.start_dir),
             "discovered_config_path": None if discovered is None else str(discovered.resolve()),
@@ -1333,6 +1336,9 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             # The shell an agent runs commands in need not have this on its PATH.
             "cli": str(CLI),
             "translation": translation,
+            # Where the reviewer's Overleaf cookie comes from ("file", "environment" or None),
+            # never the cookie. It is the reviewer's own and serves every paper.
+            "overleaf_cookie": overleaf_site.cookie_source(),
         })
 
     return mcp

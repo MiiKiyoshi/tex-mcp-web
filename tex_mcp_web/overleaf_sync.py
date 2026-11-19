@@ -1036,6 +1036,11 @@ class Uploads:
     def paths(self, *kinds: str) -> list[str]:
         return sorted(upload.path for upload in self.files.values() if upload.status in kinds)
 
+    def all_here(self) -> bool:
+        """Every uploaded file the project lists has been counted, and none waits to come."""
+        refs, _ = self._tree()
+        return all(path in self.files and self.files[path].status != "get" for path in refs)
+
     def recorded(self) -> set[str]:
         return set(self._records())
 
@@ -1200,6 +1205,10 @@ class HandSync(_Records):
         async with self._turn:
             await self._read_all()
         return self.state()
+
+    def busy(self) -> bool:
+        """A read, a Get or a Send is under way."""
+        return self._turn.locked()
 
     async def get(self) -> dict:
         """Write Overleaf's edits into the files: its text where only Overleaf changed a file,

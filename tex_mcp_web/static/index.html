@@ -292,7 +292,13 @@
       </div>
       <details id="overleaf-cookie-help" class="overleaf-help">
         <summary>Where to find the cookie</summary>
-        <p>Sign in to Overleaf and open the browser's developer tools: Application (Chrome, Edge) or Storage (Safari, Firefox), then Cookies, then overleaf.com. Copy the value of <code>overleaf_session2</code>. Anyone with this value can sign in as you, so it is stored in your own config folder, readable only by you, and is not shown here again.</p>
+        <ol>
+          <li>Sign in to Overleaf in another tab.</li>
+          <li>Open the developer tools there: Application (Chrome, Edge) or Storage (Safari, Firefox), then Cookies, then overleaf.com.</li>
+          <li>Copy the value of <code>overleaf_session2</code> and paste it above.</li>
+        </ol>
+        <p>Guides: <a href="https://developer.chrome.com/docs/devtools/application/cookies" target="_blank" rel="noopener">Chrome</a> · <a href="https://learn.microsoft.com/en-us/microsoft-edge/devtools/storage/cookies" target="_blank" rel="noopener">Edge</a> · <a href="https://firefox-source-docs.mozilla.org/devtools-user/storage_inspector/cookies/index.html" target="_blank" rel="noopener">Firefox</a> · <a href="https://webkit.org/web-inspector/enabling-web-inspector/" target="_blank" rel="noopener">Safari</a></p>
+        <p>The value signs in as you. It is kept in your own config folder and is not shown here again.</p>
       </details>
       <p id="overleaf-signed" class="overleaf-signed" hidden><span id="overleaf-signed-text"></span> <button id="overleaf-cookie-forget" type="button" class="overleaf-forget">Remove</button></p>
     </section>

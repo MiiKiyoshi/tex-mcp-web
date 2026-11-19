@@ -171,7 +171,8 @@ def cmd_init(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 
-_CONFIG_KEYS = ("main", "dir", "port", "compiler", "watch", "ignore", "references", "guideline", "page_token")
+_CONFIG_KEYS = ("main", "dir", "port", "compiler", "watch", "ignore", "references", "guideline", "page_token",
+                "overleaf", "overleaf_sync")
 
 
 def cmd_config(args: argparse.Namespace) -> int:
@@ -207,11 +208,19 @@ def cmd_config(args: argparse.Namespace) -> int:
     value: object = args.value
     if args.key == "port":
         value = int(args.value)
-    elif args.key == "page_token":
+    elif args.key in ("page_token", "overleaf_sync"):
         if args.value not in ("true", "false"):
-            print("page_token is true or false", file=sys.stderr)
+            print(f"{args.key} is true or false", file=sys.stderr)
             return 1
         value = args.value == "true"
+    elif args.key == "overleaf":
+        from .overleaf import config_link
+
+        try:
+            value = config_link(args.value)
+        except ValueError as error:
+            print(error, file=sys.stderr)
+            return 1
     elif args.key in ("watch", "ignore"):
         value = [p.strip() for p in args.value.split(",") if p.strip()]
     elif args.key == "guideline":

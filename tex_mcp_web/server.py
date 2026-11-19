@@ -134,6 +134,7 @@ def _result_to_dict(r: CompileResult | None) -> dict[str, Any] | None:
         "duration_seconds": r.duration_seconds,
         "pages_changed": r.pages_changed,
         "layout": r.layout,
+        "no_main": r.no_main,
     }
 
 
@@ -426,26 +427,6 @@ def load_synctex_for_main(main_file: Path) -> SyncTeXData | None:
 
 
 
-def _on_overleaf(host: str | None) -> bool:
-    """overleaf.com or one of its own names, such as the ko. and ja. the site serves by language."""
-    return host == "overleaf.com" or bool(host) and host.endswith(".overleaf.com")
-
-
-def _overleaf_link(raw: Any) -> str:
-    """A project's link given on the page, as the config keeps it. Only overleaf.com, or
-    plain http to this machine, since the reviewer's cookie goes wherever it points."""
-    from urllib.parse import urlsplit
-
-    server, project = overleaf.project_of(str(raw))
-    host = urlsplit(server).hostname
-    if not _on_overleaf(host) and not server.startswith("http://"):
-        raise ValueError("use a project link on overleaf.com; for another server, set the link in "
-                         ".tex-mcp-web.yaml")
-    if _on_overleaf(host):
-        server = "https://www.overleaf.com"
-    return f"{server}/project/{project}"
-
-
 def _set_config_keys(path: Path, changes: dict[str, Any]) -> None:
     """Set or remove top-level ``key: value`` lines of a config, leaving every other line,
     comment and order as it was. A value None removes the key; True is written ``true``."""
@@ -553,6 +534,8 @@ class TexMcpWebServer:
         self.overleaf_live: LivePresence | None = None
         self._overleaf_live_stop: asyncio.TimerHandle | None = None
         self._overleaf_live_push: asyncio.TimerHandle | None = None
+        # The wait for the last file of a paper that comes from Overleaf into an empty folder.
+        self._paper_arrival: asyncio.TimerHandle | None = None
         # Where the editor's cursor is, (path, row, column), as the page whose cursor moved
         # last told it, and that page: the reviewer's cursor on Overleaf.
         self._cursor: tuple[str, int, int] | None = None
@@ -1237,6 +1220,37 @@ class TexMcpWebServer:
     async def _overleaf_written(self, path: str) -> None:
         """A file written with an edit from Overleaf: the page is told at once."""
         await self.on_file_change(str(self.watch_dir / path))
+        if self.last_result is not None and self.last_result.no_main:
+            self._await_arrived_paper()
+
+    # Seconds without a file from Overleaf after which a paper that came from it is built.
+    OVERLEAF_ARRIVAL_SETTLE = 1.0
+
+    def _await_arrived_paper(self) -> None:
+        if self._paper_arrival is not None:
+            self._paper_arrival.cancel()
+        self._paper_arrival = asyncio.get_running_loop().call_later(
+            self.OVERLEAF_ARRIVAL_SETTLE, lambda: asyncio.ensure_future(self._build_arrived_paper()))
+
+    async def _build_arrived_paper(self) -> None:
+        """A folder that got its paper from Overleaf builds it once, when every document and
+        uploaded file is here. While the main file the config names is not among them,
+        Overleaf's main document takes its place in the config."""
+        self._paper_arrival = None
+        live, follower = self.overleaf_live, self.overleaf_sync or self.overleaf_hand
+        if live is None or follower is None or self.last_result is None or not self.last_result.no_main:
+            return
+        coming = (not self._overleaf_in_step() if self.overleaf_sync is not None
+                  else self.overleaf_hand.busy())
+        if coming or (follower.uploads is not None and not follower.uploads.all_here()):
+            self._await_arrived_paper()
+            return
+        main, config_path = live.main_path(), self.config.config_path
+        if self.main_file.exists():
+            await self.do_compile()
+        elif config_path is not None and main and main.endswith(".tex") and (self.watch_dir / main).is_file():
+            _set_config_keys(config_path, {"main": main})
+            await self.apply_config()
 
     async def _handle_overleaf_sync(self, request: web.Request) -> web.Response:
         """The reviewer's choice for a file that stopped: which text stands."""
@@ -1509,7 +1523,7 @@ class TexMcpWebServer:
                 raise ValueError("send {project, sync}")
             changes: dict[str, Any] = {}
             if "project" in body:
-                changes["overleaf"] = _overleaf_link(body["project"]) if body["project"] else None
+                changes["overleaf"] = overleaf.config_link(body["project"]) if body["project"] else None
             project = changes["overleaf"] if "overleaf" in changes else self.config.overleaf
             if "sync" in body:
                 if not isinstance(body["sync"], bool):

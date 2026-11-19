@@ -1429,7 +1429,14 @@ async def test_setup_info_reports_paths_without_connecting(tmp_path, monkeypatch
             "bound_dir": None,
             "cli": str(Path(sys.executable).parent / "tex-mcp-web"),
             "translation": {"language": None, "command": None, "user_config": str(user_config_file())},
+            "overleaf_cookie": None,
         }
+        from tex_mcp_web import overleaf
+
+        monkeypatch.delenv(overleaf.COOKIE_ENV, raising=False)
+        overleaf.save_cookie("overleaf_session2=s%3Aabc")
+        assert (await setup_info())["overleaf_cookie"] == "file"
+        files = sorted(tmp_path.rglob("*"))
         # A report only: no server, no binding, no file.
         assert binding.bound_config_path() is None
         assert servers() <= before

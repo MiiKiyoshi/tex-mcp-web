@@ -578,3 +578,13 @@ async def test_a_latexmkrc_out_dir_still_leaves_the_pdf_where_the_page_looks(tmp
     assert result.success, result.errors
     assert result.output_file == tmp_path / "main.pdf" and (tmp_path / "main.pdf").is_file()
 
+
+
+def test_a_main_file_that_is_not_there_is_said_plainly(tmp_path):
+    import asyncio
+
+    from tex_mcp_web.compiler import compile_tex
+
+    result = asyncio.run(compile_tex(tmp_path / "paper.tex"))
+    assert not result.success and result.no_main
+    assert [error.message for error in result.errors] == ["paper.tex is not in this folder"]

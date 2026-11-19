@@ -101,6 +101,21 @@ def test_config_set_and_get(project_dir, capsys):
     assert data["main"] == "main.tex"  # other keys untouched
 
 
+def test_config_names_the_overleaf_project_and_how_files_sync(project_dir, capsys):
+    main(["init", "--main", "main.tex"])
+    project = "0123456789abcdef01234567"
+    assert main(["config", "overleaf", f"https://ko.overleaf.com/project/{project}"]) == 0
+    assert main(["config", "overleaf_sync", "true"]) == 0
+    data = yaml.safe_load((project_dir / ".tex-mcp-web.yaml").read_text(encoding="utf-8"))
+    assert data["overleaf"] == f"https://www.overleaf.com/project/{project}" and data["overleaf_sync"] is True
+    capsys.readouterr()
+    # The reviewer's cookie goes to the server in the link, so only overleaf.com is taken.
+    assert main(["config", "overleaf", f"https://elsewhere.example/project/{project}"]) == 1
+    assert "overleaf.com" in capsys.readouterr().err
+    assert main(["config", "overleaf_sync", "yes"]) == 1
+    assert yaml.safe_load((project_dir / ".tex-mcp-web.yaml").read_text(encoding="utf-8")) == data
+
+
 def test_config_list_value_roundtrip(project_dir, capsys):
     main(["init", "--main", "main.tex"])
     capsys.readouterr()

@@ -8,6 +8,7 @@ import re
 from pathlib import Path
 
 import pytest
+import yaml
 from aiohttp import WSMsgType, web
 from aiohttp.test_utils import TestClient, TestServer
 
@@ -316,9 +317,10 @@ class Review:
 
     def __init__(self, folder: Path, fake: FakeOverleaf, link: str, sync: bool = True) -> None:
         self.folder, self.fake, self.link, self.sync = folder, fake, link, sync
+        self.main = "main.tex"
 
     async def open(self) -> "Review":
-        config = f"main: main.tex\noverleaf: {self.link}\n" + ("overleaf_sync: true\n" if self.sync else "")
+        config = f"main: {self.main}\noverleaf: {self.link}\n" + ("overleaf_sync: true\n" if self.sync else "")
         (self.folder / ".tex-mcp-web.yaml").write_text(config, encoding="utf-8", newline="")
         self.server = TexMcpWebServer(load_config(self.folder / ".tex-mcp-web.yaml"))
         self.server.OVERLEAF_LIVE_GRACE = 0
@@ -963,7 +965,7 @@ async def test_live_line_ends_changed_here_are_no_edit_and_each_file_keeps_its_o
 # ----- Connecting from the page -----
 
 async def test_the_page_connects_a_project_and_turns_each_switch_in_the_config(paper, overleaf_site) -> None:
-    from tex_mcp_web.server import _overleaf_link
+    from tex_mcp_web.overleaf import config_link as _overleaf_link
 
     fake, link = overleaf_site
     config = paper / ".tex-mcp-web.yaml"
@@ -1182,6 +1184,57 @@ async def test_by_hand_files_change_only_when_get_or_send_is_pressed(paper, over
         assert fake.docs["d-main"]["text"] == MAIN.replace("fast", "quick") and now["send"] == []
         [sent] = [op for doc, _, op in fake.applied if doc == "d-main"]
         assert sum(len(step.get("i", "") + step.get("d", "")) for step in sent) == len("fast" + "quick")
+    finally:
+        await opened.close()
+
+
+@pytest.mark.parametrize("live", [False, True], ids=["by hand", "live"])
+async def test_a_folder_without_the_paper_gets_it_from_overleaf_and_builds_it_once(tmp_path, monkeypatch, overleaf_site, live) -> None:
+    """A reviewer whose paper is only on Overleaf starts in an empty folder. Get, or Live on its
+    own, brings every file, the main file init guessed gives way to Overleaf's main document,
+    and the paper is built once, with every file here. Nothing on Overleaf changes."""
+    from tex_mcp_web.compiler import CompileResult
+
+    monkeypatch.setattr(overleaf_sync, "DISK_POLL", 0.05)
+    monkeypatch.setattr(TexMcpWebServer, "OVERLEAF_ARRIVAL_SETTLE", 0.05)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config-home"))
+    monkeypatch.delenv(overleaf.COOKIE_ENV, raising=False)
+    fake, link = overleaf_site
+    there = {doc: dict(record) for doc, record in fake.docs.items()}
+    uploaded = {path: dict(record) for path, record in fake.uploads.items()}
+    folder = tmp_path / "paper"
+    folder.mkdir()
+    built = []
+
+    async def build(self):
+        here = sorted(path.relative_to(folder).as_posix() for path in folder.rglob("*")
+                      if path.is_file() and ".tex-mcp-web" not in path.as_posix())
+        built.append((self.main_file.name, here))
+        self.last_result = CompileResult(success=self.main_file.is_file(), no_main=not self.main_file.is_file())
+        return self.last_result
+
+    monkeypatch.setattr(TexMcpWebServer, "do_compile", build)
+    opened = Review(folder, fake, link, sync=live)
+    opened.main = "paper.tex"
+    await opened.open()
+    try:
+        config = folder / ".tex-mcp-web.yaml"
+        await opened.server.do_compile()
+        assert built == [("paper.tex", [])]
+        if not live:
+            await hand_ready(opened)
+            now = await (await opened.client.post("/overleaf/files/read")).json()
+            assert {"main.tex", "tex/body.tex", "fig/plot.png"} <= set(now["get"])
+            now = await (await opened.client.post("/overleaf/files/get")).json()
+            assert now["get"] == []
+        await wait_for(lambda: len(built) > 1)
+        # One build, of Overleaf's main file, with the documents and the figure all here.
+        assert built[1:] == [("main.tex", ["fig/plot.png", "main.tex", "tex/body.tex"])]
+        assert opened.read("main.tex") == MAIN and opened.read("tex/body.tex") == BODY
+        assert yaml.safe_load(config.read_text(encoding="utf-8"))["main"] == "main.tex"
+        await asyncio.sleep(0.3)
+        assert len(built) == 2 and {doc: dict(record) for doc, record in fake.docs.items()} == there
+        assert {path: dict(record) for path, record in fake.uploads.items()} == uploaded
     finally:
         await opened.close()
 

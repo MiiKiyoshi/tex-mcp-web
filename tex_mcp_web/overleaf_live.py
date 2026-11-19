@@ -459,6 +459,10 @@ class LivePresence:
             return None, {}, set()
         return self._session_api, dict(self._docs), self._kept()
 
+    def main_path(self) -> str | None:
+        """The path of the project's main document on Overleaf, once the session knows it."""
+        return self._docs.get(self._main_doc)
+
     def _kept(self) -> set[str]:
         """The documents the session keeps open: the main one, and the one the reviewer's cursor is in."""
         return {doc for doc in (self._main_doc, self._cursor_doc) if doc}

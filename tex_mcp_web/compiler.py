@@ -59,6 +59,8 @@ class CompileResult:
     log_output: str = ""
     pages_changed: list[int] = field(default_factory=list)
     layout: dict = field(default_factory=dict)
+    # The main file is not in the folder, so nothing was built.
+    no_main: bool = False
 
 
 # Patterns for parsing LaTeX log output
@@ -397,6 +399,14 @@ async def compile_tex(
     """
     if work_dir is None:
         work_dir = main_file.parent
+
+    if not main_file.is_file():
+        return CompileResult(
+            success=False,
+            errors=[CompileMessage(file=main_file.name, line=None,
+                                   message=f"{main_file.name} is not in this folder", type="error")],
+            no_main=True,
+        )
 
     # Resolve "auto" to actual compiler
     resolved_compiler = compiler

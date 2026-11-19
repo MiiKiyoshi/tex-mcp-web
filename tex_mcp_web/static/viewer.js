@@ -129,6 +129,8 @@ const state = {
   // Whether the last build failed, which the Preview and the translation say while there is
   // no PDF.
   buildFailed: false,
+  // The main file's name while it is not in the folder, so that nothing was built.
+  noMain: "",
   // The page cannot reach its server, and a call to the agent waits for one to listen.
   serverGone: false,
   callWaits: false,
@@ -1359,6 +1361,7 @@ function renderOverleafStatus({ project, cookie, sync = false, live = false, set
   renderOverleafCookie();
   renderOverleafThreadSync();
   renderPickedActions();
+  renderNoPaper();
 }
 
 // The field to paste a cookie in shows while there is none and while Overleaf turns the saved
@@ -4768,6 +4771,16 @@ function switchTab(name) {
   refreshComments().catch((error) => console.error(error));
 }
 
+// A folder without its paper yet, as when the paper is only on Overleaf: the Preview says what
+// brings it, which changes once the project is connected.
+function renderNoPaper() {
+  if (!state.noMain || state.viewer) return;
+  const next = !state.overleafProject ? "If the paper is on Overleaf, Connect Overleaf brings it here."
+    : !state.overleafCookie ? "Save your Overleaf cookie in Settings to bring the paper from Overleaf."
+    : state.overleafFullSync ? "The paper is coming from Overleaf." : "Get brings the paper from Overleaf.";
+  $("#pdf-viewer").replaceChildren(h("p", { class: "placeholder" }, `${state.noMain} is not in this folder. ${next}`));
+}
+
 function applyCompileResult(result) {
   state.errors = result.errors;
   state.warnings = result.warnings;
@@ -4790,7 +4803,9 @@ function applyCompileResult(result) {
   // Until a build makes a PDF, the Preview says why there is none and where to read it, and
   // so does the translation, which follows the PDF's pages.
   if (!result.success && !state.viewer) {
-    $("#pdf-viewer").replaceChildren(h("p", { class: "placeholder" }, "The build failed. See Problems for details. ",
+    state.noMain = result.no_main ? result.errors[0].file : "";
+    if (state.noMain) renderNoPaper();
+    else $("#pdf-viewer").replaceChildren(h("p", { class: "placeholder" }, "The build failed. See Problems for details. ",
       h("button", { type: "button", onclick: showProblems }, "Show Problems")));
   }
   if (!state.pdfDigest) scheduleTranslation(0);

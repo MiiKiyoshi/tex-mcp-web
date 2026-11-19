@@ -145,6 +145,25 @@ def project_of(link: str) -> tuple[str, str]:
     return f"{parts.scheme}://{parts.netloc}", match.group(1)
 
 
+def _own_host(host: str | None) -> bool:
+    """overleaf.com or one of its own names, such as the ko. and ja. the site serves by language."""
+    return host == "overleaf.com" or bool(host) and host.endswith(".overleaf.com")
+
+
+def config_link(raw: Any) -> str:
+    """A project's link given on the page or to the command, as the config keeps it. Only
+    overleaf.com, or plain http to this machine, since the reviewer's cookie goes wherever it
+    points."""
+    server, project = project_of(str(raw))
+    host = urlsplit(server).hostname
+    if not _own_host(host) and not server.startswith("http://"):
+        raise ValueError("use a project link on overleaf.com; for another server, set the link in "
+                         ".tex-mcp-web.yaml")
+    if _own_host(host):
+        server = "https://www.overleaf.com"
+    return f"{server}/project/{project}"
+
+
 # ----- Reading Overleaf -----
 
 def _disposition_name(header: str | None) -> str | None:

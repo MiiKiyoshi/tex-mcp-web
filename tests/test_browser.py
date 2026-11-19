@@ -460,6 +460,35 @@ def test_browser_comment_actions(tmp_path: Path) -> None:
 
 
 @needs_browser
+def test_a_folder_without_its_paper_says_what_brings_it(tmp_path: Path) -> None:
+    """A reviewer whose paper is only on Overleaf opens the page of an empty folder. The
+    Preview names the missing file and the step that brings the paper, not a failed build."""
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    browser = None
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        browser = chrome.launch()
+        browser.navigate(base)
+        said = lambda: browser.execute_script('return document.querySelector("#pdf-viewer")?.textContent ?? ""')
+        wait_until(lambda: said() == "paper.tex is not in this folder. If the paper is on Overleaf, "
+                                     "Connect Overleaf brings it here.")
+        # Once the paper is written, Compile builds it.
+        (tmp_path / "paper.tex").write_text(
+            "\\documentclass{article}\n\\begin{document}\nTea.\n\\end{document}\n", encoding="utf-8")
+        browser.execute_script('document.querySelector("#compile-btn").click()')
+        wait_until(lambda: "is not in this folder" not in said(), timeout=30)
+    finally:
+        if browser is not None:
+            browser.quit()
+        shared.stop()
+
+
+@needs_browser
 def test_the_page_says_why_it_waits_and_catches_up_when_its_server_returns(tmp_path: Path) -> None:
     """Nothing greyed, waiting or out of date goes unexplained. A first build that fails says
     so in the Preview, a source changed since the build and a config the server cannot take
