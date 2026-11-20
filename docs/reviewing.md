@@ -300,6 +300,11 @@ command are set, and until then the pane says which is missing. The easiest way 
 to ask your agent to set up translation to your language. It proposes a command from the
 installed tool's own help and tests it before saving it.
 
+A coding agent's command can send its own instructions and your instruction files along with
+every paragraph, many times the size of the text itself. The agent measures what the command
+sends when it sets translation up, and builds it so that only the request goes. If you wrote
+the command yourself, ask your agent to measure it.
+
 ## Listening
 
 A paper's **Call agent** presses go to one agent session. A Claude Code session that starts

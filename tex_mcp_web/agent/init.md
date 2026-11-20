@@ -217,7 +217,9 @@ source in that language, beside the text.
    `translation:`, write `language:` with the language the user named. If the user gave
    rules for the translation, such as terms to keep in English, also write `instructions:`,
    one rule per line. `tex-mcp-web config` does not set these keys.
-3. If `command` is already set, go to step 8.
+3. If `command` is already set, measure it as step 6 describes. If it sends little more than
+   the request, go to step 8. If it sends many times the request, tell the user how much
+   each run carries and offer to build the line again from step 5.
 4. Find an LLM command on this machine, preferring the command of the agent you run in. If
    there is none, tell the user in one line that translation stays off, and stop.
 5. Build a command line for that tool. The line must do all of this:
@@ -228,6 +230,11 @@ source in that language, beside the text.
    - Name its model. Choose a mid-sized model, not the largest one.
    - Start nothing it does not need: no tools, no MCP servers, no saved session. A run that
      starts the user's MCP servers starts tex-mcp again.
+   - Send the model the request and nothing else. A coding agent's command adds its own
+     instructions and the user's instruction and memory files to every run, which can be
+     twenty times the request, and the user pays for all of it on every one of a paper's
+     many runs. Turn both off: load no settings or instruction files, and give the run a
+     short system prompt of its own in place of the tool's.
 
    Read the tool's help first (`<tool> --help`, and the help of the subcommand that runs
    once), and take each flag from it under the name this version uses. Take the model name
@@ -240,6 +247,10 @@ source in that language, beside the text.
    `echo 'Translate into Korean: Good morning.' | <the line>`. If the line has `{prompt}`,
    put the request there instead. The output must be the answer and nothing else; if it is
    not, change the line and test it again.
+   Then measure what the line sends. Run the same test once more in the tool's mode that
+   reports usage, and read the tokens that went in, cached ones included. A one-line request
+   is a few hundred tokens at most. Thousands mean the run still carries the tool's own
+   instructions or the user's files: change the line and measure again.
 7. Show the user the exact line, say in a few words that a larger model costs more because a
    paper has hundreds of paragraphs, and ask one short question with this line as the
    default. When the user agrees, write the line to the user's own file, `user_config`, as
