@@ -521,6 +521,15 @@ class TexMcpWebServer:
         self.review_calls, self.review_consumed = self._load_review_state()
         self.review_called = asyncio.Event()
         self.review_waiters = 0
+        # Gemini has a lane of its own beside the one listening session: its waiter names no
+        # listener, so a press for Gemini never moves Claude's, and Claude's never moves its.
+        # The model and effort picked for its last press ride on its wake-up line.
+        self.gemini_state_path = self.watch_dir / ".tex-mcp-web" / "review-state-gemini.json"
+        self.gemini_calls, self.gemini_consumed = self._load_review_state(self.gemini_state_path)
+        self.gemini_called = asyncio.Event()
+        self.gemini_waiters = 0
+        self.gemini_choice_path = self.watch_dir / ".tex-mcp-web" / "review-gemini-choice.json"
+        self.gemini_choice = self._load_gemini_choice()
         # Presses go to one waiter, named by the id listen() gave it: two sessions answering
         # one press would edit the same threads. Its pid, which its polls report, says
         # whether it still runs, and the Claude Code session that named it, when known,
@@ -876,6 +885,7 @@ class TexMcpWebServer:
                 "result": _result_to_dict(self.last_result),
                 "pdf_digest": self.pdf_digest,
                 "review_waiters": self.review_waiters,
+                "gemini_waiters": self.gemini_waiters,
             }
         )
         if self.overleaf_live is not None:
@@ -1286,9 +1296,9 @@ class TexMcpWebServer:
 
     # ----- API: Call agent -----
 
-    def _load_review_state(self) -> tuple[int, int]:
+    def _load_review_state(self, path: Path | None = None) -> tuple[int, int]:
         try:
-            data = json.loads(shared_file.read_text(self.review_state_path))
+            data = json.loads(shared_file.read_text(path or self.review_state_path))
             calls, consumed = int(data["calls"]), int(data["consumed"])
         except (FileNotFoundError, json.JSONDecodeError, KeyError, TypeError, ValueError):
             return 0, 0
@@ -1303,7 +1313,66 @@ class TexMcpWebServer:
             {"calls": self.review_calls, "consumed": self.review_consumed}), encoding="utf-8")
         shared_file.replace(staging, self.review_state_path)
 
-    def _review_line(self) -> str:
+    def _save_gemini_state(self) -> None:
+        self.gemini_state_path.parent.mkdir(parents=True, exist_ok=True)
+        staging = self.gemini_state_path.with_name(self.gemini_state_path.name + ".new")
+        staging.write_text(json.dumps({"calls": self.gemini_calls, "consumed": self.gemini_consumed}), encoding="utf-8")
+        shared_file.replace(staging, self.gemini_state_path)
+
+    GEMINI_EFFORTS = ("low", "medium", "high")
+    # Only names are passed on, never run, but a name is held to the shape a model's has.
+    _GEMINI_MODEL = re.compile(r"[a-z0-9][a-z0-9.\-]{0,63}")
+
+    def _load_gemini_choice(self) -> dict[str, str] | None:
+        try:
+            data = json.loads(self.gemini_choice_path.read_text(encoding="utf-8"))
+            return {"model": str(data["model"]), "effort": str(data["effort"])}
+        except (OSError, ValueError, KeyError, TypeError):
+            return None
+
+    def _gemini_line(self) -> str:
+        line = self._review_line(self.gemini_calls)
+        if self.gemini_choice is not None:
+            line += f" [gemini: model={self.gemini_choice['model']} effort={self.gemini_choice['effort']}]"
+        return line
+
+    async def _gemini_press(self, body: dict[str, Any]) -> web.Response:
+        model = str(body.get("model") or "gemini-4-argon").strip().lower()
+        effort = str(body.get("effort") or "medium").strip().lower()
+        if not self._GEMINI_MODEL.fullmatch(model) or effort not in self.GEMINI_EFFORTS:
+            return web.json_response({"error": f"not a Gemini model and effort: {model}, {effort}"}, status=400)
+        self.gemini_choice = {"model": model, "effort": effort}
+        self.gemini_choice_path.parent.mkdir(parents=True, exist_ok=True)
+        self.gemini_choice_path.write_text(json.dumps(self.gemini_choice), encoding="utf-8")
+        self.gemini_calls += 1
+        self._save_gemini_state()
+        delivered = self.gemini_waiters > 0
+        self.gemini_called.set()
+        self.gemini_called = asyncio.Event()
+        await self.broadcast({"type": "review_requested", "agent": "gemini", "calls": self.gemini_calls,
+                              "delivered": delivered})
+        return web.json_response({"calls": self.gemini_calls, "delivered": delivered})
+
+    async def _wait_gemini(self) -> web.Response:
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + self.REVIEW_POLL_TIMEOUT
+        self.gemini_waiters += 1
+        await self.broadcast({"type": "gemini_waiters", "waiters": self.gemini_waiters})
+        try:
+            while self.gemini_calls <= self.gemini_consumed:
+                remaining = deadline - loop.time()
+                if remaining <= 0 or self.closing:
+                    return web.Response(status=204)
+                try:
+                    await asyncio.wait_for(self.gemini_called.wait(), timeout=remaining)
+                except asyncio.TimeoutError:
+                    return web.Response(status=204)
+            return web.Response(text=self._gemini_line(), headers={"X-Press": str(self.gemini_calls)})
+        finally:
+            self.gemini_waiters -= 1
+            await self.broadcast({"type": "gemini_waiters", "waiters": self.gemini_waiters})
+
+    def _review_line(self, press: int | None = None) -> str:
         # The line counts what a wake-up is for: the open threads read_comments(new=True)
         # gives, with words for the agent it has neither answered nor carried before. A
         # count of open threads sent an agent to read one it had answered.
@@ -1315,7 +1384,7 @@ class TexMcpWebServer:
         waiting = sum(bool(comment.waiting(None, True) if comment.id in chosen
                            else comment.waiting(edge, comment.id in brought, not self.config.overleaf_picked))
                       for comment in self.comments.list(status="open"))
-        return (f"[review] reviewer called (press #{self.review_calls}): "
+        return (f"[review] reviewer called (press #{self.review_calls if press is None else press}): "
                 + (f"{waiting} new comments" if waiting else "no new comments")
                 + " -- read them with read_comments(new=True)")
 
@@ -2111,12 +2180,16 @@ class TexMcpWebServer:
         return psutil.pid_exists(self.review_listener_pid)
 
     async def _handle_review_request(self, request: web.Request) -> web.Response:
-        if self.config.overleaf_picked and request.can_read_body:
+        try:
+            body = await request.json() if request.can_read_body else {}
+        except ValueError:
+            body = {}
+        body = body if isinstance(body, dict) else {}
+        if body.get("agent") == "gemini":
+            return await self._gemini_press(body)
+        if self.config.overleaf_picked:
             # The threads from Overleaf picked on the page go with the press.
-            try:
-                overleaf.pick(self.watch_dir, (await request.json()).get("picked"))
-            except (ValueError, AttributeError):
-                pass
+            overleaf.pick(self.watch_dir, body.get("picked"))
         self.review_calls += 1
         self._save_review_state()
         delivered = self.review_waiters > 0
@@ -2145,6 +2218,8 @@ class TexMcpWebServer:
         return web.json_response({"listening": True})
 
     async def _handle_wait_review(self, request: web.Request) -> web.Response:
+        if request.query.get("agent") == "gemini":
+            return await self._wait_gemini()
         # The consumption watermark lives here, not in the waiter: a waiter carrying its
         # own could never see a press made before its script was written. Waiting does
         # not consume: the response can die on the wire after the watermark moved, and
@@ -2195,6 +2270,10 @@ class TexMcpWebServer:
             upto = int(request.query["upto"])
         except (KeyError, ValueError) as error:
             raise web.HTTPBadRequest(text="upto must be an integer") from error
+        if request.query.get("agent") == "gemini":
+            self.gemini_consumed = max(self.gemini_consumed, min(upto, self.gemini_calls))
+            self._save_gemini_state()
+            return web.json_response({"calls": self.gemini_calls, "consumed": self.gemini_consumed})
         # Idempotent and monotonic: a late or repeated ack never moves the watermark back,
         # and one beyond the count (a script talking to a restarted server whose counters
         # are behind it) clamps rather than marking presses that do not exist yet.

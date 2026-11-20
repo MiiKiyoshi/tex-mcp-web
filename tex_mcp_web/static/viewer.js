@@ -48,6 +48,9 @@ const state = {
   layout: {},
   expanded: new Set(),
   picked: new Set(),
+  // Waiters parked for each agent the bell can call.
+  claudeWaiters: 0,
+  geminiWaiters: 0,
   // The box a pick last started from, so shift can run from it to the next one.
   pickedFrom: null,
   activeForm: null,
@@ -3262,7 +3265,7 @@ function renderPickedActions() {
 // wide.
 const ROW_STEPS = [["sort-shrunk"], ["wordless"], ["resolve-wordless"], ["narrow", "#comment-sort-pick"],
   ["foldless", "#fold-all-btn"], ["squeezed"], ["unsynced", "#overleaf-sync-comments-btn"],
-  ["uncalled", "#call-agent-btn"], ["leafless"], ["edits-behind", "#accept-picked-btn, #reject-picked-btn"],
+  ["uncalled", "#call-agent-select, #gemini-model-select, #gemini-effort-select, #call-agent-btn"], ["leafless"], ["edits-behind", "#accept-picked-btn, #reject-picked-btn"],
   ["hide-behind", "#hide-picked-btn"], ["view-shrunk"], ["wrapped"]];
 
 function fitCommentRow() {
@@ -3275,7 +3278,10 @@ function fitCommentRow() {
   if (fold.nextElementSibling !== $("#comment-rare")) $("#comment-rare").before(fold);
   if (sort.nextElementSibling !== fold) fold.before(sort);
   if (sync.parentElement !== $("#comment-fetch")) $("#comment-fetch").prepend(sync);
-  if (call.parentElement !== $("#comment-fetch")) $("#comment-fetch").append(call);
+  // The agent the bell calls, and Gemini's model and effort, go where the bell goes.
+  if (call.parentElement !== $("#comment-fetch")) {
+    $("#comment-fetch").append($("#call-agent-select"), $("#gemini-model-select"), $("#gemini-effort-select"), call);
+  }
   if (reject.nextElementSibling !== send) send.before(reject);
   if (accept.nextElementSibling !== reject) reject.before(accept);
   row.classList.remove(...ROW_STEPS.map(([step]) => step));
@@ -5162,6 +5168,7 @@ async function handleWebSocketMessage(message) {
       // A build that ended while the page could not hear of it leaves Compile free again.
       state.serverCompiling = Boolean(message.compiling);
       applyCompiling(state.serverCompiling);
+      if (message.gemini_waiters !== undefined) state.geminiWaiters = message.gemini_waiters;
       if (message.review_waiters !== undefined) showAgentWaiting(message.review_waiters);
       // A build that ended after the page first read the paper and before its socket opened
       // left a PDF the page has not shown. A page that reconnects catches up as it opens.
@@ -5169,6 +5176,10 @@ async function handleWebSocketMessage(message) {
       break;
     case "review_waiters":
       showAgentWaiting(message.waiters);
+      break;
+    case "gemini_waiters":
+      state.geminiWaiters = message.waiters;
+      showAgentWaiting();
       break;
     case "goto":
       showGotoTarget(message);
@@ -5187,7 +5198,11 @@ async function handleWebSocketMessage(message) {
 // call until the next waiter connects. A queued call is said above the list until an agent
 // listens, which takes it at once.
 function showAgentWaiting(waiters) {
-  const waiting = waiters > 0;
+  if (waiters !== undefined) state.claudeWaiters = waiters;
+  // The bell shows the agent the reviewer picked, and only the Gemini press carries a model.
+  const gemini = $("#call-agent-select")?.value === "gemini";
+  for (const box of $$(".gemini-only")) box.classList.toggle("hidden", !gemini);
+  const waiting = (gemini ? state.geminiWaiters : state.claudeWaiters) > 0;
   const button = $("#call-agent-btn");
   button.classList.toggle("agent-ready", waiting);
   button.classList.toggle("agent-offline", !waiting);
@@ -5221,7 +5236,9 @@ async function callAgent() {
     // reaches the agent with its Overleaf words only when picked.
     const response = await fetch("/review-request", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ picked: [...state.picked] }),
+      body: JSON.stringify($("#call-agent-select")?.value === "gemini"
+        ? { agent: "gemini", model: $("#gemini-model-select").value, effort: $("#gemini-effort-select").value }
+        : { picked: [...state.picked] }),
     });
     if (!response.ok) throw new Error(await responseError(response));
     const reply = await response.json();
@@ -6660,6 +6677,19 @@ async function init() {
     if (!$("#call-agent-btn").disabled) $("#call-agent-btn").click();
   }, true);
   $("#call-agent-btn").addEventListener("click", () => callAgent());
+  // Every page starts on Claude; only the reviewer's own pick calls Gemini, and only here.
+  $("#call-agent-select").value = "claude";
+  $("#call-agent-select").addEventListener("change", () => { showAgentWaiting(); fitCommentRow(); });
+  for (const [id, key] of [["#gemini-model-select", "texMcpGeminiModel"], ["#gemini-effort-select", "texMcpGeminiEffort"]]) {
+    const box = $(id);
+    try {
+      const saved = localStorage.getItem(key);
+      if (saved !== null && [...box.options].some((option) => option.value === saved)) box.value = saved;
+    } catch { /* storage blocked: the defaults */ }
+    box.addEventListener("change", () => {
+      try { localStorage.setItem(key, box.value); } catch { /* not kept */ }
+    });
+  }
   $("#fold-all-btn").addEventListener("click", foldAll);
   $("#pick-all-btn").addEventListener("click", pickAll);
   for (const [id, action, word] of [["#accept-picked-btn", "accept", "Accept"], ["#reject-picked-btn", "reject", "Reject"]]) {

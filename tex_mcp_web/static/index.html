@@ -226,6 +226,22 @@
               <svg class="leaf-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 13C3 7 7 3 13 3c0 6-4 10-10 10z"/><path d="M3 13l6-6"/></svg>
               <span class="count"></span>
             </button>
+            <!-- Which agent the bell calls: Claude, the session listening, or Gemini, which waits
+                 in a lane of its own. Every page starts on Claude. -->
+            <select id="call-agent-select" class="agent-select" autocomplete="off" aria-label="Agent to call" title="Agent the bell calls">
+              <option value="claude" selected>Claude</option>
+              <option value="gemini">Gemini</option>
+            </select>
+            <!-- Shown only while Gemini is the agent: the model and effort its press asks for. -->
+            <select id="gemini-model-select" class="agent-select gemini-only hidden" aria-label="Gemini model" title="Gemini model for this call">
+              <option value="gemini-4-argon" selected>Argon</option>
+              <option value="gemini-3.8-flash">Flash</option>
+            </select>
+            <select id="gemini-effort-select" class="agent-select gemini-only hidden" aria-label="Gemini effort" title="Gemini effort for this call">
+              <option value="low">low</option>
+              <option value="medium" selected>medium</option>
+              <option value="high">high</option>
+            </select>
             <button id="call-agent-btn" class="icon-btn agent-offline" type="button" aria-label="Queue call for agent" title="No agent is listening. The call will be queued until one connects (Ctrl+Alt+Enter)">
               <span id="agent-waiting-dot" class="agent-dot"></span>
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11V7a4 4 0 0 1 8 0v4l1.5 1.5h-11z"/><path d="M6.5 14a1.5 1.5 0 0 0 3 0"/></svg>

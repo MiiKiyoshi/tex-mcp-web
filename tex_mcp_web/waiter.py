@@ -1,7 +1,8 @@
 """Wait for Call agent presses on the review page and print one line for each.
 
 Run as ``python -m tex_mcp_web.waiter <port> <listener> [--codex <thread>]`` with the
-listener id ``listen()`` gave. The server keeps the press count and what was taken up, so
+listener id ``listen()`` gave, or ``<port> - --agent gemini --once`` for Gemini, which waits
+in a lane of its own, names no listener, and ends after the first press it prints. The server keeps the press count and what was taken up, so
 the waiter carries no state: a press made before it started answers it at once, and a line
 is acknowledged only after it is printed, so a press is offered until a waiter says it
 landed. A server that goes away is waited for: one [gone] line, then [back] when it answers
@@ -34,15 +35,17 @@ def _deliver(line: str, thread: str | None) -> None:
         time.sleep(5)
 
 
-def wait(port: int, listener: str, thread: str | None = None) -> None:
+def wait(port: int, listener: str, thread: str | None = None, agent: str | None = None,
+         once: bool = False) -> None:
     base = f"http://127.0.0.1:{port}"
+    lane = f"&agent={agent}" if agent else ""
     parent = psutil.Process().parent()
     gone, delay = False, 2
     # The page answers only with the reviewer's token when it asks for one. It is read from
     # its file at each call, and never put on a command line others on the machine can read.
     while parent is None or parent.is_running():
         request = urllib.request.Request(
-            f"{base}/wait-review?listener={listener}&pid={os.getpid()}", headers=page_token.headers())
+            f"{base}/wait-review?listener={listener}&pid={os.getpid()}{lane}", headers=page_token.headers())
         try:
             with urllib.request.urlopen(request, timeout=70) as response:
                 said, moved, press = response.read().decode("utf-8"), response.headers.get("X-Moved"), response.headers.get("X-Press")
@@ -65,19 +68,34 @@ def wait(port: int, listener: str, thread: str | None = None) -> None:
             return
         if press:
             acknowledge = urllib.request.Request(
-                f"{base}/wait-review/ack?upto={press}", method="POST", headers=page_token.headers())
+                f"{base}/wait-review/ack?upto={press}{lane}", method="POST", headers=page_token.headers())
             try:
                 urllib.request.urlopen(acknowledge, timeout=10).close()
             except (urllib.error.URLError, OSError):
                 pass
+            if once:
+                return
 
 
 def main(argv: list[str] | None = None) -> None:
-    args = sys.argv[1:] if argv is None else argv
-    if len(args) not in (2, 4) or (len(args) == 4 and args[2] != "--codex"):
-        raise SystemExit("usage: python -m tex_mcp_web.waiter <port> <listener> [--codex <thread>]")
+    args = list(sys.argv[1:] if argv is None else argv)
+    usage = "usage: python -m tex_mcp_web.waiter <port> <listener> [--codex <thread>] [--agent gemini] [--once]"
+    if len(args) < 2:
+        raise SystemExit(usage)
+    options: dict[str, str | bool] = {}
+    rest = args[2:]
+    while rest:
+        flag = rest.pop(0)
+        if flag in ("--codex", "--agent") and rest:
+            options[flag] = rest.pop(0)
+        elif flag == "--once":
+            options[flag] = True
+        else:
+            raise SystemExit(usage)
+    if options.get("--agent") not in (None, "gemini"):
+        raise SystemExit(usage)
     try:
-        wait(int(args[0]), args[1], args[3] if len(args) == 4 else None)
+        wait(int(args[0]), args[1], options.get("--codex"), options.get("--agent"), bool(options.get("--once")))
     except (OSError, KeyboardInterrupt):
         # No one reads the lines any more, which Windows reports as an invalid argument and
         # others as a broken pipe: a press not printed is not acknowledged.

@@ -4249,3 +4249,96 @@ async def test_a_thread_left_on_no_words_on_overleaf_is_put_back_on_its_words(pr
     await read("")
     await read("")                      # refused above, so tried once more
     assert len(puts) == 3
+
+
+@pytest.mark.asyncio
+async def test_gemini_waits_in_a_lane_of_its_own(client):
+    """A press for Gemini goes to Gemini's waiter with the model and effort picked, and a
+    press for the listening session never reaches it, nor it that session's."""
+    test_client, server = client
+    server.REVIEW_POLL_TIMEOUT = 0.05
+    assert (await test_client.get("/wait-review?agent=gemini&listener=-&pid=1")).status == 204
+    press = await test_client.post("/review-request", json={"agent": "gemini", "model": "gemini-3.8-flash", "effort": "high"})
+    assert press.status == 200 and (await press.json())["calls"] == 1
+    assert server.review_calls == 0
+    told = await test_client.get("/wait-review?agent=gemini&listener=-&pid=1")
+    assert told.headers["X-Press"] == "1"
+    assert (await told.text()).endswith("[gemini: model=gemini-3.8-flash effort=high]")
+    # Offered again until acknowledged, then not.
+    assert (await test_client.get("/wait-review?agent=gemini&listener=-&pid=1")).status == 200
+    await test_client.post("/wait-review/ack?upto=1&agent=gemini")
+    assert (await test_client.get("/wait-review?agent=gemini&listener=-&pid=1")).status == 204
+    # The listening session's press stays in its own lane.
+    await test_client.post("/review-request")
+    assert (server.review_calls, server.gemini_calls) == (1, 1)
+    assert (await test_client.get("/wait-review?agent=gemini&listener=-&pid=1")).status == 204
+    refused = await test_client.post("/review-request", json={"agent": "gemini", "model": "rm -rf", "effort": "high"})
+    assert refused.status == 400 and server.gemini_calls == 1
+    # Kept across a restart, as Claude's are.
+    again = TexMcpWebServer(server.config)
+    assert (again.gemini_calls, again.gemini_consumed, again.gemini_choice) == (1, 1, {"model": "gemini-3.8-flash", "effort": "high"})
+
+
+def test_the_gemini_waiter_prints_one_press_and_ends(tmp_path):
+    """--agent gemini --once: the waiter asks Gemini's lane, prints the press, acknowledges it
+    there, and ends."""
+    import http.server
+    import subprocess
+    import threading
+
+    asked, acked = [], []
+
+    class Page(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            asked.append(self.path)
+            self.send_response(200)
+            self.send_header("X-Press", "3")
+            self.end_headers()
+            self.wfile.write(b"[review] reviewer called (press #3): 1 new comments [gemini: model=gemini-4-argon effort=low]")
+
+        def do_POST(self):
+            acked.append(self.path)
+            self.send_response(200)
+            self.end_headers()
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Page)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        done = subprocess.run([sys.executable, "-m", "tex_mcp_web.waiter", str(server.server_port), "-",
+                               "--agent", "gemini", "--once"], capture_output=True, text=True, encoding="utf-8",
+                              stdin=subprocess.DEVNULL, timeout=20, env={**os.environ, "XDG_CONFIG_HOME": str(tmp_path)})
+    finally:
+        server.shutdown()
+    assert done.returncode == 0
+    assert done.stdout.strip().endswith("effort=low]")
+    assert len(asked) == 1 and "agent=gemini" in asked[0]
+    assert acked == ["/wait-review/ack?upto=3&agent=gemini"]
+
+
+@pytest.mark.asyncio
+async def test_listen_from_gemini_waits_in_its_lane_and_leaves_the_listener(bound_project, project, monkeypatch):
+    """Gemini CLI and Antigravity get the waiter of Gemini's lane, which ends after one press,
+    and their listen() does not take presses from the session listening."""
+    pytest.importorskip("mcp")
+    from tex_mcp_web.mcp_server import create_server
+
+    mcp = create_server(bound_project)
+    context = SimpleNamespace(session=SimpleNamespace(client_params=SimpleNamespace(
+        clientInfo=SimpleNamespace(name="claude-code"))))
+    monkeypatch.setattr(mcp, "get_context", lambda: context)
+    await mcp.call_tool("listen", {})
+    for name in ("gemini-cli-mcp-client", "antigravity"):
+        context.session.client_params.clientInfo.name = name
+        result = json.loads((await mcp.call_tool("listen", {}))[0].text)
+        command = shlex.split(result["command"])
+        assert command[2:] == ["tex_mcp_web.waiter", str(bound_project.require_shared().port), "-",
+                               "--agent", "gemini", "--once"]
+        assert "background shell command" in result["how"] and "Monitor" not in result["how"]
+    import aiohttp
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f"{bound_project.base_url()}/paper") as response:
+            assert response.status == 200

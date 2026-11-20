@@ -819,6 +819,7 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
   border-radius: 3px;
   background: var(--bg);
 }
+.filter-row select.agent-select { padding: 0.25rem 0.25rem; }
 /* A phone's width holds the whole row once the gaps and paddings narrow. */
 @media (max-width: 560px) {
   .filter-row { --row-gap: 3px; }
