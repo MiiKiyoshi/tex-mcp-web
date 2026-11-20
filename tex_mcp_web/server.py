@@ -532,6 +532,9 @@ class TexMcpWebServer:
         self.closing = False
         self.websockets: set[web.WebSocketResponse] = set()
         self.overleaf_live: LivePresence | None = None
+        # Threads put back on their words on Overleaf, by thread, and the puts under way.
+        self._overleaf_rehighlighted: dict[str, str] = {}
+        self._overleaf_rehighlight_tasks: set[asyncio.Task] = set()
         self._overleaf_live_stop: asyncio.TimerHandle | None = None
         self._overleaf_live_push: asyncio.TimerHandle | None = None
         # The wait for the last file of a paper that comes from Overleaf into an empty folder.
@@ -1868,6 +1871,7 @@ class TexMcpWebServer:
                          known: dict[str, Any], comment: Comment) -> None:
             await self._place_overleaf_comment(comment, known, entry)
             comment = self.comments.get(comment.id) or comment
+            self._rehighlight_on_overleaf(comment, entry)
             current = keys(messages)
             held = entries_of(comment, known, current, messages)
             sent = known.get("sent", [])
@@ -1974,6 +1978,40 @@ class TexMcpWebServer:
         if self._overleaf_waiting != was_waiting:
             await self.broadcast({"type": "overleaf_waiting", "count": self._overleaf_waiting})
         return counts
+
+    def _rehighlight_on_overleaf(self, comment: Comment, entry: dict[str, Any]) -> None:
+        """A thread Overleaf keeps on no words, its words having been deleted there, is put
+        back on the words it has here: here it keeps a place, there its highlight is gone.
+        Overleaf moves a thread it already has onto the words a comment edit names. Once for
+        the same words, and after this reading, since the edit goes through the sync."""
+        thread = str(entry.get("thread_id", ""))
+        sent = self._overleaf_rehighlighted
+        if str(entry.get("anchored_text") or "").strip():
+            sent.pop(thread, None)
+            return
+        live, source = self.overleaf_live, comment.resolved_source
+        if live is None or source is None or comment.status != "open" or not thread:
+            return
+        words = (read_anchored_source(self.watch_dir, comment) or "").strip()
+        if not words or sent.get(thread) == words:
+            return
+        sent[thread] = words
+
+        async def nothing() -> None:
+            return None
+
+        async def put() -> None:
+            try:
+                refused = await live.comment(source.file, words, source.line_start, thread, nothing)
+            except Exception as error:      # a lost connection: the next reading tries again
+                refused = str(error)
+            if refused is not None:
+                sent.pop(thread, None)
+                logger.info("Overleaf thread %s not put back on its words: %s", thread, refused)
+
+        task = asyncio.get_running_loop().create_task(put())
+        self._overleaf_rehighlight_tasks.add(task)
+        task.add_done_callback(self._overleaf_rehighlight_tasks.discard)
 
     async def _place_overleaf_comment(self, comment: Comment, known: dict[str, Any], entry: dict[str, Any]) -> None:
         """Keep an open comment from Overleaf where Overleaf has it. One on words here moves

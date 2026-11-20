@@ -4214,3 +4214,38 @@ async def test_with_overleaf_picked_a_coauthor_asks_the_agent_only_in_a_picked_t
         assert (await client.post("/review-request")).status == 200
     finally:
         await client.close()
+
+
+@pytest.mark.asyncio
+async def test_a_thread_left_on_no_words_on_overleaf_is_put_back_on_its_words(project):
+    """Overleaf keeps a thread whose words were deleted on no words, and its highlight is
+    gone there; the reading puts it back on the words it has here, once for the same words,
+    and tries again after Overleaf refuses."""
+    from tex_mcp_web.comments import ResolvedSource, SourceRangeAnchor
+    from tex_mcp_web.config import load_config
+    from tex_mcp_web.server import TexMcpWebServer
+
+    server = TexMcpWebServer(load_config(project / ".tex-mcp-web.yaml"))
+    comment = server.comments.add(SourceRangeAnchor("paper.tex", 5, 5), "Cite more?", name="Ann",
+                                  resolved_source=ResolvedSource("paper.tex", 5, 5))
+    puts, answers = [], [None, "refused", None]
+
+    class Live:
+        async def comment(self, path, words, line, thread, opened):
+            puts.append((path, words, line, thread))
+            return answers[len(puts) - 1]
+
+    server.overleaf_live = Live()
+
+    async def read(anchored: str) -> None:
+        server._rehighlight_on_overleaf(server.comments.get(comment.id), {"thread_id": "t1", "anchored_text": anchored})
+        await asyncio.gather(*server._overleaf_rehighlight_tasks)
+
+    await read("")
+    assert puts == [("paper.tex", "Some prose with \\cite{ref1}.", 5, "t1")]
+    await read("")                      # the same words: not again
+    assert len(puts) == 1
+    await read("Some prose")            # on words again on Overleaf: forgotten
+    await read("")
+    await read("")                      # refused above, so tried once more
+    assert len(puts) == 3
