@@ -319,6 +319,26 @@ class TestGuidelines:
         with pytest.raises(FileNotFoundError):
             get_guideline_files(Config(main="main.tex", guideline="nowhere"))
 
+    def test_a_guideline_may_be_a_claude_skill(self, tmp_path, monkeypatch):
+        """A skill's SKILL.md, linked in as a guideline, opens with its name and description;
+        those keys are left alone, and extends still names the one it adds to."""
+        from tex_mcp_web.config import get_guideline_files
+
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "home"))
+        skill = tmp_path / "skills" / "paper-writing"
+        skill.mkdir(parents=True)
+        (skill / "SKILL.md").write_text("---\nname: paper-writing\ndescription: Write papers.\n---\n# Rules\n",
+                                        encoding="utf-8", newline="")
+        mine = tmp_path / "home" / "tex-mcp-web" / "guidelines" / "paper-writing"
+        mine.mkdir(parents=True)
+        (mine / "GUIDELINE.md").symlink_to(skill / "SKILL.md")
+        files = get_guideline_files(Config(main="main.tex", guideline="paper-writing"))
+        assert [path.parent.name for path in files] == ["paper-writing"]
+        (mine / "GUIDELINE.md").unlink()
+        (mine / "GUIDELINE.md").write_text("---\n- a list\n---\n", encoding="utf-8", newline="")
+        with pytest.raises(ValueError, match="keys and values"):
+            get_guideline_files(Config(main="main.tex", guideline="paper-writing"))
+
     def test_a_guideline_name_is_a_folder_name(self, tmp_path):
         config = tmp_path / ".tex-mcp-web.yaml"
         config.write_text("main: main.tex\nguideline: ../elsewhere\n", encoding="utf-8", newline="")

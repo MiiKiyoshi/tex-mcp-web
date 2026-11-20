@@ -415,8 +415,10 @@ def _extended_name(path: Path) -> str | None:
     if end < 0:
         raise ValueError(f"{path}: front matter has no closing ---")
     front = yaml.safe_load(text[4:end]) or {}
-    if not isinstance(front, dict) or set(front) - {"extends"}:
-        raise ValueError(f"{path}: front matter takes only extends")
+    # A Claude skill's SKILL.md opens with its own name and description, and a guideline
+    # folder may hold a link to one: keys other than extends are left alone.
+    if not isinstance(front, dict):
+        raise ValueError(f"{path}: front matter must be keys and values")
     name = front.get("extends")
     if name is not None and not (isinstance(name, str) and re.fullmatch(r"[A-Za-z0-9_-]+", name)):
         raise ValueError(f"{path}: extends must name a guideline folder")
