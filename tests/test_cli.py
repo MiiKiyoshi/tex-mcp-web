@@ -372,3 +372,27 @@ def test_a_log_that_goes_to_a_file_is_utf8_whatever_the_systems_encoding() -> No
     done = subprocess.run([sys.executable, "-c", code], capture_output=True,
                           env={**os.environ, "PYTHONIOENCODING": "cp949", "PYTHONUTF8": "0"}, check=True)
     assert "café 한글" in done.stderr.decode("utf-8")
+
+
+def test_terms_builds_the_term_list_and_prints_what_to_read(project_dir, capsys, monkeypatch):
+    """What an agent runs when it is about to edit the paper and has no guide() to call: the
+    files guide() lists, in its order, the writing guideline first."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(project_dir / "home"))
+    (project_dir / "refs").mkdir()
+    (project_dir / "refs" / "a.md").write_text("# A\n\nThe light curve and the light curve.\n", encoding="utf-8")
+    guide = project_dir / "home" / "tex-mcp-web" / "guidelines" / "plain" / "GUIDELINE.md"
+    guide.parent.mkdir(parents=True)
+    guide.write_text("# How to write\n", encoding="utf-8")
+    (project_dir / ".tex-mcp-web.yaml").write_text(
+        "main: main.tex\nreferences: refs\nguideline: plain\n", encoding="utf-8")
+    assert main(["terms"]) == 0
+    terms = project_dir / ".tex-mcp-web" / "terms.md"
+    assert terms.is_file()
+    assert capsys.readouterr().out.split() == [str(guide), str(terms)]
+
+
+def test_terms_refuses_a_missing_guideline(project_dir, capsys, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(project_dir / "home"))
+    (project_dir / ".tex-mcp-web.yaml").write_text("main: main.tex\nguideline: nope\n", encoding="utf-8")
+    assert main(["terms"]) == 1
+    assert "nope" in capsys.readouterr().err

@@ -19,6 +19,11 @@ checked is that the Read calls returned the whole files, not that they were unde
   before-tool    PreToolUse on tex-mcp's tools: refuse one other than guide(), setup_info() and
                  image()
                  while this context has not read the files.
+  before-edit    PreToolUse on Edit, Write, MultiEdit and NotebookEdit: refuse a change to a
+                 .tex or .bib file of a project while this context has not read the files
+                 guide() would list, so an agent that edits the paper itself, without calling
+                 guide(), still reads them. Its record is kept apart from guide()'s, so it
+                 does not open tex-mcp's tools.
 
 A project is a folder holding .tex-mcp-web.yaml, found from the working folder upward. The
 script needs only the standard library, since it runs outside the server's environment.
@@ -46,6 +51,11 @@ REMINDER = ("tex-mcp: before using tex-mcp tools in this context, call guide() a
             "handle it without asking first.")
 NO_GUIDE = ("guide() has not succeeded in this context. Call it, then use Read without offset or "
             "limit for every file in its read list. Read each file in full before retrying this call.")
+MISSING_TERMS = ("The term list {terms} has not been built. Run `tex-mcp-web terms` in {project}, "
+                 "or call guide(), then read it in full before retrying this edit.")
+MISSING_GUIDES = "These writing guidelines named in {config} are not there: {files}. Fix the path first."
+SOURCES = (".tex", ".bib")
+EDIT = "edit:"
 UNREAD = ("The required Read calls have not been recorded for these files in this context: "
           "{files}. Use Read without offset or limit for each file, and read its full contents "
           "before retrying this call.")
@@ -56,6 +66,59 @@ def project_of(start: Path) -> Path | None:
         if (folder / CONFIG).is_file():
             return folder
     return None
+
+
+def settings(project: Path) -> dict[str, object]:
+    """dir, references and guideline from a configuration, read with the standard library: a
+    top-level key holds one value or the list of items under it."""
+    found: dict[str, object] = {}
+    key = None
+    for line in (project / CONFIG).read_text(encoding="utf-8").splitlines():
+        text = line.split(" #", 1)[0].rstrip()
+        if not text.strip() or text.lstrip().startswith("#"):
+            continue
+        if text.lstrip().startswith("- ") and key is not None:
+            found.setdefault(key, [])
+            if isinstance(found[key], list):
+                found[key].append(text.lstrip()[2:].strip().strip("'\""))
+        elif not text[0].isspace() and ":" in text:
+            key, value = (part.strip() for part in text.split(":", 1))
+            if value:
+                found[key] = value.strip("'\"")
+    return found
+
+
+def guideline_files(name: str) -> list[Path]:
+    """The guideline a project names and every one it extends, base first, as guide() lists
+    them: a folder under the user's guidelines folder, whose GUIDELINE.md may open with front
+    matter holding extends: <name>."""
+    root = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "tex-mcp-web" / "guidelines"
+    files: list[Path] = []
+    while name and len(files) < 20:
+        path = (root / name / "GUIDELINE.md").resolve()
+        if path in files:
+            break
+        files.insert(0, path)
+        name = ""
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            break
+        if text.startswith("---\n") and (end := text.find("\n---\n", 3)) >= 0:
+            for line in text[4:end].splitlines():
+                if line.startswith("extends:"):
+                    name = line.split(":", 1)[1].strip().strip("'\"")
+    return files
+
+
+def required(project: Path) -> tuple[Path, list[Path], list[Path]]:
+    """The folder the project watches, and the files guide() would list for it: its term list
+    when it sets references, and its writing guideline with those it extends."""
+    found = settings(project)
+    watched = (project / str(found.get("dir") or ".")).resolve()
+    terms = [project.resolve() / ".tex-mcp-web" / "terms.md"] if found.get("references") else []
+    name = found.get("guideline")
+    return watched, terms, guideline_files(name) if isinstance(name, str) else []
 
 
 def record_of(event: dict) -> Path:
@@ -161,7 +224,7 @@ def before_tool(event: dict) -> None:
     what its tools need."""
     if event["tool_name"].rsplit("__", 1)[-1] in OPEN_TOOLS:
         return
-    projects = unread(event)
+    projects = {project: files for project, files in unread(event).items() if not project.startswith(EDIT)}
     files = sorted({file for listed in projects.values() for file in listed})
     if not projects:
         reason = NO_GUIDE
@@ -173,7 +236,44 @@ def before_tool(event: dict) -> None:
         "hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}}))
 
 
+def deny(reason: str) -> None:
+    print(json.dumps({"hookSpecificOutput": {
+        "hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}}))
+
+
+def before_edit(event: dict) -> None:
+    """The project of a file is the one found from its folder upward, or else the one found
+    from the working folder, whose dir may point at a paper kept elsewhere; either way the file
+    has to lie in the folder that project watches."""
+    request = event.get("tool_input") or {}
+    target = request.get("file_path") or request.get("notebook_path") or ""
+    if not target.endswith(SOURCES):
+        return
+    path = Path(os.path.realpath(Path(event["cwd"]) / target))
+    for project in dict.fromkeys(p for p in (project_of(path.parent), project_of(Path(event["cwd"]))) if p):
+        watched, terms, guides = required(project)
+        if watched == path or watched in path.parents:
+            break
+    else:
+        return
+    missing = [guide for guide in guides if not guide.is_file()]
+    reasons = [MISSING_GUIDES.format(config=project / CONFIG, files=", ".join(map(str, missing)))] if missing else []
+    if terms and not terms[0].is_file():
+        reasons.insert(0, MISSING_TERMS.format(terms=terms[0], project=project))
+    key = EDIT + str(project)
+    with held(event):
+        projects = unread(event)
+        if key not in projects:
+            projects[key] = sorted(os.path.realpath(file) for file in terms + guides)
+            keep(event, projects)
+    files = [file for file in projects[key] if Path(file).is_file()]
+    if files:
+        reasons.append(UNREAD.format(files=", ".join(files)).replace("this call", "this edit"))
+    if reasons:
+        deny(" ".join(reasons))
+
+
 if __name__ == "__main__":
     hooks = {"session-start": session_start, "guide-read": guide_read, "file-read": file_read,
-             "before-tool": before_tool}
+             "before-tool": before_tool, "before-edit": before_edit}
     hooks[sys.argv[1]](json.load(sys.stdin))

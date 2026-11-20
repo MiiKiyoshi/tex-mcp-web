@@ -7,6 +7,7 @@ Subcommands:
     config     get/set values in .tex-mcp-web.yaml
     compile    one-shot compile, print structured errors
     goto       scroll a running viewer
+    terms      build the term list and print the files to read before editing
     mcp        run the MCP server (stdio transport) and serve the viewer
 
 Comment management lives in the browser (for humans) and the MCP tools
@@ -294,6 +295,29 @@ def _compile_result_dict(result) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# terms
+# ---------------------------------------------------------------------------
+
+
+def cmd_terms(args: argparse.Namespace) -> int:
+    """What guide() answers, for an agent that edits the paper without tex-mcp's tools."""
+    from .config import get_guideline_files
+    from .terms import refresh
+
+    cfg = load_config()
+    try:
+        guides = get_guideline_files(cfg)
+    except (OSError, ValueError) as error:
+        print(str(error), file=sys.stderr)
+        return 1
+    terms = refresh(cfg)
+    # The same list, in the same order, as guide() answers.
+    for path in guides + ([] if terms is None else [terms]):
+        print(path)
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # goto (requires running daemon)
 # ---------------------------------------------------------------------------
 
@@ -387,6 +411,9 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("goto", help="scroll a running viewer")
     p.add_argument("target", help="section title, line number, file:line, or pN")
     p.set_defaults(func=cmd_goto)
+
+    p = sub.add_parser("terms", help="build the term list and print the files to read before editing")
+    p.set_defaults(func=cmd_terms)
 
     p = sub.add_parser("mcp", help="run the MCP server (stdio); serves the viewer too")
     p.add_argument("--check", action="store_true",
