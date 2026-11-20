@@ -615,7 +615,8 @@ class Comment:
         """The original comment text (first thread entry)."""
         return self.thread[0].text if self.thread else ""
 
-    def waiting(self, after: datetime | None = None, on_overleaf: bool = False) -> list[ThreadEntry]:
+    def waiting(self, after: datetime | None = None, on_overleaf: bool = False,
+                overleaf_words: bool = True) -> list[ThreadEntry]:
         """The entries that wait for the agent: those asking it that came after the last
         answer the thread has, an entry the agent wrote or a reply sent to Overleaf, and
         after the draft the agent put up for Overleaf, which answers what came before it.
@@ -627,7 +628,9 @@ class Comment:
         written after that moment, and with it the record of a suggestion applied, or of a
         suggestion or a draft rejected, is among them on any thread: it asks nothing, and
         the agent hears once what became of what it put up. A hidden thread is set aside, as
-        an archived one is, and waits for nothing."""
+        an archived one is, and waits for nothing. Without *overleaf_words*, what was written
+        on Overleaf waits for nothing on a thread from there, and only the reviewer's words
+        on the page do."""
         if self.hidden is not None:
             return []
         answered = max((position for position, entry in enumerate(self.thread) if entry.author == "agent"), default=-1)
@@ -643,7 +646,8 @@ class Comment:
                     or entry.rejected and after is not None)
                 and (sent is None or _moment(entry.at) > sent)
                 and (drafted is None or _moment(entry.at) >= drafted)
-                and (after is None or _moment(entry.at) > after)]
+                and (after is None or _moment(entry.at) > after)
+                and (overleaf_words or not on_overleaf or entry.name is None)]
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {

@@ -4159,3 +4159,58 @@ def test_the_waiter_ends_when_no_one_reads_it_and_does_not_take_the_press(tmp_pa
         assert acked == []
     finally:
         server.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_with_overleaf_picked_a_coauthor_asks_the_agent_only_in_a_picked_thread(bound_project, project):
+    """With overleaf_picked, what a coauthor writes on Overleaf reaches the agent only in a
+    thread the reviewer picked at the press, whole and once; what the reviewer writes on the
+    page goes as always, and the wake-up line counts the same way."""
+    pytest.importorskip("mcp")
+    from aiohttp.test_utils import TestClient, TestServer
+
+    from tex_mcp_web import overleaf
+    from tex_mcp_web.comments import CommentStore, PaperAnchor
+    from tex_mcp_web.config import load_config
+    from tex_mcp_web.mcp_server import create_server
+    from tex_mcp_web.server import TexMcpWebServer
+
+    config = project / ".tex-mcp-web.yaml"
+    config.write_text(config.read_text(encoding="utf-8")
+                      + "overleaf: https://www.overleaf.com/project/0123456789abcdef01234567\n"
+                      + "overleaf_picked: true\n", encoding="utf-8", newline="")
+    mcp = create_server(bound_project)
+
+    async def new() -> dict[str, list[str]]:
+        told = json.loads((await mcp.call_tool("read_comments", {"new": True}))[0].text)["comments"]
+        return {c["id"]: [e["text"] for e in c["entries"]] for c in told}
+
+    store = CommentStore(project / ".tex-mcp-web" / "comments.json")
+    asked = store.add(PaperAnchor(), "Which words?", name="Ann")
+    other = store.add(PaperAnchor(), "Is this right?", name="Bo")
+    overleaf.ledger_path(project).write_text(json.dumps({
+        "t1": {"comment": asked.id, "messages": 1}, "t2": {"comment": other.id, "messages": 1}}),
+        encoding="utf-8", newline="")
+    server = TexMcpWebServer(load_config(config))
+    client = TestClient(TestServer(server.app))
+    await client.start_server()
+    try:
+        assert server.config.overleaf_picked
+        assert "no new comments" in server._review_line()
+        assert await new() == {}
+        # The reviewer's own word in a thread from Overleaf goes alone.
+        store.reply(other.id, "Check the units here.", author="human")
+        assert "1 new comments" in server._review_line()
+        assert await new() == {other.id: ["Check the units here."]}
+        # A pick carries the thread whole, with what was carried before, and once.
+        response = await client.post("/review-request", json={"picked": [asked.id, "c-unknown"]})
+        assert response.status == 200
+        assert overleaf.picked(project) == {asked.id}
+        assert "1 new comments" in server._review_line()
+        assert await new() == {asked.id: ["Which words?"]}
+        assert overleaf.picked(project) == set()
+        assert await new() == {}
+        # A press with no body still calls.
+        assert (await client.post("/review-request")).status == 200
+    finally:
+        await client.close()

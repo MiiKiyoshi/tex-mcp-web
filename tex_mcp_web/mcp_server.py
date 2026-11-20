@@ -763,6 +763,12 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
             edge = moment if moment is not None else cursor_moment(watch_dir)
             fresh, latest = [], previous
             brought = _on_overleaf(watch_dir)
+            from . import overleaf as _overleaf
+
+            # With overleaf_picked, a thread from Overleaf asks with its Overleaf words only
+            # when the reviewer picked it at the press, and then whole and once.
+            chosen = _overleaf.picked(watch_dir) if cfg.overleaf_picked else set()
+            carried: set[str] = set()
             # Open threads only. A resolved or archived one is not where a new request
             # arrives; the reviewer reopens it first, and it comes back open.
             for comment in store.list(status="open"):
@@ -770,7 +776,11 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                 # before; the thread's last answer says what has been taken up already.
                 # Asked for the first time there is no cursor, and the second half alone
                 # is what keeps that call off the whole history.
-                said = comment.waiting(edge, comment.id in brought)
+                if comment.id in chosen:
+                    said = comment.waiting(None, True)
+                    carried.add(comment.id)
+                else:
+                    said = comment.waiting(edge, comment.id in brought, not cfg.overleaf_picked)
                 if not said:
                     continue
                 told = {"id": comment.id, "rev": revision_of(comment.updated),
@@ -797,6 +807,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                 newest = max((entry.at for entry in said), key=_moment)
                 # Moments, not their spelling: one written with another offset sorts wrong as text.
                 latest = newest if latest is None or _moment(newest) > _moment(latest) else latest
+            _overleaf.carried(watch_dir, carried)
             if latest is None:
                 # A quiet first call still fixes where the next one starts.
                 latest = datetime.now(timezone.utc).isoformat()

@@ -62,6 +62,9 @@ class Config:
             {command: ...}``. Unset means the one in the user's own config file, if any:
             see translation_command().
         overleaf_sync: Keep the paper's files and that project's the same, both ways.
+        overleaf_picked: Call agent carries what was written on Overleaf only in the threads
+            the reviewer picked for that press; what the reviewer writes on the page goes
+            as always. Off means every thread from Overleaf asks the agent.
         overleaf: The paper's Overleaf project, by its link, whose comments the page
             brings in with the reviewer's own session cookie. Unset means none.
         overleaf_add: Glob patterns for the files only here that Send adds to the project,
@@ -86,6 +89,7 @@ class Config:
     translation_command: list[str] | None = None
     overleaf: str | None = None
     overleaf_sync: bool = False
+    overleaf_picked: bool = False
     overleaf_add: list[str] = field(default_factory=lambda: list(DEFAULT_OVERLEAF_ADD))
     page_token: bool = False
     update_check: bool = True
@@ -108,6 +112,7 @@ class Config:
             translation_command=_translation(data).get("command"),
             overleaf=_overleaf(data),
             overleaf_sync=_overleaf_flag(data, "overleaf_sync"),
+            overleaf_picked=_overleaf_flag(data, "overleaf_picked"),
             overleaf_add=_patterns(data, "overleaf_add", DEFAULT_OVERLEAF_ADD),
             page_token=_switch(data, "page_token"),
             update_check=_switch(data, "update_check", True),
@@ -139,6 +144,8 @@ class Config:
             d["overleaf"] = self.overleaf
         if self.overleaf_sync:
             d["overleaf_sync"] = True
+        if self.overleaf_picked:
+            d["overleaf_picked"] = True
         if self.overleaf_add != list(DEFAULT_OVERLEAF_ADD):
             d["overleaf_add"] = self.overleaf_add
         if self.page_token:

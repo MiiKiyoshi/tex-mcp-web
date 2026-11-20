@@ -5217,7 +5217,12 @@ async function callAgent() {
   const word = $("#call-agent-word");
   button.disabled = true;
   try {
-    const response = await fetch("/review-request", { method: "POST" });
+    // The picked comments go with the press: with overleaf_picked, a thread from Overleaf
+    // reaches the agent with its Overleaf words only when picked.
+    const response = await fetch("/review-request", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ picked: [...state.picked] }),
+    });
     if (!response.ok) throw new Error(await responseError(response));
     const reply = await response.json();
     // Delivered went straight to a parked agent; queued is kept by the server and

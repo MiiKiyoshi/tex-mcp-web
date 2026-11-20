@@ -63,6 +63,43 @@ def ledger(watch_dir: Path) -> dict[str, dict[str, Any]]:
         return {}
 
 
+def picked_path(watch_dir: Path) -> Path:
+    """The threads from Overleaf the reviewer picked at a Call agent press, not yet carried."""
+    return watch_dir / ".tex-mcp-web" / "overleaf-picked.json"
+
+
+def picked(watch_dir: Path) -> set[str]:
+    try:
+        return {str(one) for one in json.loads(shared_file.read_text(picked_path(watch_dir)))}
+    except (OSError, ValueError, TypeError):
+        return set()
+
+
+def _save_picked(watch_dir: Path, ids: set[str]) -> None:
+    path = picked_path(watch_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    staging = path.with_name(path.name + ".new")
+    staging.write_text(json.dumps(sorted(ids)), encoding="utf-8", newline="")
+    shared_file.replace(staging, path)
+
+
+def pick(watch_dir: Path, ids: Any) -> set[str]:
+    """Note which of the comments picked at a press came from Overleaf: those threads are
+    carried whole at the agent's next read, once."""
+    brought = {known.get("comment") for known in ledger(watch_dir).values()}
+    chosen = {str(one) for one in ids or [] if str(one) in brought}
+    if chosen:
+        _save_picked(watch_dir, picked(watch_dir) | chosen)
+    return chosen
+
+
+def carried(watch_dir: Path, ids: set[str]) -> None:
+    """The agent has been told these picked threads: a pick carries a thread once."""
+    left = picked(watch_dir)
+    if left & ids:
+        _save_picked(watch_dir, left - ids)
+
+
 def cookie_path() -> Path:
     """Where the reviewer's cookie is kept: their config folder, one for every paper."""
     from .config import user_config_dir

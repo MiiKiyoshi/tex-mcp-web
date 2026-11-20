@@ -1308,7 +1308,10 @@ class TexMcpWebServer:
 
         edge = cursor_moment(self.watch_dir)
         brought = _on_overleaf(self.watch_dir)
-        waiting = sum(bool(comment.waiting(edge, comment.id in brought)) for comment in self.comments.list(status="open"))
+        chosen = overleaf.picked(self.watch_dir) if self.config.overleaf_picked else set()
+        waiting = sum(bool(comment.waiting(None, True) if comment.id in chosen
+                           else comment.waiting(edge, comment.id in brought, not self.config.overleaf_picked))
+                      for comment in self.comments.list(status="open"))
         return (f"[review] reviewer called (press #{self.review_calls}): "
                 + (f"{waiting} new comments" if waiting else "no new comments")
                 + " -- read them with read_comments(new=True)")
@@ -2070,6 +2073,12 @@ class TexMcpWebServer:
         return psutil.pid_exists(self.review_listener_pid)
 
     async def _handle_review_request(self, request: web.Request) -> web.Response:
+        if self.config.overleaf_picked and request.can_read_body:
+            # The threads from Overleaf picked on the page go with the press.
+            try:
+                overleaf.pick(self.watch_dir, (await request.json()).get("picked"))
+            except (ValueError, AttributeError):
+                pass
         self.review_calls += 1
         self._save_review_state()
         delivered = self.review_waiters > 0
