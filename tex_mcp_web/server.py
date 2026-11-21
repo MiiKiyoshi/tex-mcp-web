@@ -833,8 +833,8 @@ class TexMcpWebServer:
         if self.watcher is not None:
             self.watcher.update_patterns(config.watch, config.ignore)
             self.watcher.set_roots(self.source_roots())
-        await self.broadcast({"type": "config_reloaded"})
         await self.broadcast({"type": "lanes", "lanes": self._lanes()})
+        await self.broadcast({"type": "config_reloaded"})
         await self._sync_overleaf_live()
         # A new main file or compiler makes a different PDF, which the page would
         # otherwise go on showing the old one of.
