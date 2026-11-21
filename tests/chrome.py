@@ -106,8 +106,13 @@ class Chrome:
     def __init__(self, downloads: Path | None = None, touch: bool = False):
         options = webdriver.ChromeOptions()
         options.binary_location = binary()
+        environment = dict(os.environ)
         if os.environ.get("TEX_MCP_BROWSER") != "headed":
             options.add_argument("--headless=new")
+            # A headless Chrome still connects to the display it is given. Over ssh with X
+            # forwarding that display is the far machine's, which prints a refusal for each try.
+            for name in ("DISPLAY", "WAYLAND_DISPLAY"):
+                environment.pop(name, None)
         # A container has no user namespace for Chrome's sandbox, and its /dev/shm is small.
         for flag in ("--no-sandbox", "--disable-dev-shm-usage", "--window-size=1500,1000",
                      "--force-device-scale-factor=1", "--hide-scrollbars"):
@@ -117,7 +122,7 @@ class Chrome:
             options.add_experimental_option("prefs", {
                 "download.default_directory": str(downloads), "download.prompt_for_download": False,
                 "plugins.always_open_pdf_externally": True})
-        self.driver = webdriver.Chrome(options=options)
+        self.driver = webdriver.Chrome(options=options, service=webdriver.ChromeService(env=environment))
         self.driver.set_script_timeout(60)
         # The tests are written for a light system. A machine set to dark, whose setting
         # reaches headless Chrome, would otherwise turn System to dark.
