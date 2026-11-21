@@ -117,7 +117,7 @@ class Config:
             translation_command=_translation(data).get("command"),
             overleaf=_overleaf(data),
             overleaf_sync=_overleaf_flag(data, "overleaf_sync"),
-            overleaf_picked=_overleaf_flag(data, "overleaf_picked"),
+            overleaf_picked=_switch(data, "overleaf_picked"),
             overleaf_add=_patterns(data, "overleaf_add", DEFAULT_OVERLEAF_ADD),
             page_token=_switch(data, "page_token"),
             update_check=_switch(data, "update_check", True),

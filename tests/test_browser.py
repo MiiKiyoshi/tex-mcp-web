@@ -507,8 +507,7 @@ def test_the_bell_calls_an_agent_the_configuration_names(tmp_path: Path) -> None
     stays one line however narrow the panel."""
     port = available_port()
     config_path = tmp_path / ".tex-mcp-web.yaml"
-    config_path.write_text(f"main: paper.tex\nport: {port}\nagents:\n  second:\n    models: [small, large]\n"
-                           "    efforts: [low, high]\n  third:\n", encoding="utf-8")
+    config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
     (tmp_path / "paper.tex").write_text(
         "\\documentclass{article}\n\\begin{document}\nTea.\n\\end{document}\n", encoding="utf-8")
     shared = SharedProjectServer(load_config(config_path))
@@ -524,6 +523,15 @@ def test_the_bell_calls_an_agent_the_configuration_names(tmp_path: Path) -> None
             const box = document.querySelector(id);
             return !box.classList.contains("hidden") ? [...box.options].map((option) => option.textContent).join() + "=" + box.value : null;
           });""")
+        # Without agents there is no choice beside the bell. Naming them in the configuration
+        # while the page is open brings it, and the state another version kept for an agent
+        # of the same name is left alone.
+        wait_until(lambda: browser.execute_script('return document.querySelector("#call-agent-btn").offsetWidth > 0'))
+        assert shown() == [None, None, None]
+        (tmp_path / ".tex-mcp-web").mkdir(exist_ok=True)
+        (tmp_path / ".tex-mcp-web" / "review-state-second.json").write_text('{"calls": 1, "consumed": 1}', encoding="utf-8")
+        config_path.write_text(f"main: paper.tex\nport: {port}\nagents:\n  second:\n    models: [small, large]\n"
+                               "    efforts: [low, high]\n  third:\n", encoding="utf-8")
         # The page starts on the session listening, which has no model to pick.
         wait_until(lambda: shown() == ["Agent,Second,Third=", None, None])
         pick = lambda box, value: browser.execute_script(
@@ -579,7 +587,7 @@ def test_the_bell_calls_an_agent_the_configuration_names(tmp_path: Path) -> None
                 'return document.querySelector("#call-agent-word").textContent === "Called"'))
             assert waiter.result(timeout=10).endswith(b"[model=large effort=low]")
         kept = tmp_path / ".tex-mcp-web"
-        assert json.loads((kept / "review-state-second.json").read_text(encoding="utf-8"))["calls"] == 1
+        assert json.loads((kept / "review-lane-second.json").read_text(encoding="utf-8"))["calls"] == 1
         assert not (kept / "review-state.json").exists()
     finally:
         if browser is not None:

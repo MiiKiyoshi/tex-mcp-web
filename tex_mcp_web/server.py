@@ -834,6 +834,7 @@ class TexMcpWebServer:
             self.watcher.update_patterns(config.watch, config.ignore)
             self.watcher.set_roots(self.source_roots())
         await self.broadcast({"type": "config_reloaded"})
+        await self.broadcast({"type": "lanes", "lanes": self._lanes()})
         await self._sync_overleaf_live()
         # A new main file or compiler makes a different PDF, which the page would
         # otherwise go on showing the old one of.
@@ -1333,7 +1334,7 @@ class TexMcpWebServer:
         if name not in self.config.agents:
             raise web.HTTPNotFound(text=f"agents in {DEFAULT_CONFIG_NAME} names no {name}")
         if name not in self.lanes:
-            self.lanes[name] = Lane(name, self.watch_dir / ".tex-mcp-web" / f"review-state-{name}.json")
+            self.lanes[name] = Lane(name, self.watch_dir / ".tex-mcp-web" / f"review-lane-{name}.json")
         return self.lanes[name]
 
     def _lanes(self) -> dict[str, dict[str, Any]]:
