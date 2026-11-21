@@ -194,3 +194,35 @@ def test_a_missing_term_list_or_guideline_says_how_to_get_it(tmp_path: Path, run
     source.write_text("x\n", encoding="utf-8")
     refused = reason(run("before-edit", edit("s1", root, source, "Write")))
     assert "tex-mcp-web terms" in refused and "nope" in refused
+
+
+@pytest.mark.parametrize("written", [
+    "main: main.tex\ndir: ../papers/p1\nreferences: refs\nguideline: mine\n",
+    "main: 'main.tex'\ndir: \"../papers/p1\"  # where the paper is\nreferences: 'refs'\nguideline: \"mine\"\n",
+    "# a paper\nwatch:\n  - '*.tex'\n  - dir: no\nmain: main.tex\n\ndir:   ../papers/p1\nreferences: refs # papers\nguideline: mine\n",
+    "main: main.tex\noverleaf_add: ['*.tex']\ntranslation:\n  language: Korean\n  dir: elsewhere\n",
+    "main: main.tex\nreferences:\nguideline:\n",
+])
+def test_the_gate_reads_a_configuration_as_the_server_does(tmp_path: Path, monkeypatch, written: str) -> None:
+    """The gate runs outside the server's environment and reads the configuration without its
+    YAML reader: the paper's folder, whether there are references and the guideline it finds
+    are the ones the server finds."""
+    import importlib.util
+
+    from tex_mcp_web.config import get_guideline_files, get_references_dir, get_watch_dir, load_config
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    guide = tmp_path / "config" / "tex-mcp-web" / "guidelines" / "mine" / "GUIDELINE.md"
+    guide.parent.mkdir(parents=True)
+    guide.write_text("# How to write\n", encoding="utf-8")
+    work = tmp_path / "work"
+    work.mkdir()
+    (work / ".tex-mcp-web.yaml").write_text(written, encoding="utf-8")
+    spec = importlib.util.spec_from_file_location("guide_gate", GATE)
+    gate = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gate)
+    config = load_config(work / ".tex-mcp-web.yaml")
+    watched, terms, guides = gate.required(work)
+    assert watched == get_watch_dir(config)
+    assert bool(terms) is (get_references_dir(config) is not None)
+    assert guides == get_guideline_files(config)

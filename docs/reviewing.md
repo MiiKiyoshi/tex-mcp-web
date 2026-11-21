@@ -312,6 +312,28 @@ while another one is listening leaves the presses to it, and `do tex listen` in 
 moves them to that session. When the session serving the page ends, the page stops too, and
 the next session that uses a tex tool serves it again and listens.
 
+### Calling a second agent
+
+To have a second agent answer on the same paper, name it under `agents` in
+`.tex-mcp-web.yaml`:
+
+```yaml
+agents:
+  gemini:
+    clients: [gemini, antigravity]
+    efforts: [low, medium, high]
+```
+
+A choice then appears beside the bell: **Agent**, the session that is listening, and each
+agent you named. The bell is green when the agent you chose is waiting, and a press reaches
+that agent alone. A client whose name contains one of `clients` waits as that agent when it
+is asked to listen. `clients` defaults to the agent's own name. `models` and `efforts` are
+optional lists. When an agent has them, you choose one of each beside the bell, and the agent
+is told your choice with the press, to pass on to the work it starts.
+
+Such an agent waits with a command that ends after one press, for a client whose shell runs
+a command to its end, and starts it again after it has answered.
+
 ## Opening the page from another device
 
 <picture>

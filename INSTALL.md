@@ -82,7 +82,9 @@ Perl too.
 
 For Claude Code, also install the plugin from the checkout. The plugin blocks tex-mcp's tools
 other than `guide()`, `setup_info()` and `image()` until the current context has read the
-files that `guide()` lists, and does so again after each compaction. Its monitor makes a
+files that `guide()` lists, and does so again after each compaction. It blocks an edit of a
+`.tex` or `.bib` file of the paper in the same way, so an agent that edits the paper without
+calling `guide()` reads them too, and `tex-mcp-web terms` prints that list. Its monitor makes a
 session started in the paper's folder listen for Call agent for the whole session, unless
 another session already listens to that paper, so a press reaches the agent without a request
 to listen, however long the review page stays idle. The plugin loads from the checkout in

@@ -1,8 +1,9 @@
 """Wait for Call agent presses on the review page and print one line for each.
 
 Run as ``python -m tex_mcp_web.waiter <port> <listener> [--codex <thread>]`` with the
-listener id ``listen()`` gave, or ``<port> - --agent gemini --once`` for Gemini, which waits
-in a lane of its own, names no listener, and ends after the first press it prints. The server keeps the press count and what was taken up, so
+listener id ``listen()`` gave, or ``<port> - --agent <name> --once`` for an agent the
+configuration names, which waits in a lane of its own, names no listener, and ends after the
+first press it prints. The server keeps the press count and what was taken up, so
 the waiter carries no state: a press made before it started answers it at once, and a line
 is acknowledged only after it is printed, so a press is offered until a waiter says it
 landed. A server that goes away is waited for: one [gone] line, then [back] when it answers
@@ -79,7 +80,7 @@ def wait(port: int, listener: str, thread: str | None = None, agent: str | None 
 
 def main(argv: list[str] | None = None) -> None:
     args = list(sys.argv[1:] if argv is None else argv)
-    usage = "usage: python -m tex_mcp_web.waiter <port> <listener> [--codex <thread>] [--agent gemini] [--once]"
+    usage = "usage: python -m tex_mcp_web.waiter <port> <listener> [--codex <thread>] [--agent <name>] [--once]"
     if len(args) < 2:
         raise SystemExit(usage)
     options: dict[str, str | bool] = {}
@@ -92,8 +93,6 @@ def main(argv: list[str] | None = None) -> None:
             options[flag] = True
         else:
             raise SystemExit(usage)
-    if options.get("--agent") not in (None, "gemini"):
-        raise SystemExit(usage)
     try:
         wait(int(args[0]), args[1], options.get("--codex"), options.get("--agent"), bool(options.get("--once")))
     except (OSError, KeyboardInterrupt):

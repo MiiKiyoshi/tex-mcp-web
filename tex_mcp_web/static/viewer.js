@@ -48,9 +48,10 @@ const state = {
   layout: {},
   expanded: new Set(),
   picked: new Set(),
-  // Waiters parked for each agent the bell can call.
-  claudeWaiters: 0,
-  geminiWaiters: 0,
+  // Waiters parked for the session listening, and each agent the configuration names beside
+  // it with its waiters and the models and efforts a press picks from.
+  listeners: 0,
+  lanes: {},
   // The box a pick last started from, so shift can run from it to the next one.
   pickedFrom: null,
   activeForm: null,
@@ -3264,8 +3265,9 @@ function renderPickedActions() {
 // Resolve, Archive and Send stay in the row, which takes two lines only when even that is too
 // wide.
 const ROW_STEPS = [["sort-shrunk"], ["wordless"], ["resolve-wordless"], ["narrow", "#comment-sort-pick"],
+  ["unchosen", "#agent-model-select, #agent-effort-select"],
   ["foldless", "#fold-all-btn"], ["squeezed"], ["unsynced", "#overleaf-sync-comments-btn"],
-  ["uncalled", "#call-agent-select, #gemini-model-select, #gemini-effort-select, #call-agent-btn"], ["leafless"], ["edits-behind", "#accept-picked-btn, #reject-picked-btn"],
+  ["uncalled", "#call-agent-select, #call-agent-btn"], ["leafless"], ["edits-behind", "#accept-picked-btn, #reject-picked-btn"],
   ["hide-behind", "#hide-picked-btn"], ["view-shrunk"], ["wrapped"]];
 
 function fitCommentRow() {
@@ -3278,10 +3280,9 @@ function fitCommentRow() {
   if (fold.nextElementSibling !== $("#comment-rare")) $("#comment-rare").before(fold);
   if (sort.nextElementSibling !== fold) fold.before(sort);
   if (sync.parentElement !== $("#comment-fetch")) $("#comment-fetch").prepend(sync);
-  // The agent the bell calls, and Gemini's model and effort, go where the bell goes.
-  if (call.parentElement !== $("#comment-fetch")) {
-    $("#comment-fetch").append($("#call-agent-select"), $("#gemini-model-select"), $("#gemini-effort-select"), call);
-  }
+  // The agent the bell calls, with its model and effort, goes where the bell goes.
+  const called = [$("#call-agent-select"), $("#agent-model-select"), $("#agent-effort-select"), call];
+  if (called.some((node) => node.parentElement !== $("#comment-fetch"))) $("#comment-fetch").append(...called);
   if (reject.nextElementSibling !== send) send.before(reject);
   if (accept.nextElementSibling !== reject) reject.before(accept);
   row.classList.remove(...ROW_STEPS.map(([step]) => step));
@@ -5168,7 +5169,7 @@ async function handleWebSocketMessage(message) {
       // A build that ended while the page could not hear of it leaves Compile free again.
       state.serverCompiling = Boolean(message.compiling);
       applyCompiling(state.serverCompiling);
-      if (message.gemini_waiters !== undefined) state.geminiWaiters = message.gemini_waiters;
+      if (message.lanes !== undefined) showLanes(message.lanes);
       if (message.review_waiters !== undefined) showAgentWaiting(message.review_waiters);
       // A build that ended after the page first read the paper and before its socket opened
       // left a PDF the page has not shown. A page that reconnects catches up as it opens.
@@ -5177,9 +5178,8 @@ async function handleWebSocketMessage(message) {
     case "review_waiters":
       showAgentWaiting(message.waiters);
       break;
-    case "gemini_waiters":
-      state.geminiWaiters = message.waiters;
-      showAgentWaiting();
+    case "lanes":
+      showLanes(message.lanes);
       break;
     case "goto":
       showGotoTarget(message);
@@ -5198,11 +5198,10 @@ async function handleWebSocketMessage(message) {
 // call until the next waiter connects. A queued call is said above the list until an agent
 // listens, which takes it at once.
 function showAgentWaiting(waiters) {
-  if (waiters !== undefined) state.claudeWaiters = waiters;
-  // The bell shows the agent the reviewer picked, and only the Gemini press carries a model.
-  const gemini = $("#call-agent-select")?.value === "gemini";
-  for (const box of $$(".gemini-only")) box.classList.toggle("hidden", !gemini);
-  const waiting = (gemini ? state.geminiWaiters : state.claudeWaiters) > 0;
+  if (waiters !== undefined) state.listeners = waiters;
+  // The bell shows the agent the reviewer picked.
+  const lane = state.lanes[$("#call-agent-select").value];
+  const waiting = (lane ? lane.waiters : state.listeners) > 0;
   const button = $("#call-agent-btn");
   button.classList.toggle("agent-ready", waiting);
   button.classList.toggle("agent-offline", !waiting);
@@ -5212,6 +5211,41 @@ function showAgentWaiting(waiters) {
     : "No agent is listening. The call will be queued until one connects (Ctrl+Alt+Enter)";
   if (waiting) state.callWaits = false;
   renderCallWaits();
+}
+
+// The agents the configuration names beside the session listening. The choice among them is
+// shown only when there is one to make, and starts on the session listening. A model or an
+// effort is offered for an agent that lists them, the one last picked for it first.
+function showLanes(lanes) {
+  state.lanes = lanes;
+  const pick = $("#call-agent-select");
+  const names = Object.keys(lanes);
+  const picked = names.includes(pick.value) ? pick.value : "";
+  pick.replaceChildren(new Option("Agent", ""), ...names.map((name) => new Option(name[0].toUpperCase() + name.slice(1), name)));
+  pick.value = picked;
+  pick.classList.toggle("hidden", !names.length);
+  showLaneChoice();
+}
+
+const LANE_CHOICES = [["#agent-model-select", "models", "texMcpAgentModel"], ["#agent-effort-select", "efforts", "texMcpAgentEffort"]];
+
+function showLaneChoice() {
+  const name = $("#call-agent-select").value;
+  for (const [id, listed, key] of LANE_CHOICES) {
+    const box = $(id);
+    const words = state.lanes[name]?.[listed] || [];
+    if (box.dataset.lane !== name || [...box.options].map((option) => option.value).join() !== words.join()) {
+      box.replaceChildren(...words.map((word) => new Option(word, word)));
+      box.dataset.lane = name;
+      try {
+        const saved = localStorage.getItem(`${key}:${name}`);
+        if (words.includes(saved)) box.value = saved;
+      } catch { /* storage blocked: the first listed */ }
+    }
+    box.classList.toggle("hidden", !words.length);
+  }
+  showAgentWaiting();
+  fitCommentRow();
 }
 
 // The note about calling the agent, above the list: that a call is queued until an agent
@@ -5227,6 +5261,16 @@ function renderCallWaits() {
   note.hidden = !state.callWaits && !remind;
 }
 
+// What a press for an agent with a lane of its own carries, or null for the session listening.
+function calledLane() {
+  const agent = $("#call-agent-select").value;
+  if (!agent) return null;
+  const press = { agent };
+  if ($("#agent-model-select").value) press.model = $("#agent-model-select").value;
+  if ($("#agent-effort-select").value) press.effort = $("#agent-effort-select").value;
+  return press;
+}
+
 async function callAgent() {
   const button = $("#call-agent-btn");
   const word = $("#call-agent-word");
@@ -5236,9 +5280,7 @@ async function callAgent() {
     // reaches the agent with its Overleaf words only when picked.
     const response = await fetch("/review-request", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify($("#call-agent-select")?.value === "gemini"
-        ? { agent: "gemini", model: $("#gemini-model-select").value, effort: $("#gemini-effort-select").value }
-        : { picked: [...state.picked] }),
+      body: JSON.stringify(calledLane() || { picked: [...state.picked] }),
     });
     if (!response.ok) throw new Error(await responseError(response));
     const reply = await response.json();
@@ -6677,17 +6719,10 @@ async function init() {
     if (!$("#call-agent-btn").disabled) $("#call-agent-btn").click();
   }, true);
   $("#call-agent-btn").addEventListener("click", () => callAgent());
-  // Every page starts on Claude; only the reviewer's own pick calls Gemini, and only here.
-  $("#call-agent-select").value = "claude";
-  $("#call-agent-select").addEventListener("change", () => { showAgentWaiting(); fitCommentRow(); });
-  for (const [id, key] of [["#gemini-model-select", "texMcpGeminiModel"], ["#gemini-effort-select", "texMcpGeminiEffort"]]) {
-    const box = $(id);
-    try {
-      const saved = localStorage.getItem(key);
-      if (saved !== null && [...box.options].some((option) => option.value === saved)) box.value = saved;
-    } catch { /* storage blocked: the defaults */ }
-    box.addEventListener("change", () => {
-      try { localStorage.setItem(key, box.value); } catch { /* not kept */ }
+  $("#call-agent-select").addEventListener("change", showLaneChoice);
+  for (const [id, , key] of LANE_CHOICES) {
+    $(id).addEventListener("change", () => {
+      try { localStorage.setItem(`${key}:${$("#call-agent-select").value}`, $(id).value); } catch { /* not kept */ }
     });
   }
   $("#fold-all-btn").addEventListener("click", foldAll);

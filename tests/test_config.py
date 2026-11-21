@@ -361,3 +361,19 @@ def test_a_windows_path_in_the_translation_command_stays_whole():
     # Elsewhere the line is split as a POSIX shell splits it.
     assert _command("/usr/bin/tool -p 'two words' a\\ b", windows=False) == ["/usr/bin/tool", "-p", "two words", "a b"]
 
+
+
+def test_agents_names_the_agents_the_bell_can_call_beside_the_session_listening():
+    """Each agent under agents has the client names that wait in its lane, its own name when
+    none are given, and the models and efforts a press picks from."""
+    config = Config.from_dict({"main": "main.tex", "agents": {"second": None, "third": {
+        "clients": ["third", "other"], "models": ["small-1.5", "large"], "efforts": ["low", "high"]}}})
+    assert config.agents == {"second": {"clients": ["second"], "models": [], "efforts": []},
+                             "third": {"clients": ["third", "other"], "models": ["small-1.5", "large"], "efforts": ["low", "high"]}}
+    assert config.to_dict()["agents"] == config.agents
+    assert Config.from_dict({"main": "main.tex"}).agents == {}
+    assert "agents" not in Config.from_dict({"main": "main.tex"}).to_dict()
+    for wrong in (["second"], {"Second One": None}, {"second": {"model": ["a"]}}, {"second": {"models": "a"}},
+                  {"second": {"models": ["rm -rf"]}}, {"second": {"clients": []}}):
+        with pytest.raises(ValueError, match="agents must be names"):
+            Config.from_dict({"main": "main.tex", "agents": wrong})

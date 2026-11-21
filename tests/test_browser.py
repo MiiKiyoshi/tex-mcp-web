@@ -500,6 +500,94 @@ def test_a_folder_without_its_paper_says_what_brings_it(tmp_path: Path) -> None:
 
 
 @needs_browser
+def test_the_bell_calls_an_agent_the_configuration_names(tmp_path: Path) -> None:
+    """With agents in the configuration, the reviewer picks beside the bell which agent it
+    calls, with the model and effort that agent lists. The bell is green for the agent picked
+    while that agent waits, the press reaches its waiter alone, and the row over the threads
+    stays one line however narrow the panel."""
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nport: {port}\nagents:\n  second:\n    models: [small, large]\n"
+                           "    efforts: [low, high]\n  third:\n", encoding="utf-8")
+    (tmp_path / "paper.tex").write_text(
+        "\\documentclass{article}\n\\begin{document}\nTea.\n\\end{document}\n", encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    browser = None
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        browser = chrome.launch()
+        browser.navigate(base)
+        shown = lambda: browser.execute_script("""
+          return ["#call-agent-select", "#agent-model-select", "#agent-effort-select"].map((id) => {
+            const box = document.querySelector(id);
+            return !box.classList.contains("hidden") ? [...box.options].map((option) => option.textContent).join() + "=" + box.value : null;
+          });""")
+        # The page starts on the session listening, which has no model to pick.
+        wait_until(lambda: shown() == ["Agent,Second,Third=", None, None])
+        pick = lambda box, value: browser.execute_script(
+            "const box = document.querySelector(arguments[0]); box.value = arguments[1];"
+            ' box.dispatchEvent(new Event("change", {bubbles: true}));', [box, value])
+        pick("#call-agent-select", "third")
+        assert shown() == ["Agent,Second,Third=third", None, None]
+        pick("#call-agent-select", "second")
+        assert shown() == ["Agent,Second,Third=second", "small,large=small", "low,high=low"]
+        pick("#agent-model-select", "large")
+        # A wide panel holds the three choices and the bell on one line. One with less room
+        # keeps the agent and the bell in the row and puts the model and effort behind the
+        # dots, and the narrowest puts all four there, where they can still be reached.
+        fits = """
+          const row = document.querySelector(".filter-row");
+          const box = row.getBoundingClientRect();
+          const shown = [...row.querySelectorAll("select, input, .icon-btn:not(.sort-icon)")]
+            .filter((node) => node.offsetWidth > 0 && !node.closest(".comment-rare-group"));
+          const items = shown.map((node) => node.getBoundingClientRect());
+          const apart = (a, b) => a.right <= b.left + 0.5 || b.right <= a.left + 0.5;
+          const behind = [...document.querySelectorAll(".comment-rare-group > select, .comment-rare-group > button")];
+          return box.height < 40 && items.every((a, i) => a.left >= box.left - 0.5 && a.right <= box.right + 0.5
+              && items.every((b, j) => i === j || apart(a, b)))
+            && [shown.map((node) => node.id), behind.map((node) => node.id)];"""
+        choices = ["call-agent-select", "agent-model-select", "agent-effort-select", "call-agent-btn"]
+        for width, hidden in ((900, []), (380, choices[1:3]), (200, choices[1:3] + [choices[0], choices[3]])):
+            browser.execute_script(
+                f'document.querySelector(".layout").style.setProperty("--tex-mcp-sidebar-width", "{width}px")')
+            browser.execute_script('window.dispatchEvent(new Event("resize"))')
+
+            def placed():
+                found = browser.execute_script(fits)
+                return found and [one for one in found[1] if one in choices] == hidden and (
+                    set(choices) - set(hidden) <= set(found[0]))
+            wait_until(placed, timeout=5)
+        browser.execute_script(
+            'document.querySelector(".layout").style.setProperty("--tex-mcp-sidebar-width", "900px")')
+        browser.execute_script('window.dispatchEvent(new Event("resize"))')
+        # The bell is red until the picked agent waits, and its press goes to that agent alone.
+        ready = lambda: browser.execute_script(
+            'return document.querySelector("#call-agent-btn").classList.contains("agent-ready")')
+        assert not ready()
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            waiter = pool.submit(lambda: urllib.request.urlopen(
+                f"{base}/wait-review?agent=second&listener=-&pid={os.getpid()}", timeout=10).read())
+            wait_until(ready)
+            pick("#call-agent-select", "")
+            assert not ready()
+            pick("#call-agent-select", "second")
+            assert ready() and shown()[1] == "small,large=large"
+            browser.execute_script('document.querySelector("#call-agent-btn").click()')
+            wait_until(lambda: browser.execute_script(
+                'return document.querySelector("#call-agent-word").textContent === "Called"'))
+            assert waiter.result(timeout=10).endswith(b"[model=large effort=low]")
+        kept = tmp_path / ".tex-mcp-web"
+        assert json.loads((kept / "review-state-second.json").read_text(encoding="utf-8"))["calls"] == 1
+        assert not (kept / "review-state.json").exists()
+    finally:
+        if browser is not None:
+            browser.quit()
+        shared.stop()
+
+
+@needs_browser
 def test_the_page_says_why_it_waits_and_catches_up_when_its_server_returns(tmp_path: Path) -> None:
     """Nothing greyed, waiting or out of date goes unexplained. A first build that fails says
     so in the Preview, a source changed since the build and a config the server cannot take

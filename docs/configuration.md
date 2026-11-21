@@ -33,9 +33,11 @@ overleaf: https://www.overleaf.com/project/0123456789abcdef01234567
 | `translation` | None | Translation of the source. See below. |
 | `overleaf` | None | The link to the paper's Overleaf project, which `do tex init` or **Connect** in Settings writes for you. |
 | `overleaf_sync` | `false` | `true` is **Live** and `false` is **By hand** under **How files sync with Overleaf** in Settings. [Keeping the files in step](overleaf.md#keeping-the-files-in-step) describes both. |
+| `overleaf_picked` | `false` | `true` makes **Call agent** carry what was written on Overleaf only in the threads you picked for that press. What you write on the page reaches the agent as always. With `false`, every thread from Overleaf with new words asks the agent. |
 | `overleaf_add` | Sources and figures | Patterns for files that exist only here and are added to the Overleaf project, by **Send** or automatically under **Live**, in a folder that is not a git clone. The default is `*.tex`, `*.bib`, `*.sty`, `*.cls`, `*.bst`, `*.png`, `*.jpg`, `*.jpeg`, `*.pdf`, `*.eps` and `*.svg`. Files of a type the project already has are added too, but never the compiled PDF. |
 | `page_token` | `false` | `true` makes the page answer only the agent's tools and browsers that opened its link, for a machine other people log in to. `tex-mcp-web link` prints the link, with a token kept in `~/.config/tex-mcp-web/page-token` that only you can read. After the first visit the browser keeps the token, so the plain address works there and can be bookmarked. |
 | `update_check` | `true` | Whether the page checks once a day for a newer release, which the ⋯ menu then offers as **Update to v…**. |
+| `agents` | None | Agents the bell can call beside the session that is listening. See [Calling a second agent](reviewing.md#calling-a-second-agent). |
 
 `translation` has three keys:
 

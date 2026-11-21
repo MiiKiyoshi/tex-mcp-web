@@ -585,23 +585,21 @@ def _overleaf_thread_add(store, watch_dir: Path, text: str, anchor: "CommentAnch
 # ---------------------------------------------------------------------------
 
 
-def _is_gemini(ctx: "Context") -> bool:
-    """Gemini CLI and Antigravity: a client that waits in Gemini's lane on the review page."""
-    try:
-        name = (ctx.session.client_params.clientInfo.name or "").casefold()
-    except AttributeError:
-        return False
-    return any(tag in name for tag in ("gemini", "antigravity", "agy"))
-
-
-def _wait_method(ctx: "Context", command: str) -> str:
+def _lane(ctx: "Context", agents: dict[str, dict[str, list[str]]]) -> str | None:
+    """The lane this client waits in on the review page: that of the agent the configuration
+    names whose clients' names its own holds. None is the session listening."""
     name = ctx.session.client_params.clientInfo.name.casefold()
-    if _is_gemini(ctx):
+    return next((lane for lane, agent in agents.items() if any(part in name for part in agent["clients"])), None)
+
+
+def _wait_method(ctx: "Context", command: str, lane: str | None = None) -> str:
+    name = ctx.session.client_params.clientInfo.name.casefold()
+    if lane is not None:
         return (
             "Run <command> as a background shell command, then end the turn and do not poll. "
-            "It shows Gemini as waiting on the review page and ends as soon as the reviewer "
-            "presses Call agent for Gemini, printing the [review] line, which may end with "
-            "[gemini: model=M effort=E], the model and effort the reviewer picked. After handling "
+            f"It shows {lane} as waiting on the review page and ends as soon as the reviewer "
+            f"presses Call agent for {lane}, printing the [review] line, which may end with "
+            "[model=M effort=E], the model and effort the reviewer picked. After handling "
             "that press, start the command again; otherwise leave it stopped and tell the user "
             "in one line. Stop a running one when the review is finished or the user asks."
         )
@@ -1309,12 +1307,14 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                 f"{error}. If another project uses the port, propose a free port to the user, "
                 "change port in that config once they agree, and call listen() again."
             ) from error
-        _, watch_dir, _ = _load_project(binding)
+        cfg, watch_dir, _ = _load_project(binding)
         import httpx
 
-        if _is_gemini(ctx):
-            # Gemini waits in a lane of its own and takes no presses from the listening session.
-            command = f"{shlex.quote(Path(sys.executable).as_posix())} -m tex_mcp_web.waiter {shared.port} - --agent gemini --once"
+        lane = _lane(ctx, cfg.agents)
+        if lane is not None:
+            # An agent the configuration names waits in a lane of its own and takes no presses
+            # from the listening session.
+            command = f"{shlex.quote(Path(sys.executable).as_posix())} -m tex_mcp_web.waiter {shared.port} - --agent {lane} --once"
         else:
             session = plugin_monitor.claude_pid()
             async with httpx.AsyncClient(timeout=10.0, headers=page_token.headers()) as client:
@@ -1325,7 +1325,7 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         return _ok({
             "command": command,
             "how": (
-                _wait_method(ctx, command)
+                _wait_method(ctx, command, lane)
                 + " On [review], call read_comments(new=True) and handle the review. "
                 "[gone] means the review server is unreachable; the waiter keeps retrying. "
                 "[back] means it is reachable again. [moved] means a newer waiter took over "

@@ -4252,35 +4252,50 @@ async def test_a_thread_left_on_no_words_on_overleaf_is_put_back_on_its_words(pr
 
 
 @pytest.mark.asyncio
-async def test_gemini_waits_in_a_lane_of_its_own(client):
-    """A press for Gemini goes to Gemini's waiter with the model and effort picked, and a
-    press for the listening session never reaches it, nor it that session's."""
+async def test_an_agent_the_configuration_names_waits_in_a_lane_of_its_own(client):
+    """A press for an agent named under agents goes to that agent's waiter with the model and
+    effort picked from those listed, and a press for the listening session never reaches it,
+    nor it that session's."""
     test_client, server = client
     server.REVIEW_POLL_TIMEOUT = 0.05
-    assert (await test_client.get("/wait-review?agent=gemini&listener=-&pid=1")).status == 204
-    press = await test_client.post("/review-request", json={"agent": "gemini", "model": "gemini-3.8-flash", "effort": "high"})
+    assert (await test_client.get("/wait-review?agent=second&listener=-&pid=1")).status == 404
+    assert (await test_client.post("/review-request", json={"agent": "second"})).status == 404
+    server.config.agents = {"second": {"clients": ["second"], "models": ["small", "large"], "efforts": ["low", "high"]},
+                            "third": {"clients": ["third"], "models": [], "efforts": []}}
+    assert (await test_client.get("/wait-review?agent=second&listener=-&pid=1")).status == 204
+    press = await test_client.post("/review-request", json={"agent": "second", "model": "large", "effort": "high"})
     assert press.status == 200 and (await press.json())["calls"] == 1
     assert server.review_calls == 0
-    told = await test_client.get("/wait-review?agent=gemini&listener=-&pid=1")
+    told = await test_client.get("/wait-review?agent=second&listener=-&pid=1")
     assert told.headers["X-Press"] == "1"
-    assert (await told.text()).endswith("[gemini: model=gemini-3.8-flash effort=high]")
+    assert (await told.text()).endswith("[model=large effort=high]")
     # Offered again until acknowledged, then not.
-    assert (await test_client.get("/wait-review?agent=gemini&listener=-&pid=1")).status == 200
-    await test_client.post("/wait-review/ack?upto=1&agent=gemini")
-    assert (await test_client.get("/wait-review?agent=gemini&listener=-&pid=1")).status == 204
-    # The listening session's press stays in its own lane.
+    assert (await test_client.get("/wait-review?agent=second&listener=-&pid=1")).status == 200
+    await test_client.post("/wait-review/ack?upto=1&agent=second")
+    assert (await test_client.get("/wait-review?agent=second&listener=-&pid=1")).status == 204
+    # The listening session's press stays in its own lane, and so does another agent's.
     await test_client.post("/review-request")
-    assert (server.review_calls, server.gemini_calls) == (1, 1)
-    assert (await test_client.get("/wait-review?agent=gemini&listener=-&pid=1")).status == 204
-    refused = await test_client.post("/review-request", json={"agent": "gemini", "model": "rm -rf", "effort": "high"})
-    assert refused.status == 400 and server.gemini_calls == 1
-    # Kept across a restart, as Claude's are.
+    await test_client.post("/review-request", json={"agent": "third"})
+    assert (server.review_calls, server.lanes["second"].calls, server.lanes["third"].calls) == (1, 1, 1)
+    assert (await test_client.get("/wait-review?agent=second&listener=-&pid=1")).status == 204
+    # An agent that lists no model or effort is told none.
+    assert (await (await test_client.get("/wait-review?agent=third&listener=-&pid=1")).text()).endswith("read_comments(new=True)")
+    # A model the configuration does not list is refused, and one left out is the first listed.
+    refused = await test_client.post("/review-request", json={"agent": "second", "model": "rm -rf", "effort": "high"})
+    assert refused.status == 400 and server.lanes["second"].calls == 1
+    await test_client.post("/review-request", json={"agent": "second"})
+    assert server.lanes["second"].choice == {"model": "small", "effort": "low"}
+    # The page is told of every lane, with what a press for it picks from.
+    assert server._lanes()["second"] == {
+        "waiters": 0, "models": ["small", "large"], "efforts": ["low", "high"]}
+    # Kept across a restart, as the listening session's are.
     again = TexMcpWebServer(server.config)
-    assert (again.gemini_calls, again.gemini_consumed, again.gemini_choice) == (1, 1, {"model": "gemini-3.8-flash", "effort": "high"})
+    lane = again._lane("second")
+    assert (lane.calls, lane.consumed, lane.choice) == (2, 1, {"model": "small", "effort": "low"})
 
 
-def test_the_gemini_waiter_prints_one_press_and_ends(tmp_path):
-    """--agent gemini --once: the waiter asks Gemini's lane, prints the press, acknowledges it
+def test_the_waiter_of_a_lane_prints_one_press_and_ends(tmp_path):
+    """--agent <name> --once: the waiter asks that agent's lane, prints the press, acknowledges it
     there, and ends."""
     import http.server
     import subprocess
@@ -4294,7 +4309,7 @@ def test_the_gemini_waiter_prints_one_press_and_ends(tmp_path):
             self.send_response(200)
             self.send_header("X-Press", "3")
             self.end_headers()
-            self.wfile.write(b"[review] reviewer called (press #3): 1 new comments [gemini: model=gemini-4-argon effort=low]")
+            self.wfile.write(b"[review] reviewer called (press #3): 1 new comments [model=small effort=low]")
 
         def do_POST(self):
             acked.append(self.path)
@@ -4308,34 +4323,40 @@ def test_the_gemini_waiter_prints_one_press_and_ends(tmp_path):
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
         done = subprocess.run([sys.executable, "-m", "tex_mcp_web.waiter", str(server.server_port), "-",
-                               "--agent", "gemini", "--once"], capture_output=True, text=True, encoding="utf-8",
+                               "--agent", "second", "--once"], capture_output=True, text=True, encoding="utf-8",
                               stdin=subprocess.DEVNULL, timeout=20, env={**os.environ, "XDG_CONFIG_HOME": str(tmp_path)})
     finally:
         server.shutdown()
     assert done.returncode == 0
     assert done.stdout.strip().endswith("effort=low]")
-    assert len(asked) == 1 and "agent=gemini" in asked[0]
-    assert acked == ["/wait-review/ack?upto=3&agent=gemini"]
+    assert len(asked) == 1 and "agent=second" in asked[0]
+    assert acked == ["/wait-review/ack?upto=3&agent=second"]
 
 
 @pytest.mark.asyncio
-async def test_listen_from_gemini_waits_in_its_lane_and_leaves_the_listener(bound_project, project, monkeypatch):
-    """Gemini CLI and Antigravity get the waiter of Gemini's lane, which ends after one press,
-    and their listen() does not take presses from the session listening."""
+async def test_listen_from_a_client_of_a_named_agent_waits_in_its_lane(bound_project, project, monkeypatch):
+    """A client whose name holds one the configuration lists for an agent gets the waiter of
+    that agent's lane, which ends after one press, and its listen() does not take presses from
+    the session listening. Without the configuration it listens as any client does."""
     pytest.importorskip("mcp")
     from tex_mcp_web.mcp_server import create_server
 
     mcp = create_server(bound_project)
     context = SimpleNamespace(session=SimpleNamespace(client_params=SimpleNamespace(
-        clientInfo=SimpleNamespace(name="claude-code"))))
+        clientInfo=SimpleNamespace(name="second-cli-mcp-client"))))
     monkeypatch.setattr(mcp, "get_context", lambda: context)
-    await mcp.call_tool("listen", {})
-    for name in ("gemini-cli-mcp-client", "antigravity"):
+    assert "--agent" not in json.loads((await mcp.call_tool("listen", {}))[0].text)["command"]
+    config = project / ".tex-mcp-web.yaml"
+    config.write_text(config.read_text(encoding="utf-8") + "agents:\n  second:\n    clients: [second, other]\n", encoding="utf-8")
+    context.session.client_params.clientInfo.name = "claude-code"
+    listening = json.loads((await mcp.call_tool("listen", {}))[0].text)["command"]
+    assert "--agent" not in listening
+    for name in ("second-cli-mcp-client", "Other"):
         context.session.client_params.clientInfo.name = name
         result = json.loads((await mcp.call_tool("listen", {}))[0].text)
         command = shlex.split(result["command"])
         assert command[2:] == ["tex_mcp_web.waiter", str(bound_project.require_shared().port), "-",
-                               "--agent", "gemini", "--once"]
+                               "--agent", "second", "--once"]
         assert "background shell command" in result["how"] and "Monitor" not in result["how"]
     import aiohttp
 

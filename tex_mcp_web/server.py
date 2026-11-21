@@ -60,7 +60,7 @@ from .comments import (
     source_offset,
 )
 from .compiler import CompileResult, compile_tex, earlier_pdf, output_pdf, source_dependencies
-from .config import Config, get_main_file, get_watch_dir, load_config, translation_command
+from .config import DEFAULT_CONFIG_NAME, Config, get_main_file, get_watch_dir, load_config, translation_command
 from .structure import (
     AmbiguousSection,
     DocumentStructure,
@@ -474,6 +474,26 @@ async def _only_its_own_pages(request: web.Request, handler: Callable[[web.Reque
     return await handler(request)
 
 
+class Lane:
+    """The presses for one agent the configuration names: how many were made, how many its
+    waiter took, and the model and effort picked at the last, kept across a restart."""
+
+    def __init__(self, name: str, path: Path) -> None:
+        self.name, self.path = name, path
+        self.calls, self.consumed, self.choice = 0, 0, {}
+        self.called = asyncio.Event()
+        self.waiters = 0
+        if path.is_file():
+            data = json.loads(shared_file.read_text(path))
+            self.calls, self.consumed, self.choice = int(data["calls"]), int(data["consumed"]), dict(data["choice"])
+
+    def save(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        staging = self.path.with_name(self.path.name + ".new")
+        staging.write_text(json.dumps({"calls": self.calls, "consumed": self.consumed, "choice": self.choice}), encoding="utf-8")
+        shared_file.replace(staging, self.path)
+
+
 class TexMcpWebServer:
     """Single-paper watch + serve + comment store."""
 
@@ -521,15 +541,10 @@ class TexMcpWebServer:
         self.review_calls, self.review_consumed = self._load_review_state()
         self.review_called = asyncio.Event()
         self.review_waiters = 0
-        # Gemini has a lane of its own beside the one listening session: its waiter names no
-        # listener, so a press for Gemini never moves Claude's, and Claude's never moves its.
-        # The model and effort picked for its last press ride on its wake-up line.
-        self.gemini_state_path = self.watch_dir / ".tex-mcp-web" / "review-state-gemini.json"
-        self.gemini_calls, self.gemini_consumed = self._load_review_state(self.gemini_state_path)
-        self.gemini_called = asyncio.Event()
-        self.gemini_waiters = 0
-        self.gemini_choice_path = self.watch_dir / ".tex-mcp-web" / "review-gemini-choice.json"
-        self.gemini_choice = self._load_gemini_choice()
+        # An agent the configuration names has a lane of its own beside the one listening
+        # session: its waiter names no listener, so a press for it never moves that session's,
+        # and that session's never moves its.
+        self.lanes: dict[str, Lane] = {}
         # Presses go to one waiter, named by the id listen() gave it: two sessions answering
         # one press would edit the same threads. Its pid, which its polls report, says
         # whether it still runs, and the Claude Code session that named it, when known,
@@ -885,7 +900,7 @@ class TexMcpWebServer:
                 "result": _result_to_dict(self.last_result),
                 "pdf_digest": self.pdf_digest,
                 "review_waiters": self.review_waiters,
-                "gemini_waiters": self.gemini_waiters,
+                "lanes": self._lanes(),
             }
         )
         if self.overleaf_live is not None:
@@ -1296,9 +1311,9 @@ class TexMcpWebServer:
 
     # ----- API: Call agent -----
 
-    def _load_review_state(self, path: Path | None = None) -> tuple[int, int]:
+    def _load_review_state(self) -> tuple[int, int]:
         try:
-            data = json.loads(shared_file.read_text(path or self.review_state_path))
+            data = json.loads(shared_file.read_text(self.review_state_path))
             calls, consumed = int(data["calls"]), int(data["consumed"])
         except (FileNotFoundError, json.JSONDecodeError, KeyError, TypeError, ValueError):
             return 0, 0
@@ -1313,64 +1328,58 @@ class TexMcpWebServer:
             {"calls": self.review_calls, "consumed": self.review_consumed}), encoding="utf-8")
         shared_file.replace(staging, self.review_state_path)
 
-    def _save_gemini_state(self) -> None:
-        self.gemini_state_path.parent.mkdir(parents=True, exist_ok=True)
-        staging = self.gemini_state_path.with_name(self.gemini_state_path.name + ".new")
-        staging.write_text(json.dumps({"calls": self.gemini_calls, "consumed": self.gemini_consumed}), encoding="utf-8")
-        shared_file.replace(staging, self.gemini_state_path)
+    def _lane(self, name: str) -> "Lane":
+        """The lane of an agent the configuration names, made when first asked for."""
+        if name not in self.config.agents:
+            raise web.HTTPNotFound(text=f"agents in {DEFAULT_CONFIG_NAME} names no {name}")
+        if name not in self.lanes:
+            self.lanes[name] = Lane(name, self.watch_dir / ".tex-mcp-web" / f"review-state-{name}.json")
+        return self.lanes[name]
 
-    GEMINI_EFFORTS = ("low", "medium", "high")
-    # Only names are passed on, never run, but a name is held to the shape a model's has.
-    _GEMINI_MODEL = re.compile(r"[a-z0-9][a-z0-9.\-]{0,63}")
+    def _lanes(self) -> dict[str, dict[str, Any]]:
+        """What the page shows of each agent the bell can call beside the session listening."""
+        return {name: {"waiters": self._lane(name).waiters, "models": agent["models"], "efforts": agent["efforts"]}
+                for name, agent in self.config.agents.items()}
 
-    def _load_gemini_choice(self) -> dict[str, str] | None:
-        try:
-            data = json.loads(self.gemini_choice_path.read_text(encoding="utf-8"))
-            return {"model": str(data["model"]), "effort": str(data["effort"])}
-        except (OSError, ValueError, KeyError, TypeError):
-            return None
+    async def _lane_press(self, lane: "Lane", body: dict[str, Any]) -> web.Response:
+        # A press carries the model and effort picked from those the configuration lists.
+        choice = {}
+        for key, listed in (("model", "models"), ("effort", "efforts")):
+            allowed = self.config.agents[lane.name][listed]
+            if allowed:
+                choice[key] = body.get(key, allowed[0])
+                if choice[key] not in allowed:
+                    return web.json_response({"error": f"{listed} of {lane.name} lists no {choice[key]}"}, status=400)
+        lane.choice = choice
+        lane.calls += 1
+        lane.save()
+        delivered = lane.waiters > 0
+        lane.called.set()
+        lane.called = asyncio.Event()
+        await self.broadcast({"type": "review_requested", "agent": lane.name, "calls": lane.calls, "delivered": delivered})
+        return web.json_response({"calls": lane.calls, "delivered": delivered})
 
-    def _gemini_line(self) -> str:
-        line = self._review_line(self.gemini_calls)
-        if self.gemini_choice is not None:
-            line += f" [gemini: model={self.gemini_choice['model']} effort={self.gemini_choice['effort']}]"
-        return line
-
-    async def _gemini_press(self, body: dict[str, Any]) -> web.Response:
-        model = str(body.get("model") or "gemini-4-argon").strip().lower()
-        effort = str(body.get("effort") or "medium").strip().lower()
-        if not self._GEMINI_MODEL.fullmatch(model) or effort not in self.GEMINI_EFFORTS:
-            return web.json_response({"error": f"not a Gemini model and effort: {model}, {effort}"}, status=400)
-        self.gemini_choice = {"model": model, "effort": effort}
-        self.gemini_choice_path.parent.mkdir(parents=True, exist_ok=True)
-        self.gemini_choice_path.write_text(json.dumps(self.gemini_choice), encoding="utf-8")
-        self.gemini_calls += 1
-        self._save_gemini_state()
-        delivered = self.gemini_waiters > 0
-        self.gemini_called.set()
-        self.gemini_called = asyncio.Event()
-        await self.broadcast({"type": "review_requested", "agent": "gemini", "calls": self.gemini_calls,
-                              "delivered": delivered})
-        return web.json_response({"calls": self.gemini_calls, "delivered": delivered})
-
-    async def _wait_gemini(self) -> web.Response:
+    async def _wait_lane(self, lane: "Lane") -> web.Response:
         loop = asyncio.get_running_loop()
         deadline = loop.time() + self.REVIEW_POLL_TIMEOUT
-        self.gemini_waiters += 1
-        await self.broadcast({"type": "gemini_waiters", "waiters": self.gemini_waiters})
+        lane.waiters += 1
+        await self.broadcast({"type": "lanes", "lanes": self._lanes()})
         try:
-            while self.gemini_calls <= self.gemini_consumed:
+            while lane.calls <= lane.consumed:
                 remaining = deadline - loop.time()
                 if remaining <= 0 or self.closing:
                     return web.Response(status=204)
                 try:
-                    await asyncio.wait_for(self.gemini_called.wait(), timeout=remaining)
+                    await asyncio.wait_for(lane.called.wait(), timeout=remaining)
                 except asyncio.TimeoutError:
                     return web.Response(status=204)
-            return web.Response(text=self._gemini_line(), headers={"X-Press": str(self.gemini_calls)})
+            line = self._review_line(lane.calls)
+            if lane.choice:
+                line += " [" + " ".join(f"{key}={value}" for key, value in lane.choice.items()) + "]"
+            return web.Response(text=line, headers={"X-Press": str(lane.calls)})
         finally:
-            self.gemini_waiters -= 1
-            await self.broadcast({"type": "gemini_waiters", "waiters": self.gemini_waiters})
+            lane.waiters -= 1
+            await self.broadcast({"type": "lanes", "lanes": self._lanes()})
 
     def _review_line(self, press: int | None = None) -> str:
         # The line counts what a wake-up is for: the open threads read_comments(new=True)
@@ -2185,8 +2194,8 @@ class TexMcpWebServer:
         except ValueError:
             body = {}
         body = body if isinstance(body, dict) else {}
-        if body.get("agent") == "gemini":
-            return await self._gemini_press(body)
+        if "agent" in body:
+            return await self._lane_press(self._lane(str(body["agent"])), body)
         if self.config.overleaf_picked:
             # The threads from Overleaf picked on the page go with the press.
             overleaf.pick(self.watch_dir, body.get("picked"))
@@ -2218,8 +2227,8 @@ class TexMcpWebServer:
         return web.json_response({"listening": True})
 
     async def _handle_wait_review(self, request: web.Request) -> web.Response:
-        if request.query.get("agent") == "gemini":
-            return await self._wait_gemini()
+        if "agent" in request.query:
+            return await self._wait_lane(self._lane(request.query["agent"]))
         # The consumption watermark lives here, not in the waiter: a waiter carrying its
         # own could never see a press made before its script was written. Waiting does
         # not consume: the response can die on the wire after the watermark moved, and
@@ -2270,10 +2279,11 @@ class TexMcpWebServer:
             upto = int(request.query["upto"])
         except (KeyError, ValueError) as error:
             raise web.HTTPBadRequest(text="upto must be an integer") from error
-        if request.query.get("agent") == "gemini":
-            self.gemini_consumed = max(self.gemini_consumed, min(upto, self.gemini_calls))
-            self._save_gemini_state()
-            return web.json_response({"calls": self.gemini_calls, "consumed": self.gemini_consumed})
+        if "agent" in request.query:
+            lane = self._lane(request.query["agent"])
+            lane.consumed = max(lane.consumed, min(upto, lane.calls))
+            lane.save()
+            return web.json_response({"calls": lane.calls, "consumed": lane.consumed})
         # Idempotent and monotonic: a late or repeated ack never moves the watermark back,
         # and one beyond the count (a script talking to a restarted server whose counters
         # are behind it) clamps rather than marking presses that do not exist yet.
