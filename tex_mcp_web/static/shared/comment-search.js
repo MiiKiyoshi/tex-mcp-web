@@ -1,26 +1,31 @@
 // The comment search: what a search asks for, which comments meet it, and the box above the
-// list it is typed in, with the conditions it offers and the names and files it completes.
+// list it is typed in, with the conditions it offers and the names and files it completes. A
+// page whose comments are on no file has no file:.
 //
 // Shared by the review pages. It is written in tex-mcp-web, and scripts/share_page.py copies
 // it to the others. A copy is never edited by hand.
 
 import { $, h } from "./dom.js";
 
+// The fields a search knows.
+const FIELDS = ["from", "file", "after", "before"];
+
 // What a search asks for, in the conventions of mail and code search:
 //   query = group ("OR" group)*      OR, in capitals, binds looser than the spaces
 //   group = term*                     a comment meets a group when it meets every term
 //   term  = ["-"] [field ":"] value   "-" asks for the comments that do not meet it
 //   value = '"' text '"' | text       quotes hold words together, spaces and all
-//   field = from | file | after | before
+//   field = from | file | after | before   those `fields` names, all four unless told
 // after: and before: take YYYY-MM-DD, or MM-DD in `year`, and may go on to a minute as
 // T09, T09:30 or, quoted, "11-13 09:30", in local time. A field followed by anything else,
 // and any other word with a colon, is an ordinary word. A term with nothing to look for, as
 // a field not yet typed, and a group with no term are left out. Each term comes as
 // { not, field, value }: the field is "" for a word or a phrase, whose value is in lower case,
 // and the value of after: and before: is the moment they name, in milliseconds.
-export function parseSearch(text, year) {
+export function parseSearch(text, year, fields = FIELDS) {
   const groups = [[]];
-  for (const [, not, field = "", quoted, bare] of text.matchAll(/(-?)(?:(from|file|after|before):)?(?:"([^"]*)"?|([^\s"]+))?/g)) {
+  const terms = new RegExp(`(-?)(?:(${fields.join("|")}):)?(?:"([^"]*)"?|([^\\s"]+))?`, "g");
+  for (const [, not, field = "", quoted, bare] of text.matchAll(terms)) {
     const raw = (quoted ?? bare ?? "").replace(/\s+/g, " ").trim();
     if (raw === "") continue;
     if (raw === "OR" && bare !== undefined && !not && !field) {
@@ -81,8 +86,12 @@ function writerNames(entry, me) {
 // The search box above the list, the conditions under it and the list of names and files under
 // those, holding what is typed. `refresh` lists what the search finds, `tabComments` reads the
 // shown tab's comments of every status, and `page` is what meetsSearch takes, for the names and
-// the files the list offers.
+// the files the list offers. A page whose `files` is null has comments on no file, and its
+// search has no file:, which is then an ordinary word.
 export function createCommentSearch({ refresh, tabComments, page }) {
+  const fields = page.files === null ? FIELDS.filter((field) => field !== "file") : FIELDS;
+  // The conditions the list under the box completes.
+  const completed = fields.filter((field) => field === "from" || field === "file");
   // What is typed in the box: the list shows the tab's comments that meet it.
   let searchText = "";
   // The writers and the files of the tab's comments, whatever their status, which the list
@@ -93,21 +102,21 @@ export function createCommentSearch({ refresh, tabComments, page }) {
 
   // What the search box asks for, its dates without a year in this year.
   function searchQuery() {
-    return parseSearch(searchText, new Date().getFullYear());
+    return parseSearch(searchText, new Date().getFullYear(), fields);
   }
 
   async function readSearchChoices() {
     const comments = await tabComments();
     const listed = (values) => [...new Set(values.filter(Boolean))].sort((first, second) => first.localeCompare(second));
     return { from: listed(comments.flatMap((comment) => comment.thread.map((entry) => writerNames(entry, page.me())[0]))),
-             file: listed(comments.map((comment) => page.files(comment).find(Boolean))) };
+             file: completed.includes("file") ? listed(comments.map((comment) => page.files(comment).find(Boolean))) : [] };
   }
 
   // The from: or the file: the cursor is in: its field, what is typed after the colon, and where
   // its value starts and ends in the box, a closing quote included.
   function conditionAtCursor(box) {
     if (box.selectionStart !== box.selectionEnd) return null;
-    const typed = /(?:^|\s)-?(from|file):(?:"([^"]*)|([^\s"]*))$/.exec(box.value.slice(0, box.selectionStart));
+    const typed = new RegExp(`(?:^|\\s)-?(${completed.join("|")}):(?:"([^"]*)|([^\\s"]*))$`).exec(box.value.slice(0, box.selectionStart));
     if (typed === null) return null;
     const rest = box.value.slice(box.selectionStart);
     return { field: typed[1], value: (typed[2] ?? typed[3]).toLowerCase(),

@@ -2279,6 +2279,58 @@ def test_the_top_bar_fits_a_phone_at_every_text_size(tmp_path: Path) -> None:
 
 
 @needs_browser
+def test_the_look_kept_is_set_before_the_page_is_drawn_and_follows_a_frame_of_the_page(tmp_path: Path) -> None:
+    """The text size kept is set before the page is drawn, as the theme is, so a page kept at
+    130% is not drawn at 100% first, and a size Settings does not offer is left alone. A choice
+    kept by another document of the page's own address, such as a frame in it, is taken up at
+    once, and Settings marks it."""
+    (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    browser = None
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        browser = chrome.launch()
+        browser.navigate(base)
+        script = browser.execute_script
+        wait_until(lambda: script('return document.querySelectorAll("[data-text-choice]").length > 0'))
+        # A frame that runs look-early.js alone, before anything else could draw it.
+        early = '''return new Promise((done) => {
+          const frame = document.createElement("iframe");
+          frame.srcdoc = '<!doctype html><html><head><script src="/static/shared/look-early.js" data-prefix="texMcp"><\\/script></head><body></body></html>';
+          frame.addEventListener("load", () => {
+            const root = frame.contentDocument.documentElement;
+            done([root.dataset.theme, root.style.getPropertyValue("--text-scale")]);
+          }, { once: true });
+          document.body.append(frame);
+        });'''
+        script('localStorage.setItem("texMcpTheme", "dark")')
+        for size in script(TEXT_SIZES):
+            script(f'localStorage.setItem("texMcpTextSize", "{size}")')
+            assert script(early) == ["dark", f"{int(size) / 100:g}"], size
+        script('localStorage.setItem("texMcpTextSize", "1000")')
+        assert script(early) == ["dark", ""]
+        # Choices the frame keeps are the page's at once.
+        page = '''const choice = (name) => document.querySelector(`[data-${name}-choice][aria-checked="true"]`).dataset[`${name}Choice`];
+          return [document.documentElement.dataset.theme, document.documentElement.style.getPropertyValue("--text-scale"),
+                  choice("theme"), choice("text"), choice("send"), choice("letters")];'''
+        script('''const kept = document.querySelector("iframe[srcdoc]").contentWindow.localStorage;
+          kept.setItem("texMcpTheme", "warm"); kept.setItem("texMcpTextSize", "115");
+          kept.setItem("texMcpSendKey", "shift"); kept.setItem("texMcpKeyLetters", "off");''')
+        wait_until(lambda: script(page) == ["warm", "1.15", "warm", "115", "shift", "off"])
+        script('document.querySelector("iframe[srcdoc]").contentWindow.localStorage.removeItem("texMcpTheme")')
+        wait_until(lambda: script(page)[2] == "system")
+    finally:
+        if browser is not None:
+            browser.quit()
+        shared.stop()
+
+
+@needs_browser
 def test_the_row_above_the_leaf_tabs_list_stays_one_line_at_every_text_size(tmp_path: Path) -> None:
     """In the leaf tab, with a search that finds a thread and a suggested edit from Overleaf, so
     that Resolve, Hide, Accept, Reject and Send all show, the row above the list stays one line

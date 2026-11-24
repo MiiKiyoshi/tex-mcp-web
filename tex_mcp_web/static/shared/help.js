@@ -6,7 +6,8 @@
 //   search-example   the Search page's worked example: a heading, a story and its steps, each
 //                    step's search a <code class="help-typed">, which the tests type
 //   search-order     the sentence on what the sort list's first order keeps
-//   search-rows      the rows of the search terms table for from: and file:
+//   search-rows      the rows of the search terms table for from:, and for file: where
+//                    comments are on files
 //   search-writers   the sentence on the names from: takes
 //   search-words     what the search looks for words in
 //   search-thread    a search two entries meet, which the sentence on whole threads names
@@ -23,7 +24,11 @@
 import { $, $$, h, clear } from "./dom.js";
 import { KEY_NAMES } from "./comment-keys.js";
 
-function helpMarkup(all) {
+// The words the Search page shows its terms with, unless the page gives its own: two that a
+// search finds together, two either of which it finds, a phrase, and a word it leaves out.
+const WORDS = { both: ["caption", "width"], either: ["figure", "table"], phrase: "base case", without: "appendix" };
+
+function helpMarkup(all, { both, either, phrase, without }) {
   const tabs = all.map(([page, name], at) => `<button type="button" role="tab" id="help-tab-${page}" data-page="${page}" `
     + `aria-controls="help-${page}" aria-selected="${at === 0}"${at === 0 ? "" : ' tabindex="-1"'}>${name}</button>`);
   const own = all.slice(2, -1).map(([page]) => `<section id="help-${page}" class="help-page" role="tabpanel" `
@@ -48,18 +53,18 @@ function helpMarkup(all) {
       <table id="help-search-terms" class="help-table">
         <thead><tr><th>Search</th><th>Finds threads that</th></tr></thead>
         <tbody>
-          <tr><td><code>caption width</code></td><td>contain both words, in any order</td></tr>
-          <tr><td><code>figure OR table</code></td><td>contain either word</td></tr>
-          <tr><td><code>"base case"</code></td><td>contain the exact phrase</td></tr>
-          <tr><td><code>-appendix</code></td><td>don't contain the word</td></tr>
+          <tr><td><code>${both.join(" ")}</code></td><td>contain both words, in any order</td></tr>
+          <tr><td><code>${either.join(" OR ")}</code></td><td>contain either word</td></tr>
+          <tr><td><code>"${phrase}"</code></td><td>contain the exact phrase</td></tr>
+          <tr><td><code>-${without}</code></td><td>don't contain the word</td></tr>
           <template data-place="search-rows"></template>
           <tr><td><code>after:11-12</code></td><td>have a message written on or after November&nbsp;12</td></tr>
           <tr><td><code>before:11-14</code></td><td>have a message written before November&nbsp;14</td></tr>
         </tbody>
       </table>
       <p>Write OR in capitals. It splits the search into alternatives, so
-        <code>caption width OR table</code> finds threads that contain both caption and width,
-        or that contain table. A minus also works before a phrase or a term with a colon, as in
+        <code>${both.join(" ")} OR ${either[1]}</code> finds threads that contain both ${both[0]} and ${both[1]},
+        or that contain ${either[1]}. A minus also works before a phrase or a term with a colon, as in
         <code>-from:agent</code>. <template data-place="search-writers"></template></p>
       <h4>Dates and times</h4>
       <table id="help-search-dates" class="help-table">
@@ -101,15 +106,17 @@ function helpMarkup(all) {
 
 // Help drawn into #help-dialog, with the page's parts in their places, and its tabs wired.
 // `prefix` is what the browser keeps the page shown last under, before "HelpPage"; `pages` the
-// page's own pages, [name, tab], which come between Search and Keys; and `keys` the comment
-// keys, the comment panel's `keys`. show(page) opens it, as the panel's `help` hook does.
-export function createHelp({ prefix, pages, keys }) {
+// page's own pages, [name, tab], which come between Search and Keys; `keys` the comment keys,
+// the comment panel's `keys`; and `words`, the words the Search page shows its terms with, as
+// WORDS gives them, for a page whose own search example speaks of other things. show(page)
+// opens it, as the panel's `help` hook does.
+export function createHelp({ prefix, pages, keys, words = WORDS }) {
   const dialog = $("#help-dialog");
   const parts = new Map([...dialog.querySelectorAll(":scope > template[data-slot]")]
     .map((part) => [part.dataset.slot, part.content]));
   const all = [["start", "Start here"], ["search", "Search"], ...pages, ["keys", "Keys"]];
   const order = all.map(([page]) => page);
-  dialog.innerHTML = helpMarkup(all);
+  dialog.innerHTML = helpMarkup(all, words);
   for (const place of dialog.querySelectorAll("template[data-place]")) {
     place.replaceWith(parts.get(place.dataset.place) ?? "");
   }

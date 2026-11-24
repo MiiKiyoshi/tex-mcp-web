@@ -27,8 +27,9 @@ function spoken(keys) {
   return `${keys.slice(0, -1).join(", ")} and ${keys.at(-1)}`;
 }
 
-// The keys, which the comment panel makes, on the page's `state` it shares with them. The
-// panel gives:
+// The keys, which the comment panel makes, on the page's `state` it shares with them. A key for
+// a part the page has not is not there: no K without enterPlace, no c without whole, no ?
+// without help, and no aa or nn without suggestions. The panel gives:
 //
 //   labels       `document`, what the page calls what is reviewed, and `firstSort`, the name
 //                of the sort list's first order
@@ -42,6 +43,7 @@ function spoken(keys) {
 //   enterPlace(comment) what K does: the comment's words in the source, the keys going there
 //   whole()             what c does: a comment on the whole document
 //   help()              what ? does
+//   suggestions         whether a comment may carry a suggestion, which aa applies and nn rejects
 //   lettersShown()      whether Settings shows the key letters on the ringed comment's buttons
 //   rests(event)        whether the keys rest for this key, as for a part of the page that is
 //                       shown over the list and has keys of its own
@@ -55,7 +57,8 @@ export function createCommentKeys(host) {
   // for their titles. One that acts on the picked comments, when there are some, says so. While
   // v holds a range, a key with a range action does that, and of the rest only those marked
   // inRange act: the keys that move, which stretch it, and Space. The list's keys act while the
-  // Comments pane is shown, the tab keys while the sidebar is, and ? anywhere.
+  // Comments pane is shown, the tab keys while the sidebar is, and ? anywhere. A key whose `has`
+  // is false works a part the page has not, and is left out.
   const table = [
     ["Move", [
       { keys: ["j", "ArrowDown"], does: "Next comment", repeats: true, inRange: true,
@@ -68,12 +71,12 @@ export function createCommentKeys(host) {
         inRange: true, run: () => foldFocused() },
       { keys: ["Shift+Space"], does: "Expand or collapse all comments", run: () => panel().foldAll() },
       { keys: ["K", "Ctrl+Alt+K"], does: "Jump to its text in the source and move keyboard focus there. "
-        + "Press K (Ctrl+Alt+K without Vim keys) to come back", run: () => enterPlace() },
+        + "Press K (Ctrl+Alt+K without Vim keys) to come back", run: () => enterPlace(), has: host.enterPlace !== null },
     ]],
     ["Write", [
       { keys: ["r"], does: "Write a reply for the agent", button: ["cmt-reply"], run: () => pressCard(".cmt-reply") },
       { keys: ["e"], does: "Edit your last message in it", marks: ".cmt-edit", run: () => pressCard(".cmt-edit") },
-      { keys: ["c"], does: `Comment on the whole ${labels.document}`, run: () => host.whole() },
+      { keys: ["c"], does: `Comment on the whole ${labels.document}`, run: () => host.whole(), has: host.whole !== null },
       { keys: ["Escape"], does: "Leave the text box. An unsent reply or edit is discarded" },
     ]],
     ["Change", [
@@ -86,8 +89,10 @@ export function createCommentKeys(host) {
         range: () => pressForRange(["#archive-picked-btn"]) },
       { keys: ["u"], does: "Undo the last status change, while Undo is shown above the list", button: ["undo-go"],
         run: () => panel().undoStatus().catch((error) => console.error(error)) },
-      { keys: ["aa"], does: "Apply its suggestion to the file", button: ["sugg-apply"], run: () => pressCard(".sugg-apply") },
-      { keys: ["nn"], does: "Reject its suggestion", button: ["sugg-reject"], run: () => pressCard(".sugg-reject") },
+      { keys: ["aa"], does: "Apply its suggestion to the file", button: ["sugg-apply"], run: () => pressCard(".sugg-apply"),
+        has: host.suggestions },
+      { keys: ["nn"], does: "Reject its suggestion", button: ["sugg-reject"], run: () => pressCard(".sugg-reject"),
+        has: host.suggestions },
       { keys: ["dd"], does: "Delete it (after confirmation)", button: ["cmt-delete"], run: () => pressCard(".cmt-delete") },
       { keys: ["D"], does: "Delete your last message in it (after confirmation)",
         marks: ".entry-delete", run: () => pressCard(".entry-delete") },
@@ -107,9 +112,9 @@ export function createCommentKeys(host) {
         run: () => panel().cycleSort() },
       { keys: ["t"], does: "Next tab", scope: "sidebar", run: () => cycleTab(1) },
       { keys: ["T"], does: "Previous tab", scope: "sidebar", run: () => cycleTab(-1) },
-      { keys: ["?"], does: "Open Help", scope: "page", run: () => host.help() },
+      { keys: ["?"], does: "Open Help", scope: "page", run: () => host.help(), has: host.help !== null },
     ]],
-  ];
+  ].map(([name, group]) => [name, group.filter((entry) => entry.has !== false)]);
   const entries = () => table.flatMap(([, group]) => group);
   for (const { after, ...own } of host.rows({ pressCard, pressPickedOr, pressForRange, focusedCard })) {
     const [, group] = table.find(([, listed]) => listed.some((entry) => entry.keys[0] === (after ?? own.keys[0])));

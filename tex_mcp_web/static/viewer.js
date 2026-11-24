@@ -4330,7 +4330,6 @@ function attachKeyboardNavigation() {
       event.stopImmediatePropagation();
     }
   }, { capture: true });
-  panel.keys.attach();
 }
 
 // The keys taken into the source at the ringed comment's words, as K in the editor takes them

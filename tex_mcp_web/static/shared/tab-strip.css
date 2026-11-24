@@ -1,0 +1,56 @@
+/* The tabs along the top of a review page's sidebar (tab-strip.js) and the panes they show. The
+   tabs keep the page's own size whatever Settings makes the text, so their measures are in em.
+   Each tab is as wide as its words, which stay on one line with its count beside them, and the
+   room left is shared; a strip too narrow for the words ends them in an ellipsis. A pane
+   scrolls as a whole, and comment-panel.css makes the Comments pane a column.
+
+   Shared by the review pages. It is written in tex-mcp-web, and scripts/share_page.py copies it
+   to the others. A copy is never edited by hand. */
+
+.sidebar-tabs {
+  display: flex;
+  font-size: var(--text-base);
+  min-height: var(--panel-bar);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+.tab-btn {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  padding: 0 0.5em;
+  border: none;
+  background: none;
+  border-bottom: 2px solid transparent;
+  color: var(--fg-dim);
+  font: inherit;
+  cursor: pointer;
+}
+.tab-btn.active {
+  color: var(--fg);
+  border-bottom-color: var(--accent);
+  background: var(--bg-elev);
+}
+.tab-btn[hidden] { display: none; }
+.tab-label { overflow: hidden; text-overflow: ellipsis; }
+.tab-count {
+  flex: none;
+  margin-left: 0.49em;
+  padding: 0 0.44em;
+  border-radius: 8px;
+  font-size: 0.82em;
+  font-weight: 700;
+  color: white;
+  background: var(--accent);
+}
+.tab-pane {
+  display: none;
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.5rem;
+  min-height: 0;
+}
+.tab-pane.active { display: block; }

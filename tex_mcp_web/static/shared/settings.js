@@ -1,7 +1,8 @@
 // The parts of Settings the review pages share: the theme, the size of the page's own text,
-// the key that sends a comment, the key letters on the ringed comment's buttons, and where the
-// source editor holds its cursor's line. Each choice is kept in the browser under the page's
-// own prefix, so each page keeps its own.
+// the key that sends a comment, the key letters on the ringed comment's buttons, and, on a page
+// with a source editor, where the editor holds its cursor's line. Each choice is kept in the
+// browser under the page's own prefix, so each page keeps its own, and a choice kept under the
+// same prefix by another document, such as a frame in the page, is taken up here as well.
 //
 // Shared by the review pages. It is written in tex-mcp-web, and scripts/share_page.py copies
 // it to the others. A copy is never edited by hand.
@@ -13,7 +14,7 @@ const THEMES = ["light", "dark", "warm"];
 
 // Each choice as Settings shows it: its heading, what it is to a screen reader, the data
 // attribute its buttons carry, and its buttons, the default first, each with its words and,
-// where they say more, its title.
+// where they say more, its title. look-early.js names the text sizes too.
 const CHOICES = [
   ["Theme", "Theme", "theme",
     [["system", "System"], ["light", "Light"], ["dark", "Dark"], ["warm", "Warm"]]],
@@ -50,9 +51,11 @@ function check(name, value) {
 
 // Fills #settings-look with the shared choices and applies what was kept. The page is told of
 // the theme each time it changes, to restyle what CSS does not reach (an editor, a viewer, a
-// frame); of the key letters turned on or off, given whether they show; and of a new place
-// for the editor's cursor, which the page's own editor takes up.
-export function createSettings({ prefix, onTheme = () => {}, onLetters = () => {}, onCursor = () => {} }) {
+// frame); of a new text size, to measure again what it draws over its own text; of the key
+// letters turned on or off, given whether they show; and of a new place for the editor's
+// cursor, which the page's own editor takes up. A page without onCursor has no source editor:
+// Settings offers no place for a cursor, and gives no cursorAt.
+export function createSettings({ prefix, onTheme = () => {}, onTextSize = () => {}, onLetters = () => {}, onCursor = null }) {
   const read = (name) => {
     try { return localStorage.getItem(prefix + name); } catch { return null; }
   };
@@ -62,13 +65,15 @@ export function createSettings({ prefix, onTheme = () => {}, onLetters = () => {
       else localStorage.setItem(prefix + name, value);
     } catch { /* the choice lasts this visit */ }
   };
-  document.querySelector("#settings-look").replaceChildren(...CHOICES.flatMap(choiceGroup));
+  document.querySelector("#settings-look").replaceChildren(
+    ...CHOICES.filter(([, , name]) => name !== "cursor" || onCursor !== null).flatMap(choiceGroup));
 
   // Light, dark or warm, as the reader last chose, else, under System, light or dark as the
   // system is, following it as it changes.
-  let themeChosen = THEMES.includes(read("Theme")) ? read("Theme") : null;
+  let themeChosen = null;
   const system = matchMedia("(prefers-color-scheme: dark)");
-  const applyTheme = () => {
+  const applyTheme = (chosen) => {
+    themeChosen = THEMES.includes(chosen) ? chosen : null;
     const theme = themeChosen ?? (system.matches ? "dark" : "light");
     document.documentElement.dataset.theme = theme;
     check("theme", themeChosen ?? "system");
@@ -76,55 +81,62 @@ export function createSettings({ prefix, onTheme = () => {}, onLetters = () => {
   };
   for (const button of document.querySelectorAll("[data-theme-choice]")) {
     button.addEventListener("click", () => {
-      themeChosen = THEMES.includes(button.dataset.themeChoice) ? button.dataset.themeChoice : null;
-      keep("Theme", themeChosen);
-      applyTheme();
+      keep("Theme", THEMES.includes(button.dataset.themeChoice) ? button.dataset.themeChoice : null);
+      applyTheme(button.dataset.themeChoice);
     });
   }
   system.addEventListener("change", () => {
-    if (themeChosen === null) applyTheme();
+    if (themeChosen === null) applyTheme(null);
   });
-  applyTheme();
+  applyTheme(read("Theme"));
 
-  // The text of the top bar, the panels and the dialogs at the size chosen.
+  // The text of the top bar, the panels and the dialogs at the size chosen, or at 100% for a
+  // size Settings does not offer.
   const applyTextSize = (size) => {
-    document.documentElement.style.setProperty("--text-scale", String(Number(size) / 100));
-    check("text", size);
+    const offered = document.querySelector(`[data-text-choice="${CSS.escape(size ?? "")}"]`) ? size : "100";
+    document.documentElement.style.setProperty("--text-scale", String(Number(offered) / 100));
+    check("text", offered);
   };
   for (const button of document.querySelectorAll("[data-text-choice]")) {
     button.addEventListener("click", () => {
       keep("TextSize", button.dataset.textChoice);
       applyTextSize(button.dataset.textChoice);
+      onTextSize();
     });
   }
-  const size = read("TextSize");
-  applyTextSize(document.querySelector(`[data-text-choice="${CSS.escape(size ?? "")}"]`) ? size : "100");
+  applyTextSize(read("TextSize"));
 
   // Enter sends, shift with it writing a new line, or shift with enter sends, Enter writing the
   // new line as in any box of text. The command or control key with enter sends either way.
-  let sendKey = read("SendKey");
+  let sendKey = null;
   const enterSends = () => sendKey !== "shift";
   const sendKeyName = () => (enterSends() ? "Enter" : "Shift+Enter");
+  const applySendKey = (chosen) => {
+    sendKey = chosen;
+    check("send", enterSends() ? "enter" : "shift");
+  };
   for (const button of document.querySelectorAll("[data-send-choice]")) {
     button.addEventListener("click", () => {
-      sendKey = button.dataset.sendChoice;
-      keep("SendKey", sendKey);
-      check("send", enterSends() ? "enter" : "shift");
+      keep("SendKey", button.dataset.sendChoice);
+      applySendKey(button.dataset.sendChoice);
     });
   }
-  check("send", enterSends() ? "enter" : "shift");
+  applySendKey(read("SendKey"));
 
   // The key letters on the ringed comment's buttons, shown unless turned off.
-  let lettersOff = read("KeyLetters") === "off";
+  let lettersOff = false;
+  const applyLetters = (chosen) => {
+    lettersOff = chosen === "off";
+    check("letters", lettersOff ? "off" : "on");
+  };
   for (const button of document.querySelectorAll("[data-letters-choice]")) {
     button.addEventListener("click", () => {
-      lettersOff = button.dataset.lettersChoice === "off";
       keep("KeyLetters", button.dataset.lettersChoice);
-      check("letters", lettersOff ? "off" : "on");
+      applyLetters(button.dataset.lettersChoice);
       onLetters(!lettersOff);
     });
   }
-  check("letters", lettersOff ? "off" : "on");
+  applyLetters(read("KeyLetters"));
 
   // The cursor's line held a third or a half of the way down the editor, as the comment keys
   // hold the ringed card in the list, or left to move over the text.
@@ -138,13 +150,36 @@ export function createSettings({ prefix, onTheme = () => {}, onLetters = () => {
   }
   check("cursor", cursorChoice());
 
+  // A choice another document keeps under the same prefix, by the name it is kept under, is
+  // applied here as if chosen here.
+  const kept = {
+    Theme: applyTheme,
+    TextSize: (size) => {
+      applyTextSize(size);
+      onTextSize();
+    },
+    SendKey: applySendKey,
+    KeyLetters: (chosen) => {
+      applyLetters(chosen);
+      onLetters(!lettersOff);
+    },
+    CursorHeld: () => {
+      check("cursor", cursorChoice());
+      onCursor?.();
+    },
+  };
+  addEventListener("storage", (event) => {
+    if (event.storageArea !== localStorage || !event.key?.startsWith(prefix)) return;
+    kept[event.key.slice(prefix.length)]?.(event.newValue);
+  });
+
   return {
     sendKeyName,
     // Whether the key letters show on the ringed comment's buttons.
     keyLetters: () => !lettersOff,
     // How far down the editor its cursor's line is held, as a share of its height, or
     // undefined while the cursor moves freely.
-    cursorAt: () => CURSOR_AT[cursorChoice()],
+    ...(onCursor !== null && { cursorAt: () => CURSOR_AT[cursorChoice()] }),
     sendOn(input, send) {
       input.addEventListener("keydown", (event) => {
         if (event.key !== "Enter" || event.altKey) return;

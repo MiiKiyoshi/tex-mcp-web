@@ -1,6 +1,7 @@
 // The tabs along the top of a review page's sidebar. Each .tab-btn shows one .tab-pane, the
 // #tab-<name> its data-pane names, or else its data-tab: tabs that list comments share the
-// Comments pane, so a second comment tab names that pane in data-pane.
+// Comments pane, so a second comment tab names that pane in data-pane. Its look is
+// tab-strip.css.
 //
 // Shared by the review pages. It is written in tex-mcp-web, and scripts/share_page.py copies
 // it to the others. A copy is never edited by hand.

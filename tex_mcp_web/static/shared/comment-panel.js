@@ -22,8 +22,9 @@ function escaped(text) {
 // with the words as title and aria-label. Each button shows the one drawing that fits its
 // state; a count rides beside the drawing where the action has one. A button with nothing to
 // do is greyed out, not taken away: the row keeps one shape. Each <slot> is where the page's
-// own parts go (drawPanel). With Help, the search's conditions end with a link to its page.
-function paneMarkup(labels, helped) {
+// own parts go (drawPanel). With Help, the search's conditions end with a link to its page, and
+// they offer file: only where comments are on files.
+function paneMarkup(labels, helped, filed) {
   const [sortValue, sortName] = labels.firstSort.map(escaped);
   return `<div class="filter-row">
   <span class="row-group">
@@ -83,12 +84,12 @@ function paneMarkup(labels, helped) {
 </div>
 <!-- Lists the tab's comments that meet what is typed, whatever their status. -->
 <input id="comment-search" class="comment-search" type="search" autocomplete="off" spellcheck="false"
-       aria-label="Search comments" placeholder="Search words, a file or a name…">
+       aria-label="Search comments" placeholder="${escaped(labels.searchBox ?? (filed ? "Search words, a file or a name…" : "Search words or a name…"))}">
 <!-- Shown while the search box has the focus: a click puts the condition into the box at
      the cursor. The list under them offers the tab's writers for from: and its files for file:. -->
 <div id="search-terms" class="search-terms" hidden>
   <button type="button" tabindex="-1" data-insert="from:" title="Show comments with a message from a person. Type a name or part of one, or use from:me or from:agent.">from:</button>
-  <button type="button" tabindex="-1" data-insert="file:" title="Show comments on a file. Type its name or part of it.">file:</button>
+  ${filed ? '<button type="button" tabindex="-1" data-insert="file:" title="Show comments on a file. Type its name or part of it.">file:</button>' : ""}
   <button type="button" tabindex="-1" data-insert='""' title="Match the exact phrase">"phrase"</button>
   <button type="button" tabindex="-1" data-insert="-" title="Exclude comments that contain the next word">-not</button>
   <button type="button" tabindex="-1" data-insert="OR" title="Match either the word before or the word after">OR</button>
@@ -180,23 +181,27 @@ const DEFAULTS = {
   place: () => null,
   // Shows where a comment is: a card opened from the list or by Space, the keys staying there.
   showPlace: () => {},
-  // K: the keys taken to a comment's words, as in the source.
-  enterPlace: () => {},
+  // K: the keys taken to a comment's words, as in the source. Without it there is no K.
+  enterPlace: null,
   // Given the shown tab's open comments after each reading, to mark where they are.
   marked: () => {},
-  // c: a comment on the whole document.
-  whole: () => {},
+  // c: a comment on the whole document. Without it there is no c.
+  whole: null,
   // Help, opened on a page or on the one shown last: ? and the search's "more…". Without it
   // neither is offered.
   help: null,
+  // Whether a comment may carry a suggestion, a change to a file that the reviewer applies or
+  // rejects on its card. Without them there are no aa and nn.
+  suggestions: true,
   // A card opened by showComment, the comment shown from its mark, brought into view.
   bringIntoView: (id, card) => card.scrollIntoView({ block: "nearest" }),
   // The words the panel says: `document`, what is reviewed, as the keys name it; `reply`, the
   // reply button's word; `replyBox`, what the reply box says; `firstSort`, [value, name] of
-  // the sort list's first order; and `composeTitle` and `composeBox`, the new comment dialog's
-  // heading and what its box says.
+  // the sort list's first order; `composeTitle` and `composeBox`, the new comment dialog's
+  // heading and what its box says; and `searchBox`, what the search box says, or null for the
+  // panel's words, which name a file where comments are on files.
   labels: { document: "document", reply: "Reply", replyBox: "Reply for the agent…", firstSort: ["page", "page order"],
-            composeTitle: "New comment", composeBox: "Leave feedback for the agent" },
+            composeTitle: "New comment", composeBox: "Leave feedback for the agent", searchBox: null },
   // { name: tab } for the tabs that list comments, which share one pane, the first shown first.
   // Each takes the fields TAB lists.
   tabs: { comments: {} },
@@ -215,7 +220,8 @@ const DEFAULTS = {
   // or null for the panel's own words.
   status: { of: (comment) => comment.status, said: () => null },
   // What the search reads of a comment beside its own words (meetsSearch): me(), words(comment),
-  // files(comment) and said(comment).
+  // files(comment) and said(comment). `files` is null where comments are on no file, and the
+  // search then has no file:.
   search: { me: () => null, words: () => [], files: (comment) => [comment.anchor?.file], said: (comment) => comment.thread },
   // A card's own parts: note(comment, expanded), under its head; reply(comment, expanded), under
   // its thread and suggestion; actions(comment, buttons), the buttons an opened card shows,
@@ -368,18 +374,20 @@ export function createCommentPanel(given) {
   // they went, so the row puts them back before it is fitted again.
   let moved = [];
 
-  drawPanel($("#tab-comments"), paneMarkup(host.labels, host.help !== null));
+  drawPanel($("#tab-comments"), paneMarkup(host.labels, host.help !== null, host.search.files !== null));
   drawPanel($("#compose-dialog"), composeMarkup(host.labels));
   const api = createCommentApi(() => host.base());
-  const keys = createCommentKeys({
+  // The keys, which attach() sets listening.
+  const { attach: attachKeys, ...keys } = createCommentKeys({
     state,
     labels: { document: host.labels.document, firstSort: host.labels.firstSort[1] },
     panel: () => panel,
     rows: (press) => host.keys.rows(press),
     showPlace: (id) => host.showPlace(id),
-    enterPlace: (comment) => host.enterPlace(comment),
-    whole: () => host.whole(),
-    help: () => host.help?.(),
+    enterPlace: host.enterPlace,
+    whole: host.whole,
+    help: host.help,
+    suggestions: host.suggestions,
     lettersShown: () => host.settings.keyLetters(),
     rests: (event) => host.keys.rests(event),
   });
@@ -1307,9 +1315,9 @@ export function createCommentPanel(given) {
 
   // The dialog for a new comment on *anchor*, which *label* names, posted with *fields*, what the
   // page posts beside it. The panel sets its own words, and the page readies its own parts of the
-  // dialog after. What a refused post left in the box comes back in it, and the first box shown
-  // takes the keys.
-  function openCompose(anchor, label, fields = {}) {
+  // dialog after. The box starts with *words*, unless a refused post left words in it, which come
+  // back instead, and the first box shown takes the keys.
+  function openCompose(anchor, label, fields = {}, words = "") {
     pendingAnchor = anchor;
     composeFields = fields;
     const text = $("#compose-text");
@@ -1320,7 +1328,7 @@ export function createCommentPanel(given) {
     host.compose.opening(fields);
     $("#compose-anchor").textContent = label;
     $("#compose-submit").title = `Post (${host.settings.sendKeyName()})`;
-    text.value = keptComment;
+    text.value = keptComment || words;
     keptComment = "";
     $("#compose-dialog").showModal();
     for (const box of $$("#compose-form textarea")) fitComposeBox(box);
@@ -1380,7 +1388,8 @@ export function createCommentPanel(given) {
     await refreshComments();
   }
 
-  // The panel's controls wired: the row, Undo, the dialog, the search, the views and the orders.
+  // The panel's controls wired: the row, Undo, the dialog, the search, the views, the orders and
+  // the keys.
   function attach() {
     $("#fold-all-btn").addEventListener("click", foldAll);
     $("#pick-all-btn").addEventListener("click", pickAll);
@@ -1460,6 +1469,7 @@ export function createCommentPanel(given) {
       $("#comments-list").focus({ preventScroll: true });
       refreshComments().catch((error) => console.error(error));
     });
+    attachKeys();
   }
 
   // What the panel holds for the document shown let go, for a page that shows another in its
