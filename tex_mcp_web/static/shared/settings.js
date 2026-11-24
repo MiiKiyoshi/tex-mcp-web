@@ -1,6 +1,7 @@
 // The parts of Settings the review pages share: the theme, the size of the page's own text,
-// and the key that sends a comment. Each choice is kept in the browser under the page's own
-// prefix, so each page keeps its own.
+// the key that sends a comment, the key letters on the ringed comment's buttons, and where the
+// source editor holds its cursor's line. Each choice is kept in the browser under the page's
+// own prefix, so each page keeps its own.
 //
 // Shared by the review pages. It is written in tex-mcp-web, and scripts/share_page.py copies
 // it to the others. A copy is never edited by hand.
@@ -8,7 +9,8 @@
 const THEMES = ["light", "dark", "warm"];
 
 // Each choice as Settings shows it: its heading, what it is to a screen reader, the data
-// attribute its buttons carry, and its buttons, the default first.
+// attribute its buttons carry, and its buttons, the default first, each with its words and,
+// where they say more, its title.
 const CHOICES = [
   ["Theme", "Theme", "theme",
     [["system", "System"], ["light", "Light"], ["dark", "Dark"], ["warm", "Warm"]]],
@@ -16,7 +18,19 @@ const CHOICES = [
     "Size of the text in the top bar, the panels and the dialogs", "text",
     [["90", "90%"], ["100", "100%"], ["115", "115%"], ["130", "130%"], ["150", "150%"]]],
   ["Send a comment with", "Key that sends a comment", "send", [["enter", "Enter"], ["shift", "Shift+Enter"]]],
+  ["Shortcut letters on a comment's buttons",
+    "Show shortcut letters on the current comment's buttons while you navigate with the keyboard", "letters",
+    [["on", "On"], ["off", "Off"]]],
+  ["Editor cursor position", "Where the editor keeps the cursor line as you move through the text", "cursor",
+    [["free", "Anywhere", "The cursor moves over the text, which scrolls only at the editor's edges"],
+      ["third", "1/3 down", "The cursor's line stays 1/3 of the way down the editor, and the text moves under it"],
+      ["half", "1/2 down", "The cursor's line stays in the middle of the editor, and the text moves under it"]]],
 ];
+
+// Where the editor holds the cursor's line, as a share of its height, and what each choice is
+// kept as, the third as it was kept when it was the only one.
+const CURSOR_AT = { third: 1 / 3, half: 1 / 2 };
+const CURSOR_KEPT = { free: "0", third: "1", half: "half" };
 
 function choiceGroup([heading, label, name, buttons]) {
   const title = document.createElement("h4");
@@ -25,12 +39,13 @@ function choiceGroup([heading, label, name, buttons]) {
   group.className = "theme-choice";
   group.setAttribute("role", "radiogroup");
   group.setAttribute("aria-label", label);
-  for (const [value, text] of buttons) {
+  for (const [value, text, title] of buttons) {
     const button = document.createElement("button");
     button.type = "button";
     button.setAttribute("role", "radio");
     button.setAttribute("aria-checked", "false");
     button.dataset[`${name}Choice`] = value;
+    if (title) button.title = title;
     button.textContent = text;
     group.append(button);
   }
@@ -45,8 +60,9 @@ function check(name, value) {
 
 // Fills #settings-look with the shared choices and applies what was kept. The page is told of
 // the theme each time it changes, to restyle what CSS does not reach (an editor, a viewer, a
-// frame).
-export function createSettings({ prefix, onTheme = () => {} }) {
+// frame); of the key letters turned on or off, given whether they show; and of a new place
+// for the editor's cursor, which the page's own editor takes up.
+export function createSettings({ prefix, onTheme = () => {}, onLetters = () => {}, onCursor = () => {} }) {
   const read = (name) => {
     try { return localStorage.getItem(prefix + name); } catch { return null; }
   };
@@ -108,8 +124,37 @@ export function createSettings({ prefix, onTheme = () => {} }) {
   }
   check("send", enterSends() ? "enter" : "shift");
 
+  // The key letters on the ringed comment's buttons, shown unless turned off.
+  let lettersOff = read("KeyLetters") === "off";
+  for (const button of document.querySelectorAll("[data-letters-choice]")) {
+    button.addEventListener("click", () => {
+      lettersOff = button.dataset.lettersChoice === "off";
+      keep("KeyLetters", button.dataset.lettersChoice);
+      check("letters", lettersOff ? "off" : "on");
+      onLetters(!lettersOff);
+    });
+  }
+  check("letters", lettersOff ? "off" : "on");
+
+  // The cursor's line held a third or a half of the way down the editor, as the comment keys
+  // hold the ringed card in the list, or left to move over the text.
+  const cursorChoice = () => Object.keys(CURSOR_KEPT).find((choice) => CURSOR_KEPT[choice] === read("CursorHeld")) ?? "free";
+  for (const button of document.querySelectorAll("[data-cursor-choice]")) {
+    button.addEventListener("click", () => {
+      keep("CursorHeld", CURSOR_KEPT[button.dataset.cursorChoice]);
+      check("cursor", cursorChoice());
+      onCursor();
+    });
+  }
+  check("cursor", cursorChoice());
+
   return {
     sendKeyName,
+    // Whether the key letters show on the ringed comment's buttons.
+    keyLetters: () => !lettersOff,
+    // How far down the editor its cursor's line is held, as a share of its height, or
+    // undefined while the cursor moves freely.
+    cursorAt: () => CURSOR_AT[cursorChoice()],
     sendOn(input, send) {
       input.addEventListener("keydown", (event) => {
         if (event.key !== "Enter" || event.altKey) return;

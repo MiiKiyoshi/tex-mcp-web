@@ -7,6 +7,7 @@
 <link rel="icon" type="image/png" href="/static/favicon.png">
 <link rel="stylesheet" href="/static/shared/look.css">
 <link rel="stylesheet" href="/static/shared/comment-panel.css">
+<link rel="stylesheet" href="/static/shared/help.css">
 <link rel="stylesheet" href="/static/style.css">
 <script src="/static/shared/look-early.js" data-key="texMcpTheme"></script>
 </head>
@@ -251,19 +252,9 @@
       <p id="overleaf-git-state" role="status"></p>
       <p id="overleaf-git-uncommitted" class="overleaf-unset" hidden></p>
     </section>
-    <!-- Theme, text size and the key that sends a comment, filled in by shared/settings.js. -->
+    <!-- Theme, text size, the key that sends a comment, the key letters on a comment's buttons
+         and where the editor holds its cursor, filled in by shared/settings.js. -->
     <div id="settings-look"></div>
-    <h4>Shortcut letters on a comment's buttons</h4>
-    <div class="theme-choice" role="radiogroup" aria-label="Show shortcut letters on the current comment's buttons while you navigate with the keyboard">
-      <button type="button" role="radio" data-letters-choice="on" aria-checked="true">On</button>
-      <button type="button" role="radio" data-letters-choice="off" aria-checked="false">Off</button>
-    </div>
-    <h4>Editor cursor position</h4>
-    <div class="theme-choice" role="radiogroup" aria-label="Where the editor keeps the cursor line as you move through the text">
-      <button type="button" role="radio" data-cursor-choice="free" aria-checked="true" title="The cursor moves over the text, which scrolls only at the editor's edges">Anywhere</button>
-      <button type="button" role="radio" data-cursor-choice="third" aria-checked="false" title="The cursor's line stays 1/3 of the way down the editor, and the text moves under it">1/3 down</button>
-      <button type="button" role="radio" data-cursor-choice="half" aria-checked="false" title="The cursor's line stays in the middle of the editor, and the text moves under it">1/2 down</button>
-    </div>
     <!-- Where Split puts the translation. Shown once a language is configured. -->
     <div id="translation-place" hidden>
       <h4>Translation in Split</h4>
@@ -296,20 +287,11 @@
   </form>
 </dialog>
 
-<!-- Help, in four pages chosen by the tabs. The comment keys on the Keys page are filled in
-     from the keys themselves each time the dialog opens. The tests type the examples on the
-     Search page into the search box, so each one must find what its text says. -->
+<!-- Help, which shared/help.js draws with this page's parts. The comment keys on the Keys page
+     are filled in from the keys themselves each time the dialog opens. The tests type the
+     example on the Search page into the search box, so each step must find what its text says. -->
 <dialog id="help-dialog" aria-labelledby="help-title">
-  <form method="dialog" id="help-form">
-    <h3 id="help-title">Help</h3>
-    <div id="help-tabs" class="help-tabs" role="tablist" aria-label="Help pages">
-      <button type="button" role="tab" id="help-tab-start" data-page="start" aria-controls="help-start" aria-selected="true">Start here</button>
-      <button type="button" role="tab" id="help-tab-search" data-page="search" aria-controls="help-search" aria-selected="false" tabindex="-1">Search</button>
-      <button type="button" role="tab" id="help-tab-overleaf" data-page="overleaf" aria-controls="help-overleaf" aria-selected="false" tabindex="-1">Overleaf</button>
-      <button type="button" role="tab" id="help-tab-keys" data-page="keys" aria-controls="help-keys" aria-selected="false" tabindex="-1">Keys</button>
-    </div>
-    <div id="help-pages" class="help-pages">
-      <section id="help-start" class="help-page" role="tabpanel" aria-labelledby="help-tab-start">
+  <template data-slot="start">
         <h4>Add a comment</h4>
         <p>Select words in the Preview and choose <b>Comment</b>. In the Source, select text and
           press the comment <span class="help-nowrap">button <svg class="help-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M12 7v6M9 10h6"/></svg></span>
@@ -338,10 +320,8 @@
           sets a thread aside without resolving it, and you can still reply to it. After either
           one, a line above the list says what was done, and <b>Undo</b> on that line, or the
           <kbd>u</kbd> key, reverses it.</p>
-      </section>
-      <section id="help-search" class="help-page" role="tabpanel" aria-labelledby="help-tab-search" hidden>
-        <p>The search box above the comment list finds comments in the tab that is open, in any
-          status. Press <kbd>/</kbd> to go to it.</p>
+  </template>
+  <template data-slot="search-example">
         <h4>Example: a co-author's comment</h4>
         <p>Suppose several people work on the paper on Overleaf, and you want to find a comment
           your co-author Ann Lee left a few days ago. You remember that it was about 2_main.tex and
@@ -365,56 +345,22 @@
             <p>A time works the same way, here 9:00 and 12:00 on November&nbsp;13. Only the
               comment you were looking for is left.</p></li>
         </ol>
-        <p>While you search, the view list shows <b>all</b>, because the search covers threads in
-          every status. Press Enter to move to the results and go through them with the keys.
-          Press Escape in the search box to clear the search and return to the view you had.</p>
-        <p>The sort list orders the results as it does in any view. With <b>paper order</b>,
+  </template>
+  <template data-slot="search-order">With <b>paper order</b>,
           threads from Overleaf follow the order of the paper, and your own comments the order
-          you wrote them in. <b>latest first</b> and <b>oldest first</b> order them by each
-          thread's most recent message.</p>
-        <h4>Search terms</h4>
-        <table id="help-search-terms" class="help-table">
-          <thead><tr><th>Search</th><th>Finds threads that</th></tr></thead>
-          <tbody>
-            <tr><td><code>caption width</code></td><td>contain both words, in any order</td></tr>
-            <tr><td><code>figure OR table</code></td><td>contain either word</td></tr>
-            <tr><td><code>"base case"</code></td><td>contain the exact phrase</td></tr>
-            <tr><td><code>-appendix</code></td><td>don't contain the word</td></tr>
+          you wrote them in.</template>
+  <template data-slot="search-rows">
             <tr><td><code>from:ann</code></td><td>have a message from someone whose name contains “ann”</td></tr>
             <tr><td><code>file:2_main</code></td><td>are on a file whose path contains “2_main”</td></tr>
-            <tr><td><code>after:11-12</code></td><td>have a message written on or after November&nbsp;12</td></tr>
-            <tr><td><code>before:11-14</code></td><td>have a message written before November&nbsp;14</td></tr>
-          </tbody>
-        </table>
-        <p>Write OR in capitals. It splits the search into alternatives, so
-          <code>caption width OR table</code> finds threads that contain both caption and width,
-          or that contain table. A minus also works before a phrase or a term with a colon, as in
-          <code>-from:agent</code>. Use <code>from:me</code> for your own messages,
+  </template>
+  <template data-slot="search-writers">Use <code>from:me</code> for your own messages,
           <code>from:agent</code> for the agent's, and quotes for a name with a space, as in
-          <code>from:"Ann Lee"</code>.</p>
-        <h4>Dates and times</h4>
-        <table id="help-search-dates" class="help-table">
-          <thead><tr><th>Date</th><th>Means</th></tr></thead>
-          <tbody>
-            <tr><td><code>11-12</code></td><td>November&nbsp;12 of this year</td></tr>
-            <tr><td><code>2026-11-12</code></td><td>November&nbsp;12, 2026</td></tr>
-            <tr><td><code>11-12T09</code></td><td>9:00 on November&nbsp;12</td></tr>
-            <tr><td><code>11-12T09:30</code></td><td>9:30 on November&nbsp;12</td></tr>
-            <tr><td><code>"11-12 09:30"</code></td><td>9:30 on November&nbsp;12, written as the comment cards show it</td></tr>
-          </tbody>
-        </table>
-        <p>Dates and times are in your computer's time zone, as on the comment cards. A date
-          without a time means the start of that day, so <code>before:11-14</code> still includes
-          November&nbsp;13.</p>
-        <p>The search looks for words in the messages and their writers' names, the text a comment
-          is on, its file name, proposed changes and drafts for Overleaf. Capital letters don't
-          matter. Each term is checked against the whole thread rather than a single message, so
-          <code>from:ann after:11-12</code> also finds a thread Ann Lee wrote in on
-          November&nbsp;10 if someone else replied on November&nbsp;12. A word with a colon that
-          isn't one of these terms, such as <code>note:</code>, is searched for as an ordinary
-          word.</p>
-      </section>
-      <section id="help-overleaf" class="help-page" role="tabpanel" aria-labelledby="help-tab-overleaf" hidden>
+          <code>from:"Ann Lee"</code>.</template>
+  <template data-slot="search-words">the messages and their writers' names, the text a comment
+          is on, its file name, proposed changes and drafts for Overleaf</template>
+  <template data-slot="search-thread"><code>from:ann after:11-12</code> also finds a thread Ann Lee wrote in on
+          November&nbsp;10 if someone else replied on November&nbsp;12</template>
+  <template data-slot="page-overleaf">
         <p>Once the paper is connected to its Overleaf project in Settings, the comment threads
           from Overleaf appear in a second Comments tab, marked with a
           <span class="help-nowrap">leaf <svg class="help-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13C3 7 7 3 13 3c0 6-4 10-10 10z"/><path d="M3 13l6-6"/></svg>.</span>
@@ -465,14 +411,8 @@
           The number on git pull is how many commits Overleaf has that this folder doesn't, and
           the number on commit &amp; push is how many commits it will send. In a folder that isn't
           a git clone, the buttons read <b>Get</b> and <b>Send</b> and count files instead.</p>
-      </section>
-      <section id="help-keys" class="help-page" role="tabpanel" aria-labelledby="help-tab-keys" hidden>
-        <div class="keys-grid">
-          <h4>Comments</h4>
-          <p>These shortcuts act on the current comment when the Comments tab is open and you are
-            not typing. For a doubled letter such as dd, press the key twice.</p>
-          <div id="keys-list"></div>
-          <p id="keys-picked"></p>
+  </template>
+  <template data-slot="keys">
           <h4>Preview</h4>
           <span class="keys-of"><kbd>Ctrl+double-click</kbd></span><span>Show the word in the Source, as the <b>Source</b> button does for selected text</span>
           <h4>Source editor</h4>
@@ -497,13 +437,7 @@
           <span class="keys-of"><kbd>gd</kbd><kbd>Ctrl+]</kbd></span><span>Go to the file, label or .bib entry named at the cursor</span>
           <span class="keys-of"><kbd>Ctrl+O</kbd><kbd>Ctrl+T</kbd></span><span>Go back. On Windows, use Ctrl+O, since the browser opens a new tab with Ctrl+T.</span>
           <p>Text you yank is also copied to the system clipboard.</p>
-        </div>
-      </section>
-    </div>
-    <div class="dialog-actions">
-      <button type="submit">Close</button>
-    </div>
-  </form>
+  </template>
 </dialog>
 
 <!-- The new comment dialog, which the comment panel draws. A comment for Overleaf takes the

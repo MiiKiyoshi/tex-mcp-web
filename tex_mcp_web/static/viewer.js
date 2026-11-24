@@ -1,7 +1,9 @@
 import EmbedPDF, { PdfAnnotationSubtype } from "/static/embedpdf/embedpdf.js?v=selection-yellow";
 import { createSettings } from "./shared/settings.js";
-import { $, $$, h, clear, placeholder } from "./shared/dom.js";
+import { $, $$, h, clear, placeholder, eventOrigin, COMPOSED, keyByPosition, showMacKeyNames } from "./shared/dom.js";
 import { createCommentPanel, statusOf, shortTime } from "./shared/comment-panel.js";
+import { createCommentKeys, RING_AT } from "./shared/comment-keys.js";
+import { createHelp } from "./shared/help.js";
 
 const DOCUMENT_ID = "paper";
 const ANNOTATION_PREFIX = "tex-web:";
@@ -20,8 +22,6 @@ const WAITS = {
 const state = {
   // The comment panel keeps its own fields here as well, as shared/comment-panel.js sets them out.
   viewer: null,
-  // "off" when Settings hides the key letters on the ringed comment's controls.
-  keyLetters: null,
   // The threads whose replies are on their way to Overleaf, and whether its threads are being
   // synced: their buttons show the work under way until the list shows what it did.
   sending: new Set(),
@@ -75,8 +75,6 @@ const state = {
   overleafImported: new Set(),
   // The edits made on Overleaf with track changes on, waiting to be accepted or rejected.
   overleafSuggested: [],
-  // The comment a range started from, while v holds one.
-  rangeFrom: null,
   // Whether a press in the editor is held down, which moves the cursor with the text in place.
   editorPointing: false,
   // The suggested edits being accepted or rejected now, and when they were last read.
@@ -128,13 +126,6 @@ const state = {
   sourceCommentsByRow: new Map(),
   panelDraggedAt: -Infinity,
 };
-
-// The element a key or focus event reached. The PDF viewer draws its search and zoom boxes in
-// its own shadow root, and outside it an event seems to come from the viewer itself, so a key
-// typed in its search box would not read as typed in a box.
-function eventOrigin(event) {
-  return event.composedPath?.()[0] ?? event.target;
-}
 
 // Overleaf is marked by a leaf wherever the page speaks of it.
 const LEAF_ICON = '<svg class="leaf-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" '
@@ -1171,6 +1162,8 @@ const settings = createSettings({
     // The viewer's scroll bars take the page's scheme, which its own theme does not set.
     state.viewer?.setAttribute("data-tex-theme", theme);
   },
+  onLetters: (shown) => shown || commentKeys.showLetters(false),
+  onCursor: () => holdCursorLine(),
 });
 const { sendKeyName, sendOn } = settings;
 
@@ -1960,30 +1953,9 @@ function applySourceLeaf() {
 // text under the cursor and the eyes stay where they are. A click or a drag leaves the text
 // where it is. The first lines stay at the top and the last ones at the bottom, with no room
 // made above or below the text to hold them there.
-const CURSOR_AT = { third: 1 / 3, half: 1 / 2 };
-// What the choice is kept as, the third as it was kept when it was the only one.
-const CURSOR_KEPT = { free: "0", third: "1", half: "half" };
-
-function cursorChoice() {
-  try {
-    const kept = localStorage.getItem("texMcpCursorHeld");
-    return Object.keys(CURSOR_KEPT).find((choice) => CURSOR_KEPT[choice] === kept) ?? "free";
-  } catch {
-    return "free";
-  }
-}
-
-function applyCursorHeld() {
-  const choice = cursorChoice();
-  for (const button of document.querySelectorAll("[data-cursor-choice]")) {
-    button.setAttribute("aria-checked", String(button.dataset.cursorChoice === choice));
-  }
-  holdCursorLine();
-}
-
 function holdCursorLine() {
   const editor = state.editor;
-  const at = CURSOR_AT[cursorChoice()];
+  const at = settings.cursorAt();
   if (!editor || at === undefined || state.editorPointing) return;
   const { row, column } = editor.getCursorPosition();
   const top = editor.session.documentToScreenRow(row, column) * editor.renderer.lineHeight;
@@ -2108,14 +2080,6 @@ function defineVimCommands(Vim) {
 // the page as the method's own event and then as the letter it composed, and Vim knew
 // neither: the command was lost and the letter went into the text. The key is read by
 // where it sits on the keyboard instead, and the letter that follows is dropped.
-const COMPOSED = /[\u1100-\u11ff\u3130-\u318f\uac00-\ud7af]/;
-
-// A letter key as the letter where it sits on the keyboard, whatever an input method made of it.
-function keyByPosition(event) {
-  const letter = /^Key([A-Z])$/.exec(event.code)?.[1];
-  return letter === undefined ? undefined : event.shiftKey ? letter : letter.toLowerCase();
-}
-
 function vimCommandMode() {
   const vim = state.editor?.state?.cm?.state.vim;
   return Boolean(state.editor?.$vimModeHandler && vim && !vim.insertMode);
@@ -2509,7 +2473,7 @@ async function initializeSourceEditor() {
   document.addEventListener("pointerup", () => { state.editorPointing = false; }, true);
   state.editor.selection.on("changeCursor", holdCursorLine);
   state.editor.selection.on("changeCursor", sourceCursorMoved);
-  applyCursorHeld();
+  holdCursorLine();
   state.editor.on("change", () => {
     if (!state.sourceLoading) setSourceDirty(true);
   });
@@ -2679,11 +2643,50 @@ function postJson(url, body) {
   return fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 }
 
-const {
-  attach: attachCommentPanel, refreshComments, renderComments, renderPickedActions, fitCommentRow, foldAll,
-  setStatus, undoStatus, pickBox, actionButton, doMutation, setActiveForm, unanswered, setCommentFilter,
-  chosenView, switchTab, cycleSort, openCompose, openCommentSearch, closeCommentSearch,
-} = createCommentPanel({
+// The comment keys. The paper's own keys work its threads from Overleaf and its suggested edits.
+const commentKeys = createCommentKeys({
+  state,
+  labels: { document: "paper", firstSort: "paper order" },
+  panel: () => panel,
+  rows: ({ pressCard, pressPickedOr, pressForRange, focusedCard }) => [
+    { keys: ["r"], does: "Write a private reply that the agent sees and Overleaf does not" },
+    { after: "r", keys: ["i"], does: "Write its reply for Overleaf", marks: ".cmt-overleaf",
+      run: () => {
+        const box = focusedCard()?.querySelector(".overleaf-reply-input");
+        if (!box) return;
+        box.focus();
+        box.setSelectionRange(box.value.length, box.value.length);
+      } },
+    { keys: ["e"], does: "Edit your last message in it, here or on Overleaf" },
+    { keys: ["Escape"], does: "Leave the text box. An unsent private reply or edit is discarded; a reply for Overleaf is kept" },
+    { keys: ["A"], does: "Archive it, or in the leaf Comments tab hide or show it", button: ["cmt-archive", "cmt-hide", "cmt-show"],
+      run: () => pressPickedOr(["#archive-picked-btn", "#hide-picked-btn"], ".cmt-archive, .cmt-hide, .cmt-show"),
+      range: () => pressForRange(["#archive-picked-btn", "#hide-picked-btn"]) },
+    { keys: ["aa"], does: "Apply its suggestion to the file, or accept a suggested edit on Overleaf",
+      button: ["sugg-apply", "change-accept"], run: () => pressCard(".sugg-apply, .change-accept") },
+    { keys: ["nn"], does: "Reject its suggestion, or its Overleaf draft if there is none",
+      button: ["sugg-reject", "overleaf-reject"],
+      run: () => {
+        const card = focusedCard();
+        (card?.querySelector(".sugg-reject") ?? card?.querySelector(".overleaf-reject"))?.click();
+      } },
+    { after: "nn", keys: ["ss"], does: "Send its public reply to Overleaf, for everyone in the project", button: ["overleaf-send"],
+      picked: true, run: () => pressPickedOr(["#send-picked-btn"], ".overleaf-send"),
+      range: () => pressForRange(["#send-picked-btn"]) },
+    { keys: ["dd"], does: "Delete it (after confirmation), or reject a suggested edit on Overleaf",
+      button: ["cmt-delete", "change-reject"], run: () => pressCard(".cmt-delete, .change-reject") },
+    { keys: ["D"], does: "Delete your last message in it, here or on Overleaf (after confirmation)" },
+  ],
+  showPlace: (id) => jumpToComment(id),
+  enterPlace: (comment) => enterSource(comment),
+  commentWhole: () => $("#paper-comment-btn").click(),
+  showHelp: () => help.show(),
+  lettersShown: () => settings.keyLetters(),
+  rests: () => false,
+});
+const { hint: keyHint, rangeIds } = commentKeys;
+
+const panel = createCommentPanel({
   state,
   prefix: "texMcp",
   api: {
@@ -2736,7 +2739,7 @@ const {
   },
   sendOn,
   sendKeyName,
-  keys: { hint: keyHint, rangeIds, mark: markKeys, placeRing },
+  keys: commentKeys,
   // The comments written here are in one tab, and Overleaf's threads, with those drafted for
   // it, in the other.
   tabOf: (comment) => (forOverleaf(comment) ? "overleaf-comments" : "comments"),
@@ -2963,6 +2966,14 @@ const {
     },
   },
 });
+const {
+  attach: attachCommentPanel, refreshComments, renderComments, renderPickedActions, fitCommentRow, setStatus,
+  pickBox, actionButton, doMutation, setActiveForm, unanswered, setCommentFilter, switchTab, openCompose,
+  closeCommentSearch,
+} = panel;
+
+// Help, with the paper's own Start here, search story and Overleaf page, and its own keys.
+const help = createHelp({ prefix: "texMcp", pages: [["overleaf", "Overleaf"]], keys: commentKeys });
 
 // A suggested edit as the list holds it, beside the comments: open until accepted or rejected,
 // with nothing said in it, and its place in the source, or its line on Overleaf when the text
@@ -4358,455 +4369,19 @@ function attachKeyboardNavigation() {
       event.stopImmediatePropagation();
     }
   }, { capture: true });
-  attachCommentKeys();
-}
-
-// ----- Comment keys -----
-// The comments go by keys as a notebook's cells do: the list takes the keys while the
-// Comments pane is shown and nothing is being typed in, and a box being written in keeps them
-// until Escape. A key presses the focused comment's button, so it does what that button does,
-// and nothing on a comment without one. A key that changes the paper's file, posts to Overleaf
-// or deletes is a letter pressed twice, as a notebook deletes a cell with dd.
-
-const KEY_NAMES = { ArrowDown: "↓", ArrowUp: "↑", " ": "Space" };
-
-// Each key as the Keys page of Help lists it. A key with a button names the controls it works, for their titles. One
-// that acts on the picked comments, when there are some, says so. While v holds a range, a key
-// with a range action does that, and of the rest only those marked inRange act: the keys that
-// move, which stretch it, and Space. The list's keys act while the Comments pane is shown, the
-// tab keys while the sidebar is, and ? anywhere.
-const COMMENT_KEYS = [
-  ["Move", [
-    { keys: ["j", "ArrowDown"], does: "Next comment", repeats: true, inRange: true,
-      run: () => moveFocus((at, last) => Math.min(at + 1, last)) },
-    { keys: ["k", "ArrowUp"], does: "Previous comment", repeats: true, inRange: true,
-      run: () => moveFocus((at) => Math.max(at - 1, 0)) },
-    { keys: ["gg", "Home"], does: "First comment", inRange: true, run: () => moveFocus(() => 0) },
-    { keys: ["G", "End"], does: "Last comment", inRange: true, run: () => moveFocus((at, last) => last) },
-    { keys: [" "], does: "Expand or collapse it; expanding also shows its place in the paper or source",
-      inRange: true, run: () => foldFocused() },
-    { keys: ["Shift+Space"], does: "Expand or collapse all comments", run: () => foldAll() },
-    { keys: ["K", "Ctrl+Alt+K"], does: "Jump to its text in the source and move keyboard focus there. "
-      + "Press K (Ctrl+Alt+K without Vim keys) to come back", run: () => enterSource() },
-  ]],
-  ["Write", [
-    { keys: ["r"], does: "Write a private reply that the agent sees and Overleaf does not", button: ["cmt-reply"],
-      run: () => pressCard(".cmt-reply") },
-    { keys: ["i"], does: "Write its reply for Overleaf", marks: ".cmt-overleaf", run: () => writeForOverleaf() },
-    { keys: ["e"], does: "Edit your last message in it, here or on Overleaf", marks: ".cmt-edit", run: () => pressCard(".cmt-edit") },
-    { keys: ["c"], does: "Comment on the whole paper", run: () => $("#paper-comment-btn").click() },
-    { keys: ["Escape"], does: "Leave the text box. An unsent private reply or edit is discarded; a reply for Overleaf is kept" },
-  ]],
-  ["Change", [
-    { keys: ["R"], does: "Resolve it, or reopen it when it is not open", button: ["cmt-resolve", "cmt-reopen"], picked: true,
-      marks: (comment) => resolveOrReopen(comment),
-      run: () => pressPickedOr(["#resolve-picked-btn"], resolveOrReopen(focused())),
-      range: () => pressForRange(["#resolve-picked-btn"]) },
-    { keys: ["A"], does: "Archive it, or in the leaf Comments tab hide or show it", button: ["cmt-archive", "cmt-hide", "cmt-show"],
-      picked: true, run: () => pressPickedOr(["#archive-picked-btn", "#hide-picked-btn"], ".cmt-archive, .cmt-hide, .cmt-show"),
-      range: () => pressForRange(["#archive-picked-btn", "#hide-picked-btn"]) },
-    { keys: ["u"], does: "Undo the last status change, while Undo is shown above the list", button: ["undo-go"],
-      run: () => undoStatus().catch((error) => console.error(error)) },
-    { keys: ["aa"], does: "Apply its suggestion to the file, or accept a suggested edit on Overleaf",
-      button: ["sugg-apply", "change-accept"], run: () => pressCard(".sugg-apply, .change-accept") },
-    { keys: ["nn"], does: "Reject its suggestion, or its Overleaf draft if there is none",
-      button: ["sugg-reject", "overleaf-reject"],
-      run: () => {
-        const card = focusedCard();
-        (card?.querySelector(".sugg-reject") ?? card?.querySelector(".overleaf-reject"))?.click();
-      } },
-    { keys: ["ss"], does: "Send its public reply to Overleaf, for everyone in the project", button: ["overleaf-send"], picked: true,
-      run: () => pressPickedOr(["#send-picked-btn"], ".overleaf-send"),
-      range: () => pressForRange(["#send-picked-btn"]) },
-    { keys: ["dd"], does: "Delete it (after confirmation), or reject a suggested edit on Overleaf",
-      button: ["cmt-delete", "change-reject"], run: () => pressCard(".cmt-delete, .change-reject") },
-    { keys: ["D"], does: "Delete your last message in it, here or on Overleaf (after confirmation)",
-      marks: ".entry-delete", run: () => pressCard(".entry-delete") },
-  ]],
-  ["Selection", [
-    { keys: ["x"], does: "Select or deselect it, or the whole range while one is marked", marks: ".cmt-head",
-      run: () => pickFocused(), range: () => pickRange() },
-    { keys: ["v"], does: "Start a range at it (or at the first comment) and extend it with the movement keys. R, A, ss "
-      + "and x then act on the whole range; Escape or v clears it", run: () => holdRange(), range: () => letRangeGo() },
-    { keys: ["*"], does: "Select all comments, or clear the selection", run: () => $("#pick-all-btn").click() },
-  ]],
-  ["View", [
-    { keys: ["/"], does: "Search this tab's comments in any status. Enter jumps to the results; Escape closes the search",
-      button: ["comment-search"], run: () => openCommentSearch() },
-    { keys: ["f"], does: "Next view (open, unanswered, …)", run: () => cycleStatus(1) },
-    { keys: ["F"], does: "Previous view", run: () => cycleStatus(-1) },
-    { keys: ["o"], does: "Next sort order (paper order, latest first, oldest first)", button: ["comment-sort"],
-      run: () => cycleSort() },
-    { keys: ["t"], does: "Next tab", scope: "sidebar", run: () => cycleTab(1) },
-    { keys: ["T"], does: "Previous tab", scope: "sidebar", run: () => cycleTab(-1) },
-    { keys: ["?"], does: "Open Help", scope: "page", run: () => showHelp() },
-  ]],
-];
-
-// The button R presses on a comment.
-function resolveOrReopen(comment) {
-  return comment?.status === "open" ? ".cmt-resolve" : ".cmt-reopen";
-}
-
-// Each control of the ringed comment a key works, marked with that key's letter for the list to
-// show. A key that acts on the picked comments, while there are some, or on a held range, works
-// none of the card's controls, and none is marked for it.
-function markKeys() {
-  const comment = focused();
-  const card = comment && $(`#comments-list [data-comment-id="${CSS.escape(comment.id)}"]`);
-  if (!card || rangeIds().length > 0) return;
-  const picking = state.comments.some((item) => state.picked.has(item.id));
-  for (const entry of COMMENT_KEYS.flatMap(([, group]) => group)) {
-    if (picking && entry.picked) continue;
-    const where = typeof entry.marks === "function" ? entry.marks(comment)
-      : entry.marks ?? entry.button?.map((name) => `.${name}`).join(", ");
-    if (!where) continue;
-    const found = card.querySelectorAll(where);
-    found[found.length - 1]?.setAttribute("data-key", KEY_NAMES[entry.keys[0]] ?? entry.keys[0]);
-  }
-}
-
-// The letters show once the keys move through the list, as the reader takes to them, and go at
-// a touch of the mouse or a box taken to type in.
-function showKeyLetters(shown) {
-  $("#comments-list").classList.toggle("show-keys", shown && state.keyLetters !== "off");
-}
-
-function applyKeyLetters() {
-  for (const button of document.querySelectorAll("[data-letters-choice]")) {
-    button.setAttribute("aria-checked", String(button.dataset.lettersChoice === (state.keyLetters ?? "on")));
-  }
-  if (state.keyLetters === "off") showKeyLetters(false);
-}
-
-// The key that presses a comment's button, for the button's title.
-function keyHint(button) {
-  const entry = COMMENT_KEYS.flatMap(([, group]) => group).find((item) => item.button?.includes(button));
-  return entry ? ` (${entry.keys.join(", ")})` : "";
-}
-
-function focused() {
-  return state.comments.find((comment) => comment.id === state.focusedCommentId);
-}
-
-// The focused comment's card, opened unless asked not to, since a closed card shows none of
-// its buttons.
-function focusedCard(open = true) {
-  const comment = focused();
-  if (comment === undefined) return null;
-  if (open && !state.expanded.has(comment.id)) {
-    state.expanded.add(comment.id);
-    renderComments();
-  }
-  return $(`#comments-list [data-comment-id="${CSS.escape(comment.id)}"]`);
-}
-
-// The last of the focused card's buttons that match, which for Edit is the last thing written.
-function pressCard(selector) {
-  const buttons = focusedCard()?.querySelectorAll(selector) ?? [];
-  buttons[buttons.length - 1]?.click();
-}
-
-// With comments picked, the row's first button that can act on them; else the focused card's.
-function pressPickedOr(rows, card) {
-  if (state.comments.some((comment) => state.picked.has(comment.id))) {
-    rows.map((selector) => $(selector)).find((button) => !button.hidden && !button.disabled)?.click();
-  } else {
-    pressCard(card);
-  }
-}
-
-// Where the keys keep the ringed card's middle: a third of the way down the list, its top never
-// above the list's, so the eye stays put while the comments move under it. The list's two ends
-// hold it back where it cannot scroll.
-const RING_AT = 1 / 3;
-
-// The keys move the ring alone: every card stays as it was, and the list scrolls at once, not
-// smoothly, to put the ring in its place.
-function moveFocus(to) {
-  const last = state.comments.length - 1;
-  if (last < 0) return;
-  const comment = state.comments[to(state.comments.findIndex((item) => item.id === state.focusedCommentId), last)];
-  state.focusedCommentId = comment.id;
-  renderComments();
-  placeRing();
-}
-
-// The list scrolled to put the ringed card in its place.
-function placeRing() {
-  const card = $(`#comments-list [data-comment-id="${CSS.escape(state.focusedCommentId ?? "")}"]`);
-  const list = $("#comments-list");
-  if (!card) return;
-  const box = list.getBoundingClientRect();
-  const it = card.getBoundingClientRect();
-  list.scrollTop += it.top - box.top - Math.max(0, list.clientHeight * RING_AT - it.height / 2);
+  commentKeys.attach();
 }
 
 // The keys taken into the source at the ringed comment's words, as K in the editor takes them
 // from a comment's words to the comment. A comment with no place in the source, as a paper note,
 // leaves the editor's cursor where it is.
-async function enterSource() {
-  const comment = focused();
-  if (comment === undefined) return;
+async function enterSource(comment) {
   const place = comment.anchor.kind === "source_range" ? comment.resolved_source ?? comment.anchor : comment.resolved_source;
   if (state.view === "pdf") await setWorkspaceView("source");
   if (place && await openSource(place.file)) {
     showSourcePlace(place.line_start - 1, comment.stale ? 0 : place.column_start ?? 0);
   }
   state.editor?.focus();
-}
-
-// A card opened shows its end, where the thread's latest words and the draft for Overleaf are,
-// before its top when it is taller than the list, and the paper or the source shows where the
-// comment is. The keys stay with the list.
-function foldFocused() {
-  const comment = focused();
-  if (comment === undefined) return;
-  const opening = !state.expanded.has(comment.id);
-  if (opening) state.expanded.add(comment.id);
-  else state.expanded.delete(comment.id);
-  renderComments();
-  const card = $(`#comments-list [data-comment-id="${CSS.escape(comment.id)}"]`);
-  const list = $("#comments-list");
-  const below = card ? card.getBoundingClientRect().bottom - list.getBoundingClientRect().bottom + 8 : 0;
-  if (!opening) return;
-  if (below > 0) list.scrollTop += below;
-  jumpToComment(comment.id).catch((error) => console.error(error));
-}
-
-function writeForOverleaf() {
-  const box = focusedCard()?.querySelector(".overleaf-reply-input");
-  if (!box) return;
-  box.focus();
-  box.setSelectionRange(box.value.length, box.value.length);
-}
-
-// A click on the card's box, so picking by key is picking by mouse.
-function pickFocused() {
-  focusedCard(false)?.querySelector(".comment-pick")?.click();
-}
-
-// The comments from the one the range started at to the ringed one, both ends included, or
-// none while no range is held or its start has left the view.
-function rangeIds() {
-  const ids = state.comments.map((comment) => comment.id);
-  const from = ids.indexOf(state.rangeFrom);
-  const to = ids.indexOf(state.focusedCommentId);
-  return from === -1 || to === -1 ? [] : ids.slice(Math.min(from, to), Math.max(from, to) + 1);
-}
-
-function holdRange() {
-  const comment = focused() ?? state.comments[0];
-  if (comment === undefined) return;
-  state.focusedCommentId = state.rangeFrom = comment.id;
-  renderComments();
-}
-
-function letRangeGo() {
-  state.rangeFrom = null;
-  renderComments();
-}
-
-// The range picked, or let go when all of it is picked already.
-function pickRange() {
-  const ids = rangeIds();
-  const all = ids.every((id) => state.picked.has(id));
-  for (const id of ids) {
-    if (all) state.picked.delete(id);
-    else state.picked.add(id);
-  }
-  letRangeGo();
-}
-
-// What the row's button does to the picked comments, done to the range. The comments picked
-// before stay picked: the button reads which comments it acts on as it is pressed.
-function pressForRange(rows) {
-  const kept = state.picked;
-  state.picked = new Set(rangeIds());
-  state.rangeFrom = null;
-  renderPickedActions();
-  rows.map((selector) => $(selector)).find((button) => !button.hidden && !button.disabled)?.click();
-  state.picked = kept;
-  renderComments();
-}
-
-function cycleStatus(step) {
-  const filter = $("#comment-filter");
-  const views = [...filter.options];
-  const at = views.findIndex((option) => option.value === chosenView());
-  filter.value = views[(at + step + views.length) % views.length].value;
-  filter.dispatchEvent(new Event("change"));
-}
-
-function cycleTab(step) {
-  const tabs = $$(".tab-btn").filter((button) => !button.hidden);
-  const at = tabs.findIndex((button) => button.classList.contains("active"));
-  tabs[(at + step + tabs.length) % tabs.length].click();
-}
-
-// The pages of Help, in the order of its tabs.
-const HELP_PAGES = ["start", "search", "overleaf", "keys"];
-
-// Opens Help on the given page, or else on the page shown last in this browser.
-function showHelp(page) {
-  let shown = page;
-  if (shown === undefined) {
-    try { shown = localStorage.getItem("texMcpHelpPage"); } catch { /* the first page */ }
-  }
-  listCommentKeys();
-  $("#help-dialog").showModal();
-  showHelpPage(HELP_PAGES.includes(shown) ? shown : HELP_PAGES[0]);
-}
-
-// Shows one page and selects and focuses its tab, so the arrow keys work from there. The page
-// opens scrolled to its top, which Safari applies only a frame later.
-function showHelpPage(page) {
-  for (const tab of $$("#help-tabs [role=tab]")) {
-    const chosen = tab.dataset.page === page;
-    tab.setAttribute("aria-selected", String(chosen));
-    tab.tabIndex = chosen ? 0 : -1;
-    $(`#${tab.getAttribute("aria-controls")}`).hidden = !chosen;
-    if (chosen) tab.focus();
-  }
-  try { localStorage.setItem("texMcpHelpPage", page); } catch { /* remembered for this visit only */ }
-  const pages = $("#help-pages");
-  pages.scrollTop = 0;
-  requestAnimationFrame(() => { pages.scrollTop = 0; });
-}
-
-function attachHelp() {
-  for (const tab of $$("#help-tabs [role=tab]")) {
-    tab.addEventListener("click", () => showHelpPage(tab.dataset.page));
-  }
-  // Left and Right move to the previous and next tab, wrapping around at the ends, and Home and
-  // End move to the first and last.
-  $("#help-tabs").addEventListener("keydown", (event) => {
-    const at = HELP_PAGES.indexOf(event.target.dataset?.page);
-    const to = { ArrowLeft: at - 1, ArrowRight: at + 1, Home: 0, End: HELP_PAGES.length - 1 }[event.key];
-    if (at === -1 || to === undefined || event.altKey || event.ctrlKey || event.metaKey) return;
-    event.preventDefault();
-    showHelpPage(HELP_PAGES[(to + HELP_PAGES.length) % HELP_PAGES.length]);
-  });
-  $("#help-btn").addEventListener("click", () => showHelp());
-  $("#search-help-btn").addEventListener("click", () => showHelp("search"));
-}
-
-// Lists the comment keys on the Keys page, built from COMMENT_KEYS.
-function listCommentKeys() {
-  const list = $("#keys-list");
-  clear(list);
-  // One grid for every group, so the words line up down the whole list.
-  for (const [group, entries] of COMMENT_KEYS) {
-    list.append(h("h5", { text: group }), ...entries.flatMap((entry) => [
-      h("span", { class: "keys-of" }, ...entry.keys.map((keys) => h("kbd", { text: KEY_NAMES[keys] ?? keys }))),
-      h("span", { text: entry.does }),
-    ]));
-  }
-  const picked = COMMENT_KEYS.flatMap(([, group]) => group).filter((entry) => entry.picked).map((entry) => entry.keys[0]);
-  $("#keys-picked").textContent = `With comments selected, ${picked.slice(0, -1).join(", ")} and ${picked.at(-1)} act on the selection.`;
-}
-
-function attachCommentKeys() {
-  // A click on a comment puts the ring on it, as a notebook selects the cell clicked, and a
-  // click anywhere in the list gives it the keys, from the editor too.
-  const list = $("#comments-list");
-  list.addEventListener("mousedown", (event) => {
-    const card = event.target.closest(".cmt");
-    if (card !== null) {
-      state.focusedCommentId = card.dataset.commentId;
-      for (const node of list.querySelectorAll(".cmt.is-focused")) node.classList.remove("is-focused");
-      card.classList.add("is-focused");
-    }
-    if (!event.target.closest("textarea, input, select, button, a, [contenteditable]")) {
-      list.focus({ preventScroll: true });
-    }
-  });
-  const entries = COMMENT_KEYS.flatMap(([, group]) => group).filter((entry) => entry.run);
-  const byKeys = new Map(entries.flatMap((entry) => entry.keys.map((keys) => [keys, entry])));
-  // A letter pressed twice: the first waits a second for the second.
-  const firsts = new Set([...byKeys.keys()].filter((keys) => keys.length === 2).map((keys) => keys[0]));
-  let first = "";
-  let timer = null;
-  document.addEventListener("keydown", (event) => {
-    const target = eventOrigin(event);
-    // Ctrl+Alt+K, Cmd+Option+K on macOS, is K with the editor's own keys: read by where K sits,
-    // since Option makes it another letter.
-    const editorK = (event.ctrlKey || event.metaKey) && event.altKey && event.code === "KeyK";
-    if ((!editorK && (event.metaKey || event.ctrlKey || event.altKey)) || document.querySelector("dialog[open]")) return;
-    if (target.isContentEditable || target.closest?.("textarea, select, [contenteditable]")
-        || (target.tagName === "INPUT" && !["checkbox", "radio"].includes(target.type))) return;
-    // Space on a button or a box presses it.
-    if (event.key === " " && target.closest?.("button, a, summary, input")) return;
-    // A Korean input method gives a letter key as the letter it composes.
-    const typed = event.isComposing || event.key === "Process" || COMPOSED.test(event.key)
-      ? keyByPosition(event) : event.key;
-    // Shift widens Space from the ringed card to every card.
-    const key = editorK ? "Ctrl+Alt+K" : typed === " " && event.shiftKey ? "Shift+Space" : typed;
-    if (key === undefined) return;
-    clearTimeout(timer);
-    if (key === "Escape") {
-      first = "";
-      if (rangeIds().length > 0) {
-        event.preventDefault();
-        letRangeGo();
-      } else if (state.activeForm) {
-        event.preventDefault();
-        state.activeForm = null;
-        renderComments();
-      }
-      return;
-    }
-    const keys = byKeys.has(first + key) ? first + key : key;
-    first = "";
-    const entry = byKeys.get(keys);
-    if (entry === undefined) {
-      if (firsts.has(keys)) {
-        first = keys;
-        timer = setTimeout(() => { first = ""; }, 1000);
-      }
-      return;
-    }
-    const sidebar = !$(".layout").classList.contains("sidebar-collapsed");
-    const scope = entry.scope ?? "list";
-    if (scope === "sidebar" ? !sidebar
-      : scope === "list" ? !sidebar || !$("#tab-comments").classList.contains("active") : false) return;
-    // Held down, only moving repeats: a held R would resolve one comment after another.
-    if (event.repeat && !entry.repeats) return;
-    if (rangeIds().length > 0) {
-      if (entry.range === undefined && !entry.inRange) return;
-      event.preventDefault();
-      (entry.range ?? entry.run)();
-      return;
-    }
-    event.preventDefault();
-    entry.run();
-    if (scope === "list") showKeyLetters(true);
-  });
-  document.addEventListener("pointerdown", () => showKeyLetters(false), true);
-  document.addEventListener("pointermove", (event) => {
-    if (event.pointerType === "mouse" && Math.abs(event.movementX) + Math.abs(event.movementY) > 2) showKeyLetters(false);
-  }, true);
-  document.addEventListener("focusin", (event) => {
-    if (eventOrigin(event).matches?.("textarea, select, [contenteditable], input:not([type=checkbox]):not([type=radio])")) {
-      showKeyLetters(false);
-    }
-  });
-  for (const button of document.querySelectorAll("[data-cursor-choice]")) {
-    button.addEventListener("click", () => {
-      try { localStorage.setItem("texMcpCursorHeld", CURSOR_KEPT[button.dataset.cursorChoice]); } catch { /* the choice lasts this visit */ }
-      applyCursorHeld();
-    });
-  }
-  applyCursorHeld();
-  for (const button of document.querySelectorAll("[data-letters-choice]")) {
-    button.addEventListener("click", () => {
-      state.keyLetters = button.dataset.lettersChoice === "off" ? "off" : null;
-      try { localStorage.setItem("texMcpKeyLetters", button.dataset.lettersChoice); } catch { /* the choice lasts this visit */ }
-      applyKeyLetters();
-    });
-  }
-  try { state.keyLetters = localStorage.getItem("texMcpKeyLetters") === "off" ? "off" : null; } catch { /* letters show */ }
-  applyKeyLetters();
 }
 
 function setSidebarCollapsed(collapsed) {
@@ -5485,7 +5060,6 @@ async function init() {
   });
   $("#paper-comment-btn").addEventListener("click", () =>
     openCompose({ kind: "paper" }, "Paper-level comment"));
-  attachHelp();
 
   await refreshPaper();
   // A build already running says so from the start, before the page's socket connects.
@@ -5500,52 +5074,9 @@ async function init() {
   connectWebSocket();
 }
 
-// A Mac holds the page's shortcuts with Cmd, and its Option key is the Alt of other keyboards.
-// The page's texts name the keys as Windows and Linux have them, and on a Mac every tooltip
-// and label, and the texts of Help and of the notes above the lists, are shown
-// with the Mac's names. Ctrl+[, Ctrl+O and Ctrl+T are Ctrl on a Mac too.
-function macKeyNames(text) {
-  return text.replace(/Ctrl\+Alt\+/g, "Cmd+Option+").replace(/Ctrl\+(?=Enter\b|S\b|double-click\b)/g, "Cmd+");
-}
-
-function showMacKeyNames() {
-  if (!/Mac|iPhone|iPad|iPod/.test(navigator.platform)) return;
-  const named = (node) => {
-    for (const attribute of ["title", "aria-label"]) {
-      const text = node.getAttribute?.(attribute);
-      if (text && text !== macKeyNames(text)) node.setAttribute(attribute, macKeyNames(text));
-    }
-  };
-  const written = (node) => {
-    const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
-    for (let text = walker.nextNode(); text; text = walker.nextNode()) {
-      if (text.data !== macKeyNames(text.data)) text.data = macKeyNames(text.data);
-    }
-  };
-  const texts = "#help-dialog, .sync-why, #update-alert";
-  const seen = (node) => {
-    if (node.nodeType !== Node.ELEMENT_NODE) {
-      if (node.nodeType === Node.TEXT_NODE && node.parentElement?.closest(texts)) written(node.parentElement);
-      return;
-    }
-    named(node);
-    node.querySelectorAll("[title], [aria-label]").forEach(named);
-    if (node.closest(texts)) written(node);
-    else node.querySelectorAll(texts).forEach(written);
-  };
-  seen(document.body);
-  new MutationObserver((changes) => {
-    for (const change of changes) {
-      if (change.type === "attributes") named(change.target);
-      else if (change.type === "characterData") seen(change.target);
-      else change.addedNodes.forEach(seen);
-    }
-  }).observe(document.body, { subtree: true, childList: true, characterData: true,
-    attributes: true, attributeFilter: ["title", "aria-label"] });
-}
-
 document.addEventListener("DOMContentLoaded", () => {
-  showMacKeyNames();
+  // On a Mac the keys go by the Mac's names, in Help and the notes above the lists too.
+  showMacKeyNames("#help-dialog, .sync-why, #update-alert");
   init().catch((error) => {
     console.error(error);
     alert(`tex-mcp-web failed to start: ${error.message}`);

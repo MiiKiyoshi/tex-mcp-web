@@ -22,7 +22,7 @@ def test_the_shared_files_go_to_another_page_with_a_manifest_of_their_digests(tm
     manifest = share_page.share(tmp_path)
     names = sorted(path.name for path in (ROOT / "tex_mcp_web" / "static" / "shared").iterdir())
     assert {"look.css", "look-early.js", "settings.js", "dom.js", "comment-search.js", "comment-panel.js",
-            "comment-panel.css"} <= set(names)
+            "comment-panel.css", "comment-keys.js", "help.js", "help.css"} <= set(names)
     assert sorted(manifest["files"]) == names and manifest["source"].startswith("tex-mcp-web ")
     assert json.loads((tmp_path / "shared" / "MANIFEST.json").read_text(encoding="utf-8")) == manifest
     assert sorted(path.name for path in (tmp_path / "shared").iterdir()) == sorted([*names, "MANIFEST.json"])

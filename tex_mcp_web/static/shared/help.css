@@ -1,0 +1,65 @@
+/* The look of Help: its tabs, its pages, the search's tables and steps, and the grid of keys.
+
+   Shared by the review pages. It is written in tex-mcp-web, and scripts/share_page.py copies
+   it to the others. A copy is never edited by hand. */
+
+#help-form { display: flex; flex-direction: column; gap: 0.5rem; }
+#help-form h3 { margin: 0; font-size: 1rem; }
+/* Help keeps one height on every page, so the tabs stay in place as the pages change, and only
+   the page under the tabs scrolls. */
+#help-dialog { max-width: 40rem; height: 40rem; }
+#help-dialog[open] { display: flex; flex-direction: column; }
+#help-form { flex: 1; min-height: 0; }
+.help-tabs { display: flex; flex-wrap: wrap; border-bottom: 1px solid var(--border); }
+.help-tabs [role="tab"] {
+  margin-bottom: -1px; padding: 0.35rem 0.75rem; border: none; border-bottom: 2px solid transparent;
+  background: none; color: var(--fg-dim); font-size: var(--text-body); white-space: nowrap;
+}
+.help-tabs [role="tab"]:hover { color: var(--fg); }
+.help-tabs [role="tab"][aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent); }
+.help-tabs [role="tab"]:focus { outline: none; }
+.help-tabs [role="tab"]:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 3px 3px 0 0; }
+.help-pages { flex: 1; min-height: 0; overflow-y: auto; overflow-wrap: break-word; font-size: var(--text-body); line-height: 1.5; }
+.help-page[hidden] { display: none; }
+.help-page h4 { margin: 1rem 0 0.25rem; font-size: var(--text-body); }
+.help-page h5 { margin: 0.75rem 0 0.25rem; font-size: var(--text-body); font-weight: 600; color: var(--fg-dim); }
+.help-page > :first-child { margin-top: 0.25rem; }
+.help-page p { margin: 0 0 0.5rem; }
+.help-page code, .help-page kbd {
+  padding: 0 0.3em; border: 1px solid var(--border); border-radius: 3px; background: var(--bg);
+  font-family: var(--mono); font-size: var(--text-small);
+}
+.help-icon { width: 1.15em; height: 1.15em; vertical-align: -0.2em; }
+.help-steps { margin: 0 0 0.5rem; padding-left: 1.5rem; }
+.help-steps li { margin-bottom: 0.4rem; }
+.help-steps li p { margin: 0.2rem 0 0; }
+.help-page .help-typed { display: inline-block; padding: 0.1rem 0.45rem; }
+/* A step breaks between its terms only, never inside one such as after:11-13T09. */
+.help-typed span { white-space: nowrap; }
+.help-table { width: 100%; margin: 0 0 0.5rem; border-collapse: collapse; }
+.help-table th { font-size: var(--text-small); font-weight: 600; color: var(--fg-dim); text-align: left; }
+.help-table th, .help-table td { padding: 0.25rem 0.75rem 0.25rem 0; border-bottom: 1px solid var(--border); vertical-align: top; }
+.help-table td:first-child { white-space: nowrap; }
+.help-nowrap, .help-page p code { white-space: nowrap; }
+/* The Keys page is one grid, so the keys of every section line up in one column. In a narrow
+   dialog both columns may shrink: a row's keys wrap between keys, and its words anywhere. */
+.keys-grid {
+  display: grid;
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+  gap: 0.25rem 0.75rem;
+  align-items: start;
+}
+#keys-list { display: contents; }
+.keys-grid > h4, .keys-grid > p, .keys-grid h5 { grid-column: 1 / -1; }
+.keys-grid > :first-child { margin-top: 0.25rem; }
+.keys-grid h5 { margin: 0.4rem 0 0; font-size: var(--text-small); color: var(--fg-dim); }
+.keys-of { display: flex; flex-wrap: wrap; gap: 0.25rem; white-space: nowrap; }
+.keys-grid > span:not(.keys-of), #keys-list > span:not(.keys-of) { overflow-wrap: anywhere; }
+.keys-of kbd {
+  font-family: var(--mono);
+  font-size: var(--text-small);
+  padding: 0 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg);
+}
