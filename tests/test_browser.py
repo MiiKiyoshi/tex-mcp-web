@@ -5531,7 +5531,8 @@ def test_the_more_menu_updates_the_install_and_says_what_is_left(tmp_path: Path,
 
     import pymupdf
 
-    from tex_mcp_web import __version__, server as server_module, update
+    from tex_mcp_web import __version__
+    from tex_mcp_web.shared.update import Update, UpdateError
 
     (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
     with pymupdf.open() as pdf:
@@ -5544,17 +5545,17 @@ def test_the_more_menu_updates_the_install_and_says_what_is_left(tmp_path: Path,
     newest = {"version": None}
     ran = []
 
-    async def latest():
-        return newest["version"]
+    async def latest(self):
+        return newest["version"], None
 
-    async def run():
+    async def run(self):
         ran.append(True)
-        monkeypatch.setattr(update, "on_disk", lambda: "99.0.0")
+        monkeypatch.setattr(Update, "on_disk", lambda self: "99.0.0")
         return "99.0.0"
 
-    monkeypatch.setattr(update, "latest", latest)
-    monkeypatch.setattr(update, "run", run)
-    monkeypatch.setattr(update, "way", lambda: None)
+    monkeypatch.setattr(Update, "news", latest)
+    monkeypatch.setattr(Update, "run", run)
+    monkeypatch.setattr(Update, "way", lambda self: None)
     browser = None
     script = lambda code: browser.execute_script(code)
     shown = lambda selector: script(f'return !document.querySelector("{selector}").hidden')
@@ -5596,22 +5597,22 @@ def test_the_more_menu_updates_the_install_and_says_what_is_left(tmp_path: Path,
         assert ran == [] and shown("#update-alert-how")
         # An update that ran and brought nothing newer says so, and does not go on saying
         # that it is updating.
-        async def nothing_newer():
+        async def nothing_newer(self):
             ran.append(False)
             return __version__
 
-        monkeypatch.setattr(update, "way", lambda: "checkout")
-        monkeypatch.setattr(update, "run", nothing_newer)
+        monkeypatch.setattr(Update, "way", lambda self: "checkout")
+        monkeypatch.setattr(Update, "run", nothing_newer)
         asked_again()
         wait_until(lambda: script('return document.querySelector("#update-btn").dataset.selfUpdate') == "true", timeout=10)
         script('document.querySelector("#update-btn").click()')
         wait_until(lambda: said() == f"This install is still v{__version__} after the update."
                                      " Ask your agent to update tex-mcp-web.")
         assert ran.pop() is False and shown("#update-btn") and drawn("#update-alert") != "none"
-        monkeypatch.setattr(update, "run", run)
+        monkeypatch.setattr(Update, "run", run)
         # One that can is updated by the click. The server keeps its code, so the band asks
         # for the agent to connect again, and the menu offers no second update.
-        monkeypatch.setattr(update, "way", lambda: "checkout")
+        monkeypatch.setattr(Update, "way", lambda self: "checkout")
         asked_again()
         wait_until(lambda: script('return document.querySelector("#update-btn").dataset.selfUpdate') == "true", timeout=10)
         script('document.querySelector("#update-btn").click()')
@@ -5620,7 +5621,7 @@ def test_the_more_menu_updates_the_install_and_says_what_is_left(tmp_path: Path,
         assert script('return document.querySelector("#update-alert-how").href').endswith("docs/reviewing.md#updating")
         # The server that answers after the agent connected again runs the new version: the
         # page, loaded from the old one, asks to be reloaded.
-        monkeypatch.setattr(server_module, "__version__", "99.0.0")
+        monkeypatch.setattr(shared.server.update, "version", "99.0.0")
         asked_again()
         wait_until(lambda: said() == "tex-mcp-web v99.0.0 is now running. Reload this page to use it.", timeout=10)
         assert shown("#update-reload-btn") and not shown("#update-alert-how")
@@ -5630,13 +5631,13 @@ def test_the_more_menu_updates_the_install_and_says_what_is_left(tmp_path: Path,
                    timeout=10)
         assert not shown("#update-btn")
         # A failed update says why, and the button stays for another try.
-        monkeypatch.setattr(server_module, "__version__", __version__)
-        monkeypatch.setattr(update, "on_disk", lambda: __version__)
+        monkeypatch.setattr(shared.server.update, "version", __version__)
+        monkeypatch.setattr(Update, "on_disk", lambda self: __version__)
 
-        async def failed():
-            raise update.UpdateError("fatal: Not possible to fast-forward")
+        async def failed(self):
+            raise UpdateError("fatal: Not possible to fast-forward")
 
-        monkeypatch.setattr(update, "run", failed)
+        monkeypatch.setattr(Update, "run", failed)
         browser.navigate(base)
         wait_until(lambda: shown("#update-btn"), timeout=10)
         script('document.querySelector("#update-btn").click()')

@@ -6,6 +6,7 @@ import { RING_AT } from "./shared/comment-keys.js";
 import { refusalOf } from "./shared/comment-api.js";
 import { createTabStrip } from "./shared/tab-strip.js";
 import { createHelp } from "./shared/help.js";
+import { createUpdate } from "./shared/update.js";
 
 const DOCUMENT_ID = "paper";
 const ANNOTATION_PREFIX = "tex-web:";
@@ -2950,6 +2951,13 @@ const strip = createTabStrip({ shown: (name, clicked) => panel.showTab(name, cli
 // Help, with the paper's own Start here, search story and Overleaf page, and its own keys.
 const help = createHelp({ prefix: PREFIX, pages: [["overleaf", "Overleaf"]], keys: panel.keys });
 
+// The ⋯ menu's Update and the version line at its end, and the band that says what is left once
+// an update is installed, above the band that says the server cannot be reached.
+const update = createUpdate({
+  name: "tex-mcp-web", server: "tex-mcp", menu: $("#more-menu"), before: $("#server-alert"),
+  how: "https://github.com/MiiKiyoshi/tex-mcp-web/blob/main/docs/reviewing.md#updating",
+});
+
 // A suggested edit as the list holds it, beside the comments: open until accepted or rejected,
 // with nothing said in it, and its place in the source, or its line on Overleaf when the text
 // around it is not in the file here.
@@ -3960,63 +3968,6 @@ async function callAgent(lane) {
   return response.json();
 }
 
-// The ⋯ menu's Update. The server runs inside the agent's process, so an update changes the
-// files on disk and the server keeps the code it runs until the agent connects again. The
-// band across the top says which step is left: the agent's, while the version on disk is
-// not the one running, and then the page's own, to load what the new server serves.
-function sayUpdate(text, { how = false, reload = false } = {}) {
-  $("#update-alert-text").textContent = text ?? "";
-  $("#update-alert-how").hidden = !how;
-  $("#update-reload-btn").hidden = !reload;
-  $("#update-alert").hidden = !text;
-}
-
-async function readUpdate() {
-  const response = await fetch("/update");
-  if (!response.ok) return null;
-  const told = await response.json();
-  state.pageVersion ??= told.version;
-  const newer = (version) => {
-    const [a, b] = [version, told.version].map((each) => each.split(".").map(Number));
-    const at = a.findIndex((part, index) => part !== (b[index] ?? 0));
-    return at !== -1 && a[at] > (b[at] ?? 0);
-  };
-  $("#version-line").textContent = `tex-mcp-web v${told.version}`;
-  const button = $("#update-btn");
-  button.hidden = !(told.latest && newer(told.latest)) || told.on_disk !== told.version;
-  button.textContent = `Update to v${told.latest}`;
-  button.dataset.selfUpdate = String(told.self_update);
-  if (told.version !== state.pageVersion) {
-    sayUpdate(`tex-mcp-web v${told.version} is now running. Reload this page to use it.`, { reload: true });
-  } else if (told.on_disk !== told.version) {
-    sayUpdate(`Updated to v${told.on_disk}. Reconnect tex-mcp in your agent to start using it.`, { how: true });
-  }
-  return told;
-}
-
-async function runUpdate() {
-  const button = $("#update-btn");
-  if (button.dataset.selfUpdate !== "true") {
-    sayUpdate(`${button.textContent.replace("Update to ", "")} is out. Ask your agent to update tex-mcp-web.`, { how: true });
-    return;
-  }
-  button.disabled = true;
-  sayUpdate("Updating tex-mcp-web…");
-  try {
-    const response = await fetch("/update", { method: "POST" });
-    if (!response.ok) throw new Error(await responseError(response));
-    const told = await readUpdate();
-    // The commands ran and brought nothing newer, as in a clone that follows another branch.
-    if (told && told.on_disk === told.version) {
-      sayUpdate(`This install is still v${told.version} after the update. Ask your agent to update tex-mcp-web.`, { how: true });
-    }
-  } catch (error) {
-    sayUpdate(`The update failed.\n${error.message}`, { how: true });
-  } finally {
-    button.disabled = false;
-  }
-}
-
 // The server runs inside the agent's process, so it stops with the agent. While the page
 // cannot reach it, a band across the top says so: once a try to reconnect has failed too, so
 // a moment's break does not flash it. How many times the socket closed since it was last open.
@@ -4075,7 +4026,7 @@ function connectWebSocket() {
   pageSocket = socket;
   socket.onopen = () => {
     // A server that comes back may be a new version's: the page asks which runs now.
-    readUpdate().catch((error) => console.error(error));
+    update.read().catch((error) => console.error(error));
     // What changed while the page could not hear the server is read again. Before it first
     // could, only the comments can have changed unheard: the socket opens after their first
     // reading and the PDF viewer, and the server's first message brings the build. An agent's
@@ -4300,8 +4251,6 @@ function attachSidebarToggle() {
   $("#settings-btn").addEventListener("click", () => showSettings());
   $("#settings-menu-btn").addEventListener("click", () => showSettings());
   $("#download-pdf-btn").addEventListener("click", () => h("a", { href: "/pdf/download", download: "" }).click());
-  $("#update-btn").addEventListener("click", () => runUpdate());
-  $("#update-reload-btn").addEventListener("click", () => location.reload());
   $("#overleaf-connect-btn").addEventListener("click", async () => {
     const link = $("#overleaf-link").value.trim();
     if (!link) return;

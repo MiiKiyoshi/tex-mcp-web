@@ -226,3 +226,15 @@ def test_the_gate_reads_a_configuration_as_the_server_does(tmp_path: Path, monke
     assert watched == get_watch_dir(config)
     assert bool(terms) is (get_references_dir(config) is not None)
     assert guides == get_guideline_files(config)
+
+
+def test_a_hook_that_fails_lets_the_call_through(tmp_path: Path) -> None:
+    """A hook that cannot run, as one whose shared file is missing, ends with an error Claude
+    Code does not take for a refusal: the call goes on."""
+    alone = tmp_path / "hooks"
+    alone.mkdir()
+    (alone / "guide_gate.py").write_bytes(GATE.read_bytes())
+    event = {"session_id": "s1", "cwd": str(tmp_path), "tool_name": "mcp__tex-mcp__compile", "tool_input": {}}
+    result = subprocess.run([sys.executable, str(alone / "guide_gate.py"), "before-tool"], input=json.dumps(event),
+                            capture_output=True, text=True)
+    assert result.returncode == 1 and result.stdout == "" and "guide_record" in result.stderr

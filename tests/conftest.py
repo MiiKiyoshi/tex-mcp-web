@@ -1,6 +1,7 @@
 import pytest
 
-from tex_mcp_web import config, update
+from tex_mcp_web import config
+from tex_mcp_web.shared.update import Update
 from tex_mcp_web.tool import TOOL
 
 
@@ -58,11 +59,11 @@ def short_server_waits(monkeypatch):
 def no_update(monkeypatch):
     """No test asks the package index for the newest release, and none updates the install
     it runs from. A test of the page's Update puts its own answers in their place."""
-    async def unknown():
-        return None
+    async def unknown(self):
+        return None, None
 
-    async def refused(*command):
+    async def refused(self, *command, timeout=None):
         raise AssertionError("a test ran a real update")
 
-    monkeypatch.setattr(update, "latest", unknown)
-    monkeypatch.setattr(update, "_run", refused)
+    monkeypatch.setattr(Update, "news", unknown)
+    monkeypatch.setattr(Update, "_run", refused)

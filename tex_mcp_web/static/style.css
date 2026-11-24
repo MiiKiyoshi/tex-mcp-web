@@ -155,15 +155,6 @@ button {
 .topbar .more-menu button:disabled { opacity: 0.45; cursor: default; }
 /* The ⋯ menu offers Settings only on a phone, where the top bar has no room for its button. */
 .more-menu #settings-menu-btn { display: none; }
-.topbar .more-menu #update-btn { color: var(--accent); font-weight: 600; }
-.more-menu .version-line { margin: 0.2rem 0 0; padding: 0.3rem 0.6rem 0.1rem; border-top: 1px solid var(--border); color: var(--fg-dim); font-size: var(--text-small); white-space: nowrap; }
-.more-menu .version-line:empty { display: none; }
-/* An update on disk the running server does not use yet, across the top until it does. */
-.update-alert { display: flex; align-items: center; gap: 0.7rem; padding: 0.45rem 0.8rem; border-bottom: 1px solid var(--border); border-left: 4px solid var(--accent); background: var(--accent-soft); color: var(--fg); font-size: var(--text-body); white-space: pre-line; }
-.update-alert[hidden] { display: none; }
-.update-alert a { color: var(--accent); }
-.update-alert button { padding: 0.15rem 0.6rem; border: 1px solid var(--border); border-radius: 3px; background: var(--bg-elev); color: var(--fg); }
-.update-alert button[hidden], .update-alert a[hidden] { display: none; }
 /* The translation's setting lays out as the others do, its heading and choices in the form's column. */
 #translation-place { display: contents; }
 .overleaf-direct { display: flex; flex-direction: column; gap: 0.4rem; }

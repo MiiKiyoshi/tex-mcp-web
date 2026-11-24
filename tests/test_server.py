@@ -90,19 +90,21 @@ async def test_the_page_is_told_of_a_newer_release_and_updates_the_install(clien
     """GET /update names the version running, the one on disk and the newest release, which
     is not asked for when the config says so. POST /update runs the update once, and its
     failure comes back in words."""
-    from tex_mcp_web import __version__, update
+    from tex_mcp_web import __version__
+    from tex_mcp_web.shared.update import UpdateError
 
     test_client, server = client
+    update = server.update
     asked = []
 
     async def newest():
         asked.append(True)
-        return "99.0.0"
+        return "99.0.0", None
 
-    monkeypatch.setattr(update, "latest", newest)
+    monkeypatch.setattr(update, "news", newest)
     monkeypatch.setattr(update, "way", lambda: "checkout")
     told = await (await test_client.get("/update")).json()
-    assert told == {"version": __version__, "on_disk": __version__, "latest": "99.0.0", "self_update": True}
+    assert told == {"version": __version__, "on_disk": __version__, "latest": "99.0.0", "ahead": None, "self_update": True}
     server.config.update_check = False
     monkeypatch.setattr(update, "way", lambda: None)
     told = await (await test_client.get("/update")).json()
@@ -116,7 +118,7 @@ async def test_the_page_is_told_of_a_newer_release_and_updates_the_install(clien
     assert done.status == 200 and await done.json() == {"on_disk": "99.0.0"}
 
     async def failed():
-        raise update.UpdateError("fatal: Not possible to fast-forward")
+        raise UpdateError("fatal: Not possible to fast-forward")
 
     monkeypatch.setattr(update, "run", failed)
     done = await test_client.post("/update")

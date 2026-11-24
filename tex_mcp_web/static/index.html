@@ -10,6 +10,7 @@
 <link rel="stylesheet" href="/static/shared/agent-bell.css">
 <link rel="stylesheet" href="/static/shared/help.css">
 <link rel="stylesheet" href="/static/shared/tab-strip.css">
+<link rel="stylesheet" href="/static/shared/update.css">
 <link rel="stylesheet" href="/static/style.css">
 <script src="/static/shared/look-early.js" data-prefix="texMcp"></script>
 </head>
@@ -49,18 +50,13 @@
           <button id="help-btn" type="button" role="menuitem">Help (?)</button>
           <button id="download-pdf-btn" type="button" role="menuitem">Download PDF</button>
           <button id="settings-menu-btn" type="button" role="menuitem">Settings…</button>
-          <button id="update-btn" type="button" role="menuitem" hidden></button>
-          <p id="version-line" class="version-line"></p>
+          <!-- Update and the version line come last, from shared/update.js. -->
         </div>
       </span>
       <button id="sidebar-toggle-btn" type="button" title="Toggle sidebar (\)">⇥</button>
     </div>
   </header>
-  <div id="update-alert" class="update-alert" role="status" hidden>
-    <span id="update-alert-text"></span>
-    <a id="update-alert-how" href="https://github.com/MiiKiyoshi/tex-mcp-web/blob/main/docs/reviewing.md#updating" target="_blank" rel="noopener">How to update</a>
-    <button id="update-reload-btn" type="button" hidden>Reload</button>
-  </div>
+  <!-- The update band goes here, from shared/update.js. -->
   <!-- Shown while the page cannot reach its server, which stops with the agent. -->
   <div id="server-alert" class="update-alert" role="alert" hidden></div>
   <div id="overleaf-sync-alert" class="overleaf-sync-alert" role="alert" hidden>
