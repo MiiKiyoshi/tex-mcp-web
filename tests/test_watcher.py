@@ -142,21 +142,22 @@ class TestTexFileHandler:
     def test_schedule_callback_stores_pending_path(self):
         """Test that _schedule_callback stores the path for the callback."""
         loop = asyncio.new_event_loop()
-        callback = AsyncMock()
-        handler = make_handler(
-            watch_patterns=["*.tex"],
-            ignore_patterns=[],
-            callback=callback,
-            loop=loop,
-        )
+        try:
+            handler = make_handler(
+                watch_patterns=["*.tex"],
+                ignore_patterns=[],
+                callback=AsyncMock(),
+                loop=loop,
+                debounce_seconds=10.0,
+            )
 
-        assert handler._pending_path is None
-
-        # Simulate what on_modified does
-        handler._pending_path = "/tmp/main.tex"
-        assert handler._pending_path == "/tmp/main.tex"
-
-        loop.close()
+            assert handler._pending_paths == {}
+            handler._schedule_callback("/tmp/main.tex")
+            assert list(handler._pending_paths) == ["/tmp/main.tex"]
+            handler._pending_task.cancel()
+        finally:
+            loop.run_until_complete(asyncio.sleep(0))
+            loop.close()
 
     def test_on_modified_passes_src_path(self):
         """Test that on_modified calls _schedule_callback with src_path."""
@@ -278,10 +279,10 @@ class TestTexFileHandler:
             first_task = handler._pending_task
             assert first_task is not None
 
-            # Schedule second callback — should cancel first
+            # Schedule second callback — should cancel first, and pass both on
             handler._schedule_callback("/tmp/second.tex")
             assert first_task.cancelled()
-            assert handler._pending_path == "/tmp/second.tex"
+            assert list(handler._pending_paths) == ["/tmp/first.tex", "/tmp/second.tex"]
 
             # Cancel the second to clean up
             if handler._pending_task:
@@ -310,6 +311,26 @@ class TestTexFileHandler:
 
         loop.run_until_complete(_wait())
         callback.assert_called_once_with("/tmp/main.tex")
+        loop.close()
+
+    def test_every_file_changed_while_changes_settle_reaches_the_server(self):
+        """Files written one after another, as an edit to several files is, each reach the
+        server once the changes settle, once each: a change to one does not take the place
+        of another's."""
+        loop = asyncio.new_event_loop()
+        callback = AsyncMock()
+        handler = make_handler(
+            watch_patterns=["*.tex"],
+            ignore_patterns=[],
+            callback=callback,
+            loop=loop,
+            debounce_seconds=0.05,
+        )
+
+        for path in ("/tmp/first.tex", "/tmp/second.tex", "/tmp/first.tex"):
+            handler._schedule_callback(path)
+        loop.run_until_complete(asyncio.sleep(0.15))
+        assert sorted(call.args[0] for call in callback.await_args_list) == ["/tmp/first.tex", "/tmp/second.tex"]
         loop.close()
 
     def test_get_src_path_bytes(self):

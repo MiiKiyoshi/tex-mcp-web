@@ -837,6 +837,34 @@ async def test_a_reply_goes_to_overleaf_once_and_does_not_come_back_as_another(r
     await page.close()
 
 
+async def test_a_draft_the_agent_writes_while_a_reply_goes_stays_for_the_reviewer(review, tmp_path, monkeypatch) -> None:
+    """The agent may draft again while the reviewer's reply is on its way to Overleaf. The
+    reply is recorded with the draft it came from, and the newer draft stays on the thread."""
+    from tex_mcp_web.comments import DraftRange, OverleafDraft, ResolvedSource, capture_source_selector
+
+    client, server, fake = review
+    page, comment = await on_overleaf(client, server, fake)
+    first = server.comments.draft_overleaf(comment.id, comment.updated, OverleafDraft("Reworded it.", [DraftRange(
+        "Hi there.", ResolvedSource("main.tex", 3, 3), capture_source_selector(tmp_path / "main.tex", 3, 3))]),
+        {"main.tex": MAIN}).overleaf_draft
+    posting = overleaf.post_reply
+
+    async def drafted_meanwhile(*args):
+        await posting(*args)
+        server.comments.draft_overleaf(comment.id, server.comments.get(comment.id).updated,
+                                       OverleafDraft("One more thing."), {})
+
+    monkeypatch.setattr(overleaf, "post_reply", drafted_meanwhile)
+    response = await client.post(f"/comments/{comment.id}/reply",
+                                 json={"text": "Reworded it, see L3.", "overleaf": True, "anyway": True})
+    assert response.status == 200 and fake.written == [("reply", "t1", "Reworded it, see L3.")]
+    sent = server.comments.get(comment.id)
+    assert sent.overleaf_draft is not None and sent.overleaf_draft.text == "One more thing."
+    assert (sent.thread[-1].text, sent.thread[-1].edits, sent.thread[-1].draft_at) == (
+        "Reworded it, see L3.", ["main.tex:3-3"], first.at)
+    await page.close()
+
+
 async def test_the_reviewer_rewords_and_deletes_their_own_messages_on_overleaf(review) -> None:
     """A message the reviewer sent to Overleaf, or wrote there, is reworded and deleted from
     the page: on Overleaf first, for everyone in the project, then here. One sent a moment

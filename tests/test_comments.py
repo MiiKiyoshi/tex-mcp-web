@@ -1017,7 +1017,7 @@ def test_a_reply_sent_from_a_draft_answers_only_what_came_before_the_draft(store
     clock["now"] = "2026-01-01T00:02:00+00:00"
     store.reply(comment.id, "Also fix the caption.", author="human")
     clock["now"] = "2026-01-01T00:03:00+00:00"
-    store.sent_to_overleaf(comment.id, "Because.", "")
+    store.sent_to_overleaf(comment.id, "Because.", "", store.get(comment.id).overleaf_draft)
     assert store.get(comment.id).thread[-1].draft_at == "2026-01-01T00:01:00+00:00"
     assert [entry.text for entry in store.get(comment.id).waiting(on_overleaf=True)] == ["Also fix the caption."]
     # The record keeps it.
@@ -1028,7 +1028,7 @@ def test_a_reply_sent_from_a_draft_answers_only_what_came_before_the_draft(store
     clock["now"] = "2026-01-01T00:04:00+00:00"
     store.reply(other.id, "Check the table too.", author="human")
     clock["now"] = "2026-01-01T00:05:00+00:00"
-    store.sent_to_overleaf(other.id, "Here.", "")
+    store.sent_to_overleaf(other.id, "Here.", "", None)
     assert store.get(other.id).waiting(on_overleaf=True) == []
 
 

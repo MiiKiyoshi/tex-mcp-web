@@ -3,6 +3,7 @@
 import asyncio
 import fnmatch
 import logging
+import threading
 from concurrent.futures import Future
 from pathlib import Path
 from typing import Any, Callable, Coroutine
@@ -97,7 +98,10 @@ class TexFileHandler(FileSystemEventHandler):
         self.debounce_seconds = debounce_seconds
         self._last_event_time: float = 0
         self._pending_task: Future[Any] | None = None
-        self._pending_path: str | None = None
+        # The files changed since the last were passed on, in the order they first changed.
+        # The observer's thread adds to them and the loop takes them.
+        self._pending_paths: dict[str, None] = {}
+        self._pending_lock = threading.Lock()
 
     def _matches_patterns(self, path: str, patterns: list[str]) -> bool:
         """Check if path matches any of the patterns."""
@@ -117,8 +121,10 @@ class TexFileHandler(FileSystemEventHandler):
         )
 
     def _schedule_callback(self, src_path: str):
-        """Schedule the callback with debouncing."""
-        self._pending_path = src_path
+        """Pass *src_path* on once changes settle (debounce). Every file changed until then
+        is passed on, once each: a change to one does not take the place of another's."""
+        with self._pending_lock:
+            self._pending_paths.setdefault(src_path, None)
 
         # Cancel any pending callback
         if self._pending_task and not self._pending_task.done():
@@ -126,10 +132,20 @@ class TexFileHandler(FileSystemEventHandler):
 
         async def delayed_callback():
             await asyncio.sleep(self.debounce_seconds)
-            try:
-                await self.callback(self._pending_path)
-            except Exception as e:
-                logger.error(f"Callback error: {e}")
+            with self._pending_lock:
+                paths, self._pending_paths = list(self._pending_paths), {}
+            for at, path in enumerate(paths):
+                try:
+                    await self.callback(path)
+                except asyncio.CancelledError:
+                    # A change heard meanwhile waits for the changes to settle again, and
+                    # the files not passed on yet wait with it.
+                    with self._pending_lock:
+                        for kept in paths[at:]:
+                            self._pending_paths.setdefault(kept, None)
+                    raise
+                except Exception as e:
+                    logger.error(f"Callback error: {e}")
 
         # Schedule the coroutine without blocking (don't call .result())
         # The Future is stored but we don't wait for it - the observer thread

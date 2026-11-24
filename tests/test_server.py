@@ -1564,7 +1564,7 @@ async def test_mcp_drafts_an_overleaf_reply_only_on_a_thread_from_overleaf(bound
     assert store.get(brought.id).overleaf_draft.text == "Fixed it better."
     # An entry is public when it carries name, written on Overleaf, or overleaf, sent there,
     # with or without a commit to name. Every other entry is private, the agent's own too.
-    store.sent_to_overleaf(brought.id, "Sent with no commit.", "")
+    store.sent_to_overleaf(brought.id, "Sent with no commit.", "", store.get(brought.id).overleaf_draft)
     whole = (await call("read_comments", ids=[brought.id]))["comments"][0]
     public = lambda entry: "name" in entry or "overleaf" in entry
     assert (whole["on_overleaf"], whole["comment"]) == (True, "Which words?")
@@ -1694,7 +1694,7 @@ async def test_a_search_finds_threads_by_what_was_said_in_them_and_when(bound_pr
                     resolved_source=ResolvedSource("paper.tex", 6, 8))
     other = store.add(PaperAnchor(), "Check the units.")
     clock["now"] = "2026-01-03T10:00:00+09:00"
-    store.sent_to_overleaf(old.id, "Moved the table to Section 3.", "")
+    store.sent_to_overleaf(old.id, "Moved the table to Section 3.", "", None)
     store.reply(other.id, "The table stays where it is.", author="agent")
     clock["now"] = "2026-01-03T11:00:00+09:00"
     store.draft_overleaf(other.id, store.get(other.id).updated, OverleafDraft("Units are SI now."), {})
@@ -1861,7 +1861,7 @@ async def test_a_reply_sent_to_overleaf_waits_for_the_people_there_not_the_agent
 
     store = CommentStore(project / ".tex-mcp-web" / "comments.json")
     thread = store.add(PaperAnchor(), "Say hello properly.", name="A. Reviewer")
-    store.sent_to_overleaf(thread.id, "Thanks, fixed!", "")
+    store.sent_to_overleaf(thread.id, "Thanks, fixed!", "", None)
     # The reply answers what the thread said before it, so neither lists the thread.
     assert (await call("read_comments", unanswered=True))["comments"] == []
     assert (await call("read_comments", new=True))["comments"] == []
@@ -2762,7 +2762,7 @@ async def test_call_button_wakes_a_parked_waiter_and_keeps_an_early_press(client
     # A reply sent to Overleaf is for the people there, so its thread waits for them.
     server.comments.reply(asked.id, "Sure?", author="human")
     assert "1 new comments" in server._review_line()
-    server.comments.sent_to_overleaf(asked.id, "Thanks, fixed!", "")
+    server.comments.sent_to_overleaf(asked.id, "Thanks, fixed!", "", None)
     assert "no new comments" in server._review_line()
 
     # Not acked yet (the line may never have reached the harness), so it is offered again.

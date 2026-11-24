@@ -1699,7 +1699,8 @@ class TexMcpWebServer:
         return (f"The lines of {check['file']} this reply describes changed after it was drafted. "
                 "Ask the agent to draft it again.")
 
-    async def _send_to_overleaf(self, cid: str, reply: str, anyway: bool) -> tuple[web.Response | None, str]:
+    async def _send_to_overleaf(self, cid: str, reply: str,
+                                anyway: bool) -> tuple[web.Response | None, str, OverleafDraft | None]:
         """Send the reviewer's reply to the Overleaf thread a comment came from, or open the
         thread a comment with no entries was drafted as, before anything changes here, so
         that what Overleaf does not take is not shown as said. Nothing goes while a range the
@@ -1707,18 +1708,19 @@ class TexMcpWebServer:
         words its draft describes are on Overleaf. A reply whose draft names files not the
         same here as on Overleaf goes only *anyway*, since it may describe an edit Overleaf
         does not have yet: the refusal names those files. Answers a refusal, or None with
-        the commit Overleaf's branch was at. Readings wait meanwhile: one begun before this
-        would bring the reply in again as someone else's."""
+        the commit Overleaf's branch was at and the draft the reply came from, if any: the
+        agent may write another while the reply goes. Readings wait meanwhile: one begun
+        before this would bring the reply in again as someone else's."""
         cookie = overleaf.read_cookie()
         if cookie is None:
-            return web.json_response({"error": "paste your Overleaf session cookie first"}, status=401), ""
+            return web.json_response({"error": "paste your Overleaf session cookie first"}, status=401), "", None
         comment = self.comments.get(cid)
-        checks = comment.overleaf_draft.checks if comment is not None and comment.overleaf_draft is not None else []
-        lost = next((r.source.file for r in comment.overleaf_draft.ranges if r.stale), None) \
-            if comment is not None and comment.overleaf_draft is not None else None
+        draft = comment.overleaf_draft if comment is not None else None
+        checks = draft.checks if draft is not None else []
+        lost = next((r.source.file for r in draft.ranges if r.stale), None) if draft is not None else None
         if lost is not None:
             return web.json_response({"error": f"The lines of {lost} this reply describes are not found here any "
-                                               "more. Ask the agent to draft it again."}, status=409), ""
+                                               "more. Ask the agent to draft it again."}, status=409), "", None
         async with self._overleaf_import:
             ledger = self._overleaf_ledger()
             thread = next((key for key, known in ledger.items() if known["comment"] == cid), None)
@@ -1727,9 +1729,9 @@ class TexMcpWebServer:
             opening = thread is None and comment is not None and (comment.overleaf_draft is not None
                                                                    or comment.for_overleaf)
             if thread is None and not opening:
-                return web.json_response({"error": "this comment did not come from Overleaf"}, status=409), ""
+                return web.json_response({"error": "this comment did not come from Overleaf"}, status=409), "", None
             if not self.config.overleaf:
-                return web.json_response({"error": "set overleaf: <project link> in .tex-mcp-web.yaml first"}, status=409), ""
+                return web.json_response({"error": "set overleaf: <project link> in .tex-mcp-web.yaml first"}, status=409), "", None
             try:
                 if opening:
                     lacking, commit = await self._overleaf_lacks(checks)
@@ -1743,37 +1745,39 @@ class TexMcpWebServer:
             except NotConnected as error:
                 lacking, apart = str(error), []
             if lacking is not None:
-                return web.json_response({"error": lacking, "apart": [] if opening else apart}, status=409), ""
+                return web.json_response({"error": lacking, "apart": [] if opening else apart}, status=409), "", None
             try:
                 if opening:
-                    refused, thread = await self._open_on_overleaf(comment, reply, cookie)
+                    refused, thread, draft = await self._open_on_overleaf(comment, reply, cookie)
                     if refused is not None:
-                        return web.json_response({"error": refused}, status=409), ""
+                        return web.json_response({"error": refused}, status=409), "", None
                     ledger[thread] = {"comment": cid, "entries": {}}
                 else:
                     await overleaf.post_reply(self.config.overleaf, cookie, thread, reply)
             except overleaf.SignedOut as error:
-                return web.json_response({"error": f"{error} (the cookie has expired or is wrong)"}, status=401), ""
+                return web.json_response({"error": f"{error} (the cookie has expired or is wrong)"}, status=401), "", None
             except overleaf.OverleafError as error:
-                return web.json_response({"error": str(error)}, status=502), ""
+                return web.json_response({"error": str(error)}, status=502), "", None
             except (ConnectionError, asyncio.TimeoutError):
                 return web.json_response({"error": "The connection to Overleaf closed before it answered. "
-                                                   "Send again."}, status=502), ""
+                                                   "Send again."}, status=502), "", None
             ledger[thread].setdefault("sent", []).append(reply)
             self._save_overleaf_ledger(ledger)
-        return None, commit
+        return None, commit, draft
 
-    async def _open_on_overleaf(self, comment: Comment, text: str, cookie: tuple[str, str]) -> tuple[str | None, str]:
+    async def _open_on_overleaf(self, comment: Comment, text: str,
+                                cookie: tuple[str, str]) -> tuple[str | None, str, OverleafDraft | None]:
         """Open on Overleaf the thread a comment was drafted as: on the lines it sits on here,
         found in Overleaf's file nearest the line they are on here, with *text* as its first
         message. Its id is kept with the draft first, so a send that stops halfway finishes
-        that thread when sent again. Why not, or None, with the thread's id."""
+        that thread when sent again. Why not, or None, with the thread's id and the draft it
+        opens with."""
         source = comment.resolved_source
         words = None if comment.stale else read_anchored_source(self.watch_dir, comment)
         if source is None or not words or not words.strip():
-            return "The lines this thread is on are not in the file here any more.", ""
+            return "The lines this thread is on are not in the file here any more.", "", None
         if self.overleaf_live is None:
-            return "The page is not connected to Overleaf right now. Send again in a moment.", ""
+            return "The page is not connected to Overleaf right now. Send again in a moment.", "", None
         # A first message the reviewer wrote with no draft from the agent is kept as the draft,
         # where the thread's id goes before anything is sent.
         if comment.overleaf_draft is None:
@@ -1784,7 +1788,7 @@ class TexMcpWebServer:
         refused = await self.overleaf_live.comment(
             source.file, words, source.line_start, thread,
             lambda: overleaf.open_thread(self.config.overleaf, cookie, thread, text))
-        return refused, thread
+        return refused, thread, comment.overleaf_draft
 
     async def _bring_in_overleaf(self, data: dict[str, Any], deleted: Iterable[str] = (), *,
                                  new: bool) -> dict[str, int]:
@@ -2822,10 +2826,10 @@ class TexMcpWebServer:
             # The lines the draft describes, where the files have them now, are what is sent
             # and recorded, not where the last change the watcher reported left them.
             self.comments.refresh_source_anchors(self.watch_dir)
-            refused, commit = await self._send_to_overleaf(cid, text, bool(data.get("anyway")))
+            refused, commit, draft = await self._send_to_overleaf(cid, text, bool(data.get("anyway")))
             if refused is not None:
                 return refused
-            return await self._mutate_comment(cid, lambda: self.comments.sent_to_overleaf(cid, text, commit))
+            return await self._mutate_comment(cid, lambda: self.comments.sent_to_overleaf(cid, text, commit, draft))
         return await self._mutate_comment(
             cid,
             lambda: self.comments.reply(

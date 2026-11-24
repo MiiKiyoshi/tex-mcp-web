@@ -1765,20 +1765,22 @@ class CommentStore:
                 return comment
         raise KeyError(f"comment {comment_id!r} not found")
 
-    def sent_to_overleaf(self, comment_id: str, text: str, commit: str) -> Comment:
-        """Record the reviewer's reply as sent to Overleaf at *commit*, taking the draft it
-        came from off the thread, with the lines its ranges are on now."""
+    def sent_to_overleaf(self, comment_id: str, text: str, commit: str, draft: OverleafDraft | None) -> Comment:
+        """Record the reviewer's reply as sent to Overleaf at *commit*, from *draft*, the
+        draft it came from as read before it went (None for none), with the lines its ranges
+        are on now, and take that draft off the thread. One the agent put there while the
+        reply went is newer, and stays."""
         with self._locked():
             comments = self._all()
             for position, comment in enumerate(comments):
                 if comment.id != comment_id:
                     continue
                 now = _now()
-                edits = [r.label for r in comment.overleaf_draft.ranges] if comment.overleaf_draft is not None else []
+                if draft is not None and comment.overleaf_draft is not None and comment.overleaf_draft.at == draft.at:
+                    draft, comment.overleaf_draft = comment.overleaf_draft, None
                 comment.thread.append(ThreadEntry(
-                    author="human", at=now, text=text, edits=list(edits), overleaf=commit,
-                    draft_at=comment.overleaf_draft.at if comment.overleaf_draft is not None else None))
-                comment.overleaf_draft = None
+                    author="human", at=now, text=text, edits=[r.label for r in draft.ranges] if draft is not None else [],
+                    overleaf=commit, draft_at=draft.at if draft is not None else None))
                 comment.updated = now
                 comments[position] = comment
                 self._save(comments)

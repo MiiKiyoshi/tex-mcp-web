@@ -742,10 +742,13 @@ def test_the_page_says_why_it_waits_and_catches_up_when_its_server_returns(tmp_p
         wait_until(lambda: script('return document.querySelector("#pdf-viewer embedpdf-container") !== null'))
         wait_until(lambda: status().startswith("✓ ok") and "source changed" not in status())
 
-        # A new source file joins the editor's list as it appears.
+        # A new source file joins the editor's list as it appears, and the top bar says the
+        # build is behind it. The list may have it first, from the reading of the files that
+        # follows the build.
         (tmp_path / "extra.tex").write_text("Extra.\n", encoding="utf-8")
         wait_until(lambda: script(
             'return [...document.querySelectorAll("#source-file option")].some((o) => o.value === "extra.tex")'))
+        wait_until(lambda: status().endswith(ahead))
 
         # A config the server cannot take is said until it can, and then the build's word is back.
         before = status()
@@ -3888,7 +3891,7 @@ def test_hide_puts_a_thread_from_overleaf_out_of_the_way_on_this_page_only(tmp_p
                         source_selector=capture_source_selector(tmp_path / "paper.tex", line, line), name="Ann Lee")
 
     first, second, third = thread(3, "Cite a source here."), thread(4, "Is this proved?"), thread(5, "Reword this.")
-    kept.sent_to_overleaf(second.id, "Yes, in the appendix.", "")
+    kept.sent_to_overleaf(second.id, "Yes, in the appendix.", "", None)
     (tmp_path / ".tex-mcp-web" / "overleaf-imported.json").write_text(json.dumps(
         {f"t{n}": {"comment": comment.id, "entries": {}} for n, comment in enumerate([first, second, third])}),
         encoding="utf-8")
@@ -5216,7 +5219,7 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
     kept = CommentStore(tmp_path / ".tex-mcp-web" / "comments.json")
     brought = kept.add(PaperAnchor(), "Say hello properly.", name="A. Reviewer")
     answered = kept.add(PaperAnchor(), "Which words?", name="A. Reviewer")
-    kept.sent_to_overleaf(answered.id, "These.", "")
+    kept.sent_to_overleaf(answered.id, "These.", "", None)
     answered_there = kept.add(PaperAnchor(), "Is this clear?", name="A. Reviewer")
     kept.reply(answered_there.id, "Yes, see the intro.", "human", name="Me Myself")
 
@@ -5228,7 +5231,7 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
             capture_source_selector(tmp_path / "paper.tex", 3, 3), texts)
 
     opened_here = draft("Opened from here.")
-    kept.sent_to_overleaf(opened_here.id, "Opened from here.", "")
+    kept.sent_to_overleaf(opened_here.id, "Opened from here.", "", opened_here.overleaf_draft)
     (tmp_path / ".tex-mcp-web" / "overleaf-imported.json").write_text(json.dumps(
         {"t1": {"comment": brought.id, "messages": 1, "seen": ["#0"]},
          "t2": {"comment": answered.id, "entries": {}}, "t3": {"comment": answered_there.id, "entries": {}},
@@ -5323,8 +5326,11 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
         assert "Which words?" not in browser.execute_script(listed)
         assert "Is this clear?" in browser.execute_script(listed)
         import asyncio
+        from tex_mcp_web.overleaf_live import LivePresence
+        ended = LivePresence(f"https://www.overleaf.com/project/{'0' * 24}", lambda: None, lambda: None)
+        ended.me = "Me Myself"
         asyncio.run_coroutine_threadsafe(shared.server.broadcast(
-            {"type": "overleaf_live", "status": "off", "me": "Me Myself"}), shared.loop).result(5)
+            {"type": "overleaf_live", **ended.snapshot()}), shared.loop).result(5)
         wait_until(lambda: "Is this clear?" not in browser.execute_script(listed))
         assert "Say hello properly." in browser.execute_script(listed)
         browser.execute_script('const f = document.querySelector("#comment-filter"); f.value = "open";'
@@ -5501,8 +5507,10 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
         # everyone: the press asks first, with their number, and a no leaves all as they were.
         browser.execute_script(f"document.querySelector('{leaf_tab}').click()")
         show_view(browser, "open")
+        # The other tab's threads stay listed until the tab's own are read.
         wait_until(lambda: browser.execute_script(
-            'return document.querySelectorAll("#comments-list [data-comment-id]").length') > 1)
+            f'return document.querySelector(\'#comments-list [data-comment-id="{brought.id}"]\') !== null'
+            ' && document.querySelectorAll("#comments-list [data-comment-id]").length > 1'))
         browser.execute_script("window.asked = []; window.confirm = (words) => { window.asked.push(words); return false; };")
         if not browser.execute_script('return document.querySelector("#pick-all-btn").checked'):
             browser.execute_script('document.querySelector("#pick-all-btn").click()')
@@ -5956,14 +5964,15 @@ def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path
         wait_until(lambda: not hidden("#git-pull-btn") and text("#git-pull-btn") == "git pull1", timeout=15)
 
         # A reading of Overleaf's branch that fails says why in the leaf tab, where comments
-        # wait on it.
+        # wait on it. The clone's address for Overleaf leads nowhere for it. Overleaf's
+        # repository itself is not moved away: a reading the page began may still be in it,
+        # and Windows does not move a folder a running program is in.
         browser.execute_script('document.querySelector("#settings-dialog").close()')
         browser.execute_script('document.querySelector(\'.tab-btn[data-tab="overleaf-comments"]\').click()')
-        away = remote.with_name("away")
-        remote.rename(away)
+        git(paper, "remote", "set-url", "overleaf", str(tmp_path / "nowhere" / project))
         browser.execute_script('document.querySelector("#settings-btn").click()')
         wait_until(lambda: why().startswith("Could not read Overleaf's branch: "), timeout=15)
-        away.rename(remote)
+        git(paper, "remote", "set-url", "overleaf", str(remote))
 
         # A cookie Overleaf turns away is asked for again.
         browser.execute_script('document.querySelector("#overleaf-cookie").value = "s%3Aturned.away";'
@@ -6401,6 +6410,9 @@ def test_the_page_shows_who_is_on_overleaf_where_their_cursor_is_and_what_they_c
         browser.execute_script("(window.wrappedJSObject || window).confirm = () => true;", sandbox=None)
         click("#send-picked-btn")
         wait_until(lambda: fake.written[-1] == ("reply", "t2", "Both go, the second."), timeout=15)
+        # Overleaf has the reply before the page has its answer, and until then the picked
+        # threads' cards are busy, their Send pressed in vain.
+        wait_until(lambda: not busy("#send-picked-btn"), timeout=15)
         # Sent alone from its card, such a reply asks the same before it goes.
         draft(second.id, OverleafDraft("Once more.", [DraftRange(
             "Hello world, reworded.", ResolvedSource("main.tex", 3, 3), capture_source_selector(main, 3, 3))]),

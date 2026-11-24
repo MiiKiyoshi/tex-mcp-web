@@ -1109,6 +1109,7 @@ async def test_a_thread_the_reviewer_started_for_overleaf_opens_there_with_what_
         sent = opened.server.comments.get(started["id"])
         assert [(entry.text, entry.overleaf is not None) for entry in sent.thread] == [
             ("ask if this is enough, politely", False), ("Would this be enough?", True)]
+        assert sent.overleaf_draft is None
     finally:
         await opened.close()
 
