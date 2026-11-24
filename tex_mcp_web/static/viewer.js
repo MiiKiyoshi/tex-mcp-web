@@ -4182,7 +4182,10 @@ function connectWebSocket() {
   socket.onopen = () => {
     // A server that comes back may be a new version's: the page asks which runs now.
     readUpdate().catch((error) => console.error(error));
-    if (socketCloses > 0) catchUp().catch((error) => console.error(error));
+    // What changed while the page could not hear the server is read again, and so is what
+    // changed before it first could: the socket opens after the first readings and the PDF
+    // viewer, and an agent's reply written in between was never shown.
+    catchUp().catch((error) => console.error(error));
     socketCloses = 0;
     showServerGone(false);
     tellCursor();

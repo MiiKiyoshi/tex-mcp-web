@@ -7087,3 +7087,56 @@ def test_the_editor_completes_labels_citations_environments_files_and_commands(t
             browser.quit()
         shared.stop()
 
+
+
+# A socket that connects but is held, as one that has not connected yet: the page's opening of
+# it waits, and what the server sends meanwhile is dropped, its type kept in window.dropped.
+HOLD_SOCKET = """
+const Real = window.WebSocket;
+window.dropped = [];
+window.WebSocket = class extends Real {
+  set onopen(handler) {
+    super.onopen = (event) => { window.releaseSocket = () => { window.releaseSocket = null; handler.call(this, event); }; };
+  }
+  get onopen() { return super.onopen; }
+  set onmessage(handler) {
+    super.onmessage = (event) => {
+      if (window.releaseSocket !== null) window.dropped.push(JSON.parse(event.data).type);
+      else handler.call(this, event);
+    };
+  }
+  get onmessage() { return super.onmessage; }
+};
+"""
+
+
+@needs_browser
+@chrome.not_in_safari("a script cannot run before the page's own")
+def test_a_reply_written_before_the_page_first_hears_its_server_is_shown(tmp_path: Path) -> None:
+    """The page's socket opens after its first readings and the PDF viewer, so a reply the agent
+    writes in between reaches no page. Opening the socket reads the comments again."""
+    (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    browser = None
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_for_build(shared)
+        asked = post_json(f"{base}/comments", {"anchor": {"kind": "paper"}, "text": "Is the bound tight?"})["id"]
+        browser = chrome.launch()
+        browser.driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {"source": HOLD_SOCKET})
+        browser.navigate(base)
+        card = f'document.querySelector(\'[data-comment-id="{asked}"]\')'
+        wait_until(lambda: browser.execute_script(f"return {card} !== null && typeof window.releaseSocket === 'function'"))
+        shared.server.comments.reply(asked, "It is.", author="agent")
+        wait_until(lambda: any(kind.startswith("comment") for kind in browser.execute_script("return window.dropped")))
+        assert browser.execute_script(f'return {card}.querySelector(".cmt-unanswered")') is None
+        browser.execute_script("window.releaseSocket()")
+        wait_until(lambda: browser.execute_script(f'return {card}.querySelector(".cmt-unanswered") !== null'))
+    finally:
+        if browser is not None:
+            browser.quit()
+        shared.stop()
