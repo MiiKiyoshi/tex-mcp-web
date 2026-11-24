@@ -2,8 +2,9 @@
 // the search above them, the row that changes the picked ones, the line that undoes the last
 // change, the cards with their threads, replies, edits and suggestions, the dialog that writes
 // a new comment, the keys that work the list, and the bell that calls the agent to the comments
-// (agent-bell.js). The panel draws itself into two places the page gives, #tab-comments and
-// #compose-dialog, and takes the page's hooks DEFAULTS lists. Its look is comment-panel.css.
+// (agent-bell.js). What the entries say is drawn as markdown (markdown.js). The panel draws
+// itself into two places the page gives, #tab-comments and #compose-dialog, and takes the
+// page's hooks DEFAULTS lists. Its look is comment-panel.css.
 //
 // Shared by the review pages. It is written in tex-mcp-web, and scripts/share_page.py copies
 // it to the others. A copy is never edited by hand.
@@ -13,6 +14,7 @@ import { meetsSearch, createCommentSearch } from "./comment-search.js";
 import { createCommentKeys } from "./comment-keys.js";
 import { createCommentApi } from "./comment-api.js";
 import { createAgentBell, BELL_STEPS } from "./agent-bell.js";
+import { renderMarkdown, markdownToText } from "./markdown.js";
 
 function escaped(text) {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
@@ -295,6 +297,16 @@ export function shortTime(at) {
 // An entry that carries its writer's name goes by it, as where it was written.
 function writer(entry) {
   return entry.name ?? entry.author;
+}
+
+// What an entry says, drawn as its markdown, and as the words alone for a closed card. The
+// records of applying and rejecting a suggestion quote the file's own text, and stay as stored.
+function drawnWords(entry) {
+  return entry.applied || entry.rejected ? entry.text : renderMarkdown(entry.text);
+}
+
+function plainWords(entry) {
+  return entry.applied || entry.rejected ? entry.text : markdownToText(entry.text);
 }
 
 // When a thread was last written in, which latest first and oldest first order by: its last
@@ -911,7 +923,7 @@ export function createCommentPanel(given) {
       // be anyone.
       const first = comment.thread[0];
       children.push(h("div", { class: "cmt-preview",
-                               text: first.name !== undefined ? `${first.name}  ${first.text}` : first.text }));
+                               text: first.name !== undefined ? `${first.name}  ${plainWords(first)}` : plainWords(first) }));
       // The request, then whatever was last said about it: a thread someone has answered
       // must not read like one nobody has touched, and who answered has to be visible.
       // A long answer is cut to three lines here and opens in full on a click, so nothing
@@ -921,7 +933,7 @@ export function createCommentPanel(given) {
         children.push(h("div", { class: `cmt-latest author-${latest.author}`,
                                  title: "Expand thread",
                                  onclick: toggle,
-                                 text: `${writer(latest)}  ${latest.text}` }));
+                                 text: `${writer(latest)}  ${plainWords(latest)}` }));
       }
     }
     if (expanded) {
@@ -1019,7 +1031,7 @@ export function createCommentPanel(given) {
           : null),
     ];
     if (editing) children.push(renderEntryEditor(commentId, index));
-    else if (entry.text) children.push(h("div", { class: "thread-text", text: entry.text }));
+    else if (entry.text) children.push(h("div", { class: "thread-text" }, drawnWords(entry)));
     if (entry.edits?.length) {
       children.push(h("div", { class: "thread-edits" },
         ...entry.edits.map((edit) => h("span", { class: "edit", text: edit }))));

@@ -3140,6 +3140,139 @@ def test_the_search_reads_the_conditions_mail_and_code_search_have(tmp_path: Pat
         shared.stop()
 
 
+# What markdown.js draws of a text, as HTML, and the words it leaves without their marks.
+OPENS = 'target="_blank" rel="noopener"'
+MARKDOWN = [
+    ("Plain words.\nA line under them.\n\nA second paragraph.", None, None),
+    ("**Fixed.** The caption says *what* and _why_.",
+     "<strong>Fixed.</strong> The caption says <em>what</em> and <em>why</em>.", "Fixed. The caption says what and why."),
+    ("**그림 2**의 캡션과 `x`를 *강조*합니다", "<strong>그림 2</strong>의 캡션과 <code>x</code>를 <em>강조</em>합니다",
+     "그림 2의 캡션과 x를 강조합니다"),
+    ("Use `snake_case_names` and *a **bold** word*.",
+     "Use <code>snake_case_names</code> and <em>a <strong>bold</strong> word</em>.", "Use snake_case_names and a bold word."),
+    ("Changes:\n- one\n- **two**\n  - under two\n  goes on\n1. first\n2. second",
+     "Changes:\n<ul><li>one</li><li><strong>two</strong><ul><li>under two\ngoes on</li></ul></li></ul>"
+     "<ol><li>first</li><li>second</li></ol>",
+     "Changes:\n• one\n• two\n  • under two\n    goes on\n1. first\n2. second"),
+    ("Intro\n\n3. third\n4. fourth\n\nOutro", 'Intro\n\n<ol start="3"><li>third</li><li>fourth</li></ol>\nOutro',
+     "Intro\n\n3. third\n4. fourth\n\nOutro"),
+    ("Before\n```latex\n\\caption{Tea, $a*b*c$.}\n**not bold**\n```\nAfter",
+     "Before\n<pre><code>\\caption{Tea, $a*b*c$.}\n**not bold**</code></pre>After",
+     "Before\n\\caption{Tea, $a*b*c$.}\n**not bold**\nAfter"),
+    ("## Summary\nDone.", "<div><strong>Summary</strong></div>Done.", "Summary\nDone."),
+    ("[the guide](https://example.com/a_b) and https://example.org/x_y. (see https://example.com/page)",
+     f'<a href="https://example.com/a_b" {OPENS}>the guide</a> and <a href="https://example.org/x_y" {OPENS}>'
+     f'https://example.org/x_y</a>. (see <a href="https://example.com/page" {OPENS}>https://example.com/page</a>)',
+     "the guide and https://example.org/x_y. (see https://example.com/page)"),
+    # Written as they are.
+    ("snake_case_names, __init__, a*b*c, 2*3, x * y, $f^*$ and $g^*$, $x^{2}_{i}$ and $y^{2}_{j}$", None, None),
+    ("tex_mcp_web/static/shared/comment-panel.js, src/*.js and lib/*.ts, C:\\tea\\*.txt", None, None),
+    ("\\*not italic\\*, \\_x\\_, **unclosed and *half, it`s, `code`s", None, None),
+    ("``quoted'' and ``again'', `single' and `other'", None, None),
+    ("#### Four\n#hashtag\n+ not a bullet\n2026-11-13", None, None),
+    ("Rejected suggestion.\n− Tea is *served*.\n+ Tea is **poured**.", None, None),
+    ("[run](javascript:alert(1)) [page](data:text/html,hi) [file](ftp://example.com/f) javascript:alert(1)", None, None),
+    ("<b>bold</b> <img src=x onerror=alert(1)> &amp;", None, None),
+]
+
+
+@needs_browser
+def test_markdown_draws_an_agents_marks_and_leaves_the_rest_as_written(tmp_path: Path) -> None:
+    """A comment's words are drawn as markdown: bold, italic, code, links, fenced code, lists one
+    level deep and one under it, and # to ### as a bold line, each line where it was written.
+    Everything else stays as written: words with underscores, math, paths, backslashes, LaTeX
+    quotes, HTML, a link to anything but http or https, and the − and + lines of a suggestion.
+    Text with no marks comes back as one text node. The words without their marks keep the
+    lines, a bullet as •."""
+    (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    browser = None
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        browser = chrome.launch()
+        browser.navigate(base)
+        wait_until(lambda: browser.execute_script('return document.querySelector("#comment-search") !== null'))
+        drawn = browser.execute_script('''return import("/static/shared/markdown.js").then(({ renderMarkdown, markdownToText }) =>
+          arguments[0].map((text) => {
+            const box = document.createElement("div");
+            box.append(renderMarkdown(text));
+            return { html: box.innerHTML, nodes: box.childNodes.length, text: markdownToText(text) };
+          }));''', script_args=[[text for text, _, _ in MARKDOWN]])
+        for (text, html, words), got in zip(MARKDOWN, drawn):
+            if html is None:
+                assert (got["nodes"], got["text"]) == (1, text)
+                assert got["html"] == text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            else:
+                assert (got["html"], got["text"]) == (html, words)
+    finally:
+        if browser is not None:
+            browser.quit()
+        shared.stop()
+
+
+@needs_browser
+def test_an_agents_reply_shows_its_markdown_and_a_closed_card_its_words(tmp_path: Path) -> None:
+    """An opened card draws a reply's bold, list and code, the list on the line under the words
+    before it. A closed card shows the same words without their marks, and the search finds
+    the reply by what is stored. The record of a rejected suggestion quotes the file's text and
+    is drawn as stored."""
+    (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    browser = None
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        asked = post_json(f"{base}/comments", {"anchor": {"kind": "paper"}, "text": "Shorten the caption."})["id"]
+        shared.server.comments.reply(asked, "**Done.** The caption is shorter.\n- Cut `the second sentence`\n- Kept the label",
+                                     author="agent")
+        turned = post_suggested(base, shared, {"anchor": {
+            "kind": "source_range", "file": "paper.tex", "line_start": 4, "line_end": 4, "column_start": 0, "column_end": 12},
+            "text": "Reword this."}, "Hello world.", "Hello **world**\n- again.")
+        record = shared.server.comments.reject_suggestion(turned["id"], turned["updated"]).thread[-1].text
+        assert record == "Rejected suggestion.\n− Hello world.\n+ Hello **world**\n- again."
+        browser = chrome.launch()
+        browser.navigate(base)
+        card = f'document.querySelector(\'[data-comment-id="{asked}"]\')'
+        wait_until(lambda: browser.execute_script(f'return {card}?.querySelector(".cmt-latest")?.textContent')
+                   == "agent  Done. The caption is shorter.\n• Cut the second sentence\n• Kept the label")
+        browser.execute_script('const box = document.querySelector("#comment-search"); box.value = arguments[0];'
+                               ' box.dispatchEvent(new Event("input"))', script_args=['"**done.** the caption"'])
+        wait_until(lambda: browser.execute_script('return [...document.querySelectorAll("#comments-list .cmt")]'
+                                                  '.map((each) => each.dataset.commentId)') == [asked])
+        browser.execute_script(f"{card}.querySelector('.cmt-head').click()")
+        reply = f"{card}.querySelector('.thread-entry.author-agent .thread-text')"
+        wait_until(lambda: browser.execute_script(f"return {reply}?.querySelector('strong')?.textContent") == "Done.")
+        assert browser.execute_script(f"return [...{reply}.querySelectorAll('ul > li')].map((item) => item.textContent)") \
+            == ["Cut the second sentence", "Kept the label"]
+        assert browser.execute_script(f"return {reply}.querySelector('li code').textContent") == "the second sentence"
+        assert "*" not in browser.execute_script(f"return {reply}.textContent")
+        # The line break before the list is the one that ends the line above, with no empty line.
+        gap, line = browser.execute_script(f"const bold = {reply}.querySelector('strong').getBoundingClientRect();"
+                                           f" return [{reply}.querySelector('ul').getBoundingClientRect().top - bold.bottom, bold.height]")
+        assert -1 <= gap < line / 2
+        # The record, opened, is the text stored.
+        rejected = f"document.querySelector('[data-comment-id=\"{turned['id']}\"]')"
+        browser.execute_script("const box = document.querySelector('#comment-search'); box.value = '';"
+                               " box.dispatchEvent(new Event('input'))")
+        wait_until(lambda: browser.execute_script(f"return {rejected} !== null"))
+        browser.execute_script(f"{rejected}.querySelector('.cmt-head').click()")
+        wait_until(lambda: browser.execute_script(
+            f"const text = [...{rejected}.querySelectorAll('.thread-text')].at(-1);"
+            " return text && [text.textContent, text.childElementCount]") == [record, 0])
+    finally:
+        if browser is not None:
+            browser.quit()
+        shared.stop()
+
+
 @needs_browser
 def test_a_day_in_the_search_and_on_the_cards_is_the_browsers_own(tmp_path: Path) -> None:
     """The cards say when each entry was written on the browser's clock, and after: and before:
