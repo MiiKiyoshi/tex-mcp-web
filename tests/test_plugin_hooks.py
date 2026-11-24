@@ -238,3 +238,18 @@ def test_a_hook_that_fails_lets_the_call_through(tmp_path: Path) -> None:
     result = subprocess.run([sys.executable, str(alone / "guide_gate.py"), "before-tool"], input=json.dumps(event),
                             capture_output=True, text=True)
     assert result.returncode == 1 and result.stdout == "" and "guide_record" in result.stderr
+
+
+def test_a_hook_reads_its_event_as_utf8_whatever_the_system_reads_text_in(tmp_path: Path) -> None:
+    """Claude Code gives the event as UTF-8. Read in a system's own code page, as Windows reads
+    text, a folder named in Korean came out garbled and the hook found no project there: the
+    hook reads the bytes as UTF-8, and finds it."""
+    folder = tmp_path / "논문"
+    folder.mkdir()
+    (folder / ".tex-mcp-web.yaml").write_text("main: main.tex\n", encoding="utf-8")
+    event = {"session_id": "s", "cwd": str(folder), "hook_event_name": "SessionStart"}
+    result = subprocess.run([sys.executable, "-X", "utf8=0", str(GATE), "session-start"],
+                            input=json.dumps(event, ensure_ascii=False).encode("utf-8"), capture_output=True,
+                            env={**os.environ, "PYTHONIOENCODING": "cp1252", "XDG_CACHE_HOME": str(tmp_path / "cache")})
+    assert result.returncode == 0, result.stderr.decode("utf-8", "replace")
+    assert "guide()" in json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]

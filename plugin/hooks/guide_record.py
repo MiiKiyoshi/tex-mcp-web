@@ -25,6 +25,7 @@ import contextlib
 import json
 import os
 import sys
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -33,6 +34,19 @@ UNREAD = ("The required Read calls have not been recorded for these files in thi
           "{files}. Use Read without offset or limit for each file, and read its full contents "
           "before retrying this call.")
 
+
+
+def patiently(action, *args, **kwargs):
+    """Do *action*, again while Windows refuses it because another hook of this context has
+    the record open for a moment, for up to two seconds."""
+    for _ in range(40):
+        try:
+            return action(*args, **kwargs)
+        except PermissionError:
+            if os.name != "nt":
+                raise
+            time.sleep(0.05)
+    return action(*args, **kwargs)
 
 class Gate:
     """The record of one tool, *name* as tex-mcp-web, whose projects are folders holding
@@ -58,7 +72,7 @@ class Gate:
         """The files still to read, by key, for this context. A record that is not an object
         counts as none."""
         try:
-            record = json.loads(self.record_of(event).read_text(encoding="utf-8"))
+            record = json.loads(patiently(self.record_of(event).read_text, encoding="utf-8"))
         except FileNotFoundError:
             return {}
         return record if isinstance(record, dict) else {}
@@ -89,7 +103,7 @@ class Gate:
         record = self.record_of(event)
         written = record.with_name(f"{record.name}.{os.getpid()}")
         written.write_text(json.dumps(projects), encoding="utf-8")
-        os.replace(written, record)
+        patiently(os.replace, written, record)
 
     @staticmethod
     def response_text(event: dict) -> str:
@@ -170,4 +184,5 @@ class Gate:
         """Run the hook the command line names on the event Claude Code gives: one of these,
         or one of *own*, the tool's."""
         hooks = {"session-start": self.session_start, "file-read": self.file_read, "before-tool": self.before_tool, **own}
-        hooks[sys.argv[1]](json.load(sys.stdin))
+        # The event is UTF-8 whatever the system's code page, which Windows would read it in.
+        hooks[sys.argv[1]](json.loads(sys.stdin.buffer.read().decode("utf-8")))

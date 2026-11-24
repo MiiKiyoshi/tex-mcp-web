@@ -1303,8 +1303,13 @@ export function createCommentPanel(given) {
     if (state.commentTab !== name) {
       state.commentTab = name;
       state.picked.clear();
+      // The tab left takes its cards with it at once: shown until the new tab's list came,
+      // they were picked and resolved by a press meant for the new tab.
+      state.comments = [];
       renderCommentFilter();
       setView("open");
+      renderComments();
+      $("#comments-list").replaceChildren(placeholder("Loading…"));
       refreshComments().catch((error) => console.error(error));
     }
     if (focus) $("#comments-list").focus({ preventScroll: true });

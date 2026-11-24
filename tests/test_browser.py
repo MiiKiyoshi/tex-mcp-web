@@ -5305,7 +5305,11 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
                 return box.left >= bar.left && box.right <= bar.right + 0.5 && count.right <= box.right + 0.5;
               }});''') is True
         browser.execute_script('document.querySelector(".layout").style.removeProperty("--tex-mcp-sidebar-width")')
-        browser.execute_script(f"document.querySelector('{leaf_tab}').click()")
+        # The tab left takes its cards with it at once, so nothing picked or pressed before the
+        # new tab's list comes acts on the tab that was left.
+        assert browser.execute_script(f"""document.querySelector('{leaf_tab}').click();
+          return [document.querySelectorAll('#comments-list .cmt').length,
+                  document.querySelector('#comments-list').textContent];""") == [0, "Loading…"]
         # The tab opens on open, which lists every open thread and marks the ones that wait for
         # the reviewer's answer on Overleaf, and not the one answered from here.
         wait_until(lambda: browser.execute_script('return document.querySelector("#comment-filter").value') == "open")
