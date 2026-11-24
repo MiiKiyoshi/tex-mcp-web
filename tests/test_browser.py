@@ -2974,13 +2974,13 @@ def test_the_search_reads_the_conditions_mail_and_code_search_have(tmp_path: Pat
         browser.navigate(base)
         wait_until(lambda: browser.execute_script('return document.querySelector("#comment-search") !== null'))
         found, read, loads = browser.execute_script('''const [comments, queries, texts] = arguments;
-          return import("/static/viewer.js").then(({ parseSearch, meetsSearch }) => [
-            queries.map((query) => comments.filter((comment) => meetsSearch(comment, parseSearch(query, 2026), "Dana Cho"))
+          return import("/static/shared/comment-search.js").then(({ parseSearch, meetsSearch }) => [
+            queries.map((query) => comments.filter((comment) => meetsSearch(comment, parseSearch(query, 2026), "Dana Cho", []))
               .map((comment) => comment.id)),
             texts.map((text) => parseSearch(text, 2026)),
-            performance.getEntriesByType("resource").filter((entry) => new URL(entry.name).pathname === "/static/viewer.js").length]);''',
+            performance.getEntriesByType("resource").filter((entry) => new URL(entry.name).pathname.endsWith("/viewer.js")).length]);''',
             script_args=[comments, [query for query, _ in cases], [text for text, _ in readings]])
-        # The page's own module answers: importing it read it no second time.
+        # The search stands on its own: importing it read the page's viewer.js no second time.
         assert loads == 1
         assert dict(zip([query for query, _ in cases], found)) == dict(cases)
         assert read == [reading for _, reading in readings]
@@ -3522,7 +3522,7 @@ def test_the_search_examples_in_help_find_what_help_says(tmp_path: Path) -> None
         assert sorted(set(examples)) == sorted(readings)
         dated = set(script('return [...document.querySelectorAll("#help-search-dates code")].map((c) => c.textContent)'))
         read = script('''const [texts, dated] = arguments;
-          return import("/static/viewer.js").then(({ parseSearch }) =>
+          return import("/static/shared/comment-search.js").then(({ parseSearch }) =>
             texts.map((text) => parseSearch(dated.includes(text) ? `after:${text}` : text, arguments[2])));''',
                       examples, [f"{year}-11-12" if text == "2026-11-12" else text for text in dated], year)
         assert dict(zip(examples, read)) == {text: readings[text] for text in examples}
