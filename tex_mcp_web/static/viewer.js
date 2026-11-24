@@ -1,8 +1,10 @@
 import EmbedPDF, { PdfAnnotationSubtype } from "/static/embedpdf/embedpdf.js?v=selection-yellow";
 import { createSettings } from "./shared/settings.js";
 import { $, $$, h, clear, placeholder, eventOrigin, COMPOSED, keyByPosition, showMacKeyNames } from "./shared/dom.js";
-import { createCommentPanel, statusOf, shortTime } from "./shared/comment-panel.js";
-import { createCommentKeys, RING_AT } from "./shared/comment-keys.js";
+import { createCommentPanel, shortTime } from "./shared/comment-panel.js";
+import { RING_AT } from "./shared/comment-keys.js";
+import { refusalOf } from "./shared/comment-api.js";
+import { createTabStrip } from "./shared/tab-strip.js";
 import { createHelp } from "./shared/help.js";
 
 const DOCUMENT_ID = "paper";
@@ -19,9 +21,15 @@ const WAITS = {
   ...window.texMcpWaits,
 };
 
+// What the browser keeps this page's choices under, named once, in index.html.
+const PREFIX = document.querySelector("script[data-prefix]").dataset.prefix;
+
 const state = {
-  // The comment panel keeps its own fields here as well, as shared/comment-panel.js sets them out.
+  // The comment panel sets the comments it lists, those opened and picked, the ringed one and
+  // the comment tab shown here too (shared/comment-panel.js).
   viewer: null,
+  // The open comments of the comment tab shown, which the paper and the editor mark.
+  markedComments: [],
   // The threads whose replies are on their way to Overleaf, and whether its threads are being
   // synced: their buttons show the work under way until the list shows what it did.
   sending: new Set(),
@@ -579,11 +587,11 @@ async function initializePdfViewer(pdfView) {
     const commentId = state.annotationCommentById.get(selectedNow);
     if (commentId) {
       setSidebarCollapsed(false);
-      switchTab(state.commentTab);
+      strip.show(state.commentTab);
       const comment = state.markedComments.find((item) => item.id === commentId);
       // The comment the list has just opened and shown here is left as the list has it.
       if (comment && !(comment.id === state.focusedCommentId && state.expanded.has(comment.id))) {
-        revealComment(comment).catch((error) => console.error(error));
+        panel.showComment(comment.id).catch((error) => console.error(error));
       }
       return;
     }
@@ -808,20 +816,7 @@ function selectQuoteInLines(quote, first, last) {
 }
 
 async function responseError(response) {
-  return (await responseRefusal(response)).error;
-}
-
-// What a refused request says: its reason in words, and the kind of reason, when the server
-// names one, for the page to act on.
-async function responseRefusal(response) {
-  const text = await response.text();
-  if (!text) return { error: String(response.status) };
-  try {
-    const { error, reason } = JSON.parse(text);
-    return { error, reason };
-  } catch (error) {
-    return { error: `${response.status}: ${text}` };
-  }
+  return (await refusalOf(response)).error;
 }
 
 function sourceMode(path) {
@@ -1155,17 +1150,16 @@ function editorTheme() {
 // page's own parts and the viewer's follow the theme; the PDF's pages are drawn as compiled,
 // white in every theme.
 const settings = createSettings({
-  prefix: "texMcp",
+  prefix: PREFIX,
   onTheme: (theme) => {
     state.editor?.setTheme(editorTheme());
     state.viewer?.setTheme?.(viewerTheme(theme));
     // The viewer's scroll bars take the page's scheme, which its own theme does not set.
     state.viewer?.setAttribute("data-tex-theme", theme);
   },
-  onLetters: (shown) => shown || commentKeys.showLetters(false),
+  onLetters: (shown) => shown || panel.keys.showLetters(false),
   onCursor: () => holdCursorLine(),
 });
-const { sendKeyName, sendOn } = settings;
 
 // Settings: the paper's Overleaf project, the cookie that signs in to it, how the files
 // follow it, where they stand, and the page's look. The cookie is handed over once and is
@@ -1308,13 +1302,13 @@ function renderOverleafThreadSync() {
   if (why) side.title = why;
   let note = $("#overleaf-sync-why");
   if (!note) {
-    note = h("p", { id: "overleaf-sync-why", class: "sync-why" });
+    note = h("p", { id: "overleaf-sync-why", class: "panel-note" });
     $("#comments-list").before(note);
   }
   note.hidden = !state.overleafProject || state.commentTab !== "overleaf-comments" || !why;
   // The missing cookie is pasted in Settings, which the sentence opens.
   note.replaceChildren(why === OVERLEAF_COOKIE_WANTED
-    ? h("button", { type: "button", class: "sync-why-go", onclick: () => showSettings() }, why) : why);
+    ? h("button", { type: "button", class: "panel-note-go", onclick: () => showSettings() }, why) : why);
   // git pull in a terminal is seen here too: while comments wait on it, the folder's
   // standing is read again every few seconds, which asks Overleaf nothing.
   clearInterval(state.overleafGitWatch);
@@ -2422,19 +2416,18 @@ function showCommentAtCursor() {
     openSuggestedEdit(chosen.id).catch((error) => console.error(error));
     return;
   }
-  switchTab(state.commentTab);
-  if (chosen !== undefined) revealComment(chosen).catch((error) => console.error(error));
+  strip.show(state.commentTab);
+  if (chosen !== undefined) panel.showComment(chosen.id).catch((error) => console.error(error));
   $("#comments-list").focus({ preventScroll: true });
 }
 
 // A suggested edit opened from the source: the leaf tab's suggested edits view, ringed there.
 async function openSuggestedEdit(id) {
-  switchTab("overleaf-comments");
-  setCommentFilter("changes");
+  strip.show("overleaf-comments");
+  setView("changes");
   $("#comments-list").focus({ preventScroll: true });
   await refreshComments();
-  const item = state.comments.find((comment) => comment.id === id);
-  if (item) focusComment(item);
+  if (state.comments.some((comment) => comment.id === id)) await panel.showComment(id);
 }
 
 // The comment button, Ctrl+Alt+M (Cmd+Option+M), or gc with Vim keys. Comments wait for the
@@ -2495,8 +2488,8 @@ async function initializeSourceEditor() {
     if (!comments?.length || !event.domEvent.target.classList.contains("source-comment-line")) return;
     event.stop();
     setSidebarCollapsed(false);
-    switchTab(state.commentTab);
-    revealComment(comments[0]).catch((error) => console.error(error));
+    strip.show(state.commentTab);
+    panel.showComment(comments[0].id).catch((error) => console.error(error));
   });
   state.editor.commands.addCommand({
     name: "saveSource",
@@ -2624,85 +2617,57 @@ async function handleSourceChanged(message) {
 }
 
 // ----- Comment panel -----
-// The list of comments, the row above it, its search and its cards are shared with the other
-// review pages, in shared/comment-panel.js. What is this page's own goes in by the hooks
-// below: the server's calls, the two comment tabs, Overleaf's threads, drafts and suggested
-// edits, the comment keys, the PDF and the editor.
+// The list of comments, the row above it, its search, its cards and its keys are shared with
+// the other review pages, in shared/comment-panel.js. What is this page's own goes in by the
+// hooks below: the two comment tabs, Overleaf's threads, drafts and suggested edits, the hidden
+// threads, the PDF and the editor.
 
-// A comment call's answer, as the panel reads it: { ok: true, data } with what the server sent
-// back, read as JSON when *read*, or { ok: false, error, reason, conflict }: the refusal in
-// words, the kind of reason the server names, and whether it was a 409, refused because
-// something changed since.
-async function answered(request, read = true) {
-  const response = await request;
-  if (!response.ok) return { ok: false, conflict: response.status === 409, ...(await responseRefusal(response)) };
-  return { ok: true, data: read ? await response.json() : null };
+// The status a comment is listed under: "hidden" for an open thread the reviewer hid on the
+// page, else its own.
+function statusOf(comment) {
+  return comment.hidden && comment.status === "open" ? "hidden" : comment.status;
 }
 
-function postJson(url, body) {
-  return fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+// The words a comment is on, which its card quotes once opened: those selected on the PDF or in
+// the source, or a section's title. A note on the paper or a box on it quotes nothing.
+function commentQuote(comment) {
+  const { anchor } = comment;
+  return anchor.kind === "text_selection" ? anchor.quote
+    : anchor.kind === "source_range" ? comment.source_selector?.exact ?? ""
+    : anchor.kind === "section" ? anchor.title : "";
 }
-
-// The comment keys. The paper's own keys work its threads from Overleaf and its suggested edits.
-const commentKeys = createCommentKeys({
-  state,
-  labels: { document: "paper", firstSort: "paper order" },
-  panel: () => panel,
-  rows: ({ pressCard, pressPickedOr, pressForRange, focusedCard }) => [
-    { keys: ["r"], does: "Write a private reply that the agent sees and Overleaf does not" },
-    { after: "r", keys: ["i"], does: "Write its reply for Overleaf", marks: ".cmt-overleaf",
-      run: () => {
-        const box = focusedCard()?.querySelector(".overleaf-reply-input");
-        if (!box) return;
-        box.focus();
-        box.setSelectionRange(box.value.length, box.value.length);
-      } },
-    { keys: ["e"], does: "Edit your last message in it, here or on Overleaf" },
-    { keys: ["Escape"], does: "Leave the text box. An unsent private reply or edit is discarded; a reply for Overleaf is kept" },
-    { keys: ["A"], does: "Archive it, or in the leaf Comments tab hide or show it", button: ["cmt-archive", "cmt-hide", "cmt-show"],
-      run: () => pressPickedOr(["#archive-picked-btn", "#hide-picked-btn"], ".cmt-archive, .cmt-hide, .cmt-show"),
-      range: () => pressForRange(["#archive-picked-btn", "#hide-picked-btn"]) },
-    { keys: ["aa"], does: "Apply its suggestion to the file, or accept a suggested edit on Overleaf",
-      button: ["sugg-apply", "change-accept"], run: () => pressCard(".sugg-apply, .change-accept") },
-    { keys: ["nn"], does: "Reject its suggestion, or its Overleaf draft if there is none",
-      button: ["sugg-reject", "overleaf-reject"],
-      run: () => {
-        const card = focusedCard();
-        (card?.querySelector(".sugg-reject") ?? card?.querySelector(".overleaf-reject"))?.click();
-      } },
-    { after: "nn", keys: ["ss"], does: "Send its public reply to Overleaf, for everyone in the project", button: ["overleaf-send"],
-      picked: true, run: () => pressPickedOr(["#send-picked-btn"], ".overleaf-send"),
-      range: () => pressForRange(["#send-picked-btn"]) },
-    { keys: ["dd"], does: "Delete it (after confirmation), or reject a suggested edit on Overleaf",
-      button: ["cmt-delete", "change-reject"], run: () => pressCard(".cmt-delete, .change-reject") },
-    { keys: ["D"], does: "Delete your last message in it, here or on Overleaf (after confirmation)" },
-  ],
-  showPlace: (id) => jumpToComment(id),
-  enterPlace: (comment) => enterSource(comment),
-  commentWhole: () => $("#paper-comment-btn").click(),
-  showHelp: () => help.show(),
-  lettersShown: () => settings.keyLetters(),
-  rests: () => false,
-});
-const { hint: keyHint, rangeIds } = commentKeys;
 
 const panel = createCommentPanel({
   state,
-  prefix: "texMcp",
-  api: {
-    list: (status) => answered(fetch(status === "all" ? "/comments" : `/comments?status=${status}`)),
-    create: (body) => answered(postJson("/comments", body)),
-    setStatus: (ids, status, resolved) => answered(postJson("/comments/status", { ids, status, resolved }), false),
-    mutate: (id, action, body) => answered(action === "delete" ? fetch(`/comments/${id}`, { method: "DELETE" })
-      : postJson(`/comments/${id}/${action}`, body), false),
+  prefix: PREFIX,
+  settings,
+  label: anchorLabel,
+  quote: commentQuote,
+  showPlace: jumpToComment,
+  enterPlace: (comment) => enterSource(comment),
+  marked: (comments) => {
+    state.markedComments = comments;
+    syncCommentAnnotations();
+    syncSourceCommentMarkers();
+  },
+  whole: () => $("#paper-comment-btn").click(),
+  help: (page) => help.show(page),
+  // A comment shown from its mark on the paper or in the editor: its card opens and flashes.
+  bringIntoView: (id, card) => {
+    card.scrollIntoView({ behavior: "smooth", block: "center" });
+    card.classList.add("cmt-flash");
+    setTimeout(() => card.classList.remove("cmt-flash"), 1600);
+  },
+  labels: {
+    document: "paper", reply: "Reply privately", replyBox: "Private reply, for you and the agent…",
+    firstSort: ["paper", "paper order"], composeTitle: "New private comment",
+    composeBox: "leave a private comment for the coding agent…",
   },
   // The views each comment tab's list offers, as [value, name], the first being the one the tab
-  // opens on. What is set aside but still open comes before what is finished. Overleaf has no archive, and only its threads have drafts to send or are hidden on the
-  // page.
+  // opens on. What is set aside but still open comes before what is finished. Overleaf has no
+  // archive, and only its threads have drafts to send or are hidden on the page.
   tabs: {
     comments: {
-      views: [["open", "open"], ["unanswered", "unanswered"], ["archived", "archived"], ["resolved", "resolved"], ["all", "all"]],
-      noun: "comment",
       count: "#comments-tab-count",
       hint: "To comment, select words in the Preview or the Source, or draw a box with the box tool.",
     },
@@ -2729,190 +2694,180 @@ const panel = createCommentPanel({
           : threads;
       },
       items: () => state.overleafSuggested.map(suggestedItem),
+      itemCard: (item) => (item.suggested ? renderSuggestedEdit(item) : null),
       // The drafts view lists the new threads first and then the replies drafted.
       group: (status, comment) => (status === "drafts" && !draftedThread(comment) ? 1 : 0),
+      chosen: (view) => {
+        if (view === "changes") readSuggestedEdits();
+      },
     },
   },
-  labels: {
-    reply: "Reply privately", replyBox: "Private reply, for you and the agent…", firstSort: ["paper", "paper order"],
-    composeTitle: "New private comment", composeBox: "leave a private comment for the coding agent…",
-  },
-  sendOn,
-  sendKeyName,
-  keys: commentKeys,
   // The comments written here are in one tab, and Overleaf's threads, with those drafted for
   // it, in the other.
   tabOf: (comment) => (forOverleaf(comment) ? "overleaf-comments" : "comments"),
-  // Which threads came from Overleaf, and so can be answered there, read with every list.
-  readAlong: async () => {
-    const overleaf = await fetch("/overleaf");
-    return overleaf.ok ? await overleaf.json() : {};
-  },
-  applyAlong: (linked) => {
-    state.overleafImported = new Set(linked.imported ?? []);
-    state.overleafUnplaced = linked.unplaced ?? {};
-    state.overleafCookie = linked.cookie ?? null;
-    state.overleafProject = linked.project ?? null;
-    state.overleafFullSync = Boolean(linked.live);
-    state.overleafWaiting = linked.waiting ?? 0;
-    state.overleafSuggested = linked.suggested ?? [];
-    applySourceLeaf();
-  },
-  // The leaf tab shows once the paper names an Overleaf project or has threads from one, with
-  // the button that syncs its threads and what stands in their way. Its number counts its
-  // suggested edits too.
-  showTabs: () => {
-    const leafTab = $('.tab-btn[data-tab="overleaf-comments"]');
-    leafTab.hidden = !state.overleafProject && state.overleafImported.size === 0;
-    if (leafTab.hidden && state.commentTab === "overleaf-comments") {
-      state.commentTab = "comments";
-      if (leafTab.classList.contains("active")) switchTab("comments");
-    }
-    renderOverleafThreadSync();
-  },
-  agentAwaited: (awaited) => {
-    state.agentAwaited = awaited;
-    renderCallWaits();
-  },
-  posted: () => { state.posted = true; },
-  me: () => state.overleafMe,
-  // A thread's draft for Overleaf is searched too.
-  searchWords: (comment) => [comment.overleaf_draft?.text],
   // In the leaf tab, someone else wrote the last message on Overleaf. A new thread not yet
   // sent, which has no message, is only open, and so is one whose reply is on its way to
   // Overleaf: it comes back, opened and saying why, only when Overleaf refuses it.
-  unanswered: (comment, byAgent) => !state.sending.has(comment.id)
-    && (forOverleaf(comment) ? answeredByOthers(comment) : byAgent),
-  // A thread from Overleaf resolves and reopens there too. A thread drafted for Overleaf is only
-  // sent or deleted, and a suggested edit accepted or rejected.
-  settles: (comment) => !draftedThread(comment) && !comment.suggested,
-  anchorLabel,
-  stale: (comment) => comment.stale,
-  showPlace: jumpToComment,
-  markPlaces: () => {
-    syncCommentAnnotations();
-    syncSourceCommentMarkers();
+  awaitsReviewer: (comment, agentWroteLast) => !state.sending.has(comment.id)
+    && (forOverleaf(comment) ? answeredByOthers(comment) : agentWroteLast),
+  // Which threads came from Overleaf, and so can be answered there, read with every list. The
+  // leaf tab shows once the paper names an Overleaf project or has threads from one, with the
+  // button that syncs its threads and what stands in their way; hidden while shown, it gives
+  // way to the comments tab.
+  along: {
+    read: async () => {
+      const overleaf = await fetch("/overleaf");
+      return overleaf.ok ? await overleaf.json() : {};
+    },
+    apply: (linked) => {
+      state.overleafImported = new Set(linked.imported ?? []);
+      state.overleafUnplaced = linked.unplaced ?? {};
+      state.overleafCookie = linked.cookie ?? null;
+      state.overleafProject = linked.project ?? null;
+      state.overleafFullSync = Boolean(linked.live);
+      state.overleafWaiting = linked.waiting ?? 0;
+      state.overleafSuggested = linked.suggested ?? [];
+      applySourceLeaf();
+      const leafTab = $('.tab-btn[data-tab="overleaf-comments"]');
+      leafTab.hidden = !state.overleafProject && state.overleafImported.size === 0;
+      if (leafTab.hidden && state.commentTab === "overleaf-comments") {
+        if (leafTab.classList.contains("active")) strip.show("comments");
+        else panel.showTab("comments");
+      }
+      renderOverleafThreadSync();
+    },
   },
-  suggestedCard: renderSuggestedEdit,
-  cardNote: (comment) => {
-    const unplaced = state.overleafUnplaced[comment.id];
-    return unplaced && comment.status === "open" ? h("div", { class: "cmt-unplaced" }, leafIcon(), h("span", {
-      text: `On Overleaf at ${unplaced}. That text is not in the file here yet, so the comment is shown on the whole paper for now.`,
-    })) : null;
+  agent: {
+    awaited: (awaited) => {
+      state.agentAwaited = awaited;
+      renderCallWaits();
+    },
+    posted: () => { state.posted = true; },
   },
-  // The reply drafted for Overleaf, or a new thread's first message, shown closed or open while
-  // it waits to be sent.
-  cardReply: (comment, expanded) => (forOverleaf(comment) && comment.status === "open"
-    && (expanded || comment.overleaf_draft || draftedThread(comment)) ? renderOverleafReply(comment) : null),
-  cardActions: (comment, buttons) => {
-    const reply = () => actionButton("cmt-reply", "Reply privately", () => setActiveForm(comment.id, "reply"));
-    // A thread drafted for Overleaf takes replies here, about its draft, and is sent, or deleted
-    // here: it is not on Overleaf to resolve.
-    if (draftedThread(comment)) return [reply(), buttons.find((button) => button.classList.contains("cmt-delete"))];
-    if (!state.overleafImported.has(comment.id)) return buttons;
-    // A thread from Overleaf resolves and reopens there, at once: Overleaf takes no summary,
-    // has no archive, and deletes a thread only there. An open one can be hidden on this page
-    // instead, which changes nothing on Overleaf.
-    const hiding = statusOf(comment) === "hidden"
-      ? h("button", { class: "cmt-show", type: "button", text: "Show", onclick: () => setStatus([comment.id], "open"),
-                      title: `Show this thread in the open view again${keyHint("cmt-show")}` })
-      : h("button", { class: "cmt-hide", type: "button", text: "Hide", onclick: () => setStatus([comment.id], "hidden"),
-                      title: `Hide this thread here without changing it on Overleaf${keyHint("cmt-hide")}` });
-    return [
-      reply(),
-      comment.status === "open"
-        ? actionButton("cmt-resolve", "Resolve", () => setStatus([comment.id], "resolved"))
-        : actionButton("cmt-reopen", "Reopen", () => setStatus([comment.id], "open")),
-      comment.status === "open" ? hiding : null,
-    ];
+  status: {
+    of: statusOf,
+    // Hidden threads opened are shown again, not reopened.
+    said: (status, before, what) => (status === "hidden" ? `Hid ${what}.`
+      : status === "open" && before.every((was) => was === "hidden") ? `Showed ${what} again.` : null),
   },
-  entryMark: reachMark,
-  // What the reviewer wrote and may change: an entry written here, or on a thread from
-  // Overleaf one sent from here or written there under the name Overleaf gives them. One on
-  // Overleaf is reworded or deleted there, for everyone in the project, and others' messages
-  // there are answered.
-  mayChange: (entry, comment) => (entry.name === undefined && entry.overleaf === undefined)
-    || (forOverleaf(comment) && (entry.overleaf !== undefined || entry.name === state.overleafMe)),
-  deleteQuestion: (entry, index, question) => (entry.name === undefined && entry.overleaf === undefined ? question
-    : index === 0 ? "Delete this thread on Overleaf, with every reply in it, for everyone in the project?"
-    : "Delete this message on Overleaf, for everyone in the project?"),
-  renderRow: (picked) => {
-    // In the leaf tab, the place of Archive holds Hide, which hides the picked open threads on this page
-    // only, and reads Show, as A does, once every picked thread is hidden, or in the hidden view.
-    const hideable = picked.filter((comment) => statusOf(comment) === "open" && state.overleafImported.has(comment.id))
-      .map((comment) => comment.id);
-    const hidden = picked.filter((comment) => statusOf(comment) === "hidden").map((comment) => comment.id);
-    const showing = hideable.length === 0 && (hidden.length > 0 || $("#comment-filter").value === "hidden");
-    const toggled = showing ? hidden : hideable;
-    const hide = $("#hide-picked-btn");
-    hide.disabled = toggled.length === 0;
-    hide.querySelector(".icon-hide").classList.toggle("hidden", showing);
-    hide.querySelector(".icon-show").classList.toggle("hidden", !showing);
-    hide.querySelector(".count").textContent = toggled.length > 0 ? String(toggled.length) : "";
-    hide.setAttribute("aria-label", `${showing ? "Show" : "Hide"}${toggled.length > 0 ? ` ${toggled.length}` : ""}`);
-    hide.title = showing ? "Show the selected threads in the open view again"
-      : "Hide the selected threads here without changing them on Overleaf";
-    hide.dataset.status = showing ? "open" : "hidden";
-    hide.dataset.ids = toggled.join(" ");
-    // A picked thread from Overleaf sends what its reply box holds, each to its own thread there.
-    const sendable = state.comments.filter((comment) => state.picked.has(comment.id)
-      && forOverleaf(comment) && comment.status === "open"
-      && overleafReplyText(comment).trim()).map((comment) => comment.id);
-    const send = $("#send-picked-btn");
-    send.hidden = !state.overleafProject || state.commentTab !== "overleaf-comments";
-    send.disabled = !state.overleafCookie || sendable.length === 0 || state.sending.size > 0;
-    send.classList.toggle("busy", state.sending.size > 0);
-    send.querySelector(".count").textContent = sendable.length > 0 ? String(sendable.length) : "";
-    send.setAttribute("aria-label", sendable.length > 0 ? `Send ${replies(sendable.length)} to Overleaf` : "Send to Overleaf");
-    send.title = state.overleafCookie ? "Send the selected public replies to Overleaf, for everyone in the project"
-      : OVERLEAF_COOKIE_WANTED;
-    send.dataset.ids = sendable.join(" ");
-    // A list with suggested edits accepts or rejects the picked ones: the suggested edits view, in
-    // place of resolving, hiding and sending, and a search that finds some beside them.
-    const suggesting = state.commentTab === "overleaf-comments" && $("#comment-filter").value === "changes";
-    const edits = state.comments.filter((item) => item.suggested && state.picked.has(item.id));
-    $("#resolve-picked-btn").hidden = suggesting;
-    hide.hidden = state.commentTab !== "overleaf-comments" || suggesting;
-    send.hidden = send.hidden || suggesting;
-    for (const [id, word] of [["#accept-picked-btn", "Accept"], ["#reject-picked-btn", "Reject"]]) {
-      const button = $(id);
-      button.hidden = !state.comments.some((item) => item.suggested);
-      button.disabled = edits.length === 0 || state.reviewingEdits.size > 0;
-      button.classList.toggle("busy", edits.some((item) => state.reviewingEdits.has(item.id)));
-      button.querySelector(".count").textContent = edits.length > 0 ? String(edits.length) : "";
-      button.setAttribute("aria-label", edits.length > 0 ? `${word} ${edits.length}` : word);
-    }
+  // A thread's draft for Overleaf, its place in the source and the words there are searched too,
+  // and of a suggested edit what it inserts and deletes and who suggested it, and when.
+  search: {
+    me: () => state.overleafMe,
+    words: (comment) => [comment.overleaf_draft?.text, comment.resolved_source?.file, comment.source_selector?.exact,
+      ...(comment.suggested ? [comment.inserted, comment.deleted, comment.name] : [])],
+    files: (comment) => [comment.resolved_source?.file, comment.anchor?.file],
+    said: (comment) => (comment.suggested ? [{ name: comment.name ?? "", at: comment.at }] : comment.thread),
   },
-  restoreRow: () => {
-    const [sync, call] = [$("#overleaf-sync-comments-btn"), $("#call-agent-btn")];
-    const [accept, reject, send] = [$("#accept-picked-btn"), $("#reject-picked-btn"), $("#send-picked-btn")];
-    const [archive, hide] = [$("#archive-picked-btn"), $("#hide-picked-btn")];
-    if (archive.nextElementSibling !== hide) archive.after(hide);
-    if (sync.parentElement !== $("#comment-fetch")) $("#comment-fetch").prepend(sync);
-    // The agent the bell calls, with its model and effort, goes where the bell goes.
-    const called = [$("#call-agent-select"), $("#agent-model-select"), $("#agent-effort-select"), call];
-    if (called.some((node) => node.parentElement !== $("#comment-fetch"))) $("#comment-fetch").append(...called);
-    if (reject.nextElementSibling !== send) send.before(reject);
-    if (accept.nextElementSibling !== reject) reject.before(accept);
+  card: {
+    note: (comment) => {
+      const unplaced = state.overleafUnplaced[comment.id];
+      return unplaced && comment.status === "open" ? h("div", { class: "cmt-unplaced" }, leafIcon(), h("span", {
+        text: `On Overleaf at ${unplaced}. That text is not in the file here yet, so the comment is shown on the whole paper for now.`,
+      })) : null;
+    },
+    // The reply drafted for Overleaf, or a new thread's first message, shown closed or open while
+    // it waits to be sent.
+    reply: (comment, expanded) => (forOverleaf(comment) && comment.status === "open"
+      && (expanded || comment.overleaf_draft || draftedThread(comment)) ? renderOverleafReply(comment) : null),
+    actions: (comment, buttons) => {
+      const own = (name) => buttons.find((button) => button.classList.contains(name));
+      // A thread drafted for Overleaf takes replies here, about its draft, and is sent, or deleted
+      // here: it is not on Overleaf to resolve.
+      if (draftedThread(comment)) return [replyButton(comment), own("cmt-delete")];
+      if (!state.overleafImported.has(comment.id)) return buttons;
+      // A thread from Overleaf resolves and reopens there, at once: Overleaf takes no summary,
+      // has no archive, and deletes a thread only there. An open one can be hidden on this page
+      // instead, which changes nothing on Overleaf.
+      const hiding = statusOf(comment) === "hidden"
+        ? h("button", { class: "cmt-show", type: "button", text: "Show", onclick: () => setStatus([comment.id], "open"),
+                        title: `Show this thread in the open view again${keyHint("cmt-show")}` })
+        : h("button", { class: "cmt-hide", type: "button", text: "Hide", onclick: () => setStatus([comment.id], "hidden"),
+                        title: `Hide this thread here without changing it on Overleaf${keyHint("cmt-hide")}` });
+      return [
+        replyButton(comment),
+        comment.status === "open" ? own("cmt-resolve") : own("cmt-reopen"),
+        comment.status === "open" ? hiding : null,
+      ];
+    },
+    entryMark: reachMark,
+    // What the reviewer wrote and may change: an entry written here, or on a thread from
+    // Overleaf one sent from here or written there under the name Overleaf gives them. One on
+    // Overleaf is reworded or deleted there, for everyone in the project, and others' messages
+    // there are answered.
+    mayChange: (entry, comment) => (entry.name === undefined && entry.overleaf === undefined)
+      || (forOverleaf(comment) && (entry.overleaf !== undefined || entry.name === state.overleafMe)),
+    deleteQuestion: (entry, index, question) => (entry.name === undefined && entry.overleaf === undefined ? question
+      : index === 0 ? "Delete this thread on Overleaf, with every reply in it, for everyone in the project?"
+      : "Delete this message on Overleaf, for everyone in the project?"),
   },
-  // Once the sort list waits behind the dots, the model and effort lists do too. Once the view
-  // list gives up its room, the sync button and then Call agent wait behind the dots. In the
-  // leaf tab, Send then drops its leaf, and Accept and Reject, then Hide, which each card has
-  // too, wait behind the dots. Send stays in the row.
-  rowSteps: {
-    narrow: [["unchosen", "#agent-model-select, #agent-effort-select"]],
-    squeezed: [["unsynced", "#overleaf-sync-comments-btn"], ["uncalled", "#call-agent-select, #call-agent-btn"],
-      ["leafless"], ["edits-behind", "#accept-picked-btn, #reject-picked-btn"], ["hide-behind", "#hide-picked-btn"]],
-  },
-  // Resolving or reopening a thread from Overleaf does so there, for everyone in the
-  // project: several at one press are asked about first, with their number.
-  confirmRow: (button, ids, status) => {
-    const there = state.comments.filter((comment) => ids.includes(comment.id) && forOverleaf(comment)).length;
-    return button.id !== "resolve-picked-btn" || there <= 1
-      || confirm(`${status === "open" ? "Reopen" : "Resolve"} ${there} threads on Overleaf, for everyone in the project?`);
-  },
-  viewChosen: (view) => {
-    if (view === "changes") readSuggestedEdits();
+  row: {
+    render: (picked) => {
+      // In the leaf tab, the place of Archive holds Hide, which hides the picked open threads on this page
+      // only, and reads Show, as A does, once every picked thread is hidden, or in the hidden view.
+      const hideable = picked.filter((comment) => statusOf(comment) === "open" && state.overleafImported.has(comment.id))
+        .map((comment) => comment.id);
+      const hidden = picked.filter((comment) => statusOf(comment) === "hidden").map((comment) => comment.id);
+      const showing = hideable.length === 0 && (hidden.length > 0 || $("#comment-filter").value === "hidden");
+      const toggled = showing ? hidden : hideable;
+      const hide = $("#hide-picked-btn");
+      hide.disabled = toggled.length === 0;
+      hide.querySelector(".icon-hide").classList.toggle("hidden", showing);
+      hide.querySelector(".icon-show").classList.toggle("hidden", !showing);
+      hide.querySelector(".count").textContent = toggled.length > 0 ? String(toggled.length) : "";
+      hide.setAttribute("aria-label", `${showing ? "Show" : "Hide"}${toggled.length > 0 ? ` ${toggled.length}` : ""}`);
+      hide.title = showing ? "Show the selected threads in the open view again"
+        : "Hide the selected threads here without changing them on Overleaf";
+      hide.dataset.status = showing ? "open" : "hidden";
+      hide.dataset.ids = toggled.join(" ");
+      // A picked thread from Overleaf sends what its reply box holds, each to its own thread there.
+      const sendable = state.comments.filter((comment) => state.picked.has(comment.id)
+        && forOverleaf(comment) && comment.status === "open"
+        && overleafReplyText(comment).trim()).map((comment) => comment.id);
+      const send = $("#send-picked-btn");
+      send.hidden = !state.overleafProject || state.commentTab !== "overleaf-comments";
+      send.disabled = !state.overleafCookie || sendable.length === 0 || state.sending.size > 0;
+      send.classList.toggle("busy", state.sending.size > 0);
+      send.querySelector(".count").textContent = sendable.length > 0 ? String(sendable.length) : "";
+      send.setAttribute("aria-label", sendable.length > 0 ? `Send ${replies(sendable.length)} to Overleaf` : "Send to Overleaf");
+      send.title = state.overleafCookie ? "Send the selected public replies to Overleaf, for everyone in the project"
+        : OVERLEAF_COOKIE_WANTED;
+      send.dataset.ids = sendable.join(" ");
+      // A list with suggested edits accepts or rejects the picked ones: the suggested edits view, in
+      // place of resolving, hiding and sending, and a search that finds some beside them.
+      const suggesting = state.commentTab === "overleaf-comments" && $("#comment-filter").value === "changes";
+      const edits = state.comments.filter((item) => item.suggested && state.picked.has(item.id));
+      hide.hidden = state.commentTab !== "overleaf-comments" || suggesting;
+      send.hidden = send.hidden || suggesting;
+      for (const [id, word] of [["#accept-picked-btn", "Accept"], ["#reject-picked-btn", "Reject"]]) {
+        const button = $(id);
+        button.hidden = !state.comments.some((item) => item.suggested);
+        button.disabled = edits.length === 0 || state.reviewingEdits.size > 0;
+        button.classList.toggle("busy", edits.some((item) => state.reviewingEdits.has(item.id)));
+        button.querySelector(".count").textContent = edits.length > 0 ? String(edits.length) : "";
+        button.setAttribute("aria-label", edits.length > 0 ? `${word} ${edits.length}` : word);
+      }
+      return { resolve: !suggesting };
+    },
+    // Once the sort list waits behind the dots, the model and effort lists do too. Once the view
+    // list gives up its room, the sync button and then Call agent wait behind the dots. In the
+    // leaf tab, Send then drops its leaf, and Accept and Reject, then Hide, which each card has
+    // too, wait behind the dots. Send stays in the row.
+    steps: {
+      narrow: [["unchosen", "#agent-model-select, #agent-effort-select"]],
+      squeezed: [["unsynced", "#overleaf-sync-comments-btn"], ["uncalled", "#call-agent-select, #call-agent-btn"],
+        ["leafless"], ["edits-behind", "#accept-picked-btn, #reject-picked-btn"], ["hide-behind", "#hide-picked-btn"]],
+    },
+    // Resolving or reopening a thread from Overleaf does so there, for everyone in the
+    // project: several at one press are asked about first, with their number.
+    confirm: (button, ids, status) => {
+      const there = state.comments.filter((comment) => ids.includes(comment.id) && forOverleaf(comment)).length;
+      return button.id !== "resolve-picked-btn" || there <= 1
+        || confirm(`${status === "open" ? "Reopen" : "Resolve"} ${there} threads on Overleaf, for everyone in the project?`);
+    },
+    // A thread from Overleaf resolves and reopens there too. A thread drafted for Overleaf is only
+    // sent or deleted, and a suggested edit accepted or rejected.
+    settles: (comment) => !draftedThread(comment) && !comment.suggested,
   },
   compose: {
     // A comment *overleaf* starts a thread for Overleaf, in two boxes, either of which will do:
@@ -2920,34 +2875,30 @@ const panel = createCommentPanel({
     // for the agent, which drafts that message when the first box is left empty. The box for
     // the message is the larger, and the note under it starts at half its rows.
     opening: ({ overleaf }) => {
-      $("#compose-title").textContent = overleaf ? "New public thread on Overleaf" : "New private comment";
       $("#compose-public").hidden = !overleaf;
-      $("#compose-text").required = !overleaf;
-      $("#compose-text").rows = overleaf ? 3 : 6;
-      $("#compose-text").placeholder = overleaf
-        ? "a private note for the agent. If you leave the message empty, the agent drafts it…"
-        : "leave a private comment for the coding agent…";
       $("#compose-message").value = "";
+      if (!overleaf) return;
+      $("#compose-title").textContent = "New public thread on Overleaf";
+      $("#compose-text").required = false;
+      $("#compose-text").rows = 3;
+      $("#compose-text").placeholder = "a private note for the agent. If you leave the message empty, the agent drafts it…";
     },
     // The first message is kept with the thread as its draft, and sent from there.
     filled: ({ overleaf }) => {
       const message = overleaf ? $("#compose-message").value.trim() : "";
       return message ? { draft: message } : {};
     },
+    // The PDF the selection was made on is being rebuilt, or was rebuilt since: a comment is
+    // placed only on a selection made on the PDF the server has. What was written waits in the
+    // comment box for the next selection.
     refused: (refusal, body) => {
-      if (refusal.reason !== "rebuilding" && refusal.reason !== "rebuilt") return false;
-      // The PDF the selection was made on is being rebuilt, or was rebuilt since: a comment
-      // is placed only on a selection made on the PDF the server has. What was written
-      // waits in the comment box for the next selection.
-      state.keptComment = $("#compose-text").value;
-      $("#compose-dialog").close();
+      if (refusal.reason !== "rebuilding" && refusal.reason !== "rebuilt") return null;
       const redo = body.anchor.kind === "area" ? "draw the box again" : "select the text again";
-      alert(refusal.reason === "rebuilding"
+      return { keep: true, say: refusal.reason === "rebuilding"
         ? `The PDF is being rebuilt, so this comment can't be placed on it yet. When the new PDF appears, ${redo}. `
           + "What you wrote will still be in the comment box."
         : `The PDF was rebuilt after you made this selection, so the comment wasn't posted. Please ${redo}. `
-          + "What you wrote will still be in the comment box.");
-      return true;
+          + "What you wrote will still be in the comment box." };
     },
     // A thread started for Overleaf with only a note waits for the agent's draft among the
     // drafts. One whose first message was posted, and a comment for the agent, are open. A
@@ -2955,25 +2906,59 @@ const panel = createCommentPanel({
     // thread's draft, saying why.
     posted: async (started, body) => {
       const tab = body.overleaf ? "overleaf-comments" : "comments";
-      if (state.commentTab !== tab) switchTab(tab);
-      setCommentFilter(body.overleaf && !body.draft ? "drafts" : "open");
+      if (state.commentTab !== tab) strip.show(tab);
+      setView(body.overleaf && !body.draft ? "drafts" : "open");
       if (body.draft) await sendToOverleaf(started.id, body.draft, body.draft);
-      else await refreshComments();
     },
     // The selection the dialog was opened on goes, and the viewer's bubble with it.
     closed: () => {
       if (state.selection) state.selection.clear();
     },
   },
+  // The paper's own keys work its threads from Overleaf and its suggested edits.
+  keys: {
+    rows: ({ pressCard, pressPickedOr, pressForRange, focusedCard }) => [
+      { keys: ["r"], does: "Write a private reply that the agent sees and Overleaf does not" },
+      { after: "r", keys: ["i"], does: "Write its reply for Overleaf", marks: ".cmt-overleaf",
+        run: () => {
+          const box = focusedCard()?.querySelector(".overleaf-reply-input");
+          if (!box) return;
+          box.focus();
+          box.setSelectionRange(box.value.length, box.value.length);
+        } },
+      { keys: ["e"], does: "Edit your last message in it, here or on Overleaf" },
+      { keys: ["Escape"], does: "Leave the text box. An unsent private reply or edit is discarded; a reply for Overleaf is kept" },
+      { keys: ["A"], does: "Archive it, or in the leaf Comments tab hide or show it", button: ["cmt-archive", "cmt-hide", "cmt-show"],
+        run: () => pressPickedOr(["#archive-picked-btn", "#hide-picked-btn"], ".cmt-archive, .cmt-hide, .cmt-show"),
+        range: () => pressForRange(["#archive-picked-btn", "#hide-picked-btn"]) },
+      { keys: ["aa"], does: "Apply its suggestion to the file, or accept a suggested edit on Overleaf",
+        button: ["sugg-apply", "change-accept"], run: () => pressCard(".sugg-apply, .change-accept") },
+      { keys: ["nn"], does: "Reject its suggestion, or its Overleaf draft if there is none",
+        button: ["sugg-reject", "overleaf-reject"],
+        run: () => {
+          const card = focusedCard();
+          (card?.querySelector(".sugg-reject") ?? card?.querySelector(".overleaf-reject"))?.click();
+        } },
+      { after: "nn", keys: ["ss"], does: "Send its public reply to Overleaf, for everyone in the project", button: ["overleaf-send"],
+        picked: true, run: () => pressPickedOr(["#send-picked-btn"], ".overleaf-send"),
+        range: () => pressForRange(["#send-picked-btn"]) },
+      { keys: ["dd"], does: "Delete it (after confirmation), or reject a suggested edit on Overleaf",
+        button: ["cmt-delete", "change-reject"], run: () => pressCard(".cmt-delete, .change-reject") },
+      { keys: ["D"], does: "Delete your last message in it, here or on Overleaf (after confirmation)" },
+    ],
+  },
 });
 const {
   attach: attachCommentPanel, refreshComments, renderComments, renderPickedActions, fitCommentRow, setStatus,
-  pickBox, actionButton, doMutation, setActiveForm, unanswered, setCommentFilter, switchTab, openCompose,
-  closeCommentSearch,
+  pickBox, actionButton, replyButton, unanswered, setView, openCompose,
 } = panel;
+const { hint: keyHint, rangeIds } = panel.keys;
+
+// The sidebar's tabs. The two comment tabs share the Comments pane, which the panel fills.
+const strip = createTabStrip({ shown: (name, clicked) => panel.showTab(name, clicked) });
 
 // Help, with the paper's own Start here, search story and Overleaf page, and its own keys.
-const help = createHelp({ prefix: "texMcp", pages: [["overleaf", "Overleaf"]], keys: commentKeys });
+const help = createHelp({ prefix: PREFIX, pages: [["overleaf", "Overleaf"]], keys: panel.keys });
 
 // A suggested edit as the list holds it, beside the comments: open until accepted or rejected,
 // with nothing said in it, and its place in the source, or its line on Overleaf when the text
@@ -3233,12 +3218,8 @@ function renderOverleafReply(comment) {
   if (draft && !draft.mine && !draft.thread && comment.status === "open") {
     reject = actionButton("overleaf-reject", "Reject draft", async () => {
       reject.disabled = true;
-      if (await doMutation(comment.id, "reject-draft", { updated: comment.updated })) {
-        state.overleafReplies.delete(comment.id);
-        await refreshComments();
-        return;
-      }
-      reject.disabled = false;
+      const saved = () => state.overleafReplies.delete(comment.id);
+      if (!await panel.mutate(comment.id, "reject-draft", { updated: comment.updated }, { saved })) reject.disabled = false;
     });
     reject.disabled = sending;
   }
@@ -3388,8 +3369,8 @@ function syncCommentBadges() {
           return;
         }
         setSidebarCollapsed(false);
-        switchTab(state.commentTab);
-        revealComment(plan.comment).catch((error) => console.error(error));
+        strip.show(state.commentTab);
+        panel.showComment(plan.comment.id).catch((error) => console.error(error));
       });
       layer.appendChild(badge);
     }
@@ -3611,7 +3592,7 @@ function applyCompileResult(result) {
 
 function showProblems() {
   setSidebarCollapsed(false);
-  switchTab("compile");
+  strip.show("compile");
 }
 
 function showCompileButton(compiling) {
@@ -4330,31 +4311,6 @@ async function jumpToComment(commentId) {
   }
 }
 
-// A comment shown from elsewhere, a mark on the paper or the editor: its card opens and flashes.
-// A comment the PDF or the editor marks, opened in the list: in the open view of its tab when
-// the view shown leaves it out, as the unanswered view leaves out a comment the agent has not
-// answered yet.
-async function revealComment(comment) {
-  if (!state.comments.some((item) => item.id === comment.id)) {
-    closeCommentSearch();
-    setCommentFilter("open");
-    await refreshComments();
-  }
-  const listed = state.comments.find((item) => item.id === comment.id);
-  if (listed) focusComment(listed);
-}
-
-function focusComment(comment) {
-  state.focusedCommentId = comment.id;
-  state.expanded.add(comment.id);
-  renderComments();
-  const node = document.querySelector(`[data-comment-id="${comment.id}"]`);
-  if (!node) return;
-  node.scrollIntoView({ behavior: "smooth", block: "center" });
-  node.classList.add("cmt-flash");
-  setTimeout(() => node.classList.remove("cmt-flash"), 1600);
-}
-
 function attachKeyboardNavigation() {
   // EmbedPDF handles copy on document. Keep text selected outside the Preview, in the
   // sidebar, a dialog or a notice, out of that handler. A field such as the editor's copies
@@ -4369,7 +4325,7 @@ function attachKeyboardNavigation() {
       event.stopImmediatePropagation();
     }
   }, { capture: true });
-  commentKeys.attach();
+  panel.keys.attach();
 }
 
 // The keys taken into the source at the ringed comment's words, as K in the editor takes them
@@ -5076,7 +5032,7 @@ async function init() {
 
 document.addEventListener("DOMContentLoaded", () => {
   // On a Mac the keys go by the Mac's names, in Help and the notes above the lists too.
-  showMacKeyNames("#help-dialog, .sync-why, #update-alert");
+  showMacKeyNames("#help-dialog, .panel-note, #update-alert");
   init().catch((error) => {
     console.error(error);
     alert(`tex-mcp-web failed to start: ${error.message}`);

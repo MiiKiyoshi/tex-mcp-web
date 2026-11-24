@@ -1,15 +1,17 @@
 // The comment panel of the review pages: each tab's comments in the view and the order chosen,
 // the search above them, the row that changes the picked ones, the line that undoes the last
-// change, the cards with their threads, replies, edits and suggestions, and the dialog that
-// writes a new comment. The panel draws itself into two places the page gives, #tab-comments
-// and #compose-dialog, and the page gives the hooks createCommentPanel describes. Its look is
-// comment-panel.css.
+// change, the cards with their threads, replies, edits and suggestions, the dialog that writes
+// a new comment, and the keys that work the list. The panel draws itself into two places the
+// page gives, #tab-comments and #compose-dialog, and takes the page's hooks DEFAULTS lists. Its
+// look is comment-panel.css.
 //
 // Shared by the review pages. It is written in tex-mcp-web, and scripts/share_page.py copies
 // it to the others. A copy is never edited by hand.
 
 import { $, $$, h, clear, placeholder } from "./dom.js";
 import { meetsSearch, createCommentSearch } from "./comment-search.js";
+import { createCommentKeys } from "./comment-keys.js";
+import { createCommentApi } from "./comment-api.js";
 
 function escaped(text) {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
@@ -20,13 +22,13 @@ function escaped(text) {
 // with the words as title and aria-label. Each button shows the one drawing that fits its
 // state; a count rides beside the drawing where the action has one. A button with nothing to
 // do is greyed out, not taken away: the row keeps one shape. Each <slot> is where the page's
-// own parts go (drawPanel).
-function paneMarkup(labels) {
+// own parts go (drawPanel). With Help, the search's conditions end with a link to its page.
+function paneMarkup(labels, helped) {
   const [sortValue, sortName] = labels.firstSort.map(escaped);
   return `<div class="filter-row">
   <span class="row-group">
-    <!-- The page fills the list with the shown tab's views. In a row short of room even
-         for the shortest view's name it is its icon alone, with the list lying clear over it. -->
+    <!-- The shown tab's views (renderCommentFilter). In a row short of room even for the
+         shortest view's name it is its icon alone, with the list lying clear over it. -->
     <span class="pick view-pick"><span class="icon-btn view-icon" aria-hidden="true">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h12l-4.5 5.5V13l-3-1.5V8.5z"/></svg>
       </span><span id="comment-filter-name" class="pick-name" aria-hidden="true">open</span><select id="comment-filter" aria-label="View">
@@ -92,14 +94,14 @@ function paneMarkup(labels) {
   <button type="button" tabindex="-1" data-insert="OR" title="Match either the word before or the word after">OR</button>
   <button type="button" tabindex="-1" data-insert="after:" title="Show comments written on or after a date, such as 11-13, 2026-11-13 or 11-13T09:30">after:</button>
   <button type="button" tabindex="-1" data-insert="before:" title="Show comments written before a date, such as 11-13, 2026-11-13 or 11-13T09:30">before:</button>
-  <slot name="search"></slot>
+  ${helped ? '<button id="search-help-btn" class="search-help" type="button" tabindex="-1" title="Search help">more…</button>' : ""}
   <div id="search-pick" class="search-pick" role="listbox" aria-label="Suggestions" hidden></div>
 </div>
 <slot name="notes"></slot>
 <!-- Said after comments change status from the page, with Undo, until the next change. -->
-<p id="undo-line" class="sync-why undo-line" role="status" hidden>
+<p id="undo-line" class="panel-note undo-line" role="status" hidden>
   <span id="undo-text"></span>
-  <button id="undo-btn" class="sync-why-go undo-go" type="button">Undo</button>
+  <button id="undo-btn" class="panel-note-go undo-go" type="button">Undo</button>
   <button id="undo-close" class="undo-close" type="button" aria-label="Close" title="Close">
     <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>
   </button>
@@ -137,7 +139,10 @@ function drawPanel(place, markup) {
 // How many of the comments a search finds are drawn.
 const SEARCH_SHOWN = 100;
 
-const STATUS_DONE = { resolved: "Resolved", open: "Reopened", archived: "Archived", hidden: "Hid" };
+const STATUS_DONE = { resolved: "Resolved", open: "Reopened", archived: "Archived" };
+
+// The views a server's list gives as they are; any other view lists some of the open comments.
+const LISTED = ["resolved", "archived", "all"];
 
 // How the row gives way, one step at a time while it would spill over: the sort list shrinks
 // to its icon, the words beside the other icons go, then Resolve's, the sort list waits behind
@@ -147,6 +152,129 @@ const STATUS_DONE = { resolved: "Resolved", open: "Reopened", archived: "Archive
 // names what then waits behind the dots. The page's own steps come in after the step they name.
 const ROW_STEPS = [["sort-shrunk"], ["wordless"], ["resolve-wordless"], ["narrow", "#comment-sort-pick"],
   ["foldless", "#fold-all-btn"], ["squeezed"], ["view-shrunk"], ["wrapped"]];
+
+// The hooks the page gives createCommentPanel, each with what the panel does without it, so a
+// page gives only what it changes. state, prefix and settings are required. A hook is called
+// each time it is needed, so what it answers may change, as the document shown does. A name
+// the panel does not know is refused.
+const DEFAULTS = {
+  // What the panel shares with the page and the keys. It sets `comments`, the comments the list
+  // shows, in its order; `expanded`, those opened; `picked`; `focusedCommentId`, the one the
+  // ring is on; and `commentTab`, the comment tab shown.
+  state: null,
+  // What the browser keeps the order of each tab's list under, before "CommentSort-<tab>".
+  prefix: null,
+  // The page's Settings (createSettings): sendOn, sendKeyName and keyLetters.
+  settings: null,
+  // The route base of the comment calls (createCommentApi): "" for the page's own routes, or
+  // null while nothing is shown to comment on, when the list is empty.
+  base: () => "",
+  // A comment's place as its card names it, from its anchor.
+  label: (anchor) => anchor.kind,
+  // The words a comment is on, which its opened card quotes; "" for none.
+  quote: (comment) => comment.anchor?.quote ?? "",
+  // Whether what a comment is on can no longer be found.
+  stale: (comment) => Boolean(comment.stale),
+  // Where a comment is, for the sort list's first order: an array compared item by item, such
+  // as [page, y, x], or null to keep the order the server lists it in.
+  place: () => null,
+  // Shows where a comment is: a card opened from the list or by Space, the keys staying there.
+  showPlace: () => {},
+  // K: the keys taken to a comment's words, as in the source.
+  enterPlace: () => {},
+  // Given the shown tab's open comments after each reading, to mark where they are.
+  marked: () => {},
+  // c: a comment on the whole document.
+  whole: () => {},
+  // Help, opened on a page or on the one shown last: ? and the search's "more…". Without it
+  // neither is offered.
+  help: null,
+  // A card opened by showComment, the comment shown from its mark, brought into view.
+  bringIntoView: (id, card) => card.scrollIntoView({ block: "nearest" }),
+  // The words the panel says: `document`, what is reviewed, as the keys name it; `reply`, the
+  // reply button's word; `replyBox`, what the reply box says; `firstSort`, [value, name] of
+  // the sort list's first order; and `composeTitle` and `composeBox`, the new comment dialog's
+  // heading and what its box says.
+  labels: { document: "document", reply: "Reply", replyBox: "Reply for the agent…", firstSort: ["page", "page order"],
+            composeTitle: "New comment", composeBox: "Leave feedback for the agent" },
+  // { name: tab } for the tabs that list comments, which share one pane, the first shown first.
+  // Each takes the fields TAB lists.
+  tabs: { comments: {} },
+  // The tab that lists a comment; one named by none goes in the first.
+  tabOf: () => undefined,
+  // Whether an open comment waits for the reviewer's response, given whether the agent wrote last.
+  awaitsReviewer: (comment, agentWroteLast) => agentWroteLast,
+
+  // The page's own parts, in groups. What the page reads beside each list, applied once that
+  // reading is the latest.
+  along: { read: async () => null, apply: () => {} },
+  // Told whether some comment waits for the agent, and that a comment or a reply was posted.
+  agent: { awaited: () => {}, posted: () => {} },
+  // of(comment), the status a comment is listed under; said(status, before, what), what the
+  // Undo line says of `what`, as "2 comments", sent to `status` from the statuses in `before`,
+  // or null for the panel's own words.
+  status: { of: (comment) => comment.status, said: () => null },
+  // What the search reads of a comment beside its own words (meetsSearch): me(), words(comment),
+  // files(comment) and said(comment).
+  search: { me: () => null, words: () => [], files: (comment) => [comment.anchor?.file], said: (comment) => comment.thread },
+  // A card's own parts: note(comment, expanded), under its head; reply(comment, expanded), under
+  // its thread and suggestion; actions(comment, buttons), the buttons an opened card shows,
+  // given the panel's; entryMark(entry), beside an entry; mayChange(entry, comment), whether the
+  // reviewer may change an entry they wrote; deleteQuestion(entry, index, question), what
+  // deleting one asks, given the panel's question. Null for nothing.
+  card: { note: () => null, reply: () => null, actions: (comment, buttons) => buttons, entryMark: () => null,
+          mayChange: () => true, deleteQuestion: (entry, index, question) => question },
+  // The page's buttons in the row: render(picked), drawn for the picked comments, answering
+  // { resolve: false } to hide Resolve; steps, the row's steps that send them behind the dots,
+  // by the step they come after; confirm(button, ids, status), whether a press goes on; and
+  // settles(comment), whether Resolve, Reopen and Archive act on a picked one.
+  row: { render: () => ({}), steps: {}, confirm: () => true, settles: () => true },
+  // The new comment dialog's own parts: opening(fields), to ready them once the panel has set
+  // its own; filled(fields), what they add to the comment; refused(answer, body), what to say
+  // of a refusal, { say, keep }, `keep` to close the dialog and keep what was written for the
+  // next one, or null for the panel's words; posted(comment, body), what the page does once a
+  // comment is posted, before the list is read again; closed().
+  compose: { opening: () => {}, filled: () => ({}), refused: () => null, posted: () => {}, closed: () => {} },
+  // The page's own keys (createCommentKeys): rows(press), and rests(event).
+  keys: { rows: () => [], rests: () => false },
+};
+
+// What a comment tab gives: `views`, [value, name] with the first the one it opens on, a name
+// given as a function when it changes; `noun`, what it calls one of its comments; `count`, the
+// selector of its count of what waits; `hint`, what it says while it has no comment at all;
+// `empty`, what a view of its own says when it lists nothing, by view; `archives: false` when
+// its comments cannot be archived; `list(status, comments, searching)`, what each of its views
+// lists from its comments read; `items()`, what it lists beside its comments, which waits for
+// the reviewer too; `itemCard(item)`, the card of one of those, or null for a comment's own;
+// `group(status, comment)`, the group a comment sorts in, lower first; and `chosen(view)`, told
+// of a view the reader chose.
+const TAB = {
+  views: [["open", "open"], ["unanswered", "unanswered"], ["archived", "archived"], ["resolved", "resolved"], ["all", "all"]],
+  noun: "comment", count: null, hint: "", empty: {}, archives: true, list: null, items: () => [], itemCard: () => null,
+  group: () => 0, chosen: () => {},
+};
+
+// The hooks the page gives over the defaults, a group's over its own. A hook the panel does not
+// know is refused, so a misspelt or retired name does not pass unseen.
+function withDefaults(given) {
+  const known = (names, defaults, where) => {
+    for (const name of names) if (!(name in defaults)) throw new Error(`createCommentPanel: no hook ${where}${name}`);
+  };
+  known(Object.keys(given), DEFAULTS, "");
+  for (const name of ["state", "prefix", "settings"]) {
+    if (given[name] == null) throw new Error(`createCommentPanel: ${name} is required`);
+  }
+  const host = { ...DEFAULTS, ...given };
+  for (const group of ["labels", "along", "agent", "status", "search", "card", "row", "compose", "keys"]) {
+    known(Object.keys(given[group] ?? {}), DEFAULTS[group], `${group}.`);
+    host[group] = { ...DEFAULTS[group], ...given[group] };
+  }
+  host.tabs = Object.fromEntries(Object.entries(host.tabs).map(([name, tab]) => {
+    known(Object.keys(tab), TAB, `tabs.${name}.`);
+    return [name, { ...TAB, ...tab }];
+  }));
+  return host;
+}
 
 function counted(count, noun) {
   return `${count} ${noun}${count === 1 ? "" : "s"}`;
@@ -172,153 +300,105 @@ function lastWritten(comment) {
   return Date.parse(comment.thread.at(-1)?.at ?? comment.at ?? comment.created);
 }
 
-// The status a comment is listed under: "hidden" for an open one the reviewer hid on the page,
-// else its own.
-export function statusOf(comment) {
-  return comment.hidden && comment.status === "open" ? "hidden" : comment.status;
+// Two places, as the `place` hook gives them, compared item by item; 0 when either is null.
+function byPlace(first, second) {
+  if (first === null || second === null) return 0;
+  for (let at = 0; at < Math.min(first.length, second.length); at += 1) {
+    if (first[at] !== second[at]) return first[at] < second[at] ? -1 : 1;
+  }
+  return first.length - second.length;
 }
 
-// The panel, kept on the page's `state`, which it adds its own fields to, and drawn at once into
-// the page's #tab-comments and #compose-dialog, with the page's own parts that wait in them
-// (drawPanel): its buttons for the picked comments, data-slot="picked", which follow Archive;
-// what goes before the bell, "fetch"; what follows the search's conditions, "search"; its
-// lines over the Undo line, "notes"; and its boxes over the comment's own, "compose". The page
-// gives:
-//
-//   prefix       what the browser keeps the order of each tab's list under, before "CommentSort-"
-//   api          the server's comment calls: list(status) with "open", "resolved", "archived"
-//                or "all"; create(body); setStatus(ids, status, resolved), `resolved` giving
-//                comments resolved again the moments they were resolved at, by id; and
-//                mutate(id, action, body) for "reply", "edit", "delete-entry",
-//                "apply-suggestion", "reject-suggestion" and "delete". Each answers
-//                { ok: true, data } or { ok: false, error, reason, conflict }: the refusal in
-//                words, the kind of reason the server names, and whether something changed since.
-//   tabs         { name: tab } for the tabs that list comments, which share one pane, the first
-//                shown first. A tab has `views`, [value, name] with the first the one it opens
-//                on, a name given as a function when it changes; `noun`, what it calls one of
-//                its comments; `count`, the selector of its count of what waits; and `hint`,
-//                what it says while it has no comment at all. A tab may have `empty`, what a
-//                view of its own says when it lists nothing, by view; `archives: false` when its
-//                comments cannot be archived; `list(status, comments, searching)`, what each of
-//                its views lists from its comments read; `items()`, what it lists beside its
-//                comments, which waits for the reviewer too; and `group(status, comment)`, the
-//                group a comment sorts in, lower first.
-//   labels       `reply`, the reply button's word; `replyBox`, what the reply box says;
-//                `firstSort`, [value, name] of the sort list's first order, which keeps the
-//                order the tab lists its comments in; and `composeTitle` and `composeBox`, the
-//                new comment dialog's heading and what its box says
-//   sendOn, sendKeyName   the key that sends what is written, as Settings chooses it
-//   keys         the comment keys: hint(button), the key that presses a card's button, or works
-//                "comment-search" or "comment-sort", for its title; rangeIds(), the comments a
-//                held range covers; mark(), to mark the ringed card's buttons with their keys;
-//                placeRing(), to scroll the ringed card into place
-//   tabOf(comment)              the tab that lists a comment
-//   readAlong(), applyAlong(read)   what the page reads beside each list, applied once that
-//                               reading is the latest
-//   showTabs()                  shows the page's tabs as each reading leaves them
-//   agentAwaited(awaited), posted()   whether some comment waits for the agent, and that a
-//                               comment or a reply was posted
-//   me(), searchWords(comment)  the reviewer's own name on entries that carry their writer's
-//                               name, and the words a comment holds beside its own for a search
-//   unanswered(comment, byAgent)   whether an open comment waits for the reviewer, given
-//                               whether the agent wrote last
-//   settles(comment)            whether the row's Resolve, Reopen and Archive act on a picked one
-//   anchorLabel(anchor), showPlace(id), markPlaces()   a comment's place: named on its card,
-//                               shown, and the shown tab's open comments marked where they are
-//   stale(comment)              whether what a comment is on can no longer be found
-//   suggestedCard(item)         the card of a suggested edit the list holds
-//   cardNote(comment, expanded), cardReply(comment, expanded)   what the page adds under a
-//                               card's head, and under its thread and suggestion; null for nothing
-//   cardActions(comment, buttons)   the buttons an opened card shows, given the ones it would
-//   entryMark(entry), mayChange(entry, comment), deleteQuestion(entry, index, question)
-//                               a mark beside an entry, whether the reviewer may change an entry
-//                               they wrote, and what deleting one asks, given the question
-//   renderRow(picked), restoreRow(), rowSteps   the page's own buttons in the row: drawn for
-//                               the picked comments, put back in their places before the row is
-//                               fitted, and the steps that send them behind the dots, by the
-//                               step they come after
-//   confirmRow(button, ids, status)   whether a press of a row button goes on
-//   viewChosen(view)            told of a view the reader chose
-//   compose      the dialog's own parts: opening(fields), to ready them; filled(fields), what
-//                they add to the comment; refused(answer, body), true when the page said why
-//                itself; posted(comment, body), what follows a comment posted; closed()
-export function createCommentPanel(host) {
-  const { state, api, tabs, keys, compose, labels } = host;
+// The panel, drawn at once into the page's #tab-comments and #compose-dialog, with the page's
+// own parts that wait in them (drawPanel): its buttons for the picked comments,
+// data-slot="picked", which follow Archive; what goes before the bell, "fetch"; its lines over
+// the Undo line, "notes"; and its boxes over the comment's own, "compose". `given` is the
+// page's hooks, over DEFAULTS.
+export function createCommentPanel(given) {
+  const host = withDefaults(given);
+  const { state } = host;
   Object.assign(state, {
-    // The comments the list shows, in its order, those opened, those picked, and the one the
-    // ring is on.
     comments: [],
     expanded: new Set(),
     picked: new Set(),
-    // The box a pick last started from, so shift can run from it to the next one.
-    pickedFrom: null,
     focusedCommentId: null,
-    // The reply box open on a card, and the entry being edited, each with what is typed in it.
-    activeForm: null,
-    editingEntry: null,
-    // Which comment tab is shown. The list, and the page's marks, show that tab's comments.
-    commentTab: Object.keys(tabs)[0],
-    // What is typed in the comment search, which lists the tab's comments that meet it, and how
-    // many it found beyond those drawn.
-    commentSearch: "",
-    searchMore: 0,
-    // The order each comment tab's list is in, as its sort list was last set: the list's first
-    // order, latest or oldest.
-    commentSorts: {},
-    // How many things wait for the reviewer's response in each comment tab, as the unanswered
-    // view lists them, with what a tab lists beside its comments.
-    unansweredCounts: {},
-    // The open comments of the tab shown that are not hidden, whatever its view lists: the page
-    // marks these where they are.
-    markedComments: [],
-    // The comment tab and status the list shows, so a list drawn again knows it is the same view.
-    commentsView: null,
-    // How many times the list was asked for, so only the latest answer is drawn, and the
-    // reading under way.
-    commentsAsked: 0,
-    commentsReading: null,
-    // The shown comment tab has no comment at all, in any view.
-    tabEmpty: false,
-    // The last change of status made on the page, which the line above the list offers to undo:
-    // what the line says, the status each comment it changed had before and when one resolved
-    // was resolved, why some could not be put back, and how many no longer exist. Null when
-    // there is nothing to undo.
-    undo: null,
-    // The view the list showed before a search, which it shows again once the search is cleared.
-    viewBeforeSearch: "open",
-    // Why applying a thread's suggestion was refused, with the suggestion it was refused for.
-    unfitSuggestions: new Map(),
-    // What a new comment is on, and what the page posts with it.
-    pendingAnchor: null,
-    composeFields: {},
-    // What was written in a new comment the server turned away for now, for the next comment
-    // box opened.
-    keptComment: "",
-    composeSubmitting: false,
+    commentTab: Object.keys(host.tabs)[0],
   });
-  drawPanel($("#tab-comments"), paneMarkup(labels));
-  drawPanel($("#compose-dialog"), composeMarkup(labels));
+  // What the panel keeps to itself. The box a pick last started from, so shift can run from it
+  // to the next one.
+  let pickedFrom = null;
+  // The reply box open on a card, and the entry being edited, each with what is typed in it.
+  let activeForm = null;
+  let editingEntry = null;
+  // How many comments a search found beyond those drawn.
+  let searchMore = 0;
+  // The order each comment tab's list is in, as its sort list was last set: the list's first
+  // order, latest or oldest.
+  const commentSorts = {};
+  // How many things wait for the reviewer's response in each comment tab, as the unanswered
+  // view lists them, with what a tab lists beside its comments.
+  let unansweredCounts = {};
+  // The comment tab and status the list shows, so a list drawn again knows it is the same view.
+  let commentsView = null;
+  // How many times the list was asked for, so only the latest answer is drawn, and the
+  // reading under way.
+  let commentsAsked = 0;
+  let commentsReading = null;
+  // The shown comment tab has no comment at all, in any view.
+  let tabEmpty = false;
+  // The last change of status made on the page, which the line above the list offers to undo:
+  // what the line says, the status each comment it changed had before and when one resolved
+  // was resolved, why some could not be put back, and how many no longer exist. Null when
+  // there is nothing to undo.
+  let undo = null;
+  // The view the list showed before a search, which it shows again once the search is cleared.
+  let viewBeforeSearch = "open";
+  // Why applying a thread's suggestion was refused, with the suggestion it was refused for.
+  const unfitSuggestions = new Map();
+  // What a new comment is on, what the page posts with it, whether it is being posted, and what
+  // was written in one the server turned away for now, for the next comment box opened.
+  let pendingAnchor = null;
+  let composeFields = {};
+  let composeSubmitting = false;
+  let keptComment = "";
   // Counted up each time the panel lets go of what it held for one document (reset), so a
   // change still on its way for that one stops when it comes back.
   let resets = 0;
-  const steps = ROW_STEPS.flatMap((step) => [step, ...(host.rowSteps[step[0]] ?? [])]);
-  const FORM_CONFIG = {
-    reply: { placeholder: labels.replyBox, key: "text", label: "Post reply" },
-  };
-  const { searchQuery, openCommentSearch, closeCommentSearch, attachCommentSearch } = createCommentSearch({
+  // The page's elements the row sent behind the dots, each with where it stood, in the order
+  // they went, so the row puts them back before it is fitted again.
+  let moved = [];
+
+  drawPanel($("#tab-comments"), paneMarkup(host.labels, host.help !== null));
+  drawPanel($("#compose-dialog"), composeMarkup(host.labels));
+  const api = createCommentApi(() => host.base());
+  const keys = createCommentKeys({
     state,
+    labels: { document: host.labels.document, firstSort: host.labels.firstSort[1] },
+    panel: () => panel,
+    rows: (press) => host.keys.rows(press),
+    showPlace: (id) => host.showPlace(id),
+    enterPlace: (comment) => host.enterPlace(comment),
+    whole: () => host.whole(),
+    help: () => host.help?.(),
+    lettersShown: () => host.settings.keyLetters(),
+    rests: (event) => host.keys.rests(event),
+  });
+  const { searchQuery, openCommentSearch, closeCommentSearch, attachCommentSearch } = createCommentSearch({
     refresh: () => refreshComments(),
-    tabComments: async () => (await readAll()).filter((comment) => host.tabOf(comment) === state.commentTab),
-    me: host.me,
+    tabComments: async () => (await readAll()).filter((comment) => tabOf(comment) === state.commentTab),
+    page: host.search,
   });
 
   function tab() {
-    return tabs[state.commentTab];
+    return host.tabs[state.commentTab];
   }
 
-  // What the shown tab calls one of its entries.
-  function tabNoun() {
-    return tab().noun;
+  function tabOf(comment) {
+    return host.tabOf(comment) ?? Object.keys(host.tabs)[0];
+  }
+
+  function statusOf(comment) {
+    return host.status.of(comment);
   }
 
   // Every comment, whatever its status.
@@ -332,105 +412,117 @@ export function createCommentPanel(host) {
   // whoever waits for it finds the list as the latest reading left it.
   function refreshComments() {
     const reading = readComments();
-    state.commentsReading = reading;
+    commentsReading = reading;
     return reading;
   }
 
+  // One reading of the list: the comments read for the view, with what the page reads beside
+  // them, counted, listed for the shown tab in its order, and drawn. A list asked for again
+  // while one is on its way, as when the view changes, is the one that stands: an answer that
+  // comes back after a later one is dropped.
   async function readComments() {
-    // A list asked for again while one is on its way, as when the view changes, is the one that
-    // stands: an answer that comes back after a later one is dropped.
-    const asked = ++state.commentsAsked;
+    const asked = ++commentsAsked;
     // A search looks through every comment of the tab, and the list atop says so.
     const query = searchQuery();
-    showSearchView(query.length > 0);
-    const status = query.length > 0 ? "all" : $("#comment-filter").value;
-    // A view of its own, as the unanswered one, lists some of the open comments.
-    const [answer, along] = await Promise.all([
-      api.list(["resolved", "archived", "all"].includes(status) ? status : "open"), host.readAlong()]);
+    const searching = query.length > 0;
+    showSearchView(searching);
+    const status = searching ? "all" : $("#comment-filter").value;
+    const [answer, along] = await Promise.all([api.list(LISTED.includes(status) ? status : "open"), host.along.read()]);
     if (!answer.ok) throw new Error(answer.error);
-    if (asked !== state.commentsAsked) return state.commentsReading;
-    host.applyAlong(along);
+    if (asked !== commentsAsked) return commentsReading;
+    host.along.apply(along);
+    // What the page read may have shown another tab, which reads its own list.
+    if (asked !== commentsAsked) return commentsReading;
     const read = answer.data.comments;
-    // The other tabs' comments are left out here, once, so the list and the page's marks agree
-    // without each asking. Each tab counts what is unanswered in it.
-    const inTab = (name) => read.filter((comment) => host.tabOf(comment) === name);
-    // A view of closed comments holds no open one, and leaves the counts of what waits as they were.
-    if (!["resolved", "archived"].includes(status)) {
-      state.unansweredCounts = Object.fromEntries(Object.entries(tabs).map(([name, each]) =>
-        [name, inTab(name).filter(unanswered).length + (each.items?.().length ?? 0)]));
-      host.agentAwaited(read.some((comment) => comment.awaits_agent));
-    }
-    state.markedComments = inTab(state.commentTab).filter((comment) => statusOf(comment) === "open");
+    countWaiting(read, status);
+    const marked = read.filter((comment) => tabOf(comment) === state.commentTab && statusOf(comment) === "open");
     renderCommentTabs();
-    const shown = tab();
-    const listed = inTab(state.commentTab);
-    let comments = shown.list ? shown.list(status, listed, query.length > 0)
-      : status === "unanswered" ? listed.filter(unanswered) : listed;
-    if (query.length > 0) {
-      comments = comments.filter((comment) => meetsSearch(comment, query, host.me(), host.searchWords(comment)));
-    }
-    // In the sort list's first order, the open and unanswered views, and the views a tab adds,
-    // keep the order the tab lists them in, the server's, each group in turn. The resolved
-    // view leads with the comment closed last, the one the reader has just closed and looks
-    // for. The mixed view leads with the one written last, by when it was written and not by
-    // when it was last touched: closing a comment touches it, so by that measure every closed
-    // comment stood above every open one.
-    // The archive view leads with the thread touched last: what was kept to be read
-    // again is read again when something is added to it. A search keeps the server's order, as
-    // the open view does.
-    // Latest first and oldest first order every view, and a search, by when each thread was
-    // last written in, which j, k, v and Shift+click then follow as they follow the list, each
-    // group in the order chosen.
-    const moment = status === "resolved"
-      ? (comment) => comment.resolved ?? comment.created
-      : status === "archived" ? (comment) => comment.updated
-      : (comment) => comment.created;
     const before = state.comments;
-    const sort = commentSort();
-    const group = (comment) => shown.group?.(status, comment) ?? 0;
-    state.comments = sort === "latest" || sort === "oldest"
-      ? [...comments].sort((first, second) => group(first) - group(second)
-        || ((lastWritten(first) - lastWritten(second)) || 0) * (sort === "latest" ? -1 : 1))
-      : query.length === 0 && ["resolved", "archived", "all"].includes(status)
-        ? [...comments].sort((first, second) => (moment(first) < moment(second) ? 1
-          : moment(first) > moment(second) ? -1 : 0))
-      : [...comments].sort((first, second) => group(first) - group(second));
+    state.comments = ordered(listed(read, status, query), status, searching);
     // A search most comments meet finds hundreds, which take a second to draw at every key: the
     // first ones show, with how many more there are.
-    state.searchMore = 0;
-    if (query.length > 0 && state.comments.length > SEARCH_SHOWN) {
-      state.searchMore = state.comments.length - SEARCH_SHOWN;
-      state.comments = state.comments.slice(0, SEARCH_SHOWN);
-    }
-    // A focused comment that leaves the view, as one resolved in the open view or one whose
-    // reply is sent in the unanswered view does, hands the focus to the comment now in its place, ringed
-    // where the keys keep the ring, so the keys go on from there as after j.
-    const view = `${state.commentTab} ${status}`;
-    const at = before.findIndex((comment) => comment.id === state.focusedCommentId);
-    const handed = view === state.commentsView && at !== -1 && state.comments.length > 0
-        && !state.comments.some((comment) => comment.id === state.focusedCommentId);
-    if (handed) state.focusedCommentId = state.comments[Math.min(at, state.comments.length - 1)].id;
-    state.commentsView = view;
+    searchMore = searching ? Math.max(0, state.comments.length - SEARCH_SHOWN) : 0;
+    if (searchMore > 0) state.comments = state.comments.slice(0, SEARCH_SHOWN);
+    const handed = handFocus(before, `${state.commentTab} ${status}`);
     // A tab with no comment at all, in any view, says how to make one.
     let every = status === "all" ? read : null;
-    if (state.comments.length === 0 && query.length === 0 && every === null) {
+    if (state.comments.length === 0 && !searching && every === null) {
       const all = await api.list("all");
-      if (asked !== state.commentsAsked) return state.commentsReading;
+      if (asked !== commentsAsked) return commentsReading;
       every = all.ok ? all.data.comments : [];
     }
-    state.tabEmpty = state.comments.length === 0 && query.length === 0
-      && !every.some((comment) => host.tabOf(comment) === state.commentTab) && !(shown.items?.().length > 0);
+    tabEmpty = state.comments.length === 0 && !searching
+      && !every.some((comment) => tabOf(comment) === state.commentTab) && !(tab().items().length > 0);
     renderComments();
     if (handed) keys.placeRing();
-    host.markPlaces();
+    host.marked(marked);
+  }
+
+  // Each tab counts what is unanswered in it, with what it lists beside its comments. A view of
+  // closed comments holds no open one, and leaves the counts of what waits as they were.
+  function countWaiting(read, status) {
+    if (["resolved", "archived"].includes(status)) return;
+    unansweredCounts = Object.fromEntries(Object.entries(host.tabs).map(([name, each]) =>
+      [name, read.filter((comment) => tabOf(comment) === name && unanswered(comment)).length + each.items().length]));
+    host.agent.awaited(read.some((comment) => comment.awaits_agent));
+  }
+
+  // What the view lists of the shown tab's comments read: what the tab's own views list, the
+  // unanswered ones in that view, and in a search those that meet it.
+  function listed(read, status, query) {
+    const own = read.filter((comment) => tabOf(comment) === state.commentTab);
+    const comments = tab().list ? tab().list(status, own, query.length > 0)
+      : status === "unanswered" ? own.filter(unanswered) : own;
+    return query.length === 0 ? comments : comments.filter((comment) => meetsSearch(comment, query, host.search));
+  }
+
+  // The order the list shows its comments in. In the sort list's first order, the open and
+  // unanswered views, the views a tab adds and a search keep the order the tab lists them in,
+  // each group in turn: by their places where the page gives them, else the server's. The
+  // resolved view leads with the comment closed last, the one the reader has just closed and
+  // looks for. The mixed view leads with the one written last, by when it was written and not
+  // by when it was last touched: closing a comment touches it, so by that measure every closed
+  // comment stood above every open one. The archive view leads with the thread touched last:
+  // what was kept to be read again is read again when something is added to it. Latest first
+  // and oldest first order every view, and a search, by when each thread was last written in,
+  // which j, k, v and Shift+click then follow as they follow the list, each group in the order
+  // chosen.
+  function ordered(comments, status, searching) {
+    const sort = commentSort();
+    const group = (comment) => tab().group(status, comment);
+    if (sort === "latest" || sort === "oldest") {
+      return [...comments].sort((first, second) => group(first) - group(second)
+        || ((lastWritten(first) - lastWritten(second)) || 0) * (sort === "latest" ? -1 : 1));
+    }
+    if (!searching && ["resolved", "archived", "all"].includes(status)) {
+      const moment = status === "resolved" ? (comment) => comment.resolved ?? comment.created
+        : status === "archived" ? (comment) => comment.updated
+        : (comment) => comment.created;
+      return [...comments].sort((first, second) => (moment(first) < moment(second) ? 1
+        : moment(first) > moment(second) ? -1 : 0));
+    }
+    return [...comments].sort((first, second) => group(first) - group(second)
+      || byPlace(host.place(first), host.place(second)));
+  }
+
+  // A focused comment that leaves the view, as one resolved in the open view or one whose reply
+  // is sent in the unanswered view does, hands the focus to the comment now in its place, ringed
+  // where the keys keep the ring, so the keys go on from there as after j. Whether it did.
+  function handFocus(before, view) {
+    const at = before.findIndex((comment) => comment.id === state.focusedCommentId);
+    const handed = view === commentsView && at !== -1 && state.comments.length > 0
+        && !state.comments.some((comment) => comment.id === state.focusedCommentId);
+    if (handed) state.focusedCommentId = state.comments[Math.min(at, state.comments.length - 1)].id;
+    commentsView = view;
+    return handed;
   }
 
   // Each tab's number is how many of its comments are unanswered, with what it lists beside them.
   function renderCommentTabs() {
-    host.showTabs();
-    for (const [name, each] of Object.entries(tabs)) {
+    for (const [name, each] of Object.entries(host.tabs)) {
+      if (each.count === null) continue;
       const badge = $(each.count);
-      const count = state.unansweredCounts[name] ?? 0;
+      const count = unansweredCounts[name] ?? 0;
       badge.textContent = String(count);
       badge.classList.toggle("hidden", count === 0);
     }
@@ -438,10 +530,10 @@ export function createCommentPanel(host) {
   }
 
   // Whether the last message of an open thread is not the reviewer's: the agent wrote the last
-  // entry, or as the page judges a thread of its own. A comment the agent has not answered yet
-  // is only open, and a hidden one is not unanswered.
+  // entry, or as the page judges a thread of its own (awaitsReviewer). A comment the agent has
+  // not answered yet is only open, and one listed under another status is not unanswered.
   function unanswered(comment) {
-    return statusOf(comment) === "open" && host.unanswered(comment, comment.thread.at(-1)?.author === "agent");
+    return statusOf(comment) === "open" && host.awaitsReviewer(comment, comment.thread.at(-1)?.author === "agent");
   }
 
   // A view's name, which may change as what it lists does.
@@ -457,7 +549,7 @@ export function createCommentPanel(host) {
     if ([...filter.options].map((option) => option.value).join(" ") !== views.map(([value]) => value).join(" ")) {
       const chosen = filter.value;
       filter.replaceChildren(...views.map(([value, name]) => h("option", { value, text: viewName(name) })));
-      setCommentFilter(views.some(([value]) => value === chosen) ? chosen : views[0][0]);
+      setView(views.some(([value]) => value === chosen) ? chosen : views[0][0]);
     }
     // A view whose name changes, as one that says how many it lists, is named afresh.
     for (const [value, name] of views) {
@@ -466,7 +558,7 @@ export function createCommentPanel(host) {
       if (filter.value === value) showViewName();
     }
     showCommentSort();
-    $("#archive-picked-btn").hidden = tab().archives === false;
+    $("#archive-picked-btn").hidden = !tab().archives;
   }
 
   function renderComments() {
@@ -487,14 +579,14 @@ export function createCommentPanel(host) {
     if (state.comments.length === 0) {
       const view = $("#comment-filter").value;
       list.appendChild(placeholder(searchQuery().length > 0 ? "No comments match your search."
-        : tab().empty?.[view] ?? "No comments in this view."));
-      if (state.tabEmpty) list.appendChild(placeholder(tab().hint));
+        : tab().empty[view] ?? "No comments in this view."));
+      if (tabEmpty) list.appendChild(placeholder(tab().hint));
     } else {
       for (const comment of state.comments) {
-        list.appendChild(comment.suggested ? host.suggestedCard(comment) : renderCommentItem(comment));
+        list.appendChild(tab().itemCard(comment) ?? renderCommentItem(comment));
       }
-      if (state.searchMore > 0) {
-        list.appendChild(placeholder(`${state.searchMore} more match. Add words to narrow the search.`));
+      if (searchMore > 0) {
+        list.appendChild(placeholder(`${searchMore} more match. Add words to narrow the search.`));
       }
     }
     list.scrollTop = scrollTop;
@@ -522,11 +614,12 @@ export function createCommentPanel(host) {
   // open ones close, unarchived ones archive, and closed ones reopen. The counts say
   // exactly what each press will touch.
   function renderPickedActions() {
-    const picked = state.comments.filter((comment) => state.picked.has(comment.id) && host.settles(comment));
+    const picked = state.comments.filter((comment) => state.picked.has(comment.id) && host.row.settles(comment));
     const open = picked.filter((comment) => comment.status === "open").map((comment) => comment.id);
-    const archivable = tab().archives === false ? []
+    const archivable = !tab().archives ? []
       : picked.filter((comment) => comment.status !== "archived").map((comment) => comment.id);
     const closed = picked.filter((comment) => comment.status !== "open").map((comment) => comment.id);
+    const noun = tab().noun;
     // The box is checked when every comment listed is picked, and half checked when some are.
     const shown = state.comments.length;
     const pickedShown = state.comments.filter((comment) => state.picked.has(comment.id)).length;
@@ -536,7 +629,7 @@ export function createCommentPanel(host) {
     all.checked = clearing;
     all.indeterminate = pickedShown > 0 && !clearing;
     all.setAttribute("aria-label", clearing ? "Clear selection" : "Select all");
-    all.title = clearing ? "Clear selection" : `Select all ${tabNoun()}s in this view`;
+    all.title = clearing ? "Clear selection" : `Select all ${noun}s in this view`;
     // A button with nothing to do stays in place, greyed out: buttons that came and went
     // moved everything beside them. The count shows only when there is one.
     // One button resolves or reopens, as R does: it resolves the open ones while any picked
@@ -553,7 +646,7 @@ export function createCommentPanel(host) {
     resolve.querySelector(".wide-label").textContent = word;
     resolve.querySelector(".count").textContent = settled.length > 0 ? String(settled.length) : "";
     resolve.setAttribute("aria-label", settled.length > 0 ? `${word} ${settled.length}` : word);
-    resolve.title = `${word} the selected ${tabNoun()}s`;
+    resolve.title = `${word} the selected ${noun}s`;
     resolve.dataset.status = reopening ? "open" : "resolved";
     resolve.dataset.ids = settled.join(" ");
     const archive = $("#archive-picked-btn");
@@ -561,22 +654,31 @@ export function createCommentPanel(host) {
     archive.querySelector(".count").textContent = archivable.length > 0 ? String(archivable.length) : "";
     archive.setAttribute("aria-label", archivable.length > 0 ? `Archive ${archivable.length}` : "Archive");
     archive.dataset.ids = archivable.join(" ");
-    host.renderRow(picked);
+    resolve.hidden = host.row.render(picked)?.resolve === false;
     fitCommentRow();
   }
 
+  // The row fitted to its width (ROW_STEPS). What it sent behind the dots before goes back
+  // first, the last sent first, so each finds the place it left; one already there stays put,
+  // keeping the focus.
   function fitCommentRow() {
     const row = $(".filter-row");
-    // Each button back in its place in the row. One already there stays put, keeping the focus.
-    const [sort, fold] = [$("#comment-sort-pick"), $("#fold-all-btn")];
-    host.restoreRow();
-    if (fold.nextElementSibling !== $("#comment-rare")) $("#comment-rare").before(fold);
-    if (sort.nextElementSibling !== fold) fold.before(sort);
+    for (const { element, parent, next } of moved.reverse()) {
+      if (element.parentNode !== parent || element.nextSibling !== next) {
+        parent.insertBefore(element, next?.parentNode === parent ? next : null);
+      }
+    }
+    moved = [];
+    const steps = ROW_STEPS.flatMap((step) => [step, ...(host.row.steps[step[0]] ?? [])]);
     row.classList.remove(...steps.map(([step]) => step));
     for (const [step, behind] of steps) {
       if (row.scrollWidth <= row.clientWidth) break;
       row.classList.add(step);
-      if (behind) $(".comment-rare-group").append(...document.querySelectorAll(behind));
+      if (!behind) continue;
+      for (const element of document.querySelectorAll(behind)) {
+        moved.push({ element, parent: element.parentNode, next: element.nextSibling });
+        $(".comment-rare-group").append(element);
+      }
     }
     if (!row.classList.contains("narrow")) closeCommentRare();
   }
@@ -596,7 +698,7 @@ export function createCommentPanel(host) {
     button.querySelector(".icon-expand").classList.toggle("hidden", folding);
     button.querySelector(".icon-collapse").classList.toggle("hidden", !folding);
     button.setAttribute("aria-label", folding ? "Collapse all" : "Expand all");
-    button.title = `${folding ? "Collapse" : "Expand"} all ${tabNoun()}s in this view`;
+    button.title = `${folding ? "Collapse" : "Expand"} all ${tab().noun}s in this view`;
   }
 
   function foldAll() {
@@ -645,18 +747,16 @@ export function createCommentPanel(host) {
     const before = new Map(changing.map((comment) => [comment.id, statusOf(comment)]));
     const resolved = Object.fromEntries(changing.filter((comment) => comment.status === "resolved" && comment.resolved)
       .map((comment) => [comment.id, comment.resolved]));
-    const noun = tabNoun();
+    const noun = tab().noun;
     const from = resets;
     try {
       const { took, why } = await postStatus(ids, status);
       if (from !== resets) return;
       const changed = took.filter((id) => before.has(id));
       if (changed.length > 0) {
-        // Hidden threads opened are shown again, not reopened.
-        const said = status === "open" && changed.every((id) => before.get(id) === "hidden")
-          ? `Showed ${counted(changed.length, noun)} again.` : `${STATUS_DONE[status]} ${counted(changed.length, noun)}.`;
-        state.undo = { said, noun, why: "", gone: 0,
-                       before: new Map(changed.map((id) => [id, before.get(id)])), resolved };
+        const what = counted(changed.length, noun);
+        const said = host.status.said(status, changed.map((id) => before.get(id)), what) ?? `${STATUS_DONE[status]} ${what}.`;
+        undo = { said, noun, why: "", gone: 0, before: new Map(changed.map((id) => [id, before.get(id)])), resolved };
       }
       if (!why) for (const id of ids) state.picked.delete(id);
       renderUndo();
@@ -673,11 +773,11 @@ export function createCommentPanel(host) {
   // back, and the line says how many. Those the server refuses stay on the line, which says how
   // many and why, and Undo tries them again.
   async function undoStatus() {
-    const undo = state.undo;
-    if (undo === null || undo.before.size === 0) return;
-    state.undo = null;
+    const last = undo;
+    if (last === null || last.before.size === 0) return;
+    undo = null;
     renderUndo();
-    const left = new Map(undo.before);
+    const left = new Map(last.before);
     let why = "";
     let gone = 0;
     const from = resets;
@@ -696,7 +796,7 @@ export function createCommentPanel(host) {
       if (from !== resets) return;
       const ids = [...left.keys()].filter((id) => left.get(id) === status);
       const resolved = status === "resolved"
-        ? Object.fromEntries(ids.filter((id) => undo.resolved[id]).map((id) => [id, undo.resolved[id]])) : {};
+        ? Object.fromEntries(ids.filter((id) => last.resolved[id]).map((id) => [id, last.resolved[id]])) : {};
       try {
         const answer = await postStatus(ids, status, resolved);
         for (const id of answer.took) left.delete(id);
@@ -707,7 +807,7 @@ export function createCommentPanel(host) {
     }
     if (from !== resets) return;
     // A change made meanwhile has the line.
-    if ((left.size > 0 || gone > 0) && state.undo === null) state.undo = { ...undo, before: left, why, gone };
+    if ((left.size > 0 || gone > 0) && undo === null) undo = { ...last, before: left, why, gone };
     renderUndo();
     await refreshComments();
   }
@@ -716,7 +816,6 @@ export function createCommentPanel(host) {
   // put back and why, with Undo and a close button. It stays through views and tabs until the next
   // change replaces it, and Undo, the close button or a reload takes it away.
   function renderUndo() {
-    const undo = state.undo;
     $("#undo-line").hidden = undo === null;
     if (undo === null) return;
     const gone = undo.gone ? `${counted(undo.gone, undo.noun)} could not be restored because `
@@ -730,7 +829,7 @@ export function createCommentPanel(host) {
 
   // The box that picks a card, in its head, which opens the card: picking is not opening.
   function pickBox(comment) {
-    const noun = tabNoun();
+    const noun = tab().noun;
     const box = h("input", { class: "comment-pick", type: "checkbox",
       title: `Select this ${noun}. Shift+click selects or clears every ${noun} from the last one you clicked.` });
     box.checked = state.picked.has(comment.id);
@@ -739,7 +838,7 @@ export function createCommentPanel(host) {
     box.addEventListener("click", (event) => {
       event.stopPropagation();
       const shown = state.comments.map((item) => item.id);
-      const from = shown.indexOf(state.pickedFrom);
+      const from = shown.indexOf(pickedFrom);
       const to = shown.indexOf(comment.id);
       // Shift runs from the box the last pick started at to this one, both ends included,
       // and gives the whole run the value this box just took.
@@ -750,11 +849,16 @@ export function createCommentPanel(host) {
         if (box.checked) state.picked.add(id);
         else state.picked.delete(id);
       }
-      state.pickedFrom = comment.id;
+      pickedFrom = comment.id;
       renderComments();
-      renderPickedActions();
     });
     return box;
+  }
+
+  // The words a comment is on, quoted on its card once opened, cut to a few lines.
+  function renderQuote(comment) {
+    const quote = host.quote(comment);
+    return quote ? h("div", { class: "anchor-quote", text: quote.length > 180 ? `${quote.slice(0, 177)}…` : quote }) : null;
   }
 
   function renderCommentItem(comment) {
@@ -788,9 +892,9 @@ export function createCommentPanel(host) {
     !stale && comment.reanchored
       ? h("span", { class: "reanchored", text: "EDITED", title: "The commented text was edited; the highlight follows the edited text" })
       : null,
-    h("span", { class: "cmt-anchor", text: host.anchorLabel(comment.anchor) }));
+    h("span", { class: "cmt-anchor", text: host.label(comment.anchor) }));
 
-    const children = [head, host.cardNote(comment, expanded)];
+    const children = [head, expanded ? renderQuote(comment) : null, host.card.note(comment, expanded)];
     if (!expanded && comment.thread.length > 0) {
       // A thread whose first entry carries its writer's name names who opened it, since it may
       // be anyone.
@@ -818,11 +922,10 @@ export function createCommentPanel(host) {
     // The proposal sits under the conversation, where the card ends. A thread carries one,
     // so this is never a list. So does a reply box the page adds.
     if (comment.suggestion) children.push(renderSuggestion(comment));
-    children.push(host.cardReply(comment, expanded));
+    children.push(host.card.reply(comment, expanded));
     if (expanded) {
       children.push(h("div", { class: "cmt-actions" }, ...actionButtons(comment)));
-      const form = renderActiveForm(comment);
-      if (form) children.push(form);
+      children.push(renderReplyForm(comment));
     }
     const focused = state.focusedCommentId === comment.id;
     const ranged = keys.rangeIds().includes(comment.id);
@@ -842,34 +945,23 @@ export function createCommentPanel(host) {
       // which the agent hears once. Why is said in a reply.
       rejectButton = actionButton("sugg-reject", "Reject", async () => {
         rejectButton.disabled = true;
-        if (await doMutation(comment.id, "reject-suggestion", { updated: comment.updated })) {
-          await refreshComments();
-          return;
-        }
-        rejectButton.disabled = false;
+        if (!await mutate(comment.id, "reject-suggestion", { updated: comment.updated })) rejectButton.disabled = false;
       });
       applyButton = actionButton("sugg-apply", "Apply suggestion", async () => {
         applyButton.disabled = true;
         applyButton.textContent = "Applying…";
         // One the file no longer fits says so on the card, under the proposal.
         const refused = (why) => {
-          state.unfitSuggestions.set(comment.id, { suggestion: JSON.stringify(comment.suggestion), why });
+          unfitSuggestions.set(comment.id, { suggestion: JSON.stringify(comment.suggestion), why });
           renderComments();
         };
-        if (await doMutation(comment.id, "apply-suggestion", { updated: comment.updated }, refused)) {
-          try {
-            await refreshComments();
-          } catch (error) {
-            alert(`Applied, but comments could not be refreshed: ${error.message}`);
-          }
-          return;
-        }
+        if (await mutate(comment.id, "apply-suggestion", { updated: comment.updated }, { refused })) return;
         applyButton.disabled = false;
         applyButton.textContent = "Apply suggestion";
       });
     }
     // A refusal stays with the suggestion it was for: a new one from the agent is tried afresh.
-    const unfit = state.unfitSuggestions.get(comment.id);
+    const unfit = unfitSuggestions.get(comment.id);
     // One pair per piece the proposal changes; the text it leaves alone is not shown,
     // because it is not part of the proposal.
     return h("div", { class: "cmt-suggestion" },
@@ -893,27 +985,25 @@ export function createCommentPanel(host) {
   // the rest what the page says they may.
   function ownEntry(entry, comment) {
     if (entry.author !== "human" || entry.applied || entry.rejected) return false;
-    return host.mayChange(entry, comment);
+    return host.card.mayChange(entry, comment);
   }
 
   function renderThreadEntry(entry, comment, index) {
     const commentId = comment.id;
-    const editing = state.editingEntry?.commentId === commentId
-      && state.editingEntry.index === index;
+    const editing = editingEntry?.commentId === commentId && editingEntry.index === index;
     const children = [
       h("div", { class: "thread-meta" },
         h("span", { text: `${writer(entry)} · ${shortTime(entry.at)}` }),
-        host.entryMark(entry),
+        host.card.entryMark(entry),
         // What the reviewer wrote carries Edit and Delete. A thread's first message goes with
         // its thread. The records of applying and rejecting stay.
         !editing && ownEntry(entry, comment)
           ? h("span", { class: "entry-actions" },
             actionButton("cmt-edit", "Edit", () => startEntryEdit(commentId, index, entry.text)),
             actionButton("entry-delete", "Delete", async () => {
-              const asked = host.deleteQuestion(entry, index,
+              const asked = host.card.deleteQuestion(entry, index,
                 index === 0 ? `Permanently delete ${commentId}?` : "Delete this message?");
-              if (!confirm(asked)) return;
-              if (await doMutation(commentId, "delete-entry", { index })) await refreshComments();
+              if (confirm(asked)) await mutate(commentId, "delete-entry", { index });
             }))
           : null),
     ];
@@ -927,7 +1017,7 @@ export function createCommentPanel(host) {
   }
 
   function startEntryEdit(commentId, index, text) {
-    state.editingEntry = { commentId, index, draft: text };
+    editingEntry = { commentId, index, draft: text };
     renderComments();
     const node = Array.from($("#comments-list").children).find(
       (child) => child.dataset.commentId === commentId,
@@ -938,33 +1028,25 @@ export function createCommentPanel(host) {
   // Editing rewrites the entry in place: the author and time stay, so a typo fix
   // does not read as a new message in the thread.
   function renderEntryEditor(commentId, index) {
-    const editing = state.editingEntry;
+    const editing = editingEntry;
     const textarea = h("textarea", { class: "cmt-form-input entry-edit-input", rows: 3 });
     textarea.value = editing.draft;
     textarea.addEventListener("input", () => {
-      if (state.editingEntry === editing) editing.draft = textarea.value;
+      if (editingEntry === editing) editing.draft = textarea.value;
     });
     const save = async () => {
       const text = textarea.value.trim();
       if (!text) return;
       textarea.disabled = true;
-      if (!await doMutation(commentId, "edit", { index, text })) {
-        textarea.disabled = false;
-        textarea.focus();
-        return;
-      }
-      state.editingEntry = null;
-      try {
-        await refreshComments();
-      } catch (error) {
-        alert(`Saved, but comments could not be refreshed: ${error.message}`);
-      }
+      if (await mutate(commentId, "edit", { index, text }, { saved: () => { editingEntry = null; } })) return;
+      textarea.disabled = false;
+      textarea.focus();
     };
     const cancel = () => {
-      state.editingEntry = null;
+      editingEntry = null;
       renderComments();
     };
-    host.sendOn(textarea, save);
+    host.settings.sendOn(textarea, save);
     textarea.addEventListener("keydown", (event) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
@@ -982,19 +1064,20 @@ export function createCommentPanel(host) {
     return h("button", { class: className, type: "button", text: label, onclick, title: hint ? `${label}${hint}` : null });
   }
 
+  // The button that opens a card's reply box.
+  function replyButton(comment) {
+    return actionButton("cmt-reply", host.labels.reply, () => openReply(comment.id));
+  }
+
   function actionButtons(comment) {
     const deleteButton = actionButton("cmt-delete", "Delete", () => {
-      if (confirm(`Permanently delete ${comment.id}?`)) {
-        mutateAndRefresh(comment.id, "delete", null);
-      }
+      if (confirm(`Permanently delete ${comment.id}?`)) mutate(comment.id, "delete", null);
     });
     // Every status flip is one click, made as the row's buttons make it: the thread already holds
     // what was said, so the status flips without adding an entry. An archived thread still
     // takes replies, and goes back to open or resolved from the same row.
     const buttons = [];
-    if (comment.status !== "resolved") {
-      buttons.push(actionButton("cmt-reply", labels.reply, () => setActiveForm(comment.id, "reply")));
-    }
+    if (comment.status !== "resolved") buttons.push(replyButton(comment));
     if (comment.status !== "open") {
       buttons.push(actionButton("cmt-reopen", "Reopen", () => setStatus([comment.id], "open")));
     }
@@ -1005,7 +1088,7 @@ export function createCommentPanel(host) {
       buttons.push(actionButton("cmt-archive", "Archive", () => setStatus([comment.id], "archived")));
     }
     buttons.push(deleteButton);
-    return host.cardActions(comment, buttons);
+    return host.card.actions(comment, buttons);
   }
 
   // A card can hold several boxes, one the page adds above the one being written in a form
@@ -1016,44 +1099,42 @@ export function createCommentPanel(host) {
     return mode ? `.cmt-form.${mode} .cmt-form-input` : `.${[...input.classList].find((name) => name !== "cmt-form-input")}`;
   }
 
-  function setActiveForm(commentId, mode) {
-    state.activeForm = { commentId, mode, draft: "" };
+  // The reply box opened on a comment's card, which takes the keys.
+  function openReply(commentId) {
+    activeForm = { commentId, draft: "" };
     state.expanded.add(commentId);
     renderComments();
     const commentNode = Array.from($("#comments-list").children).find(
       (node) => node.dataset.commentId === commentId,
     );
-    const input = commentNode?.querySelector(`.cmt-form.mode-${mode} .cmt-form-input`);
+    const input = commentNode?.querySelector(".cmt-form.mode-reply .cmt-form-input");
     if (!input) return;
     input.closest(".cmt-form").scrollIntoView({ block: "nearest", behavior: "smooth" });
     input.focus({ preventScroll: true });
   }
 
+  // The reply box closed with what was typed in it. Whether one was open.
+  function closeReply() {
+    if (activeForm === null) return false;
+    activeForm = null;
+    renderComments();
+    return true;
+  }
+
   async function closeComment(commentId) {
-    if (state.activeForm?.commentId === commentId) state.activeForm = null;
+    if (activeForm?.commentId === commentId) activeForm = null;
     await setStatus([commentId], "resolved");
   }
 
-  function renderActiveForm(comment) {
-    if (!state.activeForm || state.activeForm.commentId !== comment.id) return null;
-    const mode = state.activeForm.mode;
-    const config = FORM_CONFIG[mode];
-    const textarea = h("textarea", {
-      class: "cmt-form-input",
-      rows: 3,
-      placeholder: config.placeholder,
-    });
-    textarea.value = state.activeForm.draft;
+  function renderReplyForm(comment) {
+    if (activeForm?.commentId !== comment.id) return null;
+    const form = activeForm;
+    const textarea = h("textarea", { class: "cmt-form-input", rows: 3, placeholder: host.labels.replyBox });
+    textarea.value = form.draft;
     textarea.addEventListener("input", () => {
-      if (
-        state.activeForm?.commentId === comment.id
-        && state.activeForm.mode === mode
-      ) {
-        state.activeForm.draft = textarea.value;
-      }
+      if (activeForm === form) form.draft = textarea.value;
     });
     let submitting = false;
-    let submitButton = null;
     const submit = async () => {
       const text = textarea.value.trim();
       if (!text || submitting) return;
@@ -1061,15 +1142,11 @@ export function createCommentPanel(host) {
       textarea.disabled = true;
       submitButton.disabled = true;
       submitButton.textContent = "Saving…";
-      const saved = await doMutation(comment.id, mode, { [config.key]: text });
-      if (saved) {
-        state.activeForm = null;
-        host.posted();
-        try {
-          await refreshComments();
-        } catch (error) {
-          alert(`Saved, but comments could not be refreshed: ${error.message}`);
-        }
+      const saved = () => {
+        activeForm = null;
+        host.agent.posted();
+      };
+      if (await mutate(comment.id, "reply", { text }, { saved })) {
         // The box is gone with what was typed in it: the keys go back to the list.
         $("#comments-list").focus({ preventScroll: true });
         return;
@@ -1077,30 +1154,23 @@ export function createCommentPanel(host) {
       submitting = false;
       textarea.disabled = false;
       submitButton.disabled = false;
-      submitButton.textContent = config.label;
+      submitButton.textContent = "Post reply";
       textarea.focus();
     };
-    host.sendOn(textarea, submit);
+    host.settings.sendOn(textarea, submit);
     textarea.addEventListener("keydown", (event) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        state.activeForm = null;
-        renderComments();
+        closeReply();
         $("#comments-list").focus({ preventScroll: true });
       }
     });
-    submitButton = actionButton("cmt-form-submit", config.label, submit);
-    submitButton.title = `${config.label} (${host.sendKeyName()})`;
-    const form = h("div", { class: `cmt-form mode-${mode}` },
-      h("div", { class: "cmt-form-title", text: config.placeholder }),
+    const submitButton = h("button", { class: "cmt-form-submit", type: "button", text: "Post reply",
+                                       title: `Post reply (${host.settings.sendKeyName()})`, onclick: submit });
+    return h("div", { class: "cmt-form mode-reply" },
+      h("div", { class: "cmt-form-title", text: host.labels.replyBox }),
       textarea,
-      h("div", { class: "cmt-form-actions" },
-        actionButton("cmt-form-cancel", "Cancel", () => {
-          state.activeForm = null;
-          renderComments();
-        }),
-        submitButton));
-    return form;
+      h("div", { class: "cmt-form-actions" }, actionButton("cmt-form-cancel", "Cancel", closeReply), submitButton));
   }
 
   // A 409, the server refusing because something changed since, goes with the server's reason
@@ -1121,18 +1191,24 @@ export function createCommentPanel(host) {
     return true;
   }
 
-  async function mutateAndRefresh(commentId, action, body) {
-    if (!await doMutation(commentId, action, body)) return;
+  // A change to one comment, and the list read again once the server took it: what every card
+  // button that changes a comment does. `saved` is done once it took it, before the list is
+  // read; `refused` is as doMutation's. A list that cannot be read again is said in an alert.
+  // Whether the change was saved.
+  async function mutate(commentId, action, body, { refused = null, saved = () => {} } = {}) {
+    if (!await doMutation(commentId, action, body, refused)) return false;
+    saved();
     try {
       await refreshComments();
     } catch (error) {
       alert(`Saved, but comments could not be refreshed: ${error.message}`);
     }
+    return true;
   }
 
   // The order the shown tab's list is in: latest first, oldest first, or the list's first order.
   function commentSort() {
-    const sort = state.commentSorts[state.commentTab];
+    const sort = commentSorts[state.commentTab];
     return sort === "latest" || sort === "oldest" ? sort : $("#comment-sort").options[0].value;
   }
 
@@ -1146,7 +1222,7 @@ export function createCommentPanel(host) {
 
   // The order chosen for the shown tab, which this browser keeps for it.
   function setCommentSort(sort) {
-    state.commentSorts[state.commentTab] = sort;
+    commentSorts[state.commentTab] = sort;
     try { localStorage.setItem(`${host.prefix}CommentSort-${state.commentTab}`, sort); } catch { /* the choice lasts this visit */ }
     showCommentSort();
   }
@@ -1157,9 +1233,9 @@ export function createCommentPanel(host) {
     select.dispatchEvent(new Event("change"));
   }
 
-  // The comment tabs share one pane, which shows the chosen tab's comments. A view chosen
-  // ends what a search showed in the list.
-  function setCommentFilter(value) {
+  // The view the list shows, which the next reading lists. A view chosen ends what a search
+  // showed in the list.
+  function setView(value) {
     const filter = $("#comment-filter");
     filter.value = value;
     filter.classList.remove("searching");
@@ -1171,14 +1247,14 @@ export function createCommentPanel(host) {
     const filter = $("#comment-filter");
     $("#comment-filter-name").textContent = filter.selectedOptions[0].textContent;
     filter.title = filter.classList.contains("searching")
-      ? `The search covers all ${tabNoun()}s. Choose a view to clear it.`
+      ? `The search covers all ${tab().noun}s. Choose a view to clear it.`
       : `Showing ${filter.selectedOptions[0].textContent}`;
   }
 
   // The view the reader chose, which the list reads again once a search is cleared.
   function chosenView() {
     const filter = $("#comment-filter");
-    return filter.classList.contains("searching") ? state.viewBeforeSearch : filter.value;
+    return filter.classList.contains("searching") ? viewBeforeSearch : filter.value;
   }
 
   // While words are in the search box the list covers every status, so the view list reads
@@ -1187,39 +1263,65 @@ export function createCommentPanel(host) {
     const filter = $("#comment-filter");
     if (searching === filter.classList.contains("searching")) return;
     if (searching) {
-      state.viewBeforeSearch = filter.value;
+      viewBeforeSearch = filter.value;
       filter.value = "all";
     } else {
-      filter.value = state.viewBeforeSearch;
+      filter.value = viewBeforeSearch;
     }
     filter.classList.toggle("searching", searching);
     showViewName();
   }
 
-  function switchTab(name) {
-    for (const button of $$(".tab-btn")) button.classList.toggle("active", button.dataset.tab === name);
-    const pane = name in tabs ? "comments" : name;
-    for (const element of $$(".tab-pane")) element.classList.toggle("active", element.id === `tab-${pane}`);
-    if (pane !== "comments" || state.commentTab === name) return;
-    state.commentTab = name;
-    state.picked.clear();
-    renderCommentFilter();
-    // Each comment tab opens on its open view.
-    setCommentFilter("open");
-    refreshComments().catch((error) => console.error(error));
+  // A comment tab shown, as the page's tabs show it: the list shows its comments, on its open
+  // view. A tab chosen by a click gives the keys to the list, since Safari focuses no button it
+  // clicks. Any other tab is the page's own.
+  function showTab(name, focus = false) {
+    if (!(name in host.tabs)) return;
+    if (state.commentTab !== name) {
+      state.commentTab = name;
+      state.picked.clear();
+      renderCommentFilter();
+      setView("open");
+      refreshComments().catch((error) => console.error(error));
+    }
+    if (focus) $("#comments-list").focus({ preventScroll: true });
+  }
+
+  // A comment shown from its mark on the page: opened and ringed in the list, in the open view of
+  // the tab shown when the view leaves it out, as the unanswered view leaves out a comment the
+  // agent has not answered yet, and brought into view (bringIntoView). One the open view does
+  // not list either stays as the list has it.
+  async function showComment(id) {
+    if (!state.comments.some((comment) => comment.id === id)) {
+      closeCommentSearch();
+      setView("open");
+      await refreshComments();
+      if (!state.comments.some((comment) => comment.id === id)) return;
+    }
+    state.focusedCommentId = id;
+    state.expanded.add(id);
+    renderComments();
+    const card = $(`#comments-list [data-comment-id="${CSS.escape(id)}"]`);
+    if (card) host.bringIntoView(id, card);
   }
 
   // The dialog for a new comment on *anchor*, which *label* names, posted with *fields*, what the
-  // page posts beside it. The page readies its own parts of the dialog first. What a refused
-  // post left in the box comes back in it, and the first box shown takes the keys.
+  // page posts beside it. The panel sets its own words, and the page readies its own parts of the
+  // dialog after. What a refused post left in the box comes back in it, and the first box shown
+  // takes the keys.
   function openCompose(anchor, label, fields = {}) {
-    state.pendingAnchor = anchor;
-    state.composeFields = fields;
-    compose.opening(fields);
+    pendingAnchor = anchor;
+    composeFields = fields;
+    const text = $("#compose-text");
+    $("#compose-title").textContent = host.labels.composeTitle;
+    text.placeholder = host.labels.composeBox;
+    text.rows = 6;
+    text.required = true;
+    host.compose.opening(fields);
     $("#compose-anchor").textContent = label;
-    $("#compose-submit").title = `Post (${host.sendKeyName()})`;
-    $("#compose-text").value = state.keptComment;
-    state.keptComment = "";
+    $("#compose-submit").title = `Post (${host.settings.sendKeyName()})`;
+    text.value = keptComment;
+    keptComment = "";
     $("#compose-dialog").showModal();
     for (const box of $$("#compose-form textarea")) fitComposeBox(box);
     setTimeout(() => $$("#compose-form textarea").find((box) => !box.closest("[hidden]")).focus(), 50);
@@ -1235,7 +1337,7 @@ export function createCommentPanel(host) {
   }
 
   function applyComposeSubmitting(submitting) {
-    state.composeSubmitting = submitting;
+    composeSubmitting = submitting;
     const dialog = $("#compose-dialog");
     dialog.setAttribute("aria-busy", String(submitting));
     for (const control of $$("#compose-form textarea, #compose-form button")) {
@@ -1245,20 +1347,26 @@ export function createCommentPanel(host) {
   }
 
   // A comment posts what its box holds, or what the page's own boxes add when that box is empty.
+  // A refusal the page has words for says them, and may keep what was written for the next box.
   async function submitCompose(event) {
     event.preventDefault();
-    if (state.composeSubmitting) return;
+    if (composeSubmitting) return;
     const text = $("#compose-text").value.trim();
-    const filled = compose.filled(state.composeFields);
-    if (!(text || Object.keys(filled).length > 0) || !state.pendingAnchor) return;
-    const body = { anchor: state.pendingAnchor, text, ...state.composeFields, ...filled };
+    const filled = host.compose.filled(composeFields);
+    if (!(text || Object.keys(filled).length > 0) || !pendingAnchor) return;
+    const body = { anchor: pendingAnchor, text, ...composeFields, ...filled };
 
     applyComposeSubmitting(true);
     let started;
     try {
       const answer = await api.create(body);
       if (!answer.ok) {
-        if (!compose.refused(answer, body)) alert(`Could not save comment: ${answer.error}`);
+        const told = host.compose.refused(answer, body);
+        if (told?.keep) {
+          keptComment = $("#compose-text").value;
+          $("#compose-dialog").close();
+        }
+        alert(told?.say ?? `Could not save comment: ${answer.error}`);
         return;
       }
       started = answer.data;
@@ -1267,11 +1375,12 @@ export function createCommentPanel(host) {
       applyComposeSubmitting(false);
     }
     // A note for the agent waits for it, and the line above the list may say how to call it.
-    if (text) host.posted();
-    await compose.posted(started, body);
+    if (text) host.agent.posted();
+    await host.compose.posted(started, body);
+    await refreshComments();
   }
 
-  // The panel's controls wired: the row, Undo, the dialog, the views, the tabs and the orders.
+  // The panel's controls wired: the row, Undo, the dialog, the search, the views and the orders.
   function attach() {
     $("#fold-all-btn").addEventListener("click", foldAll);
     $("#pick-all-btn").addEventListener("click", pickAll);
@@ -1296,7 +1405,7 @@ export function createCommentPanel(host) {
       button.addEventListener("click", async () => {
         const ids = button.dataset.ids ? button.dataset.ids.split(" ") : [];
         const status = button.dataset.status;
-        if (ids.length === 0 || !host.confirmRow(button, ids, status)) return;
+        if (ids.length === 0 || !host.row.confirm(button, ids, status)) return;
         button.disabled = true;
         await setStatus(ids, status);
         renderPickedActions();
@@ -1306,14 +1415,15 @@ export function createCommentPanel(host) {
     $("#comment-search").title = `Search the comments of this tab${keys.hint("comment-search")}`;
     $("#undo-btn").addEventListener("click", () => undoStatus().catch((error) => console.error(error)));
     $("#undo-close").addEventListener("click", () => {
-      state.undo = null;
+      undo = null;
       renderUndo();
     });
+    $("#search-help-btn")?.addEventListener("click", () => host.help("search"));
     $("#compose-form").addEventListener("submit", (event) => {
       submitCompose(event).catch((error) => alert(error.message));
     });
     for (const box of $$("#compose-form textarea")) {
-      host.sendOn(box, () => $("#compose-form").requestSubmit());
+      host.settings.sendOn(box, () => $("#compose-form").requestSubmit());
       box.addEventListener("input", () => fitComposeBox(box));
     }
     // However the dialog closes, by Post, Cancel, Escape or Ctrl+[, what it was opened on goes,
@@ -1321,36 +1431,29 @@ export function createCommentPanel(host) {
     // time it may be open again, on what it is opened on now, which stays.
     $("#compose-dialog").addEventListener("close", () => {
       if ($("#compose-dialog").open) return;
-      state.pendingAnchor = null;
-      compose.closed();
+      pendingAnchor = null;
+      host.compose.closed();
     });
     $("#compose-cancel").addEventListener("click", (event) => {
       event.preventDefault();
       $("#compose-dialog").close();
     });
-    for (const name of Object.keys(tabs)) {
-      try { state.commentSorts[name] = localStorage.getItem(`${host.prefix}CommentSort-${name}`); } catch { /* the first order */ }
+    for (const name of Object.keys(host.tabs)) {
+      try { commentSorts[name] = localStorage.getItem(`${host.prefix}CommentSort-${name}`); } catch { /* the first order */ }
     }
     renderCommentFilter();
-    // A view chosen in the list, and a comment tab chosen, give the comment keys back to the
-    // comments: the list would keep them, and Safari focuses no button it clicks.
     attachCommentSearch();
+    // A view chosen in the list puts the search away, since the list shows that view, and gives
+    // the comment keys back to the comments: the list would keep them, and Safari focuses no
+    // button it clicks. An order chosen does too, but keeps the search, which it orders as well,
+    // and closes the dots it may wait behind.
     $("#comment-filter").addEventListener("change", () => {
-      // A view chosen puts the search away: the list shows that view.
       closeCommentSearch();
-      setCommentFilter($("#comment-filter").value);
-      host.viewChosen($("#comment-filter").value);
+      setView($("#comment-filter").value);
+      tab().chosen($("#comment-filter").value);
       $("#comments-list").focus({ preventScroll: true });
       refreshComments().catch((error) => console.error(error));
     });
-    for (const button of $$(".tab-btn")) {
-      button.addEventListener("click", () => {
-        switchTab(button.dataset.tab);
-        if ($("#tab-comments").classList.contains("active")) $("#comments-list").focus({ preventScroll: true });
-      });
-    }
-    // An order chosen gives the keys back to the comments too. It keeps the search, which it
-    // orders as well, and closes the dots it may wait behind.
     $("#comment-sort").addEventListener("change", () => {
       setCommentSort($("#comment-sort").value);
       closeCommentRare();
@@ -1360,27 +1463,29 @@ export function createCommentPanel(host) {
   }
 
   // What the panel holds for the document shown let go, for a page that shows another in its
-  // place: its comments, those opened and picked, the ring, a box being written in or an entry
-  // being edited, and the change Undo would put back, which was made to the other's comments.
-  // A change still on its way for that one stops when it comes back.
+  // place: its comments, those opened and picked, the ring and a held range, a box being written
+  // in or an entry being edited, and the change Undo would put back, which was made to the
+  // other's comments. A change still on its way for that one stops when it comes back.
   function reset() {
     resets += 1;
     state.comments = [];
     state.expanded.clear();
     state.picked.clear();
-    state.pickedFrom = null;
+    pickedFrom = null;
     state.focusedCommentId = null;
-    state.activeForm = null;
-    state.editingEntry = null;
-    state.unfitSuggestions.clear();
-    state.commentsView = null;
-    state.undo = null;
+    activeForm = null;
+    editingEntry = null;
+    unfitSuggestions.clear();
+    commentsView = null;
+    undo = null;
+    keys.reset();
     renderUndo();
   }
 
-  return {
-    attach, refreshComments, renderComments, renderPickedActions, fitCommentRow, foldAll, setStatus,
-    undoStatus, pickBox, actionButton, doMutation, setActiveForm, unanswered, setCommentFilter, chosenView,
-    switchTab, cycleSort, openCompose, openCommentSearch, closeCommentSearch, reset,
+  const panel = {
+    attach, keys, refreshComments, renderComments, renderPickedActions, fitCommentRow, foldAll, setStatus, undoStatus,
+    pickBox, actionButton, replyButton, mutate, closeReply, unanswered, setView, chosenView, showTab,
+    showComment, cycleSort, openCompose, openCommentSearch, reset,
   };
+  return panel;
 }

@@ -5,9 +5,9 @@
    to the others. A copy is never edited by hand. */
 
 :root {
-  /* The page's own text, in the top bar, the panels and the dialogs, as Settings sizes it. The
-     editor, the translation and the PDF keep sizes of their own, and so do the panel's tabs
-     and the Settings dialog. */
+  /* The page's own text, in the top bar, the panels and the dialogs, as Settings sizes it. What
+     the page shows of the document, its editor among them, keeps sizes of its own, and so do
+     the panel's tabs and the Settings dialog. */
   --text-base: 14px;
   --text-scale: 1;
   /* The three sizes of that text, 13, 12 and 11.5px at 100%: what is read (comments,
@@ -30,8 +30,6 @@
   --err: #b44a43;
   --ok: #4f7758;
   --wait-soft: #f7ecd2;
-  --highlight: rgba(252, 220, 0, 0.45);
-  --highlight-hover: rgba(252, 192, 0, 0.7);
   /* A comment's words in the editor, and the dot beside their line. */
   --source-comment: rgba(252, 220, 0, 0.24);
   --source-comment-edge: transparent;
@@ -43,8 +41,7 @@
   --source-suggestion-edge: rgba(183, 56, 56, 0.55);
   --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Consolas, monospace;
   --sans: -apple-system, "Helvetica Neue", system-ui, sans-serif;
-  /* The bar along the top of each panel, as tall as the Preview's: the viewer's 27px
-     toolbar under the two pixels of room above it. */
+  /* The bar along the top of each panel: a 27px toolbar under two pixels of room above it. */
   --panel-bar: 29px;
 }
 
@@ -89,12 +86,10 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
   color: white;
   border: none;
 }
+/* ----- Settings ----- */
 /* The dialogs take the text size Settings chooses, all but Settings itself, which keeps its
    own size so that it holds still under the hand while the size is chosen. */
-#settings-dialog { zoom: calc(1 / var(--text-scale)); }
-
-/* ----- Settings ----- */
-#settings-dialog { max-width: 30rem; }
+#settings-dialog { max-width: 30rem; zoom: calc(1 / var(--text-scale)); }
 #settings-form { display: flex; flex-direction: column; gap: 0.6rem; }
 #settings-form h3 { margin: 0; font-size: 1rem; }
 #settings-form h4 { margin: 0.4rem 0 0; font-size: var(--text-fine); letter-spacing: 0.04em; text-transform: uppercase; color: var(--fg-dim); }
@@ -103,12 +98,12 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
 /* The choices the pages share lay out as the others do, in the form's column. */
 #settings-look { display: contents; }
 
-.theme-choice { display: flex; gap: 2px; }
-.theme-choice button { flex: 1; text-align: center; padding: 0.3rem 0.4rem; border: 1px solid var(--border); border-radius: 3px; background: var(--bg); color: inherit; }
-.theme-choice button[aria-checked="true"] { background: var(--accent-soft); border-color: var(--accent); font-weight: 600; }
+.setting-choice { display: flex; gap: 2px; }
+.setting-choice button { flex: 1; text-align: center; padding: 0.3rem 0.4rem; border: 1px solid var(--border); border-radius: 3px; background: var(--bg); color: inherit; }
+.setting-choice button[aria-checked="true"] { background: var(--accent-soft); border-color: var(--accent); font-weight: 600; }
 
 /* ----- Dark theme -----
-   The page's own parts on a dark ground. The PDF's pages keep their colours. */
+   The page's own parts on a dark ground. The document shown keeps its own colours. */
 :root[data-theme="dark"] {
   color-scheme: dark;
   scrollbar-color: #8a867c #4a4944;
@@ -163,8 +158,8 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
 
 /* ----- Warm theme -----
    A restful page for long writing, as a screen looks with its blue light turned down: warm
-   paper grounds in place of white and a soft brown ink. The PDF's pages stay white, as
-   compiled. */
+   paper grounds in place of white and a soft brown ink. The document shown keeps its own
+   colours. */
 :root[data-theme="warm"] {
   scrollbar-color: #b3a896 #d9d2c5;
   --bg: #e7e1d7;

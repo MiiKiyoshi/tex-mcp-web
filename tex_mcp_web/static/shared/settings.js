@@ -6,6 +6,9 @@
 // Shared by the review pages. It is written in tex-mcp-web, and scripts/share_page.py copies
 // it to the others. A copy is never edited by hand.
 
+import { h } from "./dom.js";
+
+// The themes a reader may choose, beside System. look-early.js names them too.
 const THEMES = ["light", "dark", "warm"];
 
 // Each choice as Settings shows it: its heading, what it is to a screen reader, the data
@@ -33,23 +36,10 @@ const CURSOR_AT = { third: 1 / 3, half: 1 / 2 };
 const CURSOR_KEPT = { free: "0", third: "1", half: "half" };
 
 function choiceGroup([heading, label, name, buttons]) {
-  const title = document.createElement("h4");
-  title.textContent = heading;
-  const group = document.createElement("div");
-  group.className = "theme-choice";
-  group.setAttribute("role", "radiogroup");
-  group.setAttribute("aria-label", label);
-  for (const [value, text, title] of buttons) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.setAttribute("role", "radio");
-    button.setAttribute("aria-checked", "false");
-    button.dataset[`${name}Choice`] = value;
-    if (title) button.title = title;
-    button.textContent = text;
-    group.append(button);
-  }
-  return [title, group];
+  return [h("h4", { text: heading }),
+    h("div", { class: "setting-choice", role: "radiogroup", "aria-label": label },
+      ...buttons.map(([value, text, title]) => h("button", {
+        type: "button", role: "radio", "aria-checked": "false", data: { [`${name}Choice`]: value }, title, text })))];
 }
 
 function check(name, value) {

@@ -2976,7 +2976,8 @@ def test_the_search_reads_the_conditions_mail_and_code_search_have(tmp_path: Pat
         wait_until(lambda: browser.execute_script('return document.querySelector("#comment-search") !== null'))
         found, read, loads = browser.execute_script('''const [comments, queries, texts] = arguments;
           return import("/static/shared/comment-search.js").then(({ parseSearch, meetsSearch }) => [
-            queries.map((query) => comments.filter((comment) => meetsSearch(comment, parseSearch(query, 2026), "Dana Cho", []))
+            queries.map((query) => comments.filter((comment) => meetsSearch(comment, parseSearch(query, 2026), {
+              me: () => "Dana Cho", words: () => [], files: (each) => [each.anchor.file], said: (each) => each.thread }))
               .map((comment) => comment.id)),
             texts.map((text) => parseSearch(text, 2026)),
             performance.getEntriesByType("resource").filter((entry) => new URL(entry.name).pathname.endsWith("/viewer.js")).length]);''',

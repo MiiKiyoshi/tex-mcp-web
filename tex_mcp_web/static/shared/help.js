@@ -102,7 +102,7 @@ function helpMarkup(all) {
 // Help drawn into #help-dialog, with the page's parts in their places, and its tabs wired.
 // `prefix` is what the browser keeps the page shown last under, before "HelpPage"; `pages` the
 // page's own pages, [name, tab], which come between Search and Keys; and `keys` the comment
-// keys createCommentKeys made.
+// keys, the comment panel's `keys`. show(page) opens it, as the panel's `help` hook does.
 export function createHelp({ prefix, pages, keys }) {
   const dialog = $("#help-dialog");
   const parts = new Map([...dialog.querySelectorAll(":scope > template[data-slot]")]
@@ -169,6 +169,5 @@ export function createHelp({ prefix, pages, keys }) {
     showPage(order[(to + order.length) % order.length]);
   });
   $("#help-btn").addEventListener("click", () => show());
-  $("#search-help-btn")?.addEventListener("click", () => show("search"));
   return { show };
 }

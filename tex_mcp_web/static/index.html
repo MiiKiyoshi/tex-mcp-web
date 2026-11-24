@@ -9,7 +9,7 @@
 <link rel="stylesheet" href="/static/shared/comment-panel.css">
 <link rel="stylesheet" href="/static/shared/help.css">
 <link rel="stylesheet" href="/static/style.css">
-<script src="/static/shared/look-early.js" data-key="texMcpTheme"></script>
+<script src="/static/shared/look-early.js" data-prefix="texMcp"></script>
 </head>
 <body>
 <div id="app">
@@ -134,7 +134,7 @@
         <button class="tab-btn active" data-tab="comments"><span class="tab-label">Comments</span><span id="comments-tab-count" class="tab-count hidden"></span></button>
         <!-- Threads on Overleaf, and the ones drafted for it, kept apart from the comments
              written here. Shown once the paper names an Overleaf project or has threads from one. -->
-        <button class="tab-btn" data-tab="overleaf-comments" hidden title="Comments on Overleaf"><svg class="leaf-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 13C3 7 7 3 13 3c0 6-4 10-10 10z"/><path d="M3 13l6-6"/></svg><span class="tab-label">Comments</span><span id="overleaf-tab-count" class="tab-count hidden"></span></button>
+        <button class="tab-btn" data-tab="overleaf-comments" data-pane="comments" hidden title="Comments on Overleaf"><svg class="leaf-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 13C3 7 7 3 13 3c0 6-4 10-10 10z"/><path d="M3 13l6-6"/></svg><span class="tab-label">Comments</span><span id="overleaf-tab-count" class="tab-count hidden"></span></button>
         <button class="tab-btn" data-tab="compile"><span class="tab-label">Problems</span><span id="compile-tab-count" class="tab-count hidden"></span></button>
       </div>
 
@@ -175,9 +175,8 @@
         <select id="call-agent-select" data-slot="fetch" class="agent-select hidden" autocomplete="off" aria-label="Agent to call" title="Agent the bell calls"></select>
         <select id="agent-model-select" data-slot="fetch" class="agent-select hidden" autocomplete="off" aria-label="Model" title="Model for this call"></select>
         <select id="agent-effort-select" data-slot="fetch" class="agent-select hidden" autocomplete="off" aria-label="Effort" title="Effort for this call"></select>
-        <button id="search-help-btn" data-slot="search" class="search-help" type="button" tabindex="-1" title="Search help">more…</button>
         <!-- Said after a call to the agent that no agent heard, until one listens. -->
-        <p id="call-agent-why" data-slot="notes" class="sync-why" role="status" hidden></p>
+        <p id="call-agent-why" data-slot="notes" class="panel-note" role="status" hidden></p>
       </div>
 
       <div id="tab-compile" class="tab-pane">
@@ -258,7 +257,7 @@
     <!-- Where Split puts the translation. Shown once a language is configured. -->
     <div id="translation-place" hidden>
       <h4>Translation in Split</h4>
-      <div class="theme-choice" role="radiogroup" aria-label="Where Split puts the translation">
+      <div class="setting-choice" role="radiogroup" aria-label="Where Split puts the translation">
         <button type="button" role="radio" data-place-choice="preview" aria-checked="true">Under the Preview</button>
         <button type="button" role="radio" data-place-choice="source" aria-checked="false">Under the Source</button>
         <button type="button" role="radio" data-place-choice="column" aria-checked="false">Beside the Source</button>

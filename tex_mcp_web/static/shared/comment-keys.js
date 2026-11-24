@@ -27,12 +27,12 @@ function spoken(keys) {
   return `${keys.slice(0, -1).join(", ")} and ${keys.at(-1)}`;
 }
 
-// The keys, kept on the page's `state`, which they add the start of a held range to. The page
-// gives:
+// The keys, which the comment panel makes, on the page's `state` it shares with them. The
+// panel gives:
 //
 //   labels       `document`, what the page calls what is reviewed, and `firstSort`, the name
 //                of the sort list's first order
-//   panel()      the comment panel createCommentPanel made, whose list the keys work
+//   panel()      the comment panel, whose list the keys work
 //   rows(press)  the page's own keys: an entry with `after` goes after the shared entry its
 //                first key names, and one without gives its fields to the shared entry with
 //                its first key. `press` holds what the shared keys press with: pressCard,
@@ -40,17 +40,15 @@ function spoken(keys) {
 //   showPlace(id)       what Space shows of a comment it opens: where it is, the keys staying
 //                       with the list
 //   enterPlace(comment) what K does: the comment's words in the source, the keys going there
-//   commentWhole()      what c does: a comment on the whole document
-//   showHelp()          what ? does
+//   whole()             what c does: a comment on the whole document
+//   help()              what ? does
 //   lettersShown()      whether Settings shows the key letters on the ringed comment's buttons
 //   rests(event)        whether the keys rest for this key, as for a part of the page that is
 //                       shown over the list and has keys of its own
 export function createCommentKeys(host) {
   const { state, labels } = host;
-  Object.assign(state, {
-    // The comment a range started from, while v holds one.
-    rangeFrom: null,
-  });
+  // The comment a range started from, while v holds one.
+  let rangeFrom = null;
   const panel = () => host.panel();
 
   // Each key as the Keys page of Help lists it. A key with a button names the controls it works,
@@ -75,7 +73,7 @@ export function createCommentKeys(host) {
     ["Write", [
       { keys: ["r"], does: "Write a reply for the agent", button: ["cmt-reply"], run: () => pressCard(".cmt-reply") },
       { keys: ["e"], does: "Edit your last message in it", marks: ".cmt-edit", run: () => pressCard(".cmt-edit") },
-      { keys: ["c"], does: `Comment on the whole ${labels.document}`, run: () => host.commentWhole() },
+      { keys: ["c"], does: `Comment on the whole ${labels.document}`, run: () => host.whole() },
       { keys: ["Escape"], does: "Leave the text box. An unsent reply or edit is discarded" },
     ]],
     ["Change", [
@@ -109,7 +107,7 @@ export function createCommentKeys(host) {
         run: () => panel().cycleSort() },
       { keys: ["t"], does: "Next tab", scope: "sidebar", run: () => cycleTab(1) },
       { keys: ["T"], does: "Previous tab", scope: "sidebar", run: () => cycleTab(-1) },
-      { keys: ["?"], does: "Open Help", scope: "page", run: () => host.showHelp() },
+      { keys: ["?"], does: "Open Help", scope: "page", run: () => host.help() },
     ]],
   ];
   const entries = () => table.flatMap(([, group]) => group);
@@ -239,7 +237,7 @@ export function createCommentKeys(host) {
   // none while no range is held or its start has left the view.
   function rangeIds() {
     const ids = state.comments.map((comment) => comment.id);
-    const from = ids.indexOf(state.rangeFrom);
+    const from = ids.indexOf(rangeFrom);
     const to = ids.indexOf(state.focusedCommentId);
     return from === -1 || to === -1 ? [] : ids.slice(Math.min(from, to), Math.max(from, to) + 1);
   }
@@ -247,12 +245,12 @@ export function createCommentKeys(host) {
   function holdRange() {
     const comment = focused() ?? state.comments[0];
     if (comment === undefined) return;
-    state.focusedCommentId = state.rangeFrom = comment.id;
+    state.focusedCommentId = rangeFrom = comment.id;
     panel().renderComments();
   }
 
   function letRangeGo() {
-    state.rangeFrom = null;
+    rangeFrom = null;
     panel().renderComments();
   }
 
@@ -272,7 +270,7 @@ export function createCommentKeys(host) {
   function pressForRange(rows) {
     const kept = state.picked;
     state.picked = new Set(rangeIds());
-    state.rangeFrom = null;
+    rangeFrom = null;
     panel().renderPickedActions();
     rows.map((selector) => $(selector)).find((button) => !button.hidden && !button.disabled)?.click();
     state.picked = kept;
@@ -338,10 +336,8 @@ export function createCommentKeys(host) {
         if (rangeIds().length > 0) {
           event.preventDefault();
           letRangeGo();
-        } else if (state.activeForm) {
+        } else if (panel().closeReply()) {
           event.preventDefault();
-          state.activeForm = null;
-          panel().renderComments();
         }
         return;
       }
@@ -384,7 +380,7 @@ export function createCommentKeys(host) {
 
   // The range let go, for a page that shows another document in the list's place.
   function reset() {
-    state.rangeFrom = null;
+    rangeFrom = null;
   }
 
   return { table, hint, rangeIds, mark, placeRing, showLetters, attach, reset };

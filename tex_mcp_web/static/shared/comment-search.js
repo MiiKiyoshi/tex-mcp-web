@@ -46,26 +46,24 @@ function searchMoment(text, year) {
 }
 
 // Whether a comment meets a search parseSearch read: every term of one of its groups. A word
-// or a phrase is held in what was said in it and by whom, in the words it is on, its file,
-// its id, its suggestion, or `more`, the words the page keeps with it beside these, or in the
-// words a suggested edit listed among the comments inserts or deletes and who suggested it.
-// from: is someone who wrote in the thread or suggested the edit, file: the file the comment
-// is on, after: an entry written at that moment or later, and before: one written earlier, an
-// edit's being when it was suggested. Each term is met by the thread on its own, so from: and
-// after: may be met by two entries. `me` is the reviewer's own name on the entries that carry
-// their writer's name.
-export function meetsSearch(comment, query, me, more) {
+// or a phrase is held in what was said in it and by whom, in the words it is on, its file, its
+// id, its suggestion, or the words the page keeps with it beside these. from: is someone who
+// wrote in it, file: a file it is on, after: an entry written at that moment or later, and
+// before: one written earlier. Each term is met by the thread on its own, so from: and after:
+// may be met by two entries. `page` gives, as the panel's `search` hooks do: me(), the
+// reviewer's own name on the entries that carry their writer's name; words(comment), what the
+// page keeps with it; files(comment), the files it is on; and said(comment), the entries
+// from:, after: and before: read, each with its writer and when it was written.
+export function meetsSearch(comment, query, page) {
   let held = null;
-  const said = comment.suggested ? [{ name: comment.name ?? "", at: comment.at }] : comment.thread;
+  const said = page.said(comment);
   const meets = ({ field, value }) => field === "from"
-    ? said.some((entry) => writerNames(entry, me).some((name) => name.toLowerCase().includes(value)))
-    : field === "file" ? [comment.anchor?.file, comment.resolved_source?.file].some((file) => file?.toLowerCase().includes(value))
+    ? said.some((entry) => writerNames(entry, page.me()).some((name) => name.toLowerCase().includes(value)))
+    : field === "file" ? page.files(comment).some((file) => file?.toLowerCase().includes(value))
     : field === "after" ? said.some((entry) => Date.parse(entry.at) >= value)
     : field === "before" ? said.some((entry) => Date.parse(entry.at) < value)
     : (held ??= [
-      comment.id, comment.anchor?.quote, comment.anchor?.file, comment.anchor?.title, comment.resolved_source?.file,
-      comment.source_selector?.exact, ...more,
-      ...(comment.suggested ? [comment.inserted, comment.deleted, comment.name] : []),
+      comment.id, comment.anchor?.quote, comment.anchor?.file, comment.anchor?.title, ...page.words(comment),
       ...comment.thread.flatMap((entry) => [entry.text, entry.name]),
       ...(comment.suggestion?.changes ?? []).flatMap((change) => [change.old, change.new]),
     ].filter(Boolean).map((words) => words.replace(/\s+/g, " ")).join("\n").toLowerCase()).includes(value);
@@ -81,10 +79,12 @@ function writerNames(entry, me) {
 }
 
 // The search box above the list, the conditions under it and the list of names and files under
-// those. What is typed is kept in `state.commentSearch`. `refresh` lists what the search finds,
-// `tabComments` reads the shown tab's comments of every status, and `me` is the reviewer's own
-// name on the entries that carry their writer's name.
-export function createCommentSearch({ state, refresh, tabComments, me }) {
+// those, holding what is typed. `refresh` lists what the search finds, `tabComments` reads the
+// shown tab's comments of every status, and `page` is what meetsSearch takes, for the names and
+// the files the list offers.
+export function createCommentSearch({ refresh, tabComments, page }) {
+  // What is typed in the box: the list shows the tab's comments that meet it.
+  let searchText = "";
   // The writers and the files of the tab's comments, whatever their status, which the list
   // under the search box offers for a from: or a file: being typed. Read when the list opens,
   // and null while it is closed. The one the arrows are on.
@@ -93,14 +93,14 @@ export function createCommentSearch({ state, refresh, tabComments, me }) {
 
   // What the search box asks for, its dates without a year in this year.
   function searchQuery() {
-    return parseSearch(state.commentSearch, new Date().getFullYear());
+    return parseSearch(searchText, new Date().getFullYear());
   }
 
   async function readSearchChoices() {
     const comments = await tabComments();
     const listed = (values) => [...new Set(values.filter(Boolean))].sort((first, second) => first.localeCompare(second));
-    return { from: listed(comments.flatMap((comment) => comment.thread.map((entry) => writerNames(entry, me())[0]))),
-             file: listed(comments.map((comment) => comment.resolved_source?.file ?? comment.anchor?.file)) };
+    return { from: listed(comments.flatMap((comment) => comment.thread.map((entry) => writerNames(entry, page.me())[0]))),
+             file: listed(comments.map((comment) => page.files(comment).find(Boolean))) };
   }
 
   // The from: or the file: the cursor is in: its field, what is typed after the colon, and where
@@ -176,9 +176,9 @@ export function createCommentSearch({ state, refresh, tabComments, me }) {
 
   // The search put away: the list shows its view again. Whether there was one.
   function closeCommentSearch() {
-    const searched = state.commentSearch !== "";
+    const searched = searchText !== "";
     $("#comment-search").value = "";
-    state.commentSearch = "";
+    searchText = "";
     return searched;
   }
 
@@ -188,7 +188,7 @@ export function createCommentSearch({ state, refresh, tabComments, me }) {
     let timer = null;
     const list = () => refresh().catch((error) => console.error(error));
     box.addEventListener("input", () => {
-      state.commentSearch = box.value;
+      searchText = box.value;
       clearTimeout(timer);
       timer = setTimeout(list, 150);
       choiceAt = 0;
@@ -228,7 +228,7 @@ export function createCommentSearch({ state, refresh, tabComments, me }) {
       event.stopPropagation();
       clearTimeout(timer);
       if (event.key === "Escape") closeCommentSearch();
-      else state.commentSearch = box.value;
+      else searchText = box.value;
       list();
       $("#comments-list").focus({ preventScroll: true });
     });

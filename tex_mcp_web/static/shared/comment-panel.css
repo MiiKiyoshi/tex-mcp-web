@@ -1,7 +1,8 @@
 /* The comment panel of the review pages: the row above the list, with its groups, lists, icon
    buttons and the dots that hold what the row has no room for, the search and its conditions,
-   the Undo line, the list and its cards, their threads, reply boxes and suggestions, the dialog
-   for a new comment, and the bell's place in the row. comment-panel.js draws it.
+   the Undo line, the list and its cards, the words they are on, their threads, reply boxes and
+   suggestions, the dialog for a new comment, and the bell's place in the row.
+   comment-panel.js draws it.
 
    Shared by the review pages. It is written in tex-mcp-web, and scripts/share_page.py copies it
    to the others. A copy is never edited by hand. */
@@ -151,12 +152,11 @@
 .icon-btn svg { display: block; }
 .icon-btn .count:empty { display: none; }
 .icon-btn:disabled { opacity: .45; }
-/* Notes above the list: why the leaf tab's comments cannot sync yet, that a call to the agent
-   waits for one to listen, and what a change of status did. A note that opens what clears it,
-   and Undo, read as a link. */
-.sync-why { margin: 0; padding: 6px 10px; font-size: var(--text-body); color: var(--muted, inherit); border-bottom: 1px solid var(--border, currentColor); }
-.sync-why[hidden] { display: none; }
-.sync-why-go { padding: 0; border: 0; background: none; font: inherit; color: var(--accent); text-align: left; text-decoration: underline; cursor: pointer; }
+/* Notes above the list: what a change of status did, and the page's own notes in the panel's
+   "notes" slot. A note that opens what clears it, and Undo, read as a link. */
+.panel-note { margin: 0; padding: 6px 10px; font-size: var(--text-body); border-bottom: 1px solid var(--border); }
+.panel-note[hidden] { display: none; }
+.panel-note-go { padding: 0; border: 0; background: none; font: inherit; color: var(--accent); text-align: left; text-decoration: underline; cursor: pointer; }
 /* After a change of status: what was done, Undo right after it, and the close button at the
    line's end, both beside the first line of the words, which wrap in their own place on a
    narrow panel. */
@@ -251,6 +251,7 @@
   flex-wrap: wrap;
   font-size: var(--text-small);
   cursor: pointer;
+  /* Shift-clicking a box would otherwise drag a text selection across the cards. */
   user-select: none;
 }
 .cmt-head:hover { background: var(--accent-soft); }
@@ -299,10 +300,8 @@
   padding: 0.05rem 0.3rem;
   border-radius: 3px;
 }
-.cmt-head {
-  /* Shift-clicking a box would otherwise drag a text selection across the cards. */
-  user-select: none;
-}
+/* The words an opened comment is on. A left rule sets them apart from the thread. */
+.anchor-quote { margin: 0; padding: 5px 8px; border-left: 2px solid var(--source-comment-dot); color: var(--fg-dim); background: var(--bg); font-size: var(--text-body); line-height: 1.4; }
 .cmt-preview {
   font-size: var(--text-body);
   white-space: pre-wrap;
@@ -437,10 +436,10 @@
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
+  gap: 0.4rem;
   padding: 0.35rem 0.5rem;
   border-top: 1px solid var(--border);
 }
-.cmt-suggestion .sugg-actions { gap: 0.4rem; }
 .cmt-suggestion .sugg-reject { color: var(--err); }
 .cmt-suggestion .sugg-apply, .cmt-suggestion .sugg-reject {
   padding: 0.25rem 0.5rem;
@@ -450,12 +449,8 @@
   font: inherit;
   white-space: nowrap;
 }
-.cmt-suggestion .sugg-apply.is-applied {
-  color: var(--ok);
-  border-color: var(--ok);
-}
 
-/* ----- inline comment form (reply / resolve) ----- */
+/* ----- the reply and edit boxes on a card ----- */
 .cmt-form {
   margin-top: 0.5rem;
   padding-top: 0.5rem;
@@ -478,7 +473,6 @@
   border-radius: 3px;
   resize: vertical;
 }
-.cmt-form.mode-resolve .cmt-form-input { border-left: 3px solid var(--ok); }
 .cmt-form-actions {
   display: flex;
   flex-wrap: wrap;
@@ -502,7 +496,6 @@
   cursor: wait;
   opacity: 0.65;
 }
-.cmt-form.mode-resolve .cmt-form-submit { background: var(--ok); }
 
 /* ----- new comment dialog ----- */
 #compose-dialog { max-width: 46rem; }
