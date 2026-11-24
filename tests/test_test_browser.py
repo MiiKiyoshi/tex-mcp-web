@@ -23,6 +23,8 @@ def test_a_failing_test_keeps_what_its_page_showed(tmp_path: Path, monkeypatch) 
         finally:
             browser.quit()
     assert sorted(path.suffix for path in kept.iterdir()) == [".html", ".json", ".png"]
+    # Each file is named by the test, so two failures never share a name.
+    assert all("test_a_failing_test_keeps_what_its_page_showed-" in path.name for path in kept.iterdir())
     record = json.loads(next(kept.glob("*.json")).read_text(encoding="utf-8"))
     assert "the page did not answer" in record["error"]
     assert ["#box", None, "typed"] in record["page"]["fields"] and record["page"]["focus"] == "body."
@@ -30,4 +32,11 @@ def test_a_failing_test_keeps_what_its_page_showed(tmp_path: Path, monkeypatch) 
     quiet = chrome.launch()
     quiet.navigate("data:text/html,<p>Nothing failed.</p>")
     quiet.quit()
+    # A test that skips itself has not failed.
+    skipping = chrome.launch()
+    with pytest.raises(pytest.skip.Exception):
+        try:
+            pytest.skip("not on this machine")
+        finally:
+            skipping.quit()
     assert len(list(kept.iterdir())) == 3

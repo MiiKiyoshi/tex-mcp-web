@@ -139,7 +139,8 @@ class Chrome:
         # A test quits its browser in a finally clause, so a failing one quits with its failure
         # still on its way out: what the page showed then is kept in the folder
         # TEX_MCP_FAILURES names, which the CI keeps, a failure that passes when run again too.
-        if sys.exc_info()[0] is not None and os.environ.get("TEX_MCP_FAILURES"):
+        failure = sys.exc_info()[1]
+        if failure is not None and not isinstance(failure, pytest.skip.Exception) and os.environ.get("TEX_MCP_FAILURES"):
             self.keep_failure(Path(os.environ["TEX_MCP_FAILURES"]))
         try:
             self.driver.quit()
@@ -151,15 +152,15 @@ class Chrome:
         the values of its fields and where the focus is, and its console where the browser
         gives it. Each part that cannot be had is said in the record instead."""
         test = os.environ.get("PYTEST_CURRENT_TEST", "test").split(" ")[0]
-        stem = folder / f"{re.sub(r'[^A-Za-z0-9_.-]+', '_', test)[-120:]}-{time.time_ns()}"
+        name = f"{re.sub(r'[^A-Za-z0-9_-]+', '_', test)[-120:]}-{time.time_ns()}"
         folder.mkdir(parents=True, exist_ok=True)
         record: dict[str, object] = {"test": test, "error": repr(sys.exc_info()[1])[:2000]}
         try:
-            stem.with_suffix(".png").write_bytes(base64.b64decode(self.driver.get_screenshot_as_base64()))
+            (folder / f"{name}.png").write_bytes(base64.b64decode(self.driver.get_screenshot_as_base64()))
         except Exception as error:
             record["screenshot"] = repr(error)
         try:
-            stem.with_suffix(".html").write_text(
+            (folder / f"{name}.html").write_text(
                 self.driver.execute_script("return document.documentElement.outerHTML"), encoding="utf-8")
             record["page"] = self.driver.execute_script("""
               const named = (node) => node.id ? `#${node.id}` : `${node.tagName.toLowerCase()}.${[...node.classList].join(".")}`;
@@ -172,7 +173,7 @@ class Chrome:
             record["console"] = [f"{entry['level']} {entry['message']}" for entry in self.driver.get_log("browser")]
         except Exception as error:
             record["console"] = repr(error)
-        stem.with_suffix(".json").write_text(json.dumps(record, indent=1, ensure_ascii=False), encoding="utf-8")
+        (folder / f"{name}.json").write_text(json.dumps(record, indent=1, ensure_ascii=False), encoding="utf-8")
 
     def navigate(self, url: str) -> None:
         self.driver.get(url)
