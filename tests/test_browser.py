@@ -1891,8 +1891,8 @@ def test_browser_source_selection_and_split_resize(tmp_path: Path) -> None:
             assert browser.execute_script(theme)[:2] == ["light", "light"]
         finally:
             browser.prefer_scheme(None)
-        # Shift with enter sends a comment, Enter writing a new line, until Settings chooses
-        # Enter, and shift with enter then writes the new line. The control key with enter
+        # Enter sends a comment, shift with enter writing a new line, until Settings chooses
+        # shift with enter, and Enter then writes the new line. The control key with enter
         # sends either way, and an Enter that ends a word an input method is still composing
         # sends once composing ends. The choice is kept for next time.
         browser.execute_script('''
@@ -1905,24 +1905,27 @@ def test_browser_source_selection_and_split_resize(tmp_path: Path) -> None:
           document.querySelector("#compose-text").dispatchEvent(event);
           return [window.sent, event.defaultPrevented];
         '''
-        assert browser.execute_script(press, script_args=[{}], sandbox=None) == [0, False]
-        assert browser.execute_script(press, script_args=[{"shiftKey": True}], sandbox=None) == [1, True]
-        browser.execute_script('document.querySelector("[data-send-choice=enter]").click()')
-        assert browser.execute_script('''
+        chosen = '''
           return [localStorage.getItem("texMcpSendKey"),
-                  document.querySelector("[data-send-choice=enter]").getAttribute("aria-checked"),
-                  document.querySelector("[data-send-choice=shift]").getAttribute("aria-checked")];
-        ''') == ["enter", "true", "false"]
-        assert browser.execute_script(press, script_args=[{"shiftKey": True}], sandbox=None) == [1, False]
-        assert browser.execute_script(press, script_args=[{}], sandbox=None) == [2, True]
-        assert browser.execute_script(press, script_args=[{"ctrlKey": True}], sandbox=None) == [3, True]
-        assert browser.execute_script(press, script_args=[{"isComposing": True}], sandbox=None) == [3, False]
+                  [...document.querySelectorAll("[data-send-choice]")].map((button) =>
+                    button.dataset.sendChoice + "=" + button.getAttribute("aria-checked"))];
+        '''
+        # Enter comes first in Settings and is chosen until another choice is kept.
+        assert browser.execute_script(chosen) == [None, ["enter=true", "shift=false"]]
+        assert browser.execute_script(press, script_args=[{"shiftKey": True}], sandbox=None) == [0, False]
+        assert browser.execute_script(press, script_args=[{}], sandbox=None) == [1, True]
+        assert browser.execute_script(press, script_args=[{"ctrlKey": True}], sandbox=None) == [2, True]
+        assert browser.execute_script(press, script_args=[{"isComposing": True}], sandbox=None) == [2, False]
         browser.execute_script(
             'document.querySelector("#compose-text").dispatchEvent(new CompositionEvent("compositionend", {data: "가"}))')
-        assert wait_until(lambda: browser.execute_script("return window.sent;", sandbox=None) == 4)
+        assert wait_until(lambda: browser.execute_script("return window.sent;", sandbox=None) == 3)
         browser.execute_script('document.querySelector("[data-send-choice=shift]").click()')
-        assert browser.execute_script(press, script_args=[{}], sandbox=None) == [4, False]
+        assert browser.execute_script(chosen) == ["shift", ["enter=false", "shift=true"]]
+        assert browser.execute_script(press, script_args=[{}], sandbox=None) == [3, False]
+        assert browser.execute_script(press, script_args=[{"shiftKey": True}], sandbox=None) == [4, True]
         assert browser.execute_script(press, script_args=[{"ctrlKey": True}], sandbox=None) == [5, True]
+        browser.execute_script('document.querySelector("[data-send-choice=enter]").click()')
+        assert browser.execute_script(chosen) == ["enter", ["enter=true", "shift=false"]]
         # Ctrl+Enter in the editor compiles, as the button does.
         browser.execute_script('''
           window.compiles = 0;
@@ -2374,6 +2377,8 @@ def test_the_page_says_how_to_comment_how_comments_reach_the_agent_and_what_a_se
         # The Post button names the key that sends, as Settings chooses it.
         script('document.querySelector("#paper-comment-btn").click()')
         wait_until(lambda: script('return document.querySelector("#compose-dialog").open'))
+        assert script('return document.querySelector("#compose-submit").title') == "Post (Enter)"
+        script('document.querySelector("[data-send-choice=shift]").click()')
         assert script('return document.querySelector("#compose-submit").title') == "Post (Shift+Enter)"
         script('document.querySelector("[data-send-choice=enter]").click()')
         assert script('return document.querySelector("#compose-submit").title') == "Post (Enter)"
@@ -3322,8 +3327,7 @@ def test_a_reviewer_finds_a_co_authors_thread_by_its_writer_file_and_day(tmp_pat
         type_keys(browser, ["r"])
         wait_until(lambda: script('return document.activeElement.classList.contains("cmt-form-input")'))
         type_keys(browser, list("Do you mean the case n = 0?"))
-        browser.actions("key", "keyboard").key_down(chrome.SHIFT).key_down(chrome.ENTER) \
-            .key_up(chrome.ENTER).key_up(chrome.SHIFT).perform()
+        type_keys(browser, [""])
         wait_until(lambda: shared.server.comments.get(sought.id).thread[-1].text == "Do you mean the case n = 0?")
         asked = shared.server.comments.get(sought.id).thread[-1]
         assert (asked.author, asked.name, asked.overleaf) == ("human", None, None)

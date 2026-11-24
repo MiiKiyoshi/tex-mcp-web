@@ -250,7 +250,7 @@ remembers each choice in this browser.
   sessions. The PDF looks as compiled in every theme.
 - **Text size of the top bar, panels and dialogs** ranges from 90% to 150%. It does not change
   the editor, the translation, the PDF, the sidebar tabs or Settings itself.
-- **Send a comment with** chooses whether Shift+Enter, the default, or Enter sends a comment.
+- **Send a comment with** chooses whether Enter, the default, or Shift+Enter sends a comment.
 - **Shortcut letters on a comment's buttons** shows or hides the key letters on the current
   comment's buttons.
 - **Editor cursor position** set to **1/3 down** or **1/2 down** keeps the cursor's line that

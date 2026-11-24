@@ -2781,11 +2781,11 @@ async function handleSourceChanged(message) {
   await openSource(state.sourcePath, line, true, focused);
 }
 
-// What sends a comment, as Settings chooses: shift with enter, Enter writing a new line as
-// in any box of text, or Enter, shift with it writing the new line. The command or control
+// What sends a comment, as Settings chooses: Enter, shift with it writing a new line, or
+// shift with enter, Enter writing the new line as in any box of text. The command or control
 // key with enter sends either way. The choice is kept for next time.
 function enterSends() {
-  return state.sendKey === "enter";
+  return state.sendKey !== "shift";
 }
 
 function applySendKey() {
@@ -6207,7 +6207,7 @@ function attachSidebarToggle() {
       applySendKey();
     });
   }
-  try { state.sendKey = localStorage.getItem("texMcpSendKey"); } catch { /* shift with enter sends */ }
+  try { state.sendKey = localStorage.getItem("texMcpSendKey"); } catch { /* Enter sends */ }
   applySendKey();
   $("#sidebar-toggle-btn").addEventListener("click", () =>
     setSidebarCollapsed(!$(".layout").classList.contains("sidebar-collapsed")));
