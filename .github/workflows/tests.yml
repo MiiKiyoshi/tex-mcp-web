@@ -31,10 +31,21 @@ jobs:
       - name: Python packages
         run: pip install -e ".[dev]"
       - name: Tests
+        env:
+          TEX_MCP_FAILURES: ${{ runner.temp }}/failures
         run: |
           google-chrome --version
           # A browser test that a loaded runner fails once is run again by itself.
           python -m pytest || python -m pytest --last-failed
+      # What the page showed when a browser test failed, a failure that passed when run again
+      # too: its screenshot, markup, fields and console.
+      - name: Pages of failed tests
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failures-linux-${{ matrix.python }}
+          path: ${{ runner.temp }}/failures
+          if-no-files-found: ignore
 
   # The page's users are on Windows and macOS too: every test runs there as well, the browser's
   # in Chrome, with TeX Live for the papers they build.
@@ -69,6 +80,8 @@ jobs:
         run: pip install -e ".[dev]"
       - name: Tests
         shell: bash
+        env:
+          TEX_MCP_FAILURES: ${{ runner.temp }}/failures
         run: |
           # The runner's own chromedriver can be older than its Chrome. Without it Selenium
           # fetches the one that fits.
@@ -79,6 +92,13 @@ jobs:
           python -m tests.machine_times
           # A browser test that a loaded runner fails once is run again by itself.
           python -m pytest -rfs --part ${{ matrix.part }} || python -m pytest -rfs --last-failed
+      - name: Pages of failed tests
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failures-${{ matrix.os }}-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/failures
+          if-no-files-found: ignore
 
   # Mac users read the page in Safari, whose engine is not Chrome's: the browser tests run
   # in it too, through its own driver. It has no window without a screen and takes one
@@ -110,6 +130,14 @@ jobs:
       - name: Browser tests in Safari
         env:
           TEX_MCP_BROWSER_KIND: safari
+          TEX_MCP_FAILURES: ${{ runner.temp }}/failures
         run: |
           python -m pytest -n 0 -rfs --part ${{ matrix.part }} tests/test_browser.py \
             || python -m pytest -n 0 -rfs --last-failed tests/test_browser.py
+      - name: Pages of failed tests
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failures-safari-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/failures
+          if-no-files-found: ignore
