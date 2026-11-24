@@ -1,5 +1,5 @@
 /* The look the review pages share: the colours and their themes, the size of the page's own
-   text, the dialogs, and the parts of Settings that choose them.
+   text, the dialogs and their buttons, and the parts of Settings that choose them.
 
    Shared by the review pages. It is written in tex-mcp-web, and scripts/share_page.py copies it
    to the others. A copy is never edited by hand. */
@@ -72,6 +72,23 @@ dialog {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
 }
 dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
+/* A dialog's buttons at its foot, on the right, the one that does what it is for in the accent. */
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+.dialog-actions button {
+  padding: 0.4rem 0.8rem;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+.dialog-actions button[type="submit"] {
+  background: var(--accent);
+  color: white;
+  border: none;
+}
 /* The dialogs take the text size Settings chooses, all but Settings itself, which keeps its
    own size so that it holds still under the hand while the size is chosen. */
 #settings-dialog { zoom: calc(1 / var(--text-scale)); }

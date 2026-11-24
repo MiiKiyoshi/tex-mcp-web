@@ -1,14 +1,138 @@
 // The comment panel of the review pages: each tab's comments in the view and the order chosen,
 // the search above them, the row that changes the picked ones, the line that undoes the last
 // change, the cards with their threads, replies, edits and suggestions, and the dialog that
-// writes a new comment. The page holds the markup, with the ids used here, and gives the hooks
-// createCommentPanel describes.
+// writes a new comment. The panel draws itself into two places the page gives, #tab-comments
+// and #compose-dialog, and the page gives the hooks createCommentPanel describes. Its look is
+// comment-panel.css.
 //
 // Shared by the review pages. It is written in tex-mcp-web, and scripts/share_page.py copies
 // it to the others. A copy is never edited by hand.
 
 import { $, $$, h, clear, placeholder } from "./dom.js";
 import { meetsSearch, createCommentSearch } from "./comment-search.js";
+
+function escaped(text) {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+}
+
+// The panel's markup. Its row has four groups, a thin line between each two: what to look at,
+// picking, what acts on the picked comments, and fetching and calling. The buttons are icons,
+// with the words as title and aria-label. Each button shows the one drawing that fits its
+// state; a count rides beside the drawing where the action has one. A button with nothing to
+// do is greyed out, not taken away: the row keeps one shape. Each <slot> is where the page's
+// own parts go (drawPanel).
+function paneMarkup(labels) {
+  const [sortValue, sortName] = labels.firstSort.map(escaped);
+  return `<div class="filter-row">
+  <span class="row-group">
+    <!-- The page fills the list with the shown tab's views. In a row short of room even
+         for the shortest view's name it is its icon alone, with the list lying clear over it. -->
+    <span class="pick view-pick"><span class="icon-btn view-icon" aria-hidden="true">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h12l-4.5 5.5V13l-3-1.5V8.5z"/></svg>
+      </span><span id="comment-filter-name" class="pick-name" aria-hidden="true">open</span><select id="comment-filter" aria-label="View">
+      <option value="open" selected>open</option>
+    </select></span>
+    <!-- The order of the list, kept for each comment tab. In a row short of room it is its
+         icon alone, with the list lying clear over it. -->
+    <span id="comment-sort-pick" class="pick sort-pick"><span class="icon-btn sort-icon" aria-hidden="true">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4h6M2 8h4.5M2 12h3M12 3v10M9.5 10.5 12 13l2.5-2.5"/></svg>
+      </span><span id="comment-sort-name" class="pick-name" aria-hidden="true">${sortName}</span><select id="comment-sort" aria-label="Sort by">
+      <option value="${sortValue}" selected>${sortName}</option>
+      <option value="latest">latest first</option>
+      <option value="oldest">oldest first</option>
+    </select></span>
+    <button id="fold-all-btn" class="icon-btn" type="button" aria-label="Expand all" title="Expand all">
+      <svg class="icon-expand" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4-4 4 4M4 10l4 4 4-4"/></svg>
+      <svg class="icon-collapse hidden" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 2l4 4 4-4M4 14l4-4 4 4"/></svg>
+    </button>
+    <!-- Shown when the row is too narrow: the buttons the row has no room for wait
+         behind the dots, each with its words. -->
+    <span id="comment-rare" class="comment-rare">
+      <button id="comment-rare-btn" class="icon-btn" type="button" aria-haspopup="true" aria-expanded="false" aria-label="More" title="More">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="3.5" cy="8" r="1.3"/><circle cx="8" cy="8" r="1.3"/><circle cx="12.5" cy="8" r="1.3"/></svg>
+      </button>
+      <span class="comment-rare-group"></span>
+    </span>
+  </span>
+  <span class="row-group">
+    <input id="pick-all-btn" class="comment-pick" type="checkbox" aria-label="Select all" title="Select all">
+  </span>
+  <span class="row-group">
+    <!-- Resolve while a picked comment is open, Reopen while every picked one is closed. -->
+    <button id="resolve-picked-btn" class="icon-btn" type="button" disabled data-status="resolved" aria-label="Resolve" title="Resolve the selected comments">
+      <svg class="icon-resolve" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M5 8l2 2 4-4"/></svg>
+      <svg class="icon-reopen hidden" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.5-3.5"/><path d="M13 3v3h-3"/></svg>
+      <span class="wide-label">Resolve</span><span class="count"></span>
+    </button>
+    <button id="archive-picked-btn" class="icon-btn" type="button" disabled data-status="archived" aria-label="Archive" title="Archive the selected comments">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 3h12v3H2z"/><path d="M3 6v7h10V6M6 9h4"/></svg><span class="count"></span>
+    </button>
+    <slot name="picked"></slot>
+  </span>
+  <span id="comment-fetch" class="row-group">
+    <slot name="fetch"></slot>
+    <!-- The bell, which calls the agent to the comments. -->
+    <button id="call-agent-btn" class="icon-btn agent-offline" type="button" aria-label="Queue call for agent" title="No agent is listening. The call will be queued until one connects (Ctrl+Alt+Enter)">
+      <span id="agent-waiting-dot" class="agent-dot"></span>
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11V7a4 4 0 0 1 8 0v4l1.5 1.5h-11z"/><path d="M6.5 14a1.5 1.5 0 0 0 3 0"/></svg>
+      <span id="call-agent-word" class="count"></span>
+    </button>
+  </span>
+</div>
+<!-- Lists the tab's comments that meet what is typed, whatever their status. -->
+<input id="comment-search" class="comment-search" type="search" autocomplete="off" spellcheck="false"
+       aria-label="Search comments" placeholder="Search words, a file or a name…">
+<!-- Shown while the search box has the focus: a click puts the condition into the box at
+     the cursor. The list under them offers the tab's writers for from: and its files for file:. -->
+<div id="search-terms" class="search-terms" hidden>
+  <button type="button" tabindex="-1" data-insert="from:" title="Show comments with a message from a person. Type a name or part of one, or use from:me or from:agent.">from:</button>
+  <button type="button" tabindex="-1" data-insert="file:" title="Show comments on a file. Type its name or part of it.">file:</button>
+  <button type="button" tabindex="-1" data-insert='""' title="Match the exact phrase">"phrase"</button>
+  <button type="button" tabindex="-1" data-insert="-" title="Exclude comments that contain the next word">-not</button>
+  <button type="button" tabindex="-1" data-insert="OR" title="Match either the word before or the word after">OR</button>
+  <button type="button" tabindex="-1" data-insert="after:" title="Show comments written on or after a date, such as 11-13, 2026-11-13 or 11-13T09:30">after:</button>
+  <button type="button" tabindex="-1" data-insert="before:" title="Show comments written before a date, such as 11-13, 2026-11-13 or 11-13T09:30">before:</button>
+  <slot name="search"></slot>
+  <div id="search-pick" class="search-pick" role="listbox" aria-label="Suggestions" hidden></div>
+</div>
+<slot name="notes"></slot>
+<!-- Said after comments change status from the page, with Undo, until the next change. -->
+<p id="undo-line" class="sync-why undo-line" role="status" hidden>
+  <span id="undo-text"></span>
+  <button id="undo-btn" class="sync-why-go undo-go" type="button">Undo</button>
+  <button id="undo-close" class="undo-close" type="button" aria-label="Close" title="Close">
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+  </button>
+</p>
+<div id="comments-list" class="comments-list" tabindex="-1"></div>`;
+}
+
+function composeMarkup(labels) {
+  return `<form method="dialog" id="compose-form">
+  <h3 id="compose-title">${escaped(labels.composeTitle)}</h3>
+  <p id="compose-anchor" class="compose-anchor"></p>
+  <slot name="compose"></slot>
+  <textarea id="compose-text" rows="6" required placeholder="${escaped(labels.composeBox)}"></textarea>
+  <div class="dialog-actions">
+    <button type="button" id="compose-cancel">Cancel</button>
+    <button type="submit" id="compose-submit">Post</button>
+  </div>
+</form>`;
+}
+
+// The markup drawn into *place*, with the page's own parts that wait in it, each marked
+// data-slot with the name of the <slot> it takes the place of. They go there in their order,
+// as the slot's own children: the row's groups, its fitting and its key letters know their
+// buttons as children of the group.
+function drawPanel(place, markup) {
+  const parts = [...place.querySelectorAll(":scope > [data-slot]")];
+  place.innerHTML = markup;
+  for (const slot of place.querySelectorAll("slot")) {
+    const own = parts.filter((part) => part.dataset.slot === slot.name);
+    for (const part of own) part.removeAttribute("data-slot");
+    slot.replaceWith(...own);
+  }
+}
 
 // How many of the comments a search finds are drawn.
 const SEARCH_SHOWN = 100;
@@ -54,8 +178,12 @@ export function statusOf(comment) {
   return comment.hidden && comment.status === "open" ? "hidden" : comment.status;
 }
 
-// The panel, kept on the page's `state`, which it adds its own fields to, and drawn into the
-// page's markup. The page gives:
+// The panel, kept on the page's `state`, which it adds its own fields to, and drawn at once into
+// the page's #tab-comments and #compose-dialog, with the page's own parts that wait in them
+// (drawPanel): its buttons for the picked comments, data-slot="picked", which follow Archive;
+// what goes before the bell, "fetch"; what follows the search's conditions, "search"; its
+// lines over the Undo line, "notes"; and its boxes over the comment's own, "compose". The page
+// gives:
 //
 //   prefix       what the browser keeps the order of each tab's list under, before "CommentSort-"
 //   api          the server's comment calls: list(status) with "open", "resolved", "archived"
@@ -75,11 +203,15 @@ export function statusOf(comment) {
 //                its views lists from its comments read; `items()`, what it lists beside its
 //                comments, which waits for the reviewer too; and `group(status, comment)`, the
 //                group a comment sorts in, lower first.
-//   labels       `reply`, the reply button's word, and `replyBox`, what the reply box says
+//   labels       `reply`, the reply button's word; `replyBox`, what the reply box says;
+//                `firstSort`, [value, name] of the sort list's first order, which keeps the
+//                order the tab lists its comments in; and `composeTitle` and `composeBox`, the
+//                new comment dialog's heading and what its box says
 //   sendOn, sendKeyName   the key that sends what is written, as Settings chooses it
-//   keys         the comment keys: hint(button), the key that presses a card's button, for its
-//                title; rangeIds(), the comments a held range covers; mark(), to mark the ringed
-//                card's buttons with their keys; placeRing(), to scroll the ringed card into place
+//   keys         the comment keys: hint(button), the key that presses a card's button, or works
+//                "comment-search" or "comment-sort", for its title; rangeIds(), the comments a
+//                held range covers; mark(), to mark the ringed card's buttons with their keys;
+//                placeRing(), to scroll the ringed card into place
 //   tabOf(comment)              the tab that lists a comment
 //   readAlong(), applyAlong(read)   what the page reads beside each list, applied once that
 //                               reading is the latest
@@ -93,9 +225,10 @@ export function statusOf(comment) {
 //   settles(comment)            whether the row's Resolve, Reopen and Archive act on a picked one
 //   anchorLabel(anchor), showPlace(id), markPlaces()   a comment's place: named on its card,
 //                               shown, and the shown tab's open comments marked where they are
+//   stale(comment)              whether what a comment is on can no longer be found
 //   suggestedCard(item)         the card of a suggested edit the list holds
-//   cardNote(comment), cardReply(comment, expanded)   what the page adds under a card's head,
-//                               and under its thread and suggestion; null for nothing
+//   cardNote(comment, expanded), cardReply(comment, expanded)   what the page adds under a
+//                               card's head, and under its thread and suggestion; null for nothing
 //   cardActions(comment, buttons)   the buttons an opened card shows, given the ones it would
 //   entryMark(entry), mayChange(entry, comment), deleteQuestion(entry, index, question)
 //                               a mark beside an entry, whether the reviewer may change an entry
@@ -163,6 +296,11 @@ export function createCommentPanel(host) {
     keptComment: "",
     composeSubmitting: false,
   });
+  drawPanel($("#tab-comments"), paneMarkup(labels));
+  drawPanel($("#compose-dialog"), composeMarkup(labels));
+  // Counted up each time the panel lets go of what it held for one document (reset), so a
+  // change still on its way for that one stops when it comes back.
+  let resets = 0;
   const steps = ROW_STEPS.flatMap((step) => [step, ...(host.rowSteps[step[0]] ?? [])]);
   const FORM_CONFIG = {
     reply: { placeholder: labels.replyBox, key: "text", label: "Post reply" },
@@ -508,8 +646,10 @@ export function createCommentPanel(host) {
     const resolved = Object.fromEntries(changing.filter((comment) => comment.status === "resolved" && comment.resolved)
       .map((comment) => [comment.id, comment.resolved]));
     const noun = tabNoun();
+    const from = resets;
     try {
       const { took, why } = await postStatus(ids, status);
+      if (from !== resets) return;
       const changed = took.filter((id) => before.has(id));
       if (changed.length > 0) {
         // Hidden threads opened are shown again, not reopened.
@@ -540,8 +680,10 @@ export function createCommentPanel(host) {
     const left = new Map(undo.before);
     let why = "";
     let gone = 0;
+    const from = resets;
     try {
       const answer = await api.list("all");
+      if (from !== resets) return;
       if (answer.ok) {
         const present = new Set(answer.data.comments.map((comment) => comment.id));
         for (const id of [...left.keys()].filter((id) => !present.has(id))) {
@@ -551,6 +693,7 @@ export function createCommentPanel(host) {
       }
     } catch { /* the calls below say why they fail */ }
     for (const status of new Set(left.values())) {
+      if (from !== resets) return;
       const ids = [...left.keys()].filter((id) => left.get(id) === status);
       const resolved = status === "resolved"
         ? Object.fromEntries(ids.filter((id) => undo.resolved[id]).map((id) => [id, undo.resolved[id]])) : {};
@@ -562,6 +705,7 @@ export function createCommentPanel(host) {
         why ||= error.message;
       }
     }
+    if (from !== resets) return;
     // A change made meanwhile has the line.
     if ((left.size > 0 || gone > 0) && state.undo === null) state.undo = { ...undo, before: left, why, gone };
     renderUndo();
@@ -615,6 +759,7 @@ export function createCommentPanel(host) {
 
   function renderCommentItem(comment) {
     const expanded = state.expanded.has(comment.id);
+    const stale = host.stale(comment);
     const replies = comment.thread.length - 1;
     const box = pickBox(comment);
     const toggle = (event) => {
@@ -639,13 +784,13 @@ export function createCommentPanel(host) {
     // Outside the unanswered view, an unanswered card says so, so it stands out in the others.
     unanswered(comment) && $("#comment-filter").value !== "unanswered"
       ? h("span", { class: "cmt-unanswered", text: "unanswered", title: "Waiting for your response" }) : null,
-    comment.stale ? h("span", { class: "stale", text: "STALE" }) : null,
-    !comment.stale && comment.reanchored
+    stale ? h("span", { class: "stale", text: "STALE", title: "The text this comment is on has changed or can no longer be found" }) : null,
+    !stale && comment.reanchored
       ? h("span", { class: "reanchored", text: "EDITED", title: "The commented text was edited; the highlight follows the edited text" })
       : null,
     h("span", { class: "cmt-anchor", text: host.anchorLabel(comment.anchor) }));
 
-    const children = [head, host.cardNote(comment)];
+    const children = [head, host.cardNote(comment, expanded)];
     if (!expanded && comment.thread.length > 0) {
       // A thread whose first entry carries its writer's name names who opened it, since it may
       // be anyone.
@@ -996,7 +1141,7 @@ export function createCommentPanel(host) {
     const select = $("#comment-sort");
     select.value = commentSort();
     $("#comment-sort-name").textContent = select.selectedOptions[0].textContent;
-    select.title = `Sort by ${select.selectedOptions[0].textContent} (o)`;
+    select.title = `Sort by ${select.selectedOptions[0].textContent}${keys.hint("comment-sort")}`;
   }
 
   // The order chosen for the shown tab, which this browser keeps for it.
@@ -1072,6 +1217,7 @@ export function createCommentPanel(host) {
     state.composeFields = fields;
     compose.opening(fields);
     $("#compose-anchor").textContent = label;
+    $("#compose-submit").title = `Post (${host.sendKeyName()})`;
     $("#compose-text").value = state.keptComment;
     state.keptComment = "";
     $("#compose-dialog").showModal();
@@ -1157,6 +1303,7 @@ export function createCommentPanel(host) {
       });
     }
     $("#undo-btn").title = `Undo the last status change${keys.hint("undo-go")}`;
+    $("#comment-search").title = `Search the comments of this tab${keys.hint("comment-search")}`;
     $("#undo-btn").addEventListener("click", () => undoStatus().catch((error) => console.error(error)));
     $("#undo-close").addEventListener("click", () => {
       state.undo = null;
@@ -1170,8 +1317,10 @@ export function createCommentPanel(host) {
       box.addEventListener("input", () => fitComposeBox(box));
     }
     // However the dialog closes, by Post, Cancel, Escape or Ctrl+[, what it was opened on goes,
-    // and the page lets go of it too.
+    // and the page lets go of it too. The close event comes after the dialog has closed, by which
+    // time it may be open again, on what it is opened on now, which stays.
     $("#compose-dialog").addEventListener("close", () => {
+      if ($("#compose-dialog").open) return;
       state.pendingAnchor = null;
       compose.closed();
     });
@@ -1210,9 +1359,28 @@ export function createCommentPanel(host) {
     });
   }
 
+  // What the panel holds for the document shown let go, for a page that shows another in its
+  // place: its comments, those opened and picked, the ring, a box being written in or an entry
+  // being edited, and the change Undo would put back, which was made to the other's comments.
+  // A change still on its way for that one stops when it comes back.
+  function reset() {
+    resets += 1;
+    state.comments = [];
+    state.expanded.clear();
+    state.picked.clear();
+    state.pickedFrom = null;
+    state.focusedCommentId = null;
+    state.activeForm = null;
+    state.editingEntry = null;
+    state.unfitSuggestions.clear();
+    state.commentsView = null;
+    state.undo = null;
+    renderUndo();
+  }
+
   return {
     attach, refreshComments, renderComments, renderPickedActions, fitCommentRow, foldAll, setStatus,
     undoStatus, pickBox, actionButton, doMutation, setActiveForm, unanswered, setCommentFilter, chosenView,
-    switchTab, cycleSort, openCompose, openCommentSearch, closeCommentSearch,
+    switchTab, cycleSort, openCompose, openCommentSearch, closeCommentSearch, reset,
   };
 }

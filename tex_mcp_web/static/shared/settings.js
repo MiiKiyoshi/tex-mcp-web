@@ -45,8 +45,8 @@ function check(name, value) {
 
 // Fills #settings-look with the shared choices and applies what was kept. The page is told of
 // the theme each time it changes, to restyle what CSS does not reach (an editor, a viewer, a
-// frame), and of the key that sends, to name it on its buttons.
-export function createSettings({ prefix, onTheme = () => {}, onSendKey = () => {} }) {
+// frame).
+export function createSettings({ prefix, onTheme = () => {} }) {
   const read = (name) => {
     try { return localStorage.getItem(prefix + name); } catch { return null; }
   };
@@ -99,18 +99,14 @@ export function createSettings({ prefix, onTheme = () => {}, onSendKey = () => {
   let sendKey = read("SendKey");
   const enterSends = () => sendKey !== "shift";
   const sendKeyName = () => (enterSends() ? "Enter" : "Shift+Enter");
-  const applySendKey = () => {
-    check("send", enterSends() ? "enter" : "shift");
-    onSendKey(sendKeyName());
-  };
   for (const button of document.querySelectorAll("[data-send-choice]")) {
     button.addEventListener("click", () => {
       sendKey = button.dataset.sendChoice;
       keep("SendKey", sendKey);
-      applySendKey();
+      check("send", enterSends() ? "enter" : "shift");
     });
   }
-  applySendKey();
+  check("send", enterSends() ? "enter" : "shift");
 
   return {
     sendKeyName,

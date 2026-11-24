@@ -2375,13 +2375,14 @@ def test_the_page_says_how_to_comment_how_comments_reach_the_agent_and_what_a_se
         note = 'const note = document.querySelector("#call-agent-why"); return note.hidden ? null : note.textContent'
         assert script(note) is None
         # The Post button names the key that sends, as Settings chooses it.
-        script('document.querySelector("#paper-comment-btn").click()')
+        posts = 'document.querySelector("#paper-comment-btn").click(); return document.querySelector("#compose-submit").title'
+        assert script(posts) == "Post (Enter)"
+        # Cancelled and opened again at once, the dialog keeps what it is opened on now, though
+        # the close event of the one before comes after: the comment below is posted.
+        for choice, named in [("shift", "Post (Shift+Enter)"), ("enter", "Post (Enter)")]:
+            assert script('document.querySelector("#compose-cancel").click();'
+                          f' document.querySelector("[data-send-choice={choice}]").click(); {posts}') == named
         wait_until(lambda: script('return document.querySelector("#compose-dialog").open'))
-        assert script('return document.querySelector("#compose-submit").title') == "Post (Enter)"
-        script('document.querySelector("[data-send-choice=shift]").click()')
-        assert script('return document.querySelector("#compose-submit").title') == "Post (Shift+Enter)"
-        script('document.querySelector("[data-send-choice=enter]").click()')
-        assert script('return document.querySelector("#compose-submit").title') == "Post (Enter)"
         script('const box = document.querySelector("#compose-text"); box.value = "Tighten the opening.";'
                ' box.dispatchEvent(new Event("input", {bubbles: true}));'
                ' document.querySelector("#compose-form").requestSubmit();')

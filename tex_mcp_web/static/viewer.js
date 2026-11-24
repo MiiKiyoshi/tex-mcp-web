@@ -1171,7 +1171,6 @@ const settings = createSettings({
     // The viewer's scroll bars take the page's scheme, which its own theme does not set.
     state.viewer?.setAttribute("data-tex-theme", theme);
   },
-  onSendKey: (name) => { $("#compose-submit").title = `Post (${name})`; },
 });
 const { sendKeyName, sendOn } = settings;
 
@@ -2731,7 +2730,10 @@ const {
       group: (status, comment) => (status === "drafts" && !draftedThread(comment) ? 1 : 0),
     },
   },
-  labels: { reply: "Reply privately", replyBox: "Private reply, for you and the agent…" },
+  labels: {
+    reply: "Reply privately", replyBox: "Private reply, for you and the agent…", firstSort: ["paper", "paper order"],
+    composeTitle: "New private comment", composeBox: "leave a private comment for the coding agent…",
+  },
   sendOn,
   sendKeyName,
   keys: { hint: keyHint, rangeIds, mark: markKeys, placeRing },
@@ -2782,6 +2784,7 @@ const {
   // sent or deleted, and a suggested edit accepted or rejected.
   settles: (comment) => !draftedThread(comment) && !comment.suggested,
   anchorLabel,
+  stale: (comment) => comment.stale,
   showPlace: jumpToComment,
   markPlaces: () => {
     syncCommentAnnotations();
@@ -4367,7 +4370,7 @@ function attachKeyboardNavigation() {
 
 const KEY_NAMES = { ArrowDown: "↓", ArrowUp: "↑", " ": "Space" };
 
-// Each key as the Keys page of Help lists it. A key with a button names it, for the button's title. One
+// Each key as the Keys page of Help lists it. A key with a button names the controls it works, for their titles. One
 // that acts on the picked comments, when there are some, says so. While v holds a range, a key
 // with a range action does that, and of the rest only those marked inRange act: the keys that
 // move, which stretch it, and Space. The list's keys act while the Comments pane is shown, the
@@ -4429,10 +4432,11 @@ const COMMENT_KEYS = [
   ]],
   ["View", [
     { keys: ["/"], does: "Search this tab's comments in any status. Enter jumps to the results; Escape closes the search",
-      run: () => openCommentSearch() },
+      button: ["comment-search"], run: () => openCommentSearch() },
     { keys: ["f"], does: "Next view (open, unanswered, …)", run: () => cycleStatus(1) },
     { keys: ["F"], does: "Previous view", run: () => cycleStatus(-1) },
-    { keys: ["o"], does: "Next sort order (paper order, latest first, oldest first)", run: () => cycleSort() },
+    { keys: ["o"], does: "Next sort order (paper order, latest first, oldest first)", button: ["comment-sort"],
+      run: () => cycleSort() },
     { keys: ["t"], does: "Next tab", scope: "sidebar", run: () => cycleTab(1) },
     { keys: ["T"], does: "Previous tab", scope: "sidebar", run: () => cycleTab(-1) },
     { keys: ["?"], does: "Open Help", scope: "page", run: () => showHelp() },

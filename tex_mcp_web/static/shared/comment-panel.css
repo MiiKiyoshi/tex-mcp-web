@@ -1,0 +1,540 @@
+/* The comment panel of the review pages: the row above the list, with its groups, lists, icon
+   buttons and the dots that hold what the row has no room for, the search and its conditions,
+   the Undo line, the list and its cards, their threads, reply boxes and suggestions, the dialog
+   for a new comment, and the bell's place in the row. comment-panel.js draws it.
+
+   Shared by the review pages. It is written in tex-mcp-web, and scripts/share_page.py copies it
+   to the others. A copy is never edited by hand. */
+
+/* A page's own part of the panel waits out of sight until the panel takes it to its place. */
+[data-slot] { display: none; }
+.hidden { display: none !important; }
+
+/* The comments tab is a column: the filter row stays put and the list below it scrolls,
+   so the buttons are in reach however far down the reviewer is. */
+#tab-comments.active { display: flex; flex-direction: column; overflow: hidden; padding: 0.5rem; }
+
+.placeholder {
+  color: var(--fg-dim);
+  font-style: italic;
+  text-align: center;
+  padding: 1rem;
+}
+
+/* A list on a touch screen takes 16px type so the phone does not zoom in on it, which
+   drew it larger than everything around it. There its choice is drawn in the row's own
+   type, and the list lies clear over that and still opens on a tap. */
+.pick { position: relative; display: inline-flex; min-width: 0; }
+.pick-name { display: none; }
+@media (pointer: coarse) {
+  .pick-name {
+    position: relative;
+    display: block;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    padding: 0.2rem 1.2rem 0.2rem 0.4rem;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    background: var(--bg-elev);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-body);
+  }
+  .pick-name::after { content: "\25BE"; position: absolute; right: 0.4rem; top: 50%; transform: translateY(-50%); color: var(--fg-dim); }
+  .pick select {
+    position: absolute !important; inset: 0; width: 100% !important; height: 100% !important;
+    min-width: 0 !important; max-width: none !important; opacity: 0;
+  }
+}
+.filter-row .pick { flex: none; }
+
+/* ----- the row above the list ----- */
+/* The dots' menu hangs from the row's left edge. */
+.filter-row {
+  --row-gap: 0.4rem;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--row-gap);
+  margin-bottom: 0.5rem;
+}
+/* The groups, a thin line before each but the first, and none for a group with nothing shown.
+   The view list at the left edge, the other groups at the right: the first group takes the
+   room between, so the buttons keep their places whatever the row's width. */
+.row-group { flex: none; display: flex; align-items: center; gap: var(--row-gap); }
+.row-group + .row-group { padding-left: var(--row-gap); border-left: 1px solid var(--border); }
+.row-group:not(:has(> :not([hidden]))) { display: none; }
+.filter-row > .row-group:first-child { margin-right: auto; }
+/* Wordless, the buttons' words go, but Resolve's, which goes after them. */
+.filter-row.wordless #call-agent-word,
+.filter-row.resolve-wordless .wide-label { display: none; }
+/* Shrunk, the sort list in the row is its icon alone, with the list lying clear over it and
+   still opening on a click, a tap or the keys. Behind the dots it shows its words. */
+.sort-pick .sort-icon { display: none; }
+.filter-row.sort-shrunk .row-group > .sort-pick .sort-icon { display: inline-flex; }
+.filter-row.sort-shrunk .row-group > .sort-pick .pick-name { display: none; }
+.filter-row.sort-shrunk .row-group > .sort-pick select {
+  position: absolute; inset: 0; width: 100%; height: 100%; min-width: 0; opacity: 0;
+}
+.sort-pick:hover .sort-icon { background: var(--accent-soft); }
+.sort-pick:has(select:focus-visible) .sort-icon { outline: 2px solid var(--accent); outline-offset: 1px; }
+.comment-rare-group > .sort-pick { padding: 0.25rem 0.6rem; }
+/* Narrow, the gaps and paddings narrow as on a phone. Squeezed, the view list gives up the
+   room its longest view needs, down to what "open" takes. */
+.filter-row.narrow { --row-gap: 3px; }
+.filter-row.narrow .icon-btn { padding: 4px; }
+.filter-row.squeezed > .row-group:first-child { flex: 0 1 auto; }
+.filter-row.squeezed .pick:not(.sort-pick) { flex: 0 1 auto; min-width: 4.7rem; }
+.filter-row.squeezed .pick:not(.sort-pick) select { width: 100%; text-overflow: ellipsis; }
+/* While words are in the search box the list covers every view, and the view list reads
+   "all", greyed, until the search is cleared. */
+#comment-filter.searching, .view-pick:has(.searching) .pick-name { color: var(--fg-dim); }
+/* View-shrunk, the view list is its icon alone, as the sort list is shrunk, its view named in
+   its title. */
+.view-pick .view-icon { display: none; }
+.filter-row.view-shrunk .pick.view-pick:not(.sort-pick) { flex: none; min-width: 0; }
+.filter-row.view-shrunk .view-pick .view-icon { display: inline-flex; }
+.filter-row.view-shrunk .view-pick .pick-name { display: none; }
+.filter-row.view-shrunk .view-pick select {
+  position: absolute; inset: 0; width: 100%; height: 100%; min-width: 0; opacity: 0;
+}
+.view-pick:hover .view-icon { background: var(--accent-soft); }
+.view-pick:has(select:focus-visible) .view-icon { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* Too narrow even then, the row takes two lines rather than going past its edge. */
+.filter-row.wrapped { flex-wrap: wrap; row-gap: var(--row-gap); }
+.comment-search {
+  flex: none; margin-bottom: 0.5rem; padding: 0.2rem 0.5rem; font: inherit; font-size: var(--text-body);
+  border: 1px solid var(--border); border-radius: 3px; background: var(--bg); color: var(--fg);
+}
+/* The conditions under the search box while it has the focus, and the list of names or files
+   hanging under them, over the comments. */
+.search-terms { position: relative; flex: none; display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 0.5rem; }
+.search-terms[hidden], .search-pick[hidden] { display: none; }
+.search-terms button {
+  padding: 1px 4px; font: var(--text-fine) var(--mono); line-height: 1.4;
+  border: 1px solid var(--border); border-radius: 3px; background: var(--bg); color: var(--fg);
+}
+.search-terms button:hover { background: var(--accent-soft); }
+/* The last item opens Help on its Search page, so it reads as a link. */
+.search-terms .search-help { border-color: transparent; background: none; color: var(--accent); font-family: var(--sans); }
+.search-terms .search-help:hover { background: none; text-decoration: underline; }
+.search-pick {
+  position: absolute; top: calc(100% + 2px); left: 0; right: 0; z-index: 50;
+  max-height: 12rem; overflow-y: auto; padding: 0.25rem;
+  border: 1px solid var(--border); border-radius: 4px; background: var(--bg-elev);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+}
+.search-choice {
+  padding: 0.25rem 0.5rem; border-radius: 3px; font-size: var(--text-body); cursor: pointer;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.search-choice[aria-selected="true"], .search-choice:hover { background: var(--accent-soft); }
+.filter-row select {
+  padding: 0.25rem 0.5rem;
+  font-size: var(--text-body);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg);
+}
+/* A phone's width holds the whole row once the gaps and paddings narrow. */
+@media (max-width: 560px) {
+  .filter-row { --row-gap: 3px; }
+  .filter-row .icon-btn { padding: 4px 4px; }
+}
+.icon-btn {
+  flex: none; display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px 6px; font-size: var(--text-body); line-height: 1; white-space: nowrap;
+  border: 1px solid var(--border); border-radius: 3px; background: var(--bg);
+}
+.icon-btn:hover:not(:disabled) { background: var(--accent-soft); }
+.icon-btn svg { display: block; }
+.icon-btn .count:empty { display: none; }
+.icon-btn:disabled { opacity: .45; }
+/* Notes above the list: why the leaf tab's comments cannot sync yet, that a call to the agent
+   waits for one to listen, and what a change of status did. A note that opens what clears it,
+   and Undo, read as a link. */
+.sync-why { margin: 0; padding: 6px 10px; font-size: var(--text-body); color: var(--muted, inherit); border-bottom: 1px solid var(--border, currentColor); }
+.sync-why[hidden] { display: none; }
+.sync-why-go { padding: 0; border: 0; background: none; font: inherit; color: var(--accent); text-align: left; text-decoration: underline; cursor: pointer; }
+/* After a change of status: what was done, Undo right after it, and the close button at the
+   line's end, both beside the first line of the words, which wrap in their own place on a
+   narrow panel. */
+.undo-line { display: flex; align-items: baseline; gap: 0.6rem; }
+#undo-text { min-width: 0; overflow-wrap: anywhere; }
+.undo-go { flex: none; }
+.undo-close { flex: none; align-self: flex-start; margin: 1px 0 0 auto; padding: 2px; border: 0; background: none; color: var(--fg-dim); line-height: 0; }
+.undo-close:hover { color: var(--fg); }
+.filter-row .icon-btn[hidden] { display: none; }
+/* The dots show once the row is narrow, and the buttons behind them show when they are
+   opened, each named by its label. */
+.comment-rare { display: none; }
+.filter-row.narrow .comment-rare { display: flex; }
+.comment-rare-group {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 50;
+  display: none; flex-direction: column; align-items: stretch; min-width: 12rem; max-width: 100%; padding: 0.25rem;
+  border: 1px solid var(--border); border-radius: 4px; background: var(--bg-elev);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+}
+.comment-rare.open .comment-rare-group { display: flex; }
+.filter-row .comment-rare-group .icon-btn { border: 0; background: transparent; padding: 0.35rem 0.6rem; gap: 6px; white-space: normal; text-align: left; }
+.comment-rare-group .icon-btn:hover:not(:disabled) { background: var(--accent-soft); }
+.comment-rare-group .icon-btn::after { content: attr(aria-label); }
+.comment-rare-group .count { display: none; }
+.comment-pick { flex: none; margin: 0; width: 14px; height: 14px; cursor: pointer; }
+#call-agent-btn.agent-ready { color: var(--ok); border-color: var(--ok); background: #eef7ef; }
+#call-agent-btn.agent-ready .agent-dot { background: var(--ok); }
+#call-agent-btn.agent-offline { color: var(--err); border-color: var(--err); background: #faeeee; }
+#call-agent-btn.agent-offline .agent-dot { background: var(--err); }
+/* Green reaches a parked waiter now; red queues the call for the next waiter. */
+.agent-dot { width: 8px; height: 8px; border-radius: 50%; }
+/* The list takes the comment keys, and the ring on a comment shows where they act. */
+.comments-list:focus { outline: none; }
+.comments-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  /* Room for the focus ring, 4px wide, which the scroll box would otherwise cut off. */
+  padding: 4px;
+}
+.cmt {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.5rem;
+  background: var(--bg);
+}
+.cmt.status-resolved .cmt-status { color: var(--ok); }
+.cmt.status-archived .cmt-status { color: #4a5f8a; }
+/* The key that works a control of the ringed comment, shown while the keys move through the list. */
+.comments-list.show-keys [data-key] { position: relative; }
+.comments-list.show-keys [data-key]::before {
+  content: attr(data-key);
+  position: absolute;
+  top: 0;
+  left: 0;
+  /* On the corner and mostly outside it, so the letter covers none of the button's words. */
+  transform: translate(-70%, -65%);
+  z-index: 1;
+  padding: 0.05rem 0.25rem;
+  border-radius: 3px;
+  background: var(--accent);
+  color: white;
+  font-family: var(--mono);
+  font-size: var(--text-fine);
+  line-height: 1.2;
+  pointer-events: none;
+}
+/* The head's letter, for the pick box, sits inside the card, which the list's edge would cut. */
+.comments-list.show-keys .cmt-head[data-key]::before { transform: translate(-40%, -40%); }
+/* The comments v holds as a range. */
+.cmt.in-range { background: var(--accent-soft); border-color: var(--accent); }
+.cmt.is-focused {
+  /* j/k keyboard focus indicator */
+  box-shadow: 0 0 0 2px var(--accent), 0 0 0 4px var(--accent-soft);
+}
+@keyframes cmt-flash {
+  0%, 50% { background: var(--accent-soft); }
+  100% { background: var(--bg); }
+}
+.cmt.cmt-flash { animation: cmt-flash 1.6s ease-out; }
+
+.cmt-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: -0.5rem -0.5rem 0.25rem;
+  padding: 0.4rem 0.5rem;
+  border-radius: 4px 4px 0 0;
+  flex-wrap: wrap;
+  font-size: var(--text-small);
+  cursor: pointer;
+  user-select: none;
+}
+.cmt-head:hover { background: var(--accent-soft); }
+.cmt-toggle {
+  font-size: var(--text-body);
+  font-weight: 600;
+  color: var(--accent);
+  white-space: nowrap;
+}
+.cmt-id {
+  font-family: var(--mono);
+  color: var(--fg-dim);
+  font-size: var(--text-small);
+}
+.cmt-status {
+  font-family: var(--mono);
+  font-size: var(--text-small);
+  color: var(--fg-dim);
+}
+.cmt-anchor {
+  font-family: var(--mono);
+  font-size: var(--text-small);
+  color: var(--fg-dim);
+  margin-left: auto;
+}
+.reanchored {
+  background: var(--warn);
+  color: white;
+  font-size: var(--text-fine);
+  padding: 0.05rem 0.3rem;
+  border-radius: 3px;
+}
+/* A card waiting for the reviewer's response, outlined in the accent colour. */
+.cmt-unanswered {
+  padding: 0 0.3rem;
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  color: var(--accent);
+  font-size: var(--text-fine);
+  line-height: 1.4;
+}
+.stale {
+  background: var(--err);
+  color: white;
+  font-size: var(--text-fine);
+  padding: 0.05rem 0.3rem;
+  border-radius: 3px;
+}
+.cmt-head {
+  /* Shift-clicking a box would otherwise drag a text selection across the cards. */
+  user-select: none;
+}
+.cmt-preview {
+  font-size: var(--text-body);
+  white-space: pre-wrap;
+}
+.cmt-latest {
+  font-size: var(--text-body);
+  white-space: pre-wrap;
+  margin-top: 0.35rem;
+  padding-left: 0.5rem;
+  border-left: 2px solid var(--border);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  cursor: pointer;
+}
+.cmt-latest.author-agent { border-left-color: var(--accent); }
+.cmt-latest.author-human { border-left-color: var(--ok); }
+.cmt-thread {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  border-top: 1px dashed var(--border);
+  padding-top: 0.5rem;
+}
+.thread-entry {
+  border-left: 2px solid var(--border);
+  padding-left: 0.5rem;
+}
+.thread-entry.author-agent { border-left-color: var(--accent); }
+.thread-entry.author-human { border-left-color: var(--ok); }
+/* Who wrote an entry and when, who reads it, and its Edit and Delete. A line too narrow for
+   them all takes Edit and Delete onto a line of their own, at its right end. */
+.thread-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0 0.5rem;
+  font-size: var(--text-small);
+  color: var(--fg-dim);
+  font-family: var(--mono);
+}
+.entry-actions { display: inline-flex; gap: 0.6rem; margin-left: auto; }
+.cmt-edit, .entry-delete {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--fg-dim);
+  font-size: var(--text-small);
+  font-family: var(--mono);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.cmt-edit:hover { color: var(--fg); }
+.entry-delete:hover { color: var(--err); }
+.thread-text {
+  font-size: var(--text-body);
+  white-space: pre-wrap;
+  margin: 0.2rem 0;
+}
+.thread-edits {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin-top: 0.2rem;
+}
+.edit {
+  font-family: var(--mono);
+  font-size: var(--text-small);
+  color: var(--fg-dim);
+}
+.edit .stale, .edit .reanchored {
+  margin-left: 0.4rem;
+}
+.cmt-actions {
+  display: flex;
+  gap: 0.3rem;
+  margin-top: 0.5rem;
+  flex-wrap: wrap;
+}
+.cmt-actions button {
+  font-size: var(--text-small);
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  border-radius: 3px;
+}
+/* The page's own background as the words, which stay readable on the green in every look. */
+.cmt-actions .cmt-resolve { background: var(--ok); color: var(--bg); border: none; }
+.cmt-actions .cmt-delete { color: var(--err); }
+
+/* ----- suggested rewrite (structured edit shown alongside text) ----- */
+.cmt-suggestion {
+  margin: 0.4rem 0;
+  font-family: var(--mono);
+  font-size: var(--text-small);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.cmt-suggestion .sugg-old,
+.cmt-suggestion .sugg-new {
+  display: flex;
+  gap: 0.4rem;
+  padding: 0.3rem 0.5rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.cmt-suggestion .sugg-old { background: rgba(183, 56, 56, 0.08); }
+.cmt-suggestion .sugg-new {
+  background: rgba(58, 122, 58, 0.08);
+  border-top: 1px solid var(--border);
+}
+.cmt-suggestion .sugg-marker {
+  color: var(--fg-dim);
+  font-weight: bold;
+  flex-shrink: 0;
+  width: 1ch;
+}
+.cmt-suggestion .sugg-text { flex: 1; }
+.cmt-suggestion .sugg-unfit {
+  margin: 0;
+  padding: 0.3rem 0.5rem;
+  border-top: 1px solid var(--border);
+  font-family: var(--sans);
+  color: var(--warn);
+  overflow-wrap: anywhere;
+}
+.cmt-suggestion .sugg-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  padding: 0.35rem 0.5rem;
+  border-top: 1px solid var(--border);
+}
+.cmt-suggestion .sugg-actions { gap: 0.4rem; }
+.cmt-suggestion .sugg-reject { color: var(--err); }
+.cmt-suggestion .sugg-apply, .cmt-suggestion .sugg-reject {
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg);
+  font: inherit;
+  white-space: nowrap;
+}
+.cmt-suggestion .sugg-apply.is-applied {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+
+/* ----- inline comment form (reply / resolve) ----- */
+.cmt-form {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.cmt-form-title {
+  font-size: var(--text-small);
+  font-weight: 600;
+  color: var(--fg);
+}
+.cmt-form-input {
+  width: 100%;
+  font-family: var(--sans);
+  font-size: var(--text-body);
+  padding: 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  resize: vertical;
+}
+.cmt-form.mode-resolve .cmt-form-input { border-left: 3px solid var(--ok); }
+.cmt-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  justify-content: flex-end;
+}
+.cmt-form-actions button {
+  white-space: nowrap;
+  font-size: var(--text-small);
+  padding: 0.25rem 0.7rem;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  border-radius: 3px;
+}
+.cmt-form-actions .cmt-form-submit {
+  background: var(--accent);
+  color: white;
+  border: none;
+}
+.cmt-form-actions button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+.cmt-form.mode-resolve .cmt-form-submit { background: var(--ok); }
+
+/* ----- new comment dialog ----- */
+#compose-dialog { max-width: 46rem; }
+#compose-form { display: flex; flex-direction: column; gap: 0.5rem; }
+#compose-form h3 { margin: 0; font-size: 1rem; }
+.compose-anchor {
+  font-family: var(--mono);
+  font-size: var(--text-small);
+  color: var(--fg-dim);
+  background: var(--bg);
+  padding: 0.4rem;
+  border-radius: 3px;
+  margin: 0;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+/* The box starts at the rows the page gives it and grows with what is typed (fitComposeBox in
+   comment-panel.js) up to about a third of the screen's height, past which it scrolls. */
+#compose-text {
+  font-family: var(--sans);
+  font-size: var(--text-body);
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  resize: vertical;
+  max-height: 35vh;
+}
+#compose-form :disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+:root[data-theme="dark"] #call-agent-btn.agent-ready { background: #1f2b21; }
+:root[data-theme="dark"] #call-agent-btn.agent-offline { background: #321f1e; }
+:root[data-theme="dark"] .cmt.status-archived .cmt-status { color: #9fb4e0; }
