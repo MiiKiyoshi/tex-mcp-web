@@ -53,7 +53,7 @@ def _deliver(tool: Tool, line: str, thread: str | None) -> None:
 
 def wait(tool: Tool, port: int, listener: str, thread: str | None = None, agent: str | None = None,
          once: bool = False) -> None:
-    base = f"http://127.0.0.1:{port}"
+    base = f"http://127.0.0.1:{port}{tool.base}"
     lane = f"&agent={agent}" if agent else ""
     parent = psutil.Process().parent()
     gone, delay = False, 2

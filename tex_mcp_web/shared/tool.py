@@ -24,6 +24,8 @@ class Tool:
     pypi: its project on PyPI, where its releases are, or None for a tool installed only
         from a git clone.
     extras: the extras pip installs it with, as [mcp], or "".
+    base: the path the page's server keeps its call routes under, as /reader for a tool
+        whose calls belong to a page mounted there, or "" for the server's root.
     monitors: the folder where the tool's servers hand a session's waiter to the plugin's
         monitor, ~/.cache/<name>/monitor.
     """
@@ -35,6 +37,7 @@ class Tool:
     headers: Callable[[], dict[str, str]] = dict
     pypi: str | None = None
     extras: str = ""
+    base: str = ""
     monitors: Path = field(init=False)
 
     def __post_init__(self) -> None:
