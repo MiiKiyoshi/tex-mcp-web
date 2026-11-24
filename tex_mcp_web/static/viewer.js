@@ -7,6 +7,8 @@ import { refusalOf } from "./shared/comment-api.js";
 import { createTabStrip } from "./shared/tab-strip.js";
 import { createHelp } from "./shared/help.js";
 import { createUpdate } from "./shared/update.js";
+import { holdZoomOnFields, holdPinchOutside } from "./shared/page-zoom.js";
+import { attachPanelGrips } from "./shared/panel-grips.js";
 
 const DOCUMENT_ID = "paper";
 const ANNOTATION_PREFIX = "tex-web:";
@@ -121,7 +123,6 @@ const state = {
   // The gutter's marks, as "row class": a row takes each class once.
   sourceDecorations: new Set(),
   sourceCommentsByRow: new Map(),
-  panelDraggedAt: -Infinity,
 };
 
 // Overleaf is marked by a leaf wherever the page speaks of it.
@@ -1118,10 +1119,8 @@ async function refreshSourceFiles() {
   if (preferred !== state.sourcePath) await openSource(preferred);
 }
 
-// The file list's choice, and on a touch screen the name drawn over the list in the bar's
-// own type: a list there takes 16px type so the phone does not zoom in on it, which drew
-// the name larger than everything else in the bar. The list lies over the name, clear,
-// and still opens on a tap.
+// The file list's choice, and on a touch screen the name drawn in the bar's own type under
+// the list, which lies over it, clear, and still opens on a tap.
 function showSourceFile(path) {
   $("#source-file").value = path;
   $("#source-file-name").textContent = path.split("/").pop();
@@ -4333,147 +4332,11 @@ function attachSidebarToggle() {
   setSidebarCollapsed(localStorage.getItem("sidebarCollapsed") === "1");
 }
 
-function attachSidebarResize() {
-  const grip = $("#sidebar-grip");
-  const layout = $(".layout");
-  const setPanelHeight = (pixels) => {
-    const limited = Math.round(Math.max(90, Math.min(pixels, window.innerHeight - 140)));
-    layout.style.setProperty("--tex-mcp-panel-height", `${limited}px`);
-    return limited;
-  };
-  const savedHeight = Number(localStorage.getItem("texMcpPanelHeight"));
-  if (savedHeight > 0) layout.style.setProperty("--tex-mcp-panel-height", `${savedHeight}px`);
-
-  $("#sidebar").addEventListener("click", (event) => {
-    if (performance.now() - state.panelDraggedAt >= 400) return;
-    event.preventDefault();
-    event.stopPropagation();
-  }, true);
-
-  grip.addEventListener("pointerdown", (event) => {
-    event.preventDefault();
-    grip.setPointerCapture(event.pointerId);
-    const bottom = layout.getBoundingClientRect().bottom;
-    // A split stacked above keeps its bar where it is on the screen while this one moves.
-    const splitY = state.split.holdable() ? state.split.centerY() : null;
-    let pointerY = null;
-    let frame = null;
-    let height = null;
-    const apply = () => {
-      frame = null;
-      height = setPanelHeight(bottom - pointerY);
-      if (splitY !== null) state.split.holdAt(splitY);
-      state.editor?.resize();
-    };
-    const move = (moved) => {
-      pointerY = moved.clientY;
-      if (frame === null) frame = requestAnimationFrame(apply);
-    };
-    const done = (ended) => {
-      if (frame !== null) cancelAnimationFrame(frame);
-      if (pointerY !== null) apply();
-      if (ended.cancelable) ended.preventDefault();
-      if (pointerY !== null) state.panelDraggedAt = performance.now();
-      grip.removeEventListener("pointermove", move);
-      grip.removeEventListener("pointerup", done);
-      grip.removeEventListener("pointercancel", done);
-      if (height !== null) localStorage.setItem("texMcpPanelHeight", String(height));
-      if (splitY !== null) state.split.keep();
-      state.editor?.resize();
-    };
-    grip.addEventListener("pointermove", move);
-    grip.addEventListener("pointerup", done);
-    grip.addEventListener("pointercancel", done);
-  });
-  // The keys move the bar as the split's do: up and down by a step, Home and End to the
-  // ends. A split stacked above keeps its bar where it is, as it does through a drag.
-  grip.addEventListener("keydown", (event) => {
-    if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
-    event.preventDefault();
-    const splitY = state.split.holdable() ? state.split.centerY() : null;
-    const current = $("#sidebar").getBoundingClientRect().height;
-    const height = setPanelHeight(event.key === "Home" ? Infinity : event.key === "End" ? 0
-      : current + (event.key === "ArrowUp" ? 40 : -40));
-    localStorage.setItem("texMcpPanelHeight", String(height));
-    if (splitY !== null) {
-      state.split.holdAt(splitY);
-      state.split.keep();
-    }
-    state.editor?.resize();
-  });
-}
-
-// The panel's left edge, where the panel sits beside the PDF: a drag or the arrow keys
-// set its width, kept per viewer. Stacked layouts hide this edge and use the grip above.
-// The Preview keeps its zoom mode, such as fitting the page width, through a change of
-// the room it has.
+// The Preview keeps its zoom mode, such as fitting the page width, through a change of the
+// room it has.
 function refitPdf() {
   const zoomMode = state.zoom?.getState().zoomLevel;
   requestAnimationFrame(() => { if (typeof zoomMode === "string") state.zoom?.requestZoom(zoomMode); });
-}
-
-function attachSidebarWidthResize() {
-  const grip = $("#sidebar-width-grip");
-  const layout = $(".layout");
-  const setWidth = (pixels) => {
-    const limited = Math.round(Math.max(240, Math.min(pixels, window.innerWidth * 0.7)));
-    layout.style.setProperty("--tex-mcp-sidebar-width", `${limited}px`);
-    return limited;
-  };
-  const save = (width) => {
-    try { localStorage.setItem("texMcpSidebarWidth", String(width)); } catch { /* per-viewer only */ }
-  };
-  let saved = 0;
-  try { saved = Number(localStorage.getItem("texMcpSidebarWidth")); } catch { /* per-viewer only */ }
-  if (saved > 0) layout.style.setProperty("--tex-mcp-sidebar-width", `${saved}px`);
-
-  grip.addEventListener("pointerdown", (event) => {
-    event.preventDefault();
-    try { grip.setPointerCapture(event.pointerId); } catch { /* synthetic or lost pointer */ }
-    grip.classList.add("dragging");
-    document.body.classList.add("sidebar-resizing");
-    const right = layout.getBoundingClientRect().right;
-    let pointerX = null;
-    let frame = null;
-    let width = null;
-    const apply = () => {
-      frame = null;
-      width = setWidth(right - pointerX);
-      state.editor?.resize();
-    };
-    const move = (moved) => {
-      pointerX = moved.clientX;
-      if (frame === null) frame = requestAnimationFrame(apply);
-    };
-    const done = () => {
-      if (frame !== null) cancelAnimationFrame(frame);
-      if (pointerX !== null) {
-        apply();
-        state.panelDraggedAt = performance.now();
-      }
-      grip.classList.remove("dragging");
-      document.body.classList.remove("sidebar-resizing");
-      grip.removeEventListener("pointermove", move);
-      grip.removeEventListener("pointerup", done);
-      grip.removeEventListener("pointercancel", done);
-      if (width !== null) save(width);
-      state.editor?.resize();
-      refitPdf();
-    };
-    grip.addEventListener("pointermove", move);
-    grip.addEventListener("pointerup", done);
-    grip.addEventListener("pointercancel", done);
-  });
-  grip.addEventListener("keydown", (event) => {
-    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-    event.preventDefault();
-    const current = $("#sidebar").getBoundingClientRect().width;
-    const width = setWidth(event.key === "Home" ? Infinity : event.key === "End" ? 0
-      : current + (event.key === "ArrowLeft" ? 40 : -40));
-    save(width);
-    state.editor?.resize();
-    refitPdf();
-  });
 }
 
 // ----- Workspace layout -----
@@ -4711,50 +4574,23 @@ function attachWorkspaceLayout() {
   applyLayout();
 }
 
-// An iPhone zooms the page into a field whose text is under 16px the moment it takes the
-// cursor, and leaves it zoomed. A viewport that may not grow past 1, from a finger landing
-// on a field until just after it has the cursor, keeps that from happening, and pinching
-// zooms the page as before at any other moment. A page already zoomed in is left as it is.
-function holdZoomOnFields() {
-  const agent = navigator.userAgent;
-  if (!/iP(hone|ad|od)/.test(agent) && !(/Macintosh/.test(agent) && navigator.maxTouchPoints > 1)) return;
-  const viewport = document.querySelector('meta[name="viewport"]');
-  const free = viewport.content;
-  let timer = 0;
-  const release = (after) => {
-    clearTimeout(timer);
-    timer = setTimeout(() => { viewport.content = free; }, after);
-  };
-  document.addEventListener("touchstart", (event) => {
-    if (event.touches.length === 1 && event.target.closest?.("textarea, input, select")
-      && (window.visualViewport?.scale ?? 1) < 1.01) {
-      clearTimeout(timer);
-      viewport.content = `${free}, maximum-scale=1`;
-    } else {
-      release(0);
-    }
-  }, { capture: true, passive: true });
-  document.addEventListener("touchend", () => release(500), { capture: true, passive: true });
-  document.addEventListener("focusin", () => release(500), true);
-}
-
-// A pinch on a trackpad reaches the page as a wheel turned with Ctrl held. Over the Preview
-// the viewer zooms the PDF with it. Anywhere else the browser would magnify the whole page
-// and push the panel's right edge out of the window, so there it does nothing. Cmd or Ctrl
-// with + and - still zoom the page.
-function holdPinchOutsidePreview() {
-  document.addEventListener("wheel", (event) => {
-    if (event.ctrlKey && !event.target.closest?.("#pdf-viewer")) event.preventDefault();
-  }, { passive: false });
-}
-
 async function init() {
   holdZoomOnFields();
-  holdPinchOutsidePreview();
+  // Over the Preview the viewer zooms the PDF with a pinch.
+  holdPinchOutside("#pdf-viewer");
   attachKeyboardNavigation();
   attachSidebarToggle();
-  attachSidebarResize();
-  attachSidebarWidthResize();
+  attachPanelGrips({
+    prefix: PREFIX,
+    width: "--tex-mcp-sidebar-width",
+    height: "--tex-mcp-panel-height",
+    split: () => state.split,
+    resizing: () => state.editor?.resize(),
+    resized: (size) => {
+      state.editor?.resize();
+      if (size === "width") refitPdf();
+    },
+  });
   attachWorkspaceLayout();
   window.addEventListener("beforeunload", (event) => {
     if (!state.sourceDirty) return;

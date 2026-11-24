@@ -31,7 +31,7 @@ def test_the_shared_files_go_to_another_package_with_a_manifest_of_their_digests
         "static/shared": {"look.css", "look-early.js", "settings.js", "dom.js", "comment-api.js", "comment-search.js",
                           "comment-panel.js", "comment-panel.css", "comment-keys.js", "agent-bell.js",
                           "agent-bell.css", "help.js", "help.css", "tab-strip.js", "tab-strip.css", "markdown.js",
-                          "update.js", "update.css"},
+                          "update.js", "update.css", "page-zoom.js", "panel-grips.js", "panel-grips.css"},
         "shared": {"__init__.py", "tool.py", "shared_file.py", "filelock.py", "agents.py", "calls.py",
                    "plugin_monitor.py", "monitor.py", "waiter.py", "update.py"},
     }

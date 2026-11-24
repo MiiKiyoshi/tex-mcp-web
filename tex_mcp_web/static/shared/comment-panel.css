@@ -22,9 +22,8 @@
   padding: 1rem;
 }
 
-/* A list on a touch screen takes 16px type so the phone does not zoom in on it, which
-   drew it larger than everything around it. There its choice is drawn in the row's own
-   type, and the list lies clear over that and still opens on a tap. */
+/* On a touch screen a list's choice is drawn in the row's own type, and the list lies clear
+   over it, so a tap still opens the phone's own list. */
 .pick { position: relative; display: inline-flex; min-width: 0; }
 .pick-name { display: none; }
 @media (pointer: coarse) {

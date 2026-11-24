@@ -1,0 +1,43 @@
+/* The look of the grips that size a review page's panel (panel-grips.js). The panel holds both;
+   the page's CSS shows the bar along its top, #sidebar-grip, where its layout puts the panel
+   under what is reviewed, and hides the left edge, #sidebar-width-grip, there.
+
+   Shared by the review pages. It is written in tex-mcp-web, and scripts/share_page.py copies it
+   to the others. A copy is never edited by hand. */
+
+#sidebar { position: relative; }
+
+/* Where the panel sits under what is reviewed, the bar along its top is dragged to divide the
+   two. It is drawn as a split's bar is when its panes are stacked: a 10px band in the page
+   colour with a 3px bar centred in it, and the line the panel begins at along its lower edge. */
+.sidebar-grip {
+  display: none;
+  flex: 0 0 auto;
+  height: 11px;
+  align-items: center;
+  justify-content: center;
+  cursor: row-resize;
+  touch-action: none;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+.sidebar-grip::before { content: ""; width: 32px; height: 3px; border-radius: 2px; background: var(--border); }
+.sidebar-grip:hover::before, .sidebar-grip:focus-visible::before { background: var(--accent); }
+
+/* Where the panel sits beside what is reviewed, its left edge is dragged to widen or narrow
+   it: a 7px strip over the border line, drawn in the accent while hovered. */
+.sidebar-width-grip {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  width: 7px;
+  z-index: 5;
+  cursor: col-resize;
+  touch-action: none;
+}
+.sidebar-width-grip:hover, .sidebar-width-grip:focus-visible, .sidebar-width-grip.dragging {
+  background: linear-gradient(to right, transparent 2px, var(--accent) 2px, var(--accent) 5px, transparent 5px);
+  outline: none;
+}
+body.sidebar-resizing { cursor: col-resize; user-select: none; }

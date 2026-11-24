@@ -1772,8 +1772,8 @@ def test_a_finger_held_on_a_word_selects_it(tmp_path: Path) -> None:
         '''
         assert browser.execute_script(pressed, script_args=["Pointer"])
         assert not browser.execute_script(pressed, script_args=["Pan"])
-        # The editor's file list draws its name in the bar's type, not the 16px a list takes
-        # on a touch screen, and lies clear over it.
+        # On a touch screen the editor's file list draws its name in the bar's type and lies
+        # clear over it.
         assert browser.execute_script('''
           const name = getComputedStyle(document.querySelector("#source-file-name"));
           const list = getComputedStyle(document.querySelector("#source-file"));
@@ -2254,6 +2254,162 @@ def test_browser_source_selection_and_split_resize(tmp_path: Path) -> None:
         ''')
         assert keyed["after"] < keyed["before"] - 20, keyed
         assert abs(keyed["stored"] - keyed["after"]) <= 2, keyed
+    finally:
+        if browser is not None:
+            browser.quit()
+        shared.stop()
+
+
+# A page an iPhone shows, which is the only one that zooms into a field as it takes the cursor.
+IPHONE = ("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 "
+          "(KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1")
+# A finger landing on, or lifting from, the element the selector names, as a touch screen sends it.
+FINGER = '''
+  const [kind, selector] = arguments;
+  const target = document.querySelector(selector);
+  const box = target.getBoundingClientRect();
+  const touch = new Touch({identifier: 1, target, clientX: box.left + 2, clientY: box.top + 2});
+  const lifted = kind === "touchend";
+  target.dispatchEvent(new TouchEvent(kind, {bubbles: true, cancelable: true, composed: true,
+    touches: lifted ? [] : [touch], targetTouches: lifted ? [] : [touch], changedTouches: [touch]}));
+  return document.querySelector('meta[name="viewport"]').content;'''
+
+
+@needs_browser
+def test_the_panels_left_edge_sets_its_width_and_keeps_it(tmp_path: Path) -> None:
+    """Beside the Preview, the panel's left edge is dragged to set its width, or moved by the
+    keys on it, between 240px and 70% of the window. The width is kept for the next visit, a
+    tap that ends a drag reaches no tab, and stacked the edge gives way to the bar on top."""
+    import pymupdf
+
+    (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
+    with pymupdf.open() as pdf:
+        pdf.new_page().insert_text((72, 72), "Hello world.")
+        pdf.save(tmp_path / "paper.pdf")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    browser = None
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_for_build(shared)
+        first, second = (post_json(f"{base}/comments", {"anchor": {"kind": "paper"}, "text": text})["id"]
+                         for text in ("One.", "Two."))
+        browser = chrome.launch()
+        browser.set_window_rect(x=0, y=0, width=1500, height=1000)
+        browser.navigate(base)
+        wait_until(lambda: browser.execute_script('return document.querySelector(".tab-btn.active")?.dataset.tab') == "comments")
+        width = 'return document.querySelector("#sidebar").getBoundingClientRect().width'
+        stored = 'return Number(localStorage.getItem("texMcpSidebarWidth"))'
+        assert browser.execute_script(width) == 380
+        grip = browser.execute_script('''
+          const box = document.querySelector("#sidebar-width-grip").getBoundingClientRect();
+          return {x: Math.round(box.left + box.width / 2), y: Math.round(box.top + box.height / 2)};''')
+        browser.actions("pointer", "mouse", {"pointerType": "mouse"}).pointer_move(grip["x"], grip["y"]).pointer_down() \
+            .pointer_move(grip["x"] - 120, grip["y"], duration=200).pointer_up().perform()
+        # The tap that ends the drag lands on no tab.
+        browser.execute_script('document.querySelector(".tab-btn[data-tab=sections]").click()')
+        assert browser.execute_script('return document.querySelector(".tab-btn.active").dataset.tab') == "comments"
+        wait_until(lambda: browser.execute_script(stored) > 0)
+        dragged = browser.execute_script(width)
+        assert abs(dragged - 500) <= 2 and abs(browser.execute_script(stored) - dragged) <= 1
+        assert browser.execute_script('''return [document.body.classList.contains("sidebar-resizing"),
+          document.querySelector("#sidebar-width-grip").classList.contains("dragging")]''') == [False, False]
+        time.sleep(0.5)
+        browser.execute_script('document.querySelector(".tab-btn[data-tab=sections]").click()')
+        assert browser.execute_script('return document.querySelector(".tab-btn.active").dataset.tab') == "sections"
+        browser.execute_script('document.querySelector(".tab-btn[data-tab=comments]").click()')
+
+        # The keys: a step wider or narrower, the widest and the narrowest, each kept.
+        keyed = browser.execute_script('''
+          const grip = document.querySelector("#sidebar-width-grip");
+          const width = () => document.querySelector("#sidebar").getBoundingClientRect().width;
+          grip.focus();
+          return ["ArrowLeft", "ArrowRight", "ArrowRight", "Home", "End"].map((key) => {
+            grip.dispatchEvent(new KeyboardEvent("keydown", {key, bubbles: true, cancelable: true}));
+            return [width(), Number(localStorage.getItem("texMcpSidebarWidth"))];
+          });''')
+        widest = round(browser.execute_script("return innerWidth") * 0.7)
+        assert [round(shown) for shown, _ in keyed] == [round(dragged) + 40, round(dragged), round(dragged) - 40, widest, 240]
+        assert all(abs(shown - kept) <= 1 for shown, kept in keyed)
+        browser.execute_script('document.querySelector("#sidebar-width-grip").dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowLeft", bubbles: true, cancelable: true}))')
+        browser.refresh()
+        wait_until(lambda: browser.execute_script(width) == 280)
+        # The keys the edge takes are not the comment list's: Home on it leaves the ring where it is.
+        ringed = 'return document.querySelector("#comments-list .cmt.is-focused")?.dataset.commentId ?? null'
+        browser.execute_script('const list = document.querySelector("#comments-list"); list.focus();'
+                               ' for (const key of ["j", "j"]) list.dispatchEvent(new KeyboardEvent("keydown", {key, bubbles: true, cancelable: true}));')
+        wait_until(lambda: browser.execute_script(ringed) == second)
+        browser.execute_script('const grip = document.querySelector("#sidebar-width-grip"); grip.focus();'
+                               ' grip.dispatchEvent(new KeyboardEvent("keydown", {key: "Home", bubbles: true, cancelable: true}));')
+        assert browser.execute_script(ringed) == second
+
+        # Stacked, the panel sits under the Preview and the bar on its top sets its height.
+        browser.set_window_rect(x=0, y=0, width=500, height=900)
+        wait_until(lambda: browser.execute_script('''return [getComputedStyle(document.querySelector("#sidebar-width-grip")).display,
+          getComputedStyle(document.querySelector("#sidebar-grip")).display]''') == ["none", "flex"])
+    finally:
+        if browser is not None:
+            browser.quit()
+        shared.stop()
+
+
+@chrome.not_in_safari("no touch input or touch emulation in safaridriver")
+@needs_browser
+def test_a_finger_on_a_field_keeps_an_iphone_from_zooming_into_it(tmp_path: Path) -> None:
+    """An iPhone zooms the page into a field whose text is under 16px as it takes the cursor.
+    The fields keep the size of the text around them, and from a finger landing on one until
+    just after it has the cursor the page may not grow past its size. A finger anywhere else
+    frees it at once, and a browser that does not zoom into fields is left as it is. The source
+    editor's hidden input, which no finger lands on, is 16px."""
+    import pymupdf
+
+    (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
+    with pymupdf.open() as pdf:
+        pdf.new_page().insert_text((72, 72), "Hello world.")
+        pdf.save(tmp_path / "paper.pdf")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    browser = None
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_for_build(shared)
+        browser = chrome.launch(touch=True)
+        browser.set_window_rect(x=0, y=0, width=900, height=1000)
+        free = "width=device-width, initial-scale=1.0"
+        # A browser that does not zoom into fields keeps its viewport.
+        browser.navigate(base)
+        wait_until(lambda: browser.execute_script('return document.querySelector("#comment-search") !== null'))
+        assert browser.execute_script(FINGER, script_args=["touchstart", "#comment-search"]) == free
+        browser.execute_script(FINGER, script_args=["touchend", "#comment-search"])
+
+        browser.driver.execute_cdp_cmd("Emulation.setUserAgentOverride", {"userAgent": IPHONE})
+        browser.navigate(base)
+        wait_until(lambda: browser.execute_script('return navigator.userAgent.includes("iPhone")'))
+        wait_until(lambda: browser.execute_script('return document.querySelector("#comment-search") !== null'))
+        assert browser.execute_script('return matchMedia("(pointer: coarse)").matches') is True
+        assert browser.execute_script('''
+          const field = getComputedStyle(document.querySelector("#comment-search")).fontSize;
+          const probe = document.createElement("textarea");
+          probe.className = "ace_text-input";
+          document.body.append(probe);
+          const hidden = getComputedStyle(probe).fontSize;
+          probe.remove();
+          return [parseFloat(field) < 16, hidden];''') == [True, "16px"]
+        held = f"{free}, maximum-scale=1"
+        assert browser.execute_script(FINGER, script_args=["touchstart", "#comment-search"]) == held
+        browser.execute_script('document.querySelector("#comment-search").focus()')
+        assert browser.execute_script(FINGER, script_args=["touchend", "#comment-search"]) == held
+        wait_until(lambda: browser.execute_script('return document.querySelector(\'meta[name="viewport"]\').content') == free)
+        # A finger on anything but a field frees the page at once.
+        browser.execute_script(FINGER, script_args=["touchstart", "#comment-search"])
+        browser.execute_script(FINGER, script_args=["touchstart", "#settings-btn"])
+        wait_until(lambda: browser.execute_script('return document.querySelector(\'meta[name="viewport"]\').content') == free)
     finally:
         if browser is not None:
             browser.quit()

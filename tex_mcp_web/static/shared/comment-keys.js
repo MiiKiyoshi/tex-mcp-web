@@ -319,6 +319,9 @@ export function createCommentKeys(host) {
     let first = "";
     let timer = null;
     document.addEventListener("keydown", (event) => {
+      // A key a control took for itself, as the arrows and Home and End on a panel's grip, is
+      // not the list's too.
+      if (event.defaultPrevented) return;
       const target = eventOrigin(event);
       // Ctrl+Alt+K, Cmd+Option+K on macOS, is K with the editor's own keys: read by where K sits,
       // since Option makes it another letter.
