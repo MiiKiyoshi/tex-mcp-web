@@ -595,6 +595,102 @@ def test_the_bell_calls_an_agent_the_configuration_names(tmp_path: Path) -> None
         shared.stop()
 
 
+# A page of the bell alone, with two ways to call: one to a session that listens, and one that
+# runs at once and has a note of its own. Each press is recorded in window.presses.
+BELL_WAYS_PAGE = """<!doctype html><html><head>
+<link rel="stylesheet" href="/static/shared/look.css"><link rel="stylesheet" href="/static/shared/comment-panel.css">
+<link rel="stylesheet" href="/static/shared/agent-bell.css"></head>
+<body><div class="filter-row"><span id="row" class="row-group"></span></div><p id="undo-line"></p>
+<script type="module">
+import { createAgentBell } from "/static/shared/agent-bell.js";
+window.presses = [];
+window.bell = createAgentBell({ wordStays: 500, ways: [
+  { name: "Session", does: "call a session that listens",
+    call: async (lane) => { window.presses.push(["Session", lane]); return { calls: 1, delivered: false }; } },
+  { name: "Command", does: "start the command", listens: false, note: () => window.commandNote ?? "",
+    call: async (lane) => { window.presses.push(["Command", lane]); return { delivered: true, said: "Started" }; } },
+] }, { prefix: "bellTest", row: document.querySelector("#row"), noteBefore: document.querySelector("#undo-line"), fit: () => {} });
+window.bell.attach();
+</script></body></html>"""
+
+
+@needs_browser
+def test_a_bell_with_two_ways_calls_by_the_way_chosen_and_keeps_it(tmp_path: Path) -> None:
+    """A page that offers two ways to call has a button beside the bell that names the way, says
+    what a press on it does, and chooses the next way. The bell calls by the way chosen: a way to
+    a session that listens is red and queued while none does, and a way that runs at once is
+    green, says its own word after a press and its own note over the list. The browser keeps
+    the way chosen, and behind the dots the button reads its label alone. A page with one way,
+    as this one, has no such button."""
+    (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    browser = None
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        browser = chrome.launch()
+        browser.navigate(base)
+        script = browser.execute_script
+        wait_until(lambda: script('return document.querySelector("#call-agent-btn") !== null'))
+        assert script('return document.querySelector("#call-by-btn")') is None
+        frame = '''return new Promise((done) => {
+          document.querySelector("iframe")?.remove();
+          const frame = document.createElement("iframe");
+          frame.srcdoc = arguments[0];
+          frame.addEventListener("load", () => done(true), { once: true });
+          document.body.append(frame);
+        });'''
+        in_frame = lambda code: script(f'const w = document.querySelector("iframe").contentWindow, d = w.document; {code}')
+        seen = '''const by = d.querySelector("#call-by-btn"), bell = d.querySelector("#call-agent-btn"), note = d.querySelector("#call-agent-why");
+          return { way: by.textContent.trim(), label: by.getAttribute("aria-label"), title: by.title,
+                   ready: bell.classList.contains("agent-ready"), bell: bell.title, word: d.querySelector("#call-agent-word").textContent,
+                   note: note.hidden ? null : note.textContent, presses: w.presses };'''
+        script(frame, [BELL_WAYS_PAGE])
+        wait_until(lambda: in_frame("return Boolean(w.bell)"))
+        key = f"({chrome.MOD_ALT}+Enter)"
+        assert in_frame(seen) == {
+            "way": "Session", "label": "The bell calls: Session",
+            "title": "The bell is set to call a session that listens. Press to start the command instead.",
+            "ready": False, "bell": f"No agent is listening. The call will be queued until one connects {key}",
+            "word": "", "note": None, "presses": []}
+        # By the session way a press with none listening is queued, and the note says so.
+        in_frame('d.querySelector("#call-agent-btn").click()')
+        wait_until(lambda: in_frame(seen)["word"] == "Queued")
+        assert in_frame(seen)["note"] == "No agent is listening yet, so the call is queued until one listens."
+        assert in_frame(seen)["presses"] == [["Session", None]]
+        # The way that runs at once: green, its own title, and its own note when it has one.
+        in_frame('d.querySelector("#call-by-btn").click()')
+        assert {name: value for name, value in in_frame(seen).items() if name in ("way", "title", "ready", "bell", "note")} == {
+            "way": "Command", "title": "The bell is set to start the command. Press to call a session that listens instead.",
+            "ready": True, "bell": f"Start the command {key}", "note": None}
+        in_frame('w.commandNote = "The command is running."; w.bell.show();')
+        assert in_frame(seen)["note"] == "The command is running."
+        wait_until(lambda: not in_frame('return d.querySelector("#call-agent-btn").disabled'))
+        in_frame('d.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Enter", ctrlKey: true, altKey: true, bubbles: true}))')
+        wait_until(lambda: in_frame(seen)["word"] == "Started")
+        assert in_frame(seen)["presses"] == [["Session", None], ["Command", None]]
+        # Out of reach of its server the bell is red whatever the way.
+        in_frame("w.bell.show({ gone: true })")
+        assert [in_frame(seen)[name] for name in ("ready", "bell")] == [False, "The page's server cannot be reached"]
+        # Behind the dots the button reads its label alone.
+        assert in_frame('''const group = d.createElement("div"); group.className = "comment-rare-group"; d.body.append(group);
+          group.append(d.querySelector("#call-by-btn"));
+          return w.getComputedStyle(d.querySelector("#call-by-btn .way-name")).display''') == "none"
+        # The browser keeps the way chosen.
+        assert in_frame('return w.localStorage.getItem("bellTestCallBy")') == "Command"
+        script(frame, [BELL_WAYS_PAGE])
+        wait_until(lambda: in_frame("return Boolean(w.bell)"))
+        assert [in_frame(seen)[name] for name in ("way", "ready")] == ["Command", True]
+    finally:
+        if browser is not None:
+            browser.quit()
+        shared.stop()
+
+
 @needs_browser
 def test_the_page_says_why_it_waits_and_catches_up_when_its_server_returns(tmp_path: Path) -> None:
     """Nothing greyed, waiting or out of date goes unexplained. A first build that fails says

@@ -1,0 +1,20 @@
+/* The bell at the end of the comment panel's row, with the dot beside its drawing and the word a
+   press leaves, which goes once the row is wordless; the lists of agent, model and effort beside
+   it; and the way it calls by, which names its way behind the dots by its label alone.
+   agent-bell.js draws it.
+
+   Shared by the review pages. It is written in tex-mcp-web, and scripts/share_page.py copies it
+   to the others. A copy is never edited by hand. */
+
+/* Green reaches a parked waiter now; red queues the call for the next waiter. */
+#call-agent-btn.agent-ready { color: var(--ok); border-color: var(--ok); background: #eef7ef; }
+#call-agent-btn.agent-ready .agent-dot { background: var(--ok); }
+#call-agent-btn.agent-offline { color: var(--err); border-color: var(--err); background: #faeeee; }
+#call-agent-btn.agent-offline .agent-dot { background: var(--err); }
+.agent-dot { width: 8px; height: 8px; border-radius: 50%; }
+.filter-row.wordless #call-agent-word { display: none; }
+.filter-row select.agent-select { padding: 0.25rem 0.25rem; }
+.comment-rare-group #call-by-btn .way-name { display: none; }
+
+:root[data-theme="dark"] #call-agent-btn.agent-ready { background: #1f2b21; }
+:root[data-theme="dark"] #call-agent-btn.agent-offline { background: #321f1e; }

@@ -582,7 +582,6 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 /* ----- this page's own parts of the comment panel (shared/comment-panel.css draws the rest) ----- */
 /* Leafless, Send in the leaf tab is its drawing alone. */
 .filter-row.leafless #send-picked-btn .leaf-icon { display: none; }
-.filter-row select.agent-select { padding: 0.25rem 0.25rem; }
 .cmt-form-actions .overleaf-reject { color: var(--err); }
 .leaf-icon { flex-shrink: 0; vertical-align: -2px; color: var(--ok); }
 /* A thread's reply for Overleaf: the agent's draft, edited and sent by the reviewer. */

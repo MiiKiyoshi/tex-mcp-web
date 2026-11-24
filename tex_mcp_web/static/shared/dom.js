@@ -58,10 +58,17 @@ export function macKeyNames(text) {
   return text.replace(/Ctrl\+Alt\+/g, "Cmd+Option+").replace(/Ctrl\+(?=Enter\b|S\b|double-click\b)/g, "Cmd+");
 }
 
+const ON_MAC = /Mac|iPhone|iPad|iPod/.test(navigator.platform);
+
+// *text* with the names this keyboard gives the keys: the Mac's on a Mac.
+export function keyNames(text) {
+  return ON_MAC ? macKeyNames(text) : text;
+}
+
 // On a Mac, the Mac's names in every title and aria-label, and in the text of what *texts*
 // selects, now and as the page changes.
 export function showMacKeyNames(texts) {
-  if (!/Mac|iPhone|iPad|iPod/.test(navigator.platform)) return;
+  if (!ON_MAC) return;
   const named = (node) => {
     for (const attribute of ["title", "aria-label"]) {
       const text = node.getAttribute?.(attribute);

@@ -1,8 +1,8 @@
 /* The comment panel of the review pages: the row above the list, with its groups, lists, icon
    buttons and the dots that hold what the row has no room for, the search and its conditions,
    the Undo line, the list and its cards, the words they are on, their threads, reply boxes and
-   suggestions, the dialog for a new comment, and the bell's place in the row.
-   comment-panel.js draws it.
+   suggestions, and the dialog for a new comment. comment-panel.js draws it, and agent-bell.css
+   styles the bell in its row.
 
    Shared by the review pages. It is written in tex-mcp-web, and scripts/share_page.py copies it
    to the others. A copy is never edited by hand. */
@@ -67,8 +67,7 @@
 .row-group + .row-group { padding-left: var(--row-gap); border-left: 1px solid var(--border); }
 .row-group:not(:has(> :not([hidden]))) { display: none; }
 .filter-row > .row-group:first-child { margin-right: auto; }
-/* Wordless, the buttons' words go, but Resolve's, which goes after them. */
-.filter-row.wordless #call-agent-word,
+/* Resolve-wordless, Resolve's word goes. */
 .filter-row.resolve-wordless .wide-label { display: none; }
 /* Shrunk, the sort list in the row is its icon alone, with the list lying clear over it and
    still opening on a click, a tap or the keys. Behind the dots it shows its words. */
@@ -182,12 +181,6 @@
 .comment-rare-group .icon-btn::after { content: attr(aria-label); }
 .comment-rare-group .count { display: none; }
 .comment-pick { flex: none; margin: 0; width: 14px; height: 14px; cursor: pointer; }
-#call-agent-btn.agent-ready { color: var(--ok); border-color: var(--ok); background: #eef7ef; }
-#call-agent-btn.agent-ready .agent-dot { background: var(--ok); }
-#call-agent-btn.agent-offline { color: var(--err); border-color: var(--err); background: #faeeee; }
-#call-agent-btn.agent-offline .agent-dot { background: var(--err); }
-/* Green reaches a parked waiter now; red queues the call for the next waiter. */
-.agent-dot { width: 8px; height: 8px; border-radius: 50%; }
 /* The list takes the comment keys, and the ring on a comment shows where they act. */
 .comments-list:focus { outline: none; }
 .comments-list {
@@ -528,6 +521,4 @@
   opacity: 0.65;
 }
 
-:root[data-theme="dark"] #call-agent-btn.agent-ready { background: #1f2b21; }
-:root[data-theme="dark"] #call-agent-btn.agent-offline { background: #321f1e; }
 :root[data-theme="dark"] .cmt.status-archived .cmt-status { color: #9fb4e0; }

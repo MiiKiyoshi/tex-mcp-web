@@ -16,7 +16,7 @@ const WAITS = {
   reconnect: 2000,     // before trying again to reach a server that has gone
   overleafGit: 4000,   // between reads of the folder's git state while comments wait on it
   gitAfterEdit: 1000,  // before reading the folder's git state after a file changed here
-  calledWord: 2000,    // how long the word beside Call agent stays
+  calledWord: 2000,    // how long the word a press leaves beside the bell stays
   translation: 3000,   // before asking again for paragraphs still being translated
   ...window.texMcpWaits,
 };
@@ -47,10 +47,6 @@ const state = {
   warnings: [],
   // Where the body ends and the paragraphs ending in a short line, as the last build left them.
   layout: {},
-  // Waiters parked for the session listening, and each agent the configuration names beside
-  // it with its waiters and the models and efforts a press picks from.
-  listeners: 0,
-  lanes: {},
   // What the reviewer has typed into a thread's Overleaf reply, kept across renders, with
   // the draft it started from and the reason a send was refused.
   overleafReplies: new Map(),
@@ -109,14 +105,6 @@ const state = {
   buildFailed: false,
   // The main file's name while it is not in the folder, so that nothing was built.
   noMain: "",
-  // The page cannot reach its server, and a call to the agent waits for one to listen.
-  serverGone: false,
-  callWaits: false,
-  // A comment or a reply was posted in this visit, some comment waits for the agent, and the
-  // bell has been pressed in this visit: what the note about calling the agent goes by.
-  posted: false,
-  agentAwaited: false,
-  called: false,
   view: "pdf",
   editor: null,
   sourcePath: null,
@@ -2652,6 +2640,17 @@ const panel = createCommentPanel({
   },
   whole: () => $("#paper-comment-btn").click(),
   help: (page) => help.show(page),
+  // The bell (shared/agent-bell.js). A press posts what callAgent sends, and the note after a
+  // press no agent heard says how an agent comes to listen to this paper.
+  bell: {
+    call: callAgent,
+    words: {
+      queued: "No agent is listening yet, so the call is queued. Claude Code listens when started in the paper's "
+        + "folder. In Codex, send “do tex listen”.",
+      gone: "The review page's server cannot be reached",
+    },
+    wordStays: WAITS.calledWord,
+  },
   // A comment shown from its mark on the paper or in the editor: its card opens and flashes.
   bringIntoView: (id, card) => {
     card.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -2736,13 +2735,6 @@ const panel = createCommentPanel({
       }
       renderOverleafThreadSync();
     },
-  },
-  agent: {
-    awaited: (awaited) => {
-      state.agentAwaited = awaited;
-      renderCallWaits();
-    },
-    posted: () => { state.posted = true; },
   },
   status: {
     of: statusOf,
@@ -2849,14 +2841,12 @@ const panel = createCommentPanel({
       }
       return { resolve: !suggesting };
     },
-    // Once the sort list waits behind the dots, the model and effort lists do too. Once the view
-    // list gives up its room, the sync button and then Call agent wait behind the dots. In the
-    // leaf tab, Send then drops its leaf, and Accept and Reject, then Hide, which each card has
-    // too, wait behind the dots. Send stays in the row.
+    // Once the view list gives up its room, the sync button waits behind the dots, before the
+    // bell does. In the leaf tab, Send then drops its leaf, and Accept and Reject, then Hide,
+    // which each card has too, wait behind the dots. Send stays in the row.
     steps: {
-      narrow: [["unchosen", "#agent-model-select, #agent-effort-select"]],
-      squeezed: [["unsynced", "#overleaf-sync-comments-btn"], ["uncalled", "#call-agent-select, #call-agent-btn"],
-        ["leafless"], ["edits-behind", "#accept-picked-btn, #reject-picked-btn"], ["hide-behind", "#hide-picked-btn"]],
+      squeezed: [["unsynced", "#overleaf-sync-comments-btn"]],
+      uncalled: [["leafless"], ["edits-behind", "#accept-picked-btn, #reject-picked-btn"], ["hide-behind", "#hide-picked-btn"]],
     },
     // Resolving or reopening a thread from Overleaf does so there, for everyone in the
     // project: several at one press are asked about first, with their number.
@@ -2949,7 +2939,7 @@ const panel = createCommentPanel({
   },
 });
 const {
-  attach: attachCommentPanel, refreshComments, renderComments, renderPickedActions, fitCommentRow, setStatus,
+  attach: attachCommentPanel, refreshComments, renderComments, renderPickedActions, setStatus,
   pickBox, actionButton, replyButton, unanswered, setView, openCompose,
 } = panel;
 const { hint: keyHint, rangeIds } = panel.keys;
@@ -3934,17 +3924,16 @@ async function handleWebSocketMessage(message) {
       // A build that ended while the page could not hear of it leaves Compile free again.
       state.serverCompiling = Boolean(message.compiling);
       applyCompiling(state.serverCompiling);
-      if (message.lanes !== undefined) showLanes(message.lanes);
-      if (message.review_waiters !== undefined) showAgentWaiting(message.review_waiters);
+      panel.bell.show({ lanes: message.lanes, waiters: message.review_waiters });
       // A build that ended after the page first read the paper and before its socket opened
       // left a PDF the page has not shown. A page that reconnects catches up as it opens.
       if (socketCloses === 0 && message.pdf_digest !== state.pdfDigest) await catchUp();
       break;
     case "review_waiters":
-      showAgentWaiting(message.waiters);
+      panel.bell.show({ waiters: message.waiters });
       break;
     case "lanes":
-      showLanes(message.lanes);
+      panel.bell.show({ lanes: message.lanes });
       break;
     case "goto":
       showGotoTarget(message);
@@ -3959,110 +3948,16 @@ async function handleWebSocketMessage(message) {
   }
 }
 
-// Green reaches a parked waiter now; red remains clickable because the server queues the
-// call until the next waiter connects. A queued call is said above the list until an agent
-// listens, which takes it at once.
-function showAgentWaiting(waiters) {
-  if (waiters !== undefined) state.listeners = waiters;
-  // The bell shows the agent the reviewer picked.
-  const lane = state.lanes[$("#call-agent-select").value];
-  const waiting = (lane ? lane.waiters : state.listeners) > 0;
-  const button = $("#call-agent-btn");
-  button.classList.toggle("agent-ready", waiting);
-  button.classList.toggle("agent-offline", !waiting);
-  button.setAttribute("aria-label", waiting ? "Call agent" : "Queue call for agent");
-  button.title = state.serverGone ? "The review page's server cannot be reached"
-    : waiting ? "Call the agent (Ctrl+Alt+Enter)"
-    : "No agent is listening. The call will be queued until one connects (Ctrl+Alt+Enter)";
-  if (waiting) state.callWaits = false;
-  renderCallWaits();
-}
-
-// The agents the configuration names beside the session listening. The choice among them is
-// shown only when there is one to make, and starts on the session listening. A model or an
-// effort is offered for an agent that lists them, the one last picked for it first.
-function showLanes(lanes) {
-  state.lanes = lanes;
-  const pick = $("#call-agent-select");
-  const names = Object.keys(lanes);
-  const picked = names.includes(pick.value) ? pick.value : "";
-  pick.replaceChildren(new Option("Agent", ""), ...names.map((name) => new Option(name[0].toUpperCase() + name.slice(1), name)));
-  pick.value = picked;
-  pick.classList.toggle("hidden", !names.length);
-  showLaneChoice();
-}
-
-const LANE_CHOICES = [["#agent-model-select", "models", "texMcpAgentModel"], ["#agent-effort-select", "efforts", "texMcpAgentEffort"]];
-
-function showLaneChoice() {
-  const name = $("#call-agent-select").value;
-  for (const [id, listed, key] of LANE_CHOICES) {
-    const box = $(id);
-    const words = state.lanes[name]?.[listed] || [];
-    if (box.dataset.lane !== name || [...box.options].map((option) => option.value).join() !== words.join()) {
-      box.replaceChildren(...words.map((word) => new Option(word, word)));
-      box.dataset.lane = name;
-      try {
-        const saved = localStorage.getItem(`${key}:${name}`);
-        if (words.includes(saved)) box.value = saved;
-      } catch { /* storage blocked: the first listed */ }
-    }
-    box.classList.toggle("hidden", !words.length);
-  }
-  showAgentWaiting();
-  fitCommentRow();
-}
-
-// The note about calling the agent, above the list: that a call is queued until an agent
-// listens, or, after a comment or a reply is posted while comments wait for the agent, that
-// they reach it when the bell is pressed, until it is. Once the bell has been pressed in this
-// visit, that is not said again.
-function renderCallWaits() {
-  const note = $("#call-agent-why");
-  const remind = !state.called && state.posted && state.agentAwaited;
-  note.textContent = state.callWaits ? "No agent is listening yet, so the call is queued. Claude Code listens when "
-    + "started in the paper's folder. In Codex, send “do tex listen”."
-    : remind ? "Your comments reach the agent when you press the bell (Ctrl+Alt+Enter)." : "";
-  note.hidden = !state.callWaits && !remind;
-}
-
-// What a press for an agent with a lane of its own carries, or null for the session listening.
-function calledLane() {
-  const agent = $("#call-agent-select").value;
-  if (!agent) return null;
-  const press = { agent };
-  if ($("#agent-model-select").value) press.model = $("#agent-model-select").value;
-  if ($("#agent-effort-select").value) press.effort = $("#agent-effort-select").value;
-  return press;
-}
-
-async function callAgent() {
-  const button = $("#call-agent-btn");
-  const word = $("#call-agent-word");
-  button.disabled = true;
-  try {
-    // The picked comments go with the press: with overleaf_picked, a thread from Overleaf
-    // reaches the agent with its Overleaf words only when picked.
-    const response = await fetch("/review-request", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(calledLane() || { picked: [...state.picked] }),
-    });
-    if (!response.ok) throw new Error(await responseError(response));
-    const reply = await response.json();
-    // Delivered went straight to a parked agent; queued is kept by the server and
-    // answers the agent's next wait at once.
-    word.textContent = reply.delivered ? "Called" : "Queued";
-    state.callWaits = !reply.delivered;
-    state.called = true;
-    renderCallWaits();
-  } catch (error) {
-    word.textContent = "Failed";
-    console.error(error);
-  } finally {
-    // The row fits itself to the word, and again once the word is gone.
-    fitCommentRow();
-    setTimeout(() => { word.textContent = ""; button.disabled = false; fitCommentRow(); }, WAITS.calledWord);
-  }
+// A press of the bell, for the session listening or the agent picked beside the bell. The
+// picked comments go with a press for the session: with overleaf_picked, a thread from
+// Overleaf reaches the agent with its Overleaf words only when picked.
+async function callAgent(lane) {
+  const response = await fetch("/review-request", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(lane ?? { picked: [...state.picked] }),
+  });
+  if (!response.ok) throw new Error(await responseError(response));
+  return response.json();
 }
 
 // The ⋯ menu's Update. The server runs inside the agent's process, so an update changes the
@@ -4128,12 +4023,11 @@ async function runUpdate() {
 let socketCloses = 0;
 
 function showServerGone(gone) {
-  state.serverGone = gone;
   const band = $("#server-alert");
   band.textContent = "The review page's server stopped. It runs inside your agent: start the agent again, "
     + "or ask it to use a tex tool, and this page reconnects by itself.";
   band.hidden = !gone;
-  showAgentWaiting(0);
+  panel.bell.show({ waiters: 0, gone });
 }
 
 // What changed while the page could not hear the server: the PDF, the comments and Overleaf.
@@ -4975,22 +4869,6 @@ async function init() {
   for (const button of $$(".view-tab")) {
     button.addEventListener("click", () => {
       setWorkspaceView(button.dataset.view).catch((error) => alert(error.message));
-    });
-  }
-  // Ctrl+Alt+Enter (Cmd+Option+Enter) presses the bell from anywhere on the page, the
-  // editor included, but not over a dialog.
-  document.addEventListener("keydown", (event) => {
-    if (event.key !== "Enter" || !event.altKey || !(event.ctrlKey || event.metaKey)) return;
-    if (document.querySelector("dialog[open]")) return;
-    event.preventDefault();
-    event.stopPropagation();
-    if (!$("#call-agent-btn").disabled) $("#call-agent-btn").click();
-  }, true);
-  $("#call-agent-btn").addEventListener("click", () => callAgent());
-  $("#call-agent-select").addEventListener("change", showLaneChoice);
-  for (const [id, , key] of LANE_CHOICES) {
-    $(id).addEventListener("change", () => {
-      try { localStorage.setItem(`${key}:${$("#call-agent-select").value}`, $(id).value); } catch { /* not kept */ }
     });
   }
   attachCommentPanel();

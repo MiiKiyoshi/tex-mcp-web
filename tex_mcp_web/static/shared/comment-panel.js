@@ -1,9 +1,9 @@
 // The comment panel of the review pages: each tab's comments in the view and the order chosen,
 // the search above them, the row that changes the picked ones, the line that undoes the last
 // change, the cards with their threads, replies, edits and suggestions, the dialog that writes
-// a new comment, and the keys that work the list. The panel draws itself into two places the
-// page gives, #tab-comments and #compose-dialog, and takes the page's hooks DEFAULTS lists. Its
-// look is comment-panel.css.
+// a new comment, the keys that work the list, and the bell that calls the agent to the comments
+// (agent-bell.js). The panel draws itself into two places the page gives, #tab-comments and
+// #compose-dialog, and takes the page's hooks DEFAULTS lists. Its look is comment-panel.css.
 //
 // Shared by the review pages. It is written in tex-mcp-web, and scripts/share_page.py copies
 // it to the others. A copy is never edited by hand.
@@ -12,18 +12,19 @@ import { $, $$, h, clear, placeholder } from "./dom.js";
 import { meetsSearch, createCommentSearch } from "./comment-search.js";
 import { createCommentKeys } from "./comment-keys.js";
 import { createCommentApi } from "./comment-api.js";
+import { createAgentBell, BELL_STEPS } from "./agent-bell.js";
 
 function escaped(text) {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
 }
 
 // The panel's markup. Its row has four groups, a thin line between each two: what to look at,
-// picking, what acts on the picked comments, and fetching and calling. The buttons are icons,
-// with the words as title and aria-label. Each button shows the one drawing that fits its
-// state; a count rides beside the drawing where the action has one. A button with nothing to
-// do is greyed out, not taken away: the row keeps one shape. Each <slot> is where the page's
-// own parts go (drawPanel). With Help, the search's conditions end with a link to its page, and
-// they offer file: only where comments are on files.
+// picking, what acts on the picked comments, and fetching and calling, which the bell ends
+// (agent-bell.js). The buttons are icons, with the words as title and aria-label. Each button
+// shows the one drawing that fits its state; a count rides beside the drawing where the action
+// has one. A button with nothing to do is greyed out, not taken away: the row keeps one shape.
+// Each <slot> is where the page's own parts go (drawPanel). With Help, the search's conditions
+// end with a link to its page, and they offer file: only where comments are on files.
 function paneMarkup(labels, helped, filed) {
   const [sortValue, sortName] = labels.firstSort.map(escaped);
   return `<div class="filter-row">
@@ -74,12 +75,6 @@ function paneMarkup(labels, helped, filed) {
   </span>
   <span id="comment-fetch" class="row-group">
     <slot name="fetch"></slot>
-    <!-- The bell, which calls the agent to the comments. -->
-    <button id="call-agent-btn" class="icon-btn agent-offline" type="button" aria-label="Queue call for agent" title="No agent is listening. The call will be queued until one connects (Ctrl+Alt+Enter)">
-      <span id="agent-waiting-dot" class="agent-dot"></span>
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11V7a4 4 0 0 1 8 0v4l1.5 1.5h-11z"/><path d="M6.5 14a1.5 1.5 0 0 0 3 0"/></svg>
-      <span id="call-agent-word" class="count"></span>
-    </button>
   </span>
 </div>
 <!-- Lists the tab's comments that meet what is typed, whatever their status. -->
@@ -146,12 +141,13 @@ const STATUS_DONE = { resolved: "Resolved", open: "Reopened", archived: "Archive
 const LISTED = ["resolved", "archived", "all"];
 
 // How the row gives way, one step at a time while it would spill over: the sort list shrinks
-// to its icon, the words beside the other icons go, then Resolve's, the sort list waits behind
-// the dots as the gaps narrow, then Expand all, and the view list gives up the room its longest
-// view needs. Last the view list shrinks to its icon, with the list lying over it. Resolve and
-// Archive stay in the row, which takes two lines only when even that is too wide. Each step
-// names what then waits behind the dots. The page's own steps come in after the step they name.
-const ROW_STEPS = [["sort-shrunk"], ["wordless"], ["resolve-wordless"], ["narrow", "#comment-sort-pick"],
+// to its icon, Resolve's word goes, the sort list waits behind the dots as the gaps narrow,
+// then Expand all, and the view list gives up the room its longest view needs. Last the view
+// list shrinks to its icon, with the list lying over it. Resolve and Archive stay in the row,
+// which takes two lines only when even that is too wide. Each step names what then waits
+// behind the dots. The bell's steps (BELL_STEPS) and then the page's own come in after the step
+// they name.
+const ROW_STEPS = [["sort-shrunk"], ["resolve-wordless"], ["narrow", "#comment-sort-pick"],
   ["foldless", "#fold-all-btn"], ["squeezed"], ["view-shrunk"], ["wrapped"]];
 
 // The hooks the page gives createCommentPanel, each with what the panel does without it, so a
@@ -185,6 +181,9 @@ const DEFAULTS = {
   enterPlace: null,
   // Given the shown tab's open comments after each reading, to mark where they are.
   marked: () => {},
+  // The bell's hooks, as agent-bell.js lists them; without them there is no bell. The page tells
+  // the bell what it hears with panel.bell.show.
+  bell: null,
   // c: a comment on the whole document. Without it there is no c.
   whole: null,
   // Help, opened on a page or on the one shown last: ? and the search's "more…". Without it
@@ -213,8 +212,6 @@ const DEFAULTS = {
   // The page's own parts, in groups. What the page reads beside each list, applied once that
   // reading is the latest.
   along: { read: async () => null, apply: () => {} },
-  // Told whether some comment waits for the agent, and that a comment or a reply was posted.
-  agent: { awaited: () => {}, posted: () => {} },
   // of(comment), the status a comment is listed under; said(status, before, what), what the
   // Undo line says of `what`, as "2 comments", sent to `status` from the statuses in `before`,
   // or null for the panel's own words.
@@ -271,7 +268,7 @@ function withDefaults(given) {
     if (given[name] == null) throw new Error(`createCommentPanel: ${name} is required`);
   }
   const host = { ...DEFAULTS, ...given };
-  for (const group of ["labels", "along", "agent", "status", "search", "card", "row", "compose", "keys"]) {
+  for (const group of ["labels", "along", "status", "search", "card", "row", "compose", "keys"]) {
     known(Object.keys(given[group] ?? {}), DEFAULTS[group], `${group}.`);
     host[group] = { ...DEFAULTS[group], ...given[group] };
   }
@@ -318,8 +315,8 @@ function byPlace(first, second) {
 // The panel, drawn at once into the page's #tab-comments and #compose-dialog, with the page's
 // own parts that wait in them (drawPanel): its buttons for the picked comments,
 // data-slot="picked", which follow Archive; what goes before the bell, "fetch"; its lines over
-// the Undo line, "notes"; and its boxes over the comment's own, "compose". `given` is the
-// page's hooks, over DEFAULTS.
+// the Undo line, "notes", which the bell's note follows; and its boxes over the comment's own,
+// "compose". `given` is the page's hooks, over DEFAULTS.
 export function createCommentPanel(given) {
   const host = withDefaults(given);
   const { state } = host;
@@ -396,6 +393,12 @@ export function createCommentPanel(given) {
     tabComments: async () => (await readAll()).filter((comment) => tabOf(comment) === state.commentTab),
     page: host.search,
   });
+  // The bell, at the end of the row and over the Undo line, which attach() sets listening, and
+  // the row's steps with the bell's.
+  const bell = host.bell && createAgentBell(host.bell, {
+    prefix: host.prefix, row: $("#comment-fetch"), noteBefore: $("#undo-line"), fit: () => fitCommentRow(),
+  });
+  const rowSteps = ROW_STEPS.flatMap((step) => [step, ...(bell ? BELL_STEPS[step[0]] ?? [] : [])]);
 
   function tab() {
     return host.tabs[state.commentTab];
@@ -472,7 +475,7 @@ export function createCommentPanel(given) {
     if (["resolved", "archived"].includes(status)) return;
     unansweredCounts = Object.fromEntries(Object.entries(host.tabs).map(([name, each]) =>
       [name, read.filter((comment) => tabOf(comment) === name && unanswered(comment)).length + each.items().length]));
-    host.agent.awaited(read.some((comment) => comment.awaits_agent));
+    bell?.awaited(read.some((comment) => comment.awaits_agent));
   }
 
   // What the view lists of the shown tab's comments read: what the tab's own views list, the
@@ -677,7 +680,7 @@ export function createCommentPanel(given) {
       }
     }
     moved = [];
-    const steps = ROW_STEPS.flatMap((step) => [step, ...(host.row.steps[step[0]] ?? [])]);
+    const steps = rowSteps.flatMap((step) => [step, ...(host.row.steps[step[0]] ?? [])]);
     row.classList.remove(...steps.map(([step]) => step));
     for (const [step, behind] of steps) {
       if (row.scrollWidth <= row.clientWidth) break;
@@ -1152,7 +1155,7 @@ export function createCommentPanel(given) {
       submitButton.textContent = "Saving…";
       const saved = () => {
         activeForm = null;
-        host.agent.posted();
+        bell?.posted();
       };
       if (await mutate(comment.id, "reply", { text }, { saved })) {
         // The box is gone with what was typed in it: the keys go back to the list.
@@ -1383,7 +1386,7 @@ export function createCommentPanel(given) {
       applyComposeSubmitting(false);
     }
     // A note for the agent waits for it, and the line above the list may say how to call it.
-    if (text) host.agent.posted();
+    if (text) bell?.posted();
     await host.compose.posted(started, body);
     await refreshComments();
   }
@@ -1391,6 +1394,7 @@ export function createCommentPanel(given) {
   // The panel's controls wired: the row, Undo, the dialog, the search, the views, the orders and
   // the keys.
   function attach() {
+    bell?.attach();
     $("#fold-all-btn").addEventListener("click", foldAll);
     $("#pick-all-btn").addEventListener("click", pickAll);
     // The row is fitted again whenever it, or one of its groups, changes width.
@@ -1488,12 +1492,13 @@ export function createCommentPanel(given) {
     unfitSuggestions.clear();
     commentsView = null;
     undo = null;
+    bell?.posted(false);
     keys.reset();
     renderUndo();
   }
 
   const panel = {
-    attach, keys, refreshComments, renderComments, renderPickedActions, fitCommentRow, foldAll, setStatus, undoStatus,
+    attach, keys, bell, refreshComments, renderComments, renderPickedActions, fitCommentRow, foldAll, setStatus, undoStatus,
     pickBox, actionButton, replyButton, mutate, closeReply, unanswered, setView, chosenView, showTab,
     showComment, cycleSort, openCompose, openCommentSearch, reset,
   };

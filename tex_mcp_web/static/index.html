@@ -7,6 +7,7 @@
 <link rel="icon" type="image/png" href="/static/favicon.png">
 <link rel="stylesheet" href="/static/shared/look.css">
 <link rel="stylesheet" href="/static/shared/comment-panel.css">
+<link rel="stylesheet" href="/static/shared/agent-bell.css">
 <link rel="stylesheet" href="/static/shared/help.css">
 <link rel="stylesheet" href="/static/shared/tab-strip.css">
 <link rel="stylesheet" href="/static/style.css">
@@ -171,13 +172,6 @@
           <svg class="leaf-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 13C3 7 7 3 13 3c0 6-4 10-10 10z"/><path d="M3 13l6-6"/></svg>
           <span class="count"></span>
         </button>
-        <!-- Which agent the bell calls, when the configuration names agents beside the session
-             listening, and the model and effort a press for one of them asks for. -->
-        <select id="call-agent-select" data-slot="fetch" class="agent-select hidden" autocomplete="off" aria-label="Agent to call" title="Agent the bell calls"></select>
-        <select id="agent-model-select" data-slot="fetch" class="agent-select hidden" autocomplete="off" aria-label="Model" title="Model for this call"></select>
-        <select id="agent-effort-select" data-slot="fetch" class="agent-select hidden" autocomplete="off" aria-label="Effort" title="Effort for this call"></select>
-        <!-- Said after a call to the agent that no agent heard, until one listens. -->
-        <p id="call-agent-why" data-slot="notes" class="panel-note" role="status" hidden></p>
       </div>
 
       <div id="tab-compile" class="tab-pane">
