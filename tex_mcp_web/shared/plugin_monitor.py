@@ -1,24 +1,23 @@
-"""Hand the review waiter to the tex-mcp plugin's monitor, which Claude Code runs for the whole
-session and whose lines reach the agent as notifications, with no expiry to start it again.
+"""Hand the waiter to a tool's plugin monitor, which Claude Code runs for the whole session and
+whose lines reach the agent as notifications, with no expiry to start it again.
 
-The monitor (tex_mcp_web/monitor.py, started by plugin/monitors/review.sh) and this server are both started by one Claude Code
-process, so that process's pid names the session to both: the server writes the command to
-run under it, and the monitor, which records its own pid there, runs the newest command it
-finds. A server with no Claude Code process above it, or a session without the plugin, has no
-monitor, and the agent starts the waiter itself. So has a Codex started from a Claude Code
-shell: its servers run under that session, but answer to the Codex.
+The monitor (monitor.py, started by the tool's plugin/monitors/review.sh) and the tool's server
+are both started by one Claude Code process, so that process's pid names the session to both:
+the server writes the command to run under it in the tool's monitors folder, and the monitor,
+which records its own pid there, runs the newest command it finds. A server with no Claude
+Code process above it, or a session without the plugin, has no monitor, and the agent starts
+the waiter itself. So has a Codex started from a Claude Code shell: its servers run under
+that session, but answer to the Codex.
 """
 from __future__ import annotations
 
 import os
 import time
-from pathlib import Path
 
 import psutil
 
 from . import shared_file
-
-DIRECTORY = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "tex-mcp-web" / "monitor"
+from .tool import Tool
 
 
 def _parent_and_name(pid: int) -> tuple[int, str] | None:
@@ -60,35 +59,35 @@ def session_of(pid: int) -> int | None:
     return None
 
 
-def _is_monitor(pid: int) -> bool:
-    """Whether *pid* runs the monitor. A monitor killed outright leaves its record, and the pid
-    in it may since have gone to some other process."""
+def _is_monitor(tool: Tool, pid: int) -> bool:
+    """Whether *pid* runs the tool's monitor. A monitor killed outright leaves its record, and
+    the pid in it may since have gone to some other process."""
     try:
-        return "tex_mcp_web.monitor" in psutil.Process(pid).cmdline()
+        return f"{tool.package}.monitor" in psutil.Process(pid).cmdline()
     except psutil.Error:
         return False
 
 
-def monitored_session() -> int | None:
-    """This session's Claude Code pid when the plugin's monitor runs for it, else None."""
+def monitored_session(tool: Tool) -> int | None:
+    """This session's Claude Code pid when the tool's plugin monitor runs for it, else None."""
     session = claude_pid()
     if session is None:
         return None
     try:
-        monitor = int((DIRECTORY / f"{session}.monitor").read_text().strip())
+        monitor = int((tool.monitors / f"{session}.monitor").read_text().strip())
     except (OSError, ValueError):
         return None
-    return session if _is_monitor(monitor) else None
+    return session if _is_monitor(tool, monitor) else None
 
 
-def hand_over(command: str) -> bool:
-    """Have this session's monitor run command in place of what it ran before. True when a
-    monitor is running to take it."""
-    session = monitored_session()
+def hand_over(tool: Tool, command: str) -> bool:
+    """Have this session's monitor of the tool run command in place of what it ran before.
+    True when a monitor is running to take it."""
+    session = monitored_session(tool)
     if session is None:
         return False
     # The first line differs on every call, so a listen() call restarts a waiter that ended.
-    staging = DIRECTORY / f"{session}.command.new"
+    staging = tool.monitors / f"{session}.command.new"
     staging.write_text(f"{time.time_ns()}\n{command}\n", encoding="utf-8")
-    shared_file.replace(staging, DIRECTORY / f"{session}.command")
+    shared_file.replace(staging, tool.monitors / f"{session}.command")
     return True

@@ -9,7 +9,7 @@ from typing import Any
 
 import yaml
 
-from . import shared_file
+from .shared import agents, shared_file
 
 DEFAULT_PORT = 8765
 
@@ -121,7 +121,7 @@ class Config:
             overleaf_add=_patterns(data, "overleaf_add", DEFAULT_OVERLEAF_ADD),
             page_token=_switch(data, "page_token"),
             update_check=_switch(data, "update_check", True),
-            agents=_agents(data),
+            agents=agents.parse(data.get("agents")),
             config_path=config_path,
         )
 
@@ -377,34 +377,6 @@ def _switch(data: dict[str, Any], key: str, unset: bool = False) -> bool:
     if not isinstance(raw, bool):
         raise ValueError(f"{key} must be true or false, not {raw!r}")
     return raw
-
-
-AGENT_KEYS = ("clients", "models", "efforts")
-# A lane's name, and what a press passes on: held to the shape a name has, since a waiter
-# prints them on a line an agent reads.
-AGENT_WORD = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
-
-
-def _agents(data: dict[str, Any]) -> dict[str, dict[str, list[str]]]:
-    """The agents the bell can call beside the session listening, each with the client names
-    that wait in its lane and the models and efforts a press picks from."""
-    raw = data.get("agents")
-    if raw is None:
-        return {}
-    shape = "agents must be names, each with clients, models and efforts as lists of names"
-    if not isinstance(raw, dict):
-        raise ValueError(shape)
-    agents: dict[str, dict[str, list[str]]] = {}
-    for name, given in raw.items():
-        given = {} if given is None else given
-        if not isinstance(name, str) or not AGENT_WORD.fullmatch(name) or not isinstance(given, dict) or set(given) - set(AGENT_KEYS):
-            raise ValueError(shape)
-        lane = {key: given.get(key, [name] if key == "clients" else []) for key in AGENT_KEYS}
-        if not all(isinstance(words, list) and all(isinstance(word, str) and AGENT_WORD.fullmatch(word) for word in words)
-                   for words in lane.values()) or not lane["clients"]:
-            raise ValueError(shape)
-        agents[name] = lane
-    return agents
 
 
 def _overleaf_flag(data: dict[str, Any], key: str) -> bool:

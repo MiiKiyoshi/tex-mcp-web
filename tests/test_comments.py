@@ -1079,7 +1079,7 @@ def test_canonicalize_pdf_selection_finds_a_letter_whose_accent_the_browser_read
 def test_a_file_lock_is_held_against_another_handle_and_given_back(tmp_path) -> None:
     """The lock the server and the comment store take works on every system: a second
     taker is refused while it is held, and takes it once it is given back."""
-    from tex_mcp_web import filelock
+    from tex_mcp_web.shared import filelock
 
     path = tmp_path / "server.lock"
     with path.open("a") as held, path.open("a") as other:
@@ -1097,7 +1097,7 @@ def test_a_process_that_is_gone_has_no_session_above_it() -> None:
     import subprocess
     import sys
 
-    from tex_mcp_web import plugin_monitor
+    from tex_mcp_web.shared import plugin_monitor
 
     ended = subprocess.Popen([sys.executable, "-c", "pass"], stdin=subprocess.DEVNULL)
     ended.wait()
@@ -1113,7 +1113,7 @@ def test_a_parent_pid_taken_again_by_a_younger_process_ends_the_walk(monkeypatch
 
     import psutil
 
-    from tex_mcp_web import plugin_monitor
+    from tex_mcp_web.shared import plugin_monitor
 
     me, parent = os.getpid(), os.getppid()
     real_ppid = psutil.Process.ppid
@@ -1132,9 +1132,10 @@ def test_a_parent_pid_taken_again_by_a_younger_process_ends_the_walk(monkeypatch
 def test_the_monitor_looks_for_its_session_from_the_process_it_is_told(monkeypatch) -> None:
     """Where a monitor's own parents do not lead to Claude Code, its launcher names a process
     that does, and with no session above that one the monitor ends at once."""
-    from tex_mcp_web import monitor, plugin_monitor
+    from tex_mcp_web.shared import monitor, plugin_monitor
+    from tex_mcp_web.tool import TOOL
 
     asked = []
     monkeypatch.setattr(plugin_monitor, "session_of", lambda pid: asked.append(pid))
-    monitor.main(["--from", "4242"])
+    monitor.main(TOOL, ["--from", "4242"])
     assert asked == [4242]

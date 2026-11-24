@@ -46,7 +46,7 @@ from typing import Any, Callable, Iterable, Iterator, Literal
 
 import pymupdf
 
-from . import shared_file
+from .shared import shared_file
 
 logger = logging.getLogger(__name__)
 
@@ -1397,7 +1397,7 @@ class CommentStore:
         Held only for the duration of one mutation; readers do not lock
         because the atomic rename guarantees they see a complete file.
         """
-        from . import filelock
+        from .shared import filelock
 
         # 'a' so concurrent processes share the same descriptor target
         # without truncating each other.

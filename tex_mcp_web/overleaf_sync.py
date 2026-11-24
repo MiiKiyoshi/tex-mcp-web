@@ -33,7 +33,8 @@ import time
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Collection, Protocol
 
-from . import overleaf, overleaf_ot as ot, shared_file
+from . import overleaf, overleaf_ot as ot
+from .shared import shared_file
 
 logger = logging.getLogger(__name__)
 

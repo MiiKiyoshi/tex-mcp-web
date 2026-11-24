@@ -32,7 +32,6 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-import psutil
 from aiohttp import web
 
 from .comments import (
@@ -84,11 +83,11 @@ from .synctex import (
 from . import overleaf
 from . import overleaf_git
 from . import page_token
-from . import shared_file
-from . import plugin_monitor
 from . import update
 from . import __version__
 from . import overleaf_ot
+from .shared import shared_file
+from .shared.calls import Calls
 from .overleaf_live import TRACKED, LivePresence
 from .overleaf_sync import HandSync, NotConnected, ProjectSync, Uploads
 from .completion import bib_entries, defined_commands, defined_environments, labels
@@ -474,35 +473,8 @@ async def _only_its_own_pages(request: web.Request, handler: Callable[[web.Reque
     return await handler(request)
 
 
-class Lane:
-    """The presses for one agent the configuration names: how many were made, how many its
-    waiter took, and the model and effort picked at the last, kept across a restart."""
-
-    def __init__(self, name: str, path: Path) -> None:
-        self.name, self.path = name, path
-        self.calls, self.consumed, self.choice = 0, 0, {}
-        self.called = asyncio.Event()
-        self.waiters = 0
-        if path.is_file():
-            data = json.loads(shared_file.read_text(path))
-            self.calls, self.consumed, self.choice = int(data["calls"]), int(data["consumed"]), dict(data["choice"])
-
-    def save(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        staging = self.path.with_name(self.path.name + ".new")
-        staging.write_text(json.dumps({"calls": self.calls, "consumed": self.consumed, "choice": self.choice}), encoding="utf-8")
-        shared_file.replace(staging, self.path)
-
-
 class TexMcpWebServer:
     """Single-paper watch + serve + comment store."""
-
-    # A parked waiter is answered within this long even when nothing happened, so the
-    # waiter's request never trips its own timeout and a lost connection is noticed.
-    REVIEW_POLL_TIMEOUT = 55.0
-    # How long a session that asked to listen has to start its waiter before a session
-    # starting up may listen in its place.
-    LISTENER_START = 60.0
 
     def __init__(self, config: Config):
         self.config = config
@@ -535,25 +507,11 @@ class TexMcpWebServer:
         self._prev_page_hashes: list[str] = []
 
         self.comments = CommentStore(self.watch_dir / ".tex-mcp-web" / "comments.json")
-        # The reviewer's Call agent presses: how many were made and how many a waiter
-        # confirmed it delivered. Kept on disk so a press outlives a server restart.
-        self.review_state_path = self.watch_dir / ".tex-mcp-web" / "review-state.json"
-        self.review_calls, self.review_consumed = self._load_review_state()
-        self.review_called = asyncio.Event()
-        self.review_waiters = 0
-        # An agent the configuration names has a lane of its own beside the one listening
-        # session: its waiter names no listener, so a press for it never moves that session's,
-        # and that session's never moves its.
-        self.lanes: dict[str, Lane] = {}
-        # Presses go to one waiter, named by the id listen() gave it: two sessions answering
-        # one press would edit the same threads. Its pid, which its polls report, says
-        # whether it still runs, and the Claude Code session that named it, when known,
-        # whose own earlier waiter hears that it is that session listening on.
-        self.review_listener: str | None = None
-        self.review_listener_pid: int | None = None
-        self.review_listener_session: int | None = None
-        self.review_listener_claimed = 0.0
-        self.closing = False
+        # The reviewer's Call agent presses, kept beside the comments so that a press
+        # outlives a server restart.
+        self.review = Calls(self.watch_dir / ".tex-mcp-web", DEFAULT_CONFIG_NAME, lambda: self.config.agents,
+                            lambda press: self._review_line(press), lambda message: self.broadcast(message),
+                            self._take_picked)
         self.websockets: set[web.WebSocketResponse] = set()
         self.overleaf_live: LivePresence | None = None
         # Threads put back on their words on Overleaf, by thread, and the puts under way.
@@ -669,7 +627,6 @@ class TexMcpWebServer:
         app.router.add_post("/update", self._handle_update)
         app.router.add_get("/image", self._handle_image)
         app.router.add_get("/reference-preview", self._handle_reference_preview)
-        app.router.add_post("/review-request", self._handle_review_request)
         app.router.add_get("/overleaf", self._handle_overleaf)
         app.router.add_post("/overleaf/cookie", self._handle_overleaf_cookie)
         app.router.add_delete("/overleaf/cookie", self._handle_overleaf_cookie)
@@ -684,9 +641,7 @@ class TexMcpWebServer:
         app.router.add_post("/overleaf/sync", self._handle_overleaf_sync)
         app.router.add_post("/overleaf/connect", self._handle_overleaf_connect)
         app.on_cleanup.append(lambda _app: self._stop_overleaf_live())
-        app.router.add_get("/wait-review", self._handle_wait_review)
-        app.router.add_post("/wait-review/listen", self._handle_claim_review)
-        app.router.add_post("/wait-review/ack", self._handle_ack_review)
+        self.review.add_routes(app)
         return app
 
     # ----- compile + watch -----
@@ -833,7 +788,7 @@ class TexMcpWebServer:
         if self.watcher is not None:
             self.watcher.update_patterns(config.watch, config.ignore)
             self.watcher.set_roots(self.source_roots())
-        await self.broadcast({"type": "lanes", "lanes": self._lanes()})
+        await self.broadcast({"type": "lanes", "lanes": self.review.page_lanes()})
         await self.broadcast({"type": "config_reloaded"})
         await self._sync_overleaf_live()
         # A new main file or compiler makes a different PDF, which the page would
@@ -900,8 +855,8 @@ class TexMcpWebServer:
                 "compiling": self.compiling,
                 "result": _result_to_dict(self.last_result),
                 "pdf_digest": self.pdf_digest,
-                "review_waiters": self.review_waiters,
-                "lanes": self._lanes(),
+                "review_waiters": self.review.waiters,
+                "lanes": self.review.page_lanes(),
             }
         )
         if self.overleaf_live is not None:
@@ -1312,75 +1267,10 @@ class TexMcpWebServer:
 
     # ----- API: Call agent -----
 
-    def _load_review_state(self) -> tuple[int, int]:
-        try:
-            data = json.loads(shared_file.read_text(self.review_state_path))
-            calls, consumed = int(data["calls"]), int(data["consumed"])
-        except (FileNotFoundError, json.JSONDecodeError, KeyError, TypeError, ValueError):
-            return 0, 0
-        if calls < 0 or not 0 <= consumed <= calls:
-            return 0, 0
-        return calls, consumed
-
-    def _save_review_state(self) -> None:
-        self.review_state_path.parent.mkdir(parents=True, exist_ok=True)
-        staging = self.review_state_path.with_name(self.review_state_path.name + ".new")
-        staging.write_text(json.dumps(
-            {"calls": self.review_calls, "consumed": self.review_consumed}), encoding="utf-8")
-        shared_file.replace(staging, self.review_state_path)
-
-    def _lane(self, name: str) -> "Lane":
-        """The lane of an agent the configuration names, made when first asked for."""
-        if name not in self.config.agents:
-            raise web.HTTPNotFound(text=f"agents in {DEFAULT_CONFIG_NAME} names no {name}")
-        if name not in self.lanes:
-            self.lanes[name] = Lane(name, self.watch_dir / ".tex-mcp-web" / f"review-lane-{name}.json")
-        return self.lanes[name]
-
-    def _lanes(self) -> dict[str, dict[str, Any]]:
-        """What the page shows of each agent the bell can call beside the session listening."""
-        return {name: {"waiters": self._lane(name).waiters, "models": agent["models"], "efforts": agent["efforts"]}
-                for name, agent in self.config.agents.items()}
-
-    async def _lane_press(self, lane: "Lane", body: dict[str, Any]) -> web.Response:
-        # A press carries the model and effort picked from those the configuration lists.
-        choice = {}
-        for key, listed in (("model", "models"), ("effort", "efforts")):
-            allowed = self.config.agents[lane.name][listed]
-            if allowed:
-                choice[key] = body.get(key, allowed[0])
-                if choice[key] not in allowed:
-                    return web.json_response({"error": f"{listed} of {lane.name} lists no {choice[key]}"}, status=400)
-        lane.choice = choice
-        lane.calls += 1
-        lane.save()
-        delivered = lane.waiters > 0
-        lane.called.set()
-        lane.called = asyncio.Event()
-        await self.broadcast({"type": "review_requested", "agent": lane.name, "calls": lane.calls, "delivered": delivered})
-        return web.json_response({"calls": lane.calls, "delivered": delivered})
-
-    async def _wait_lane(self, lane: "Lane") -> web.Response:
-        loop = asyncio.get_running_loop()
-        deadline = loop.time() + self.REVIEW_POLL_TIMEOUT
-        lane.waiters += 1
-        await self.broadcast({"type": "lanes", "lanes": self._lanes()})
-        try:
-            while lane.calls <= lane.consumed:
-                remaining = deadline - loop.time()
-                if remaining <= 0 or self.closing:
-                    return web.Response(status=204)
-                try:
-                    await asyncio.wait_for(lane.called.wait(), timeout=remaining)
-                except asyncio.TimeoutError:
-                    return web.Response(status=204)
-            line = self._review_line(lane.calls)
-            if lane.choice:
-                line += " [" + " ".join(f"{key}={value}" for key, value in lane.choice.items()) + "]"
-            return web.Response(text=line, headers={"X-Press": str(lane.calls)})
-        finally:
-            lane.waiters -= 1
-            await self.broadcast({"type": "lanes", "lanes": self._lanes()})
+    def _take_picked(self, press: dict[str, Any]) -> None:
+        """With overleaf_picked, the threads from Overleaf picked on the page go with a press."""
+        if self.config.overleaf_picked:
+            overleaf.pick(self.watch_dir, press.get("picked"))
 
     def _review_line(self, press: int | None = None) -> str:
         # The line counts what a wake-up is for: the open threads read_comments(new=True)
@@ -1394,7 +1284,7 @@ class TexMcpWebServer:
         waiting = sum(bool(comment.waiting(None, True) if comment.id in chosen
                            else comment.waiting(edge, comment.id in brought, not self.config.overleaf_picked))
                       for comment in self.comments.list(status="open"))
-        return (f"[review] reviewer called (press #{self.review_calls if press is None else press}): "
+        return (f"[review] reviewer called (press #{self.review.calls if press is None else press}): "
                 + (f"{waiting} new comments" if waiting else "no new comments")
                 + " -- read them with read_comments(new=True)")
 
@@ -2176,121 +2066,6 @@ class TexMcpWebServer:
         if selector is None:
             return PaperAnchor(), None, None, where, False
         return anchor, resolved, selector, None, exact
-
-    def _wake_review_waiters(self) -> None:
-        released = self.review_called
-        self.review_called = asyncio.Event()
-        released.set()
-
-    def _review_listener_alive(self) -> bool:
-        if self.review_listener is None:
-            return False
-        if self.review_listener_pid is None:
-            return asyncio.get_running_loop().time() - self.review_listener_claimed < self.LISTENER_START
-        return psutil.pid_exists(self.review_listener_pid)
-
-    async def _handle_review_request(self, request: web.Request) -> web.Response:
-        try:
-            body = await request.json() if request.can_read_body else {}
-        except ValueError:
-            body = {}
-        body = body if isinstance(body, dict) else {}
-        if "agent" in body:
-            return await self._lane_press(self._lane(str(body["agent"])), body)
-        if self.config.overleaf_picked:
-            # The threads from Overleaf picked on the page go with the press.
-            overleaf.pick(self.watch_dir, body.get("picked"))
-        self.review_calls += 1
-        self._save_review_state()
-        delivered = self.review_waiters > 0
-        self._wake_review_waiters()
-        await self.broadcast({"type": "review_requested", "calls": self.review_calls, "delivered": delivered})
-        return web.json_response({"calls": self.review_calls, "delivered": delivered})
-
-    async def _handle_claim_review(self, request: web.Request) -> web.Response:
-        """Make the waiter with this listener id the one presses go to. With if_free, only
-        when no other waiter runs: a session listening from its start takes presses from
-        no one, and a session asked to listen takes them from whoever had them. session,
-        when given, is the pid of the Claude Code process the listener runs under, which
-        tells a waiter left by the same session from one another session took over."""
-        try:
-            listener = request.query["listener"]
-            session = int(request.query["session"]) if "session" in request.query else None
-        except (KeyError, ValueError) as error:
-            raise web.HTTPBadRequest(text="listener is required, and session is a pid") from error
-        if "if_free" in request.query and self._review_listener_alive():
-            return web.json_response({"listening": False})
-        self.review_listener, self.review_listener_pid = listener, None
-        self.review_listener_session = session
-        self.review_listener_claimed = asyncio.get_running_loop().time()
-        # A waiter parked for the listener before is released to hear that it is not one.
-        self._wake_review_waiters()
-        return web.json_response({"listening": True})
-
-    async def _handle_wait_review(self, request: web.Request) -> web.Response:
-        if "agent" in request.query:
-            return await self._wait_lane(self._lane(request.query["agent"]))
-        # The consumption watermark lives here, not in the waiter: a waiter carrying its
-        # own could never see a press made before its script was written. Waiting does
-        # not consume: the response can die on the wire after the watermark moved, and
-        # the wake-up died with it. The waiter acks what it printed (the X-Press header
-        # names it), and until then the press is offered again.
-        try:
-            listener, pid = request.query["listener"], int(request.query["pid"])
-        except (KeyError, ValueError) as error:
-            raise web.HTTPBadRequest(text="listener and pid are required") from error
-        # A restarted server knows no listener, and the first waiter back is the one.
-        if self.review_listener is None:
-            self.review_listener = listener
-        loop = asyncio.get_running_loop()
-        deadline = loop.time() + self.REVIEW_POLL_TIMEOUT
-        self.review_waiters += 1
-        await self.broadcast({"type": "review_waiters", "waiters": self.review_waiters})
-        try:
-            while True:
-                if self.review_listener != listener:
-                    own = (self.review_listener_session is not None
-                           and plugin_monitor.session_of(pid) == self.review_listener_session)
-                    return web.Response(
-                        text="[moved] this session listens for Call agent with a newer waiter, so this one ends"
-                        if own else "[moved] another session took over listening for Call agent, so "
-                        "presses go to that session; call listen() to take them back",
-                        headers={"X-Moved": "1"})
-                self.review_listener_pid = pid
-                if self.review_calls > self.review_consumed:
-                    break
-                remaining = deadline - loop.time()
-                if remaining <= 0:
-                    return web.Response(status=204)
-                waited = self.review_called
-                try:
-                    await asyncio.wait_for(waited.wait(), timeout=remaining)
-                except asyncio.TimeoutError:
-                    return web.Response(status=204)
-                if self.closing:
-                    return web.Response(status=204)
-            return web.Response(text=self._review_line(),
-                                headers={"X-Press": str(self.review_calls)})
-        finally:
-            self.review_waiters -= 1
-            await self.broadcast({"type": "review_waiters", "waiters": self.review_waiters})
-
-    async def _handle_ack_review(self, request: web.Request) -> web.Response:
-        try:
-            upto = int(request.query["upto"])
-        except (KeyError, ValueError) as error:
-            raise web.HTTPBadRequest(text="upto must be an integer") from error
-        if "agent" in request.query:
-            lane = self._lane(request.query["agent"])
-            lane.consumed = max(lane.consumed, min(upto, lane.calls))
-            lane.save()
-            return web.json_response({"calls": lane.calls, "consumed": lane.consumed})
-        # Idempotent and monotonic: a late or repeated ack never moves the watermark back,
-        # and one beyond the count (a script talking to a restarted server whose counters
-        # are behind it) clamps rather than marking presses that do not exist yet.
-        self.review_consumed = max(self.review_consumed, min(upto, self.review_calls))
-        self._save_review_state()
-        return web.json_response({"calls": self.review_calls, "consumed": self.review_consumed})
 
     # ----- static / PDF -----
 
@@ -3749,10 +3524,7 @@ class TexMcpWebServer:
         return [self.main_file.parent, *(path.parent for path in files)]
 
     async def cleanup(self) -> None:
-        # A parked waiter holds its connection for the whole poll; released here, it
-        # asks again at once and finds the port closed instead of holding it half-alive.
-        self.closing = True
-        self.review_called.set()
+        self.review.close()
         await self._stop_overleaf_live()
         # do_compile shields the build, so the build task is cancelled directly.
         # Awaiting the cancellation lets a running compiler subprocess close its

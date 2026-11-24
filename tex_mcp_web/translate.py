@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
-from . import shared_file
+from .shared import shared_file
 
 logger = logging.getLogger(__name__)
 

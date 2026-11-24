@@ -35,7 +35,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from . import page_token, plugin_monitor, shared_file
+from . import page_token
+from .shared import agents, plugin_monitor, shared_file, waiter
+from .tool import TOOL
 
 try:
     from mcp.server.fastmcp import Context, FastMCP
@@ -585,13 +587,6 @@ def _overleaf_thread_add(store, watch_dir: Path, text: str, anchor: "CommentAnch
 # ---------------------------------------------------------------------------
 
 
-def _lane(ctx: "Context", agents: dict[str, dict[str, list[str]]]) -> str | None:
-    """The lane this client waits in on the review page: that of the agent the configuration
-    names whose clients' names its own holds. None is the session listening."""
-    name = ctx.session.client_params.clientInfo.name.casefold()
-    return next((lane for lane, agent in agents.items() if any(part in name for part in agent["clients"])), None)
-
-
 def _wait_method(ctx: "Context", command: str, lane: str | None = None) -> str:
     name = ctx.session.client_params.clientInfo.name.casefold()
     if lane is not None:
@@ -604,7 +599,7 @@ def _wait_method(ctx: "Context", command: str, lane: str | None = None) -> str:
             "in one line. Stop a running one when the review is finished or the user asks."
         )
     if "claude" in name:
-        if plugin_monitor.hand_over(command):
+        if plugin_monitor.hand_over(TOOL, command):
             return (
                 "The tex-mcp plugin's monitor runs the command for this session and turns each "
                 "line it prints into a notification for as long as the session lasts. Do not "
@@ -643,12 +638,6 @@ def _wait_method(ctx: "Context", command: str, lane: str | None = None) -> str:
 # The id this process's session listens by. One per process, so a session asked to listen
 # again restarts its waiter without that waiter hearing that another session took over.
 LISTENER = secrets.token_hex(8)
-
-
-def _waiter_command(port: int) -> str:
-    """The command that waits for this session's Call agent presses, run as it is or by the
-    plugin's monitor: Python, so that it is the same on every system."""
-    return f"{shlex.quote(Path(sys.executable).as_posix())} -m tex_mcp_web.waiter {port} {LISTENER}"
 
 
 def create_server(binding: "ProjectBinding") -> "FastMCP":
@@ -1310,18 +1299,18 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
         cfg, watch_dir, _ = _load_project(binding)
         import httpx
 
-        lane = _lane(ctx, cfg.agents)
+        lane = agents.lane_of(ctx.session.client_params.clientInfo.name, cfg.agents)
         if lane is not None:
             # An agent the configuration names waits in a lane of its own and takes no presses
             # from the listening session.
-            command = f"{shlex.quote(Path(sys.executable).as_posix())} -m tex_mcp_web.waiter {shared.port} - --agent {lane} --once"
+            command = waiter.lane_command(TOOL, shared.port, lane)
         else:
             session = plugin_monitor.claude_pid()
             async with httpx.AsyncClient(timeout=10.0, headers=page_token.headers()) as client:
                 response = await client.post(f"{binding.base_url()}/wait-review/listen", params={
                     "listener": LISTENER, **({"session": session} if session is not None else {})})
             response.raise_for_status()
-            command = _waiter_command(shared.port)
+            command = waiter.command(TOOL, shared.port, LISTENER)
         return _ok({
             "command": command,
             "how": (
@@ -1433,7 +1422,7 @@ def _listen_from_start(shared: "SharedProjectServer") -> None:
     if plugin_monitor.claude_pid() is None:
         return
     deadline = time.monotonic() + MONITOR_START
-    while (session := plugin_monitor.monitored_session()) is None:
+    while (session := plugin_monitor.monitored_session(TOOL)) is None:
         if time.monotonic() > deadline:
             return
         time.sleep(1)
@@ -1443,7 +1432,7 @@ def _listen_from_start(shared: "SharedProjectServer") -> None:
     with urllib.request.urlopen(request, timeout=10) as response:
         if not json.loads(response.read())["listening"]:
             return
-    plugin_monitor.hand_over(_waiter_command(shared.port))
+    plugin_monitor.hand_over(TOOL, waiter.command(TOOL, shared.port, LISTENER))
 
 
 def _listen_in_background(shared: "SharedProjectServer") -> None:

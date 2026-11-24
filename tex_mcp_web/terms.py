@@ -31,7 +31,7 @@ import re
 from collections import Counter, defaultdict
 from pathlib import Path
 
-from . import shared_file
+from .shared import shared_file
 from .config import Config, get_references_dir
 
 TERMS_FILE = "terms.md"

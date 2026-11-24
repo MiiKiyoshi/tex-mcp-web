@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock
 import pytest
 import yaml
 
-from tex_mcp_web import filelock
+from tex_mcp_web.shared import filelock
 from tex_mcp_web.compiler import source_dependencies
 from tex_mcp_web.config import load_config
 from tex_mcp_web.mcp_client import SharedProjectServer

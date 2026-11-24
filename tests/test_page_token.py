@@ -79,14 +79,16 @@ async def test_the_agents_tools_and_the_waiter_send_the_token(locked, tmp_path: 
     import shlex
     import sys
 
-    from tex_mcp_web.mcp_server import LISTENER, _waiter_command
+    from tex_mcp_web.mcp_server import LISTENER
+    from tex_mcp_web.shared import waiter
+    from tex_mcp_web.tool import TOOL
 
     client, server = locked
     token = page_token.ensure_token()
     port = client.server.port
     listen = await client.post(f"/wait-review/listen?listener={LISTENER}", headers=page_token.headers())
     assert listen.status == 200
-    command = shlex.split(_waiter_command(port))
+    command = shlex.split(waiter.command(TOOL, port, LISTENER))
     assert token not in " ".join(command)
     run = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE,
                                                env={**os.environ, "XDG_CONFIG_HOME": os.environ["XDG_CONFIG_HOME"]})

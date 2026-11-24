@@ -12,7 +12,8 @@ from typing import Any, Callable
 
 import yaml
 
-from . import filelock, page_token
+from . import page_token
+from .shared import filelock
 from .config import DEFAULT_CONFIG_NAME, Config, find_config, get_watch_dir, load_config
 
 # How a folder is set up for review, read only when it is: an agent follows it with its shell.

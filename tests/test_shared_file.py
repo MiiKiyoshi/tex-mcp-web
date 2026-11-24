@@ -10,7 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from tex_mcp_web import mcp_server, overleaf, shared_file
+from tex_mcp_web import mcp_server, overleaf
+from tex_mcp_web.shared import shared_file
 from tex_mcp_web.comments import CommentStore, PaperAnchor
 
 ROOT = Path(__file__).resolve().parent.parent

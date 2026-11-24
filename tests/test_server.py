@@ -31,6 +31,8 @@ from tex_mcp_web.comments import (
 from tex_mcp_web.config import Config, load_config
 from tex_mcp_web.compiler import CompileResult
 from tex_mcp_web.server import TexMcpWebServer
+from tex_mcp_web.shared.calls import Calls
+from tex_mcp_web.tool import TOOL
 
 
 def _symlink(link, target, **kwargs):
@@ -2718,12 +2720,12 @@ async def test_the_page_answers_only_its_own_pages_at_localhost(client) -> None:
     assert (await test_client.post("/review-request", headers={"Origin": "https://example.com"})).status == 403
     assert (await test_client.post("/review-request", headers={"Origin": "null"})).status == 403
     assert (await test_client.get("/paper", headers={"Host": f"example.com:{test_client.server.port}"})).status == 403
-    assert server.review_calls == 0
+    assert server.review.calls == 0
     assert (await test_client.post("/review-request", headers={"Origin": f"http://{here}"})).status == 200
     assert (await test_client.get("/paper", headers={"Host": f"localhost:{test_client.server.port}",
                                                       "Origin": f"http://localhost:{test_client.server.port}"})).status == 200
     assert (await test_client.get("/paper")).status == 200
-    assert server.review_calls == 1
+    assert server.review.calls == 1
 
 
 @pytest.mark.asyncio
@@ -2769,23 +2771,23 @@ async def test_call_button_wakes_a_parked_waiter_and_keeps_an_early_press(client
     # Acked means consumed: the same waiter restarted parks rather than replaying.
     acked = await (await test_client.post("/wait-review/ack?upto=2")).json()
     assert acked == {"calls": 2, "consumed": 2}
-    server.REVIEW_POLL_TIMEOUT = 0.05
+    server.review.POLL_TIMEOUT = 0.05
     assert (await test_client.get(wait)).status == 204
-    server.REVIEW_POLL_TIMEOUT = TexMcpWebServer.REVIEW_POLL_TIMEOUT
+    server.review.POLL_TIMEOUT = Calls.POLL_TIMEOUT
 
     # A parked waiter is released by the press.
     parked = asyncio.ensure_future(test_client.get(wait))
     for _ in range(50):
-        if server.review_waiters == 1:
+        if server.review.waiters == 1:
             break
         await asyncio.sleep(0.02)
-    assert server.review_waiters == 1
+    assert server.review.waiters == 1
     reply = await (await test_client.post("/review-request")).json()
     assert reply == {"calls": 3, "delivered": True}
     released = await parked
     assert released.status == 200
     assert (await released.text()).startswith("[review] reviewer called (press #3)")
-    assert server.review_waiters == 0
+    assert server.review.waiters == 0
 
     # An ack from a script that outlived a server restart clamps to what exists and a
     # stale repeat never moves the watermark back.
@@ -2793,7 +2795,7 @@ async def test_call_button_wakes_a_parked_waiter_and_keeps_an_early_press(client
     assert over == {"calls": 3, "consumed": 3}
     stale = await (await test_client.post("/wait-review/ack?upto=1")).json()
     assert stale == {"calls": 3, "consumed": 3}
-    server.REVIEW_POLL_TIMEOUT = 0.05
+    server.review.POLL_TIMEOUT = 0.05
     assert (await test_client.get(wait)).status == 204
 
 
@@ -2804,8 +2806,8 @@ async def test_presses_survive_a_server_restart(client) -> None:
     test_client, server = client
     await test_client.post("/review-request")
     reborn = TexMcpWebServer(server.config)
-    assert (reborn.review_calls, reborn.review_consumed) == (1, 0)
-    reborn.REVIEW_POLL_TIMEOUT = 0.05
+    assert (reborn.review.calls, reborn.review.consumed) == (1, 0)
+    reborn.review.POLL_TIMEOUT = 0.05
     second_client = TestClient(TestServer(reborn.app))
     await second_client.start_server()
     try:
@@ -2814,7 +2816,7 @@ async def test_presses_survive_a_server_restart(client) -> None:
         assert offered.headers["X-Press"] == "1"
         await second_client.post("/wait-review/ack?upto=1")
         third = TexMcpWebServer(server.config)
-        assert (third.review_calls, third.review_consumed) == (1, 1)
+        assert (third.review.calls, third.review.consumed) == (1, 1)
     finally:
         await second_client.close()
 
@@ -2830,10 +2832,10 @@ async def test_presses_go_to_one_listener(client) -> None:
     # A waiter with no listener named before it is the one.
     parked = asyncio.ensure_future(test_client.get(f"/wait-review?listener=one&pid={pid}"))
     for _ in range(50):
-        if server.review_waiters == 1:
+        if server.review.waiters == 1:
             break
         await asyncio.sleep(0.02)
-    assert server.review_listener == "one"
+    assert server.review.listener == "one"
     # A session starting up leaves the presses to a waiter that runs.
     refused = await test_client.post("/wait-review/listen?listener=two&if_free=1")
     assert await refused.json() == {"listening": False}
@@ -2853,14 +2855,14 @@ async def test_presses_go_to_one_listener(client) -> None:
     # A listener whose waiter has ended leaves the presses to the next session that starts.
     ended = await asyncio.create_subprocess_exec("true")
     await ended.wait()
-    server.REVIEW_POLL_TIMEOUT = 0.05
+    server.review.POLL_TIMEOUT = 0.05
     assert (await test_client.get(f"/wait-review?listener=two&pid={ended.pid}")).status == 204
     started = await test_client.post("/wait-review/listen?listener=three&if_free=1")
     assert await started.json() == {"listening": True}
     # One that was just named has a while to start its waiter before it counts as ended.
     early = await test_client.post("/wait-review/listen?listener=four&if_free=1")
     assert await early.json() == {"listening": False}
-    server.LISTENER_START = 0
+    server.review.LISTENER_START = 0
     late = await test_client.post("/wait-review/listen?listener=four&if_free=1")
     assert await late.json() == {"listening": True}
 
@@ -2870,7 +2872,7 @@ async def test_a_waiter_its_own_session_replaced_hears_that_this_session_listens
     """tex-mcp started again in a session listens with a new waiter. The waiter the session
     ran before hears that its own session took the presses, and one in another session
     hears that another did."""
-    from tex_mcp_web import plugin_monitor
+    from tex_mcp_web.shared import plugin_monitor
 
     test_client, server = client
     pid = os.getpid()
@@ -2878,7 +2880,7 @@ async def test_a_waiter_its_own_session_replaced_hears_that_this_session_listens
     await test_client.post("/wait-review/listen?listener=one&session=111")
     parked = asyncio.ensure_future(test_client.get(f"/wait-review?listener=one&pid={pid}"))
     for _ in range(50):
-        if server.review_waiters == 1:
+        if server.review.waiters == 1:
             break
         await asyncio.sleep(0.02)
     await test_client.post("/wait-review/listen?listener=two&session=111")
@@ -2981,18 +2983,18 @@ async def test_listen_hands_the_waiter_to_the_plugin_monitor(bound_project, proj
 
     import aiohttp
 
-    from tex_mcp_web import plugin_monitor
+    from tex_mcp_web.shared import plugin_monitor
     from tex_mcp_web.mcp_server import create_server
 
     cache = tmp_path / "cache"
-    monkeypatch.setattr(plugin_monitor, "DIRECTORY", cache / "tex-mcp-web" / "monitor")
+    monkeypatch.setattr(TOOL, "monitors", cache / "tex-mcp-web" / "monitor")
     session = await asyncio.create_subprocess_exec("sleep", "60")
     monkeypatch.setattr(plugin_monitor, "claude_pid", lambda: session.pid)
     monitor = await asyncio.create_subprocess_exec(
         "sh", str(Path(__file__).parents[1] / "plugin" / "monitors" / "review.sh"), str(session.pid),
         stdout=asyncio.subprocess.PIPE, env={**os.environ, "XDG_CACHE_HOME": str(cache)})
     try:
-        record = plugin_monitor.DIRECTORY / f"{session.pid}.monitor"
+        record = TOOL.monitors / f"{session.pid}.monitor"
         for _ in range(50):
             if record.exists():
                 break
@@ -3005,7 +3007,7 @@ async def test_listen_hands_the_waiter_to_the_plugin_monitor(bound_project, proj
         result = json.loads((await mcp.call_tool("listen", {}))[0].text)
         assert "plugin's monitor runs the command" in result["how"]
         assert "Monitor(" not in result["how"] and "On [review]" in result["how"]
-        handed = (plugin_monitor.DIRECTORY / f"{session.pid}.command").read_text(encoding="utf-8").splitlines()
+        handed = (TOOL.monitors / f"{session.pid}.command").read_text(encoding="utf-8").splitlines()
         assert handed[1] == result["command"]
         async with aiohttp.ClientSession() as client:
             async with client.post(f"{bound_project.base_url()}/review-request") as response:
@@ -3031,11 +3033,11 @@ async def test_a_session_with_the_plugin_listens_from_its_start(bound_project, p
     pytest.importorskip("mcp")
     import aiohttp
 
-    from tex_mcp_web import plugin_monitor
+    from tex_mcp_web.shared import plugin_monitor
     from tex_mcp_web.mcp_server import _listen_from_start, create_server
 
     cache = tmp_path / "cache"
-    monkeypatch.setattr(plugin_monitor, "DIRECTORY", cache / "tex-mcp-web" / "monitor")
+    monkeypatch.setattr(TOOL, "monitors", cache / "tex-mcp-web" / "monitor")
     session = await asyncio.create_subprocess_exec("sleep", "60")
     monkeypatch.setattr(plugin_monitor, "claude_pid", lambda: session.pid)
     monitor = await asyncio.create_subprocess_exec(
@@ -3044,14 +3046,14 @@ async def test_a_session_with_the_plugin_listens_from_its_start(bound_project, p
     try:
         shared = bound_project.require_shared()
         base = bound_project.base_url()
-        handed = plugin_monitor.DIRECTORY / f"{session.pid}.command"
+        handed = TOOL.monitors / f"{session.pid}.command"
         async with aiohttp.ClientSession() as client:
             async with client.post(f"{base}/wait-review/listen?listener=other") as response:
                 assert (await response.json())["listening"]
             await asyncio.to_thread(_listen_from_start, shared)
             assert not handed.exists()
             # The other session never started its waiter: this one listens in its place.
-            shared.server.LISTENER_START = 0
+            shared.server.review.LISTENER_START = 0
             await asyncio.to_thread(_listen_from_start, shared)
             assert shlex.split(handed.read_text(encoding="utf-8").splitlines()[1])[1:3] == ["-m", "tex_mcp_web.waiter"]
             async with client.post(f"{base}/review-request") as response:
@@ -3089,12 +3091,12 @@ async def test_a_session_that_starts_the_server_again_listens_again(bound_projec
     import signal
     import sys
 
-    from tex_mcp_web import plugin_monitor
+    from tex_mcp_web.shared import plugin_monitor
     from tex_mcp_web.mcp_client import ProjectBinding
     from tex_mcp_web.mcp_server import _listen_in_background
 
     cache = tmp_path / "cache"
-    monkeypatch.setattr(plugin_monitor, "DIRECTORY", cache / "tex-mcp-web" / "monitor")
+    monkeypatch.setattr(TOOL, "monitors", cache / "tex-mcp-web" / "monitor")
     session = await asyncio.create_subprocess_exec("sleep", "60")
     monkeypatch.setattr(plugin_monitor, "claude_pid", lambda: session.pid)
     monitor = await asyncio.create_subprocess_exec(
@@ -3119,12 +3121,12 @@ async def test_a_session_that_starts_the_server_again_listens_again(bound_projec
     binding = ProjectBinding(project, on_serve=_listen_in_background)
     try:
         assert (await asyncio.wait_for(other.stdout.readline(), 30)).rstrip(b"\r\n") == b"serving"
-        record = plugin_monitor.DIRECTORY / f"{session.pid}.monitor"
+        record = TOOL.monitors / f"{session.pid}.monitor"
         for _ in range(50):
             if record.exists():
                 break
             await asyncio.sleep(0.1)
-        handed = plugin_monitor.DIRECTORY / f"{session.pid}.command"
+        handed = TOOL.monitors / f"{session.pid}.command"
         shared = await asyncio.to_thread(binding.connect)
         assert shared.server is None
         await asyncio.sleep(2)
@@ -3135,10 +3137,10 @@ async def test_a_session_that_starts_the_server_again_listens_again(bound_projec
         await asyncio.to_thread(binding.connect)
         assert shared.server is not None
         for _ in range(150):
-            if shared.server.review_waiters == 1:
+            if shared.server.review.waiters == 1:
                 break
             await asyncio.sleep(0.1)
-        assert shared.server.review_waiters == 1
+        assert shared.server.review.waiters == 1
     finally:
         await asyncio.to_thread(binding.stop)
         # TERM lets the monitor stop the waiter it runs.
@@ -3157,21 +3159,21 @@ async def test_a_monitor_killed_outright_leaves_nothing_a_later_session_takes(mo
     """A monitor killed outright leaves its record and the last command. A pid in that record
     now held by another process is no monitor, and the next monitor for a session with the
     same pid drops the command before it records itself."""
-    from tex_mcp_web import plugin_monitor
+    from tex_mcp_web.shared import plugin_monitor
 
     cache = tmp_path / "cache"
-    monkeypatch.setattr(plugin_monitor, "DIRECTORY", cache / "tex-mcp-web" / "monitor")
-    plugin_monitor.DIRECTORY.mkdir(parents=True)
+    monkeypatch.setattr(TOOL, "monitors", cache / "tex-mcp-web" / "monitor")
+    TOOL.monitors.mkdir(parents=True)
     session = await asyncio.create_subprocess_exec("sleep", "60")
     other = await asyncio.create_subprocess_exec("sleep", "60")
     monkeypatch.setattr(plugin_monitor, "claude_pid", lambda: session.pid)
-    record = plugin_monitor.DIRECTORY / f"{session.pid}.monitor"
-    handed = plugin_monitor.DIRECTORY / f"{session.pid}.command"
+    record = TOOL.monitors / f"{session.pid}.monitor"
+    handed = TOOL.monitors / f"{session.pid}.command"
     record.write_text(f"{other.pid}\n", encoding="utf-8", newline="")
     handed.write_text("1\necho left over\n", encoding="utf-8", newline="")
     monitor = None
     try:
-        assert plugin_monitor.monitored_session() is None
+        assert plugin_monitor.monitored_session(TOOL) is None
         monitor = await asyncio.create_subprocess_exec(
             "sh", str(Path(__file__).parents[1] / "plugin" / "monitors" / "review.sh"), str(session.pid),
             stdout=asyncio.subprocess.PIPE, env={**os.environ, "XDG_CACHE_HOME": str(cache)})
@@ -3179,7 +3181,7 @@ async def test_a_monitor_killed_outright_leaves_nothing_a_later_session_takes(mo
             if record.read_text(encoding="utf-8").strip() == str(monitor.pid):
                 break
             await asyncio.sleep(0.1)
-        assert plugin_monitor.monitored_session() == session.pid
+        assert plugin_monitor.monitored_session(TOOL) == session.pid
         assert not handed.exists()
     finally:
         for process in (monitor, other, session):
@@ -4276,7 +4278,7 @@ async def test_an_agent_the_configuration_names_waits_in_a_lane_of_its_own(clien
     effort picked from those listed, and a press for the listening session never reaches it,
     nor it that session's."""
     test_client, server = client
-    server.REVIEW_POLL_TIMEOUT = 0.05
+    server.review.POLL_TIMEOUT = 0.05
     assert (await test_client.get("/wait-review?agent=second&listener=-&pid=1")).status == 404
     assert (await test_client.post("/review-request", json={"agent": "second"})).status == 404
     server.config.agents = {"second": {"clients": ["second"], "models": ["small", "large"], "efforts": ["low", "high"]},
@@ -4284,7 +4286,7 @@ async def test_an_agent_the_configuration_names_waits_in_a_lane_of_its_own(clien
     assert (await test_client.get("/wait-review?agent=second&listener=-&pid=1")).status == 204
     press = await test_client.post("/review-request", json={"agent": "second", "model": "large", "effort": "high"})
     assert press.status == 200 and (await press.json())["calls"] == 1
-    assert server.review_calls == 0
+    assert server.review.calls == 0
     told = await test_client.get("/wait-review?agent=second&listener=-&pid=1")
     assert told.headers["X-Press"] == "1"
     assert (await told.text()).endswith("[model=large effort=high]")
@@ -4295,21 +4297,21 @@ async def test_an_agent_the_configuration_names_waits_in_a_lane_of_its_own(clien
     # The listening session's press stays in its own lane, and so does another agent's.
     await test_client.post("/review-request")
     await test_client.post("/review-request", json={"agent": "third"})
-    assert (server.review_calls, server.lanes["second"].calls, server.lanes["third"].calls) == (1, 1, 1)
+    assert (server.review.calls, server.review.lanes["second"].calls, server.review.lanes["third"].calls) == (1, 1, 1)
     assert (await test_client.get("/wait-review?agent=second&listener=-&pid=1")).status == 204
     # An agent that lists no model or effort is told none.
     assert (await (await test_client.get("/wait-review?agent=third&listener=-&pid=1")).text()).endswith("read_comments(new=True)")
     # A model the configuration does not list is refused, and one left out is the first listed.
     refused = await test_client.post("/review-request", json={"agent": "second", "model": "rm -rf", "effort": "high"})
-    assert refused.status == 400 and server.lanes["second"].calls == 1
+    assert refused.status == 400 and server.review.lanes["second"].calls == 1
     await test_client.post("/review-request", json={"agent": "second"})
-    assert server.lanes["second"].choice == {"model": "small", "effort": "low"}
+    assert server.review.lanes["second"].choice == {"model": "small", "effort": "low"}
     # The page is told of every lane, with what a press for it picks from.
-    assert server._lanes()["second"] == {
+    assert server.review.page_lanes()["second"] == {
         "waiters": 0, "models": ["small", "large"], "efforts": ["low", "high"]}
     # Kept across a restart, as the listening session's are.
     again = TexMcpWebServer(server.config)
-    lane = again._lane("second")
+    lane = again.review.lane("second")
     assert (lane.calls, lane.consumed, lane.choice) == (2, 1, {"model": "small", "effort": "low"})
 
 

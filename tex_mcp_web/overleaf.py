@@ -31,8 +31,9 @@ from urllib.parse import unquote, urlsplit
 
 import aiohttp
 
-from . import __version__, shared_file
+from . import __version__
 from . import overleaf_ot as ot
+from .shared import shared_file
 
 COOKIE_ENV = "TEX_MCP_WEB_OVERLEAF_COOKIE"
 # overleaf.com's own, a self-hosted Overleaf's, and an older self-hosted ShareLaTeX's.
