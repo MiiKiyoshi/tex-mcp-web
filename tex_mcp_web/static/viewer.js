@@ -1,4 +1,5 @@
 import EmbedPDF, { PdfAnnotationSubtype } from "/static/embedpdf/embedpdf.js?v=selection-yellow";
+import { createSettings } from "./shared/settings.js";
 
 const DOCUMENT_ID = "paper";
 const ANNOTATION_PREFIX = "tex-web:";
@@ -18,7 +19,6 @@ const WAITS = {
 
 const state = {
   viewer: null,
-  sendKey: null,
   // "off" when Settings hides the key letters on the ringed comment's controls.
   keyLetters: null,
   // The threads whose replies are on their way to Overleaf, and whether its threads are being
@@ -1257,16 +1257,6 @@ function showSourceFile(path) {
   $("#source-file-name").textContent = path.split("/").pop();
 }
 
-// Light, dark or warm, as the reader last chose, else, under System, light or dark as the
-// system is, following it as it changes. The page's own parts and the viewer's change; the
-// PDF's pages are drawn as compiled, white in every theme.
-const THEMES = ["light", "dark", "warm"];
-let themeChosen = null;
-try {
-  const kept = localStorage.getItem("texMcpTheme");
-  if (THEMES.includes(kept)) themeChosen = kept;
-} catch { /* none kept */ }
-
 function darkTheme() {
   return document.documentElement.dataset.theme === "dark";
 }
@@ -1275,35 +1265,29 @@ function editorTheme() {
   return darkTheme() ? "ace/theme/one_dark" : "ace/theme/textmate";
 }
 
-function applyTheme() {
-  const theme = themeChosen ?? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-  document.documentElement.dataset.theme = theme;
-  for (const button of document.querySelectorAll("[data-theme-choice]")) {
-    button.setAttribute("aria-checked", String(button.dataset.themeChoice === (themeChosen ?? "system")));
-  }
-  state.editor?.setTheme(editorTheme());
-  state.viewer?.setTheme?.(viewerTheme(theme));
-  // The viewer's scroll bars take the page's scheme, which its own theme does not set.
-  state.viewer?.setAttribute("data-tex-theme", theme);
-}
+// The theme, the text size and the key that sends a comment, as Settings keeps them. The
+// page's own parts and the viewer's follow the theme; the PDF's pages are drawn as compiled,
+// white in every theme.
+const settings = createSettings({
+  prefix: "texMcp",
+  onTheme: (theme) => {
+    state.editor?.setTheme(editorTheme());
+    state.viewer?.setTheme?.(viewerTheme(theme));
+    // The viewer's scroll bars take the page's scheme, which its own theme does not set.
+    state.viewer?.setAttribute("data-tex-theme", theme);
+  },
+  onSendKey: (name) => { $("#compose-submit").title = `Post (${name})`; },
+});
+const { sendKeyName, sendOn } = settings;
 
 // Settings: the paper's Overleaf project, the cookie that signs in to it, how the files
 // follow it, where they stand, and the page's look. The cookie is handed over once and is
-// never shown again.
+// never shown again. It opens at its head, where Overleaf is, unless it opens to say something
+// there.
 function showSettings(status = "") {
   $("#overleaf-status").textContent = status;
-  if (!$("#settings-dialog").open) {
-    $("#settings-dialog").showModal();
-    // The focus goes to Close at the foot, which scrolls a dialog taller than the window down
-    // to it. It opens at its head, where Overleaf is, unless it opens to say something there.
-    // Safari scrolls to the focus after the dialog opens, so the head is set again then.
-    if (!status) {
-      $("#settings-dialog").scrollTop = 0;
-      requestAnimationFrame(() => { $("#settings-dialog").scrollTop = 0; });
-    }
-    // Opening reads Overleaf's branch afresh, so what the dialog says is what is there now.
-    loadOverleafStanding().catch((error) => console.error(error));
-  }
+  // Opening reads Overleaf's branch afresh, so what the dialog says is what is there now.
+  if (settings.open({ atHead: !status })) loadOverleafStanding().catch((error) => console.error(error));
 }
 
 // What the page knows of the project, read afresh, and then where a git clone or a folder
@@ -2779,41 +2763,6 @@ async function handleSourceChanged(message) {
   const focused = state.editor.isFocused();
   await refreshComments();
   await openSource(state.sourcePath, line, true, focused);
-}
-
-// What sends a comment, as Settings chooses: Enter, shift with it writing a new line, or
-// shift with enter, Enter writing the new line as in any box of text. The command or control
-// key with enter sends either way. The choice is kept for next time.
-function enterSends() {
-  return state.sendKey !== "shift";
-}
-
-function applySendKey() {
-  const key = enterSends() ? "enter" : "shift";
-  for (const button of document.querySelectorAll("[data-send-choice]")) {
-    button.setAttribute("aria-checked", String(button.dataset.sendChoice === key));
-  }
-  $("#compose-submit").title = `Post (${sendKeyName()})`;
-}
-
-// The key that sends what is being written, as Settings chooses it, for the Post buttons' titles.
-function sendKeyName() {
-  return enterSends() ? "Enter" : "Shift+Enter";
-}
-
-function sendOn(input, send) {
-  input.addEventListener("keydown", (event) => {
-    if (event.key !== "Enter" || event.altKey) return;
-    if (!(event.metaKey || event.ctrlKey || (enterSends() ? !event.shiftKey : event.shiftKey))) return;
-    // An Enter that ends a word an input method is still composing, as Korean is typed,
-    // comes before the box holds that word, which is sent once composing ends.
-    if (event.isComposing) {
-      input.addEventListener("compositionend", () => setTimeout(send), { once: true });
-      return;
-    }
-    event.preventDefault();
-    send();
-  });
 }
 
 function applyComposeSubmitting(submitting) {
@@ -6168,47 +6117,6 @@ function attachSidebarToggle() {
     if (Date.now() - state.overleafGitRead > 60000) readOverleafGitSoon(0);
     readSuggestedEdits();
   });
-  for (const button of document.querySelectorAll("[data-theme-choice]")) {
-    button.addEventListener("click", () => {
-      const choice = button.dataset.themeChoice;
-      themeChosen = THEMES.includes(choice) ? choice : null;
-      try {
-        if (themeChosen === null) localStorage.removeItem("texMcpTheme");
-        else localStorage.setItem("texMcpTheme", themeChosen);
-      } catch { /* the choice lasts this visit */ }
-      applyTheme();
-    });
-  }
-  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
-    if (themeChosen === null) applyTheme();
-  });
-  applyTheme();
-  // The text of the top bar, the panels and the dialogs at the size Settings chooses, kept for
-  // next time.
-  const applyTextSize = (percent) => {
-    document.documentElement.style.setProperty("--text-scale", String(percent / 100));
-    for (const button of document.querySelectorAll("[data-text-choice]")) {
-      button.setAttribute("aria-checked", String(Number(button.dataset.textChoice) === percent));
-    }
-  };
-  for (const button of document.querySelectorAll("[data-text-choice]")) {
-    button.addEventListener("click", () => {
-      try { localStorage.setItem("texMcpTextSize", button.dataset.textChoice); } catch { /* the choice lasts this visit */ }
-      applyTextSize(Number(button.dataset.textChoice));
-    });
-  }
-  let textSize = "100";
-  try { textSize = localStorage.getItem("texMcpTextSize") ?? "100"; } catch { /* the page's own size */ }
-  applyTextSize($(`[data-text-choice="${CSS.escape(textSize)}"]`) ? Number(textSize) : 100);
-  for (const button of document.querySelectorAll("[data-send-choice]")) {
-    button.addEventListener("click", () => {
-      state.sendKey = button.dataset.sendChoice;
-      try { localStorage.setItem("texMcpSendKey", state.sendKey); } catch { /* the choice lasts this visit */ }
-      applySendKey();
-    });
-  }
-  try { state.sendKey = localStorage.getItem("texMcpSendKey"); } catch { /* Enter sends */ }
-  applySendKey();
   $("#sidebar-toggle-btn").addEventListener("click", () =>
     setSidebarCollapsed(!$(".layout").classList.contains("sidebar-collapsed")));
   document.addEventListener("keydown", (event) => {

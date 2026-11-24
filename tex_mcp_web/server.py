@@ -2300,9 +2300,11 @@ class TexMcpWebServer:
 
         It rides in the path rather than in a query: a browser that had the stylesheet
         kept serving it from its cache across restarts, and a query bumped by hand was
-        bumped for one file and forgotten for another.
+        bumped for one file and forgotten for another. The files the review pages share sit
+        in a folder of their own and count as well.
         """
-        newest = max((path.stat().st_mtime for path in STATIC_DIR.iterdir() if path.is_file()), default=0)
+        newest = max((path.stat().st_mtime for folder in (STATIC_DIR, STATIC_DIR / "shared")
+                      for path in folder.iterdir() if path.is_file()), default=0)
         return f"v{int(newest)}"
 
     async def _handle_root(self, request: web.Request) -> web.Response:

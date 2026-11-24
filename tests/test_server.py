@@ -244,6 +244,25 @@ async def test_root_serves_the_viewer(client):
     assert tagged.status == 200 and tagged.headers["Cache-Control"] == "no-cache"
     assert await tagged.text() == await (await tc.get("/static/style.css")).text()
     assert (await tc.get(f"/static/{tag}/../server.py")).status == 404
+    # The files the review pages share are named and served under the same tag.
+    assert f'"/static/{tag}/shared/look.css"' in html and f'"/static/{tag}/shared/look-early.js"' in html
+    shared = await tc.get(f"/static/{tag}/shared/settings.js")
+    assert shared.status == 200 and "export function createSettings" in await shared.text()
+
+
+def test_a_change_to_a_shared_file_moves_the_static_tag(tmp_path, monkeypatch):
+    """The page names its files under the tag of the newest change among them, and the files
+    the review pages share, in a folder of their own, count too."""
+    from tex_mcp_web import server as server_module
+
+    (tmp_path / "shared").mkdir()
+    for name in ("viewer.js", "shared/look.css"):
+        (tmp_path / name).write_text("", encoding="utf-8")
+        os.utime(tmp_path / name, (1000, 1000))
+    monkeypatch.setattr(server_module, "STATIC_DIR", tmp_path)
+    assert TexMcpWebServer.static_tag() == "v1000"
+    os.utime(tmp_path / "shared" / "look.css", (2000, 2000))
+    assert TexMcpWebServer.static_tag() == "v2000"
 
 
 @pytest.mark.asyncio

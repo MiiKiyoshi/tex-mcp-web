@@ -1,49 +1,6 @@
 /* tex-mcp-web — viewer + comments sidebar
    Design priority: get out of the way of the PDF, make comments scannable. */
 
-:root {
-  /* The page's own text, in the top bar, the panels and the dialogs, as Settings sizes it. The
-     editor, the translation and the PDF keep sizes of their own, and so do the panel's tabs
-     and the Settings dialog. */
-  --text-base: 14px;
-  --text-scale: 1;
-  /* The three sizes of that text, 13, 12 and 11.5px at 100%: what is read (comments,
-     sections, problems, notes and status lines, the row above the comments), what labels it
-     (ids, places, times, the buttons on a card, the bars over the panes), and the fine print
-     of the top bar's tabs and buttons, the badges and the key letters. Headings and the top
-     bar's title are larger. */
-  --text-body: 0.93rem;
-  --text-small: 0.86rem;
-  --text-fine: 0.82rem;
-  --bg: #faf8f2;
-  --bg-elev: #fffdf8;
-  --bg-pdf: #faf8f2;
-  --fg: #302e29;
-  --fg-dim: #6f6a61;
-  --border: #ddd7ca;
-  --accent: #647b95;
-  --accent-soft: #ebe8df;
-  --warn: #98751f;
-  --err: #b44a43;
-  --ok: #4f7758;
-  --wait-soft: #f7ecd2;
-  --highlight: rgba(252, 220, 0, 0.45);
-  --highlight-hover: rgba(252, 192, 0, 0.7);
-  /* A comment's words in the editor, and the dot beside their line. */
-  --source-comment: rgba(252, 220, 0, 0.24);
-  --source-comment-edge: transparent;
-  --source-comment-deleted: rgba(252, 220, 0, 0.10);
-  --source-comment-deleted-edge: rgba(180, 140, 0, 0.8);
-  --source-comment-dot: #fbdc00;
-  --source-comment-dot-edge: #b69600;
-  --source-suggestion: rgba(183, 56, 56, 0.14);
-  --source-suggestion-edge: rgba(183, 56, 56, 0.55);
-  --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Consolas, monospace;
-  --sans: -apple-system, "Helvetica Neue", system-ui, sans-serif;
-  /* The bar along the top of each panel, as tall as the Preview's: the viewer's 27px
-     toolbar under the two pixels of room above it. */
-  --panel-bar: 29px;
-}
 
 * { box-sizing: border-box; }
 
@@ -54,10 +11,6 @@ html, body {
   /* A two-finger swipe on a trackpad that runs past the left edge is not a step back in
      history: the page holds the gesture, on the root and inside the PDF's own scroller. */
   overscroll-behavior-x: none;
-  font-family: var(--sans);
-  font-size: calc(var(--text-base) * var(--text-scale));
-  color: var(--fg);
-  background: var(--bg);
 }
 
 /* Safari on a phone draws a button's words in its own blue unless told the colour. */
@@ -74,13 +27,6 @@ button {
   font: inherit;
   color: inherit;
   cursor: pointer;
-}
-
-input,
-select,
-textarea {
-  color: var(--fg);
-  background: var(--bg-elev);
 }
 
 #app {
@@ -207,9 +153,6 @@ textarea {
 .topbar .more-menu button:hover:not(:disabled),
 .source-toolbar .more-menu button:hover:not(:disabled) { background: var(--accent-soft); }
 .topbar .more-menu button:disabled { opacity: 0.45; cursor: default; }
-.theme-choice { display: flex; gap: 2px; }
-.theme-choice button { flex: 1; text-align: center; padding: 0.3rem 0.4rem; border: 1px solid var(--border); border-radius: 3px; background: var(--bg); color: inherit; }
-.theme-choice button[aria-checked="true"] { background: var(--accent-soft); border-color: var(--accent); font-weight: 600; }
 /* The ⋯ menu offers Settings only on a phone, where the top bar has no room for its button. */
 .more-menu #settings-menu-btn { display: none; }
 .topbar .more-menu #update-btn { color: var(--accent); font-weight: 600; }
@@ -221,12 +164,6 @@ textarea {
 .update-alert a { color: var(--accent); }
 .update-alert button { padding: 0.15rem 0.6rem; border: 1px solid var(--border); border-radius: 3px; background: var(--bg-elev); color: var(--fg); }
 .update-alert button[hidden], .update-alert a[hidden] { display: none; }
-#settings-dialog { max-width: 30rem; }
-#settings-form { display: flex; flex-direction: column; gap: 0.6rem; }
-#settings-form h3 { margin: 0; font-size: 1rem; }
-#settings-form h4 { margin: 0.4rem 0 0; font-size: var(--text-fine); letter-spacing: 0.04em; text-transform: uppercase; color: var(--fg-dim); }
-#settings-form a { color: inherit; text-decoration-color: var(--accent); }
-#settings-form input[type="radio"] { accent-color: var(--accent); }
 /* The translation's setting lays out as the others do, its heading and choices in the form's column. */
 #translation-place { display: contents; }
 .overleaf-direct { display: flex; flex-direction: column; gap: 0.4rem; }
@@ -1332,19 +1269,6 @@ body.sidebar-resizing { cursor: col-resize; user-select: none; }
 .comment-section-btn:hover { background: var(--accent); color: white; }
 
 /* ----- compose dialog ----- */
-dialog {
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 1rem;
-  background: var(--bg-elev);
-  max-width: 36rem;
-  width: 90%;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
-}
-dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
-/* The dialogs take the text size Settings chooses, all but Settings itself, which keeps its
-   own size so that it holds still under the hand while the size is chosen. */
-#settings-dialog { zoom: calc(1 / var(--text-scale)); }
 #compose-dialog { max-width: 46rem; }
 #compose-form, #commit-form, #help-form { display: flex; flex-direction: column; gap: 0.5rem; }
 #compose-form h3, #commit-form h3, #help-form h3 { margin: 0; font-size: 1rem; }
@@ -1470,101 +1394,12 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
   opacity: 0.65;
 }
 
-/* ----- Dark theme -----
-   The page's own parts on a dark ground. The PDF's pages keep their colours. */
-:root[data-theme="dark"] {
-  color-scheme: dark;
-  scrollbar-color: #8a867c #4a4944;
-  --bg: #4a4944;
-  --bg-elev: #54524d;
-  --bg-pdf: #403f3b;
-  --fg: #f5f2eb;
-  --fg-dim: #d8d2c6;
-  --border: #7a766e;
-  --accent: #8ea5bf;
-  --accent-soft: #5b636d;
-  --warn: #d6a64a;
-  --err: #e0857c;
-  --ok: #8fcb9c;
-  --wait-soft: #5e5240;
-  /* Yellow laid thin on gray turns olive; a warm gold, laid thicker and edged below,
-     stays a highlight and leaves the words on it light. */
-  --source-comment: rgba(255, 196, 64, 0.34);
-  --source-comment-edge: rgba(255, 208, 102, 0.95);
-  --source-comment-deleted: rgba(255, 196, 64, 0.14);
-  --source-comment-deleted-edge: rgba(255, 208, 102, 0.85);
-  --source-comment-dot: #ffd166;
-  --source-comment-dot-edge: #fff1c4;
-  --source-suggestion: rgba(255, 120, 110, 0.26);
-  --source-suggestion-edge: rgba(255, 150, 140, 0.95);
-}
 :root[data-theme="dark"] #call-agent-btn.agent-ready { background: #1f2b21; }
 :root[data-theme="dark"] #call-agent-btn.agent-offline { background: #321f1e; }
 :root[data-theme="dark"] .cmt.status-archived .cmt-status { color: #9fb4e0; }
-:root[data-theme="dark"] dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
-/* The editor's One Dark keeps its words' colours on the page's gray rather than its own
-   near-black ground. */
-:root[data-theme="dark"] .ace-one-dark,
-:root[data-theme="dark"] .ace-one-dark .ace_gutter { background: #403f3b; }
-:root[data-theme="dark"] .ace-one-dark .ace_gutter { color: #c4beb1; }
-:root[data-theme="dark"] .ace-one-dark .ace_gutter-active-line { background: #53524f; }
-/* The cursor's line band is that gray over the ground, laid on it rather than painted, so a
-   comment's highlight on the line shows through it. */
-:root[data-theme="dark"] .ace-one-dark .ace_marker-layer .ace_active-line { background: rgba(255, 255, 255, 0.1); }
-:root[data-theme="dark"] .ace-one-dark .ace_marker-layer .ace_selection { background: #5b636d; }
-/* One Dark's words, a step lighter for the gray ground; its comments, a dark gray meant for
-   near-black, read as a light gray. */
-:root[data-theme="dark"] .ace-one-dark { color: #fbfaf6; }
-:root[data-theme="dark"] .ace-one-dark .ace_comment { color: #d8d3c8; font-style: italic; }
-:root[data-theme="dark"] .ace-one-dark :is(.ace_keyword, .ace_storage) { color: #dcaaf0; }
-:root[data-theme="dark"] .ace-one-dark :is(.ace_constant.ace_language, .ace_constant.ace_numeric,
-  .ace_support.ace_constant, .ace_variable.ace_parameter, .ace_keyword.ace_other.ace_unit) { color: #ecbb8c; }
-:root[data-theme="dark"] .ace-one-dark :is(.ace_constant.ace_character, .ace_constant.ace_other) { color: #86d4de; }
-:root[data-theme="dark"] .ace-one-dark :is(.ace_support.ace_function, .ace_entity.ace_name.ace_function) { color: #93c9f7; }
-:root[data-theme="dark"] .ace-one-dark :is(.ace_support.ace_class, .ace_support.ace_type) { color: #f0d49a; }
-:root[data-theme="dark"] .ace-one-dark :is(.ace_string, .ace_markup.ace_heading) { color: #bcdb9e; }
-:root[data-theme="dark"] .ace-one-dark :is(.ace_variable, .ace_meta.ace_tag, .ace_entity.ace_name.ace_tag,
-  .ace_entity.ace_other.ace_attribute-name, .ace_string.ace_regexp) { color: #f2a0a7; }
-:root[data-theme="dark"] .ace-one-dark .ace_cursor { color: #9cbcff; }
 
 #source-editor.steady-cursor .ace_cursor { animation: none !important; }
 .overleaf-sync-file { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.5rem; padding: 0.35rem 0.4rem; border-top: 1px solid var(--border, #ddd); }
 .overleaf-sync-file strong { font-weight: 600; }
 .overleaf-sync-file span { flex-basis: 100%; font-size: var(--text-small); opacity: 0.85; }
 .overleaf-live-list .overleaf-sync-file button { width: auto; padding: 0.2rem 0.5rem; border: 1px solid var(--border, #ccc); }
-
-/* ----- Warm theme -----
-   A restful page for long writing, as a screen looks with its blue light turned down: warm
-   paper grounds in place of white and a soft brown ink. The PDF's pages stay white, as
-   compiled. */
-:root[data-theme="warm"] {
-  scrollbar-color: #b3a896 #d9d2c5;
-  --bg: #e7e1d7;
-  --bg-elev: #efebe2;
-  --bg-pdf: #d9d2c5;
-  --fg: #3a2f22;
-  --fg-dim: #77664f;
-  --border: #ccc3b3;
-  --accent: #9b6a3d;
-  --accent-soft: #ded6c6;
-  --warn: #a0620f;
-  --err: #b0493f;
-  --ok: #5d7a3a;
-  --wait-soft: #f6dcae;
-  --source-comment: rgba(235, 165, 20, 0.36);
-  --source-comment-edge: rgba(180, 110, 0, 0.7);
-  --source-comment-deleted: rgba(235, 165, 20, 0.12);
-  --source-comment-dot: #f0b429;
-  --source-comment-dot-edge: #9a6a00;
-}
-:root[data-theme="warm"] .ace-tm { background: #f2eee6; color: #3a2f22; }
-:root[data-theme="warm"] .ace-tm .ace_gutter { background: #e8e2d8; color: #8d7b60; }
-:root[data-theme="warm"] .ace-tm .ace_gutter-active-line { background: #e9e4d9; }
-/* As in the dark look: the band lets a comment's highlight on the cursor's line show. */
-:root[data-theme="warm"] .ace-tm .ace_marker-layer .ace_active-line { background: rgba(130, 113, 68, 0.08); }
-:root[data-theme="warm"] .ace-tm .ace_marker-layer .ace_selection { background: #d7cdba; }
-:root[data-theme="warm"] .ace-tm .ace_comment { color: #9a8768; font-style: italic; }
-:root[data-theme="warm"] .ace-tm :is(.ace_keyword, .ace_storage) { color: #8b4a62; }
-:root[data-theme="warm"] .ace-tm :is(.ace_constant.ace_language, .ace_constant.ace_numeric) { color: #a0522d; }
-:root[data-theme="warm"] .ace-tm .ace_support.ace_function { color: #3c6e8f; }
-:root[data-theme="warm"] .ace-tm .ace_string { color: #6a7a2c; }
