@@ -69,11 +69,13 @@ def test_the_shared_hook_file_goes_beside_the_tools_own_hook(tmp_path: Path) -> 
     (hooks / "MANIFEST.json").write_text(json.dumps({"source": "tex-mcp-web 0", "files": {"old_record.py": ""}}),
                                          encoding="utf-8")
     manifest = share_page.share_all(package)[-1]
-    source = ROOT / "plugin" / "hooks" / "guide_record.py"
-    assert manifest["files"] == {"guide_record.py": hashlib.sha256(source.read_bytes()).hexdigest()}
-    assert (hooks / "guide_record.py").read_bytes() == source.read_bytes()
+    shared = ("guide_record.py", "python.sh")
+    sources = {name: ROOT / "plugin" / "hooks" / name for name in shared}
+    assert manifest["files"] == {name: hashlib.sha256(source.read_bytes()).hexdigest() for name, source in sources.items()}
+    assert all((hooks / name).read_bytes() == source.read_bytes() for name, source in sources.items())
     assert json.loads((hooks / "MANIFEST.json").read_text(encoding="utf-8")) == manifest
-    assert sorted(path.name for path in hooks.iterdir()) == ["MANIFEST.json", "guide_gate.py", "guide_record.py", "hooks.json"]
+    assert sorted(path.name for path in hooks.iterdir()) == ["MANIFEST.json", "guide_gate.py", "guide_record.py", "hooks.json",
+                                                             "python.sh"]
     assert (hooks / "guide_gate.py").read_text(encoding="utf-8") == "# the tool's own hook\n"
 
 

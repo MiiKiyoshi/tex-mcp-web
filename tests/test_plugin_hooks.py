@@ -253,3 +253,25 @@ def test_a_hook_reads_its_event_as_utf8_whatever_the_system_reads_text_in(tmp_pa
                             env={**os.environ, "PYTHONIOENCODING": "cp1252", "XDG_CACHE_HOME": str(tmp_path / "cache")})
     assert result.returncode == 0, result.stderr.decode("utf-8", "replace")
     assert "guide()" in json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+
+
+HOOKS = GATE.parent
+
+
+def test_every_hook_runs_through_the_script_that_finds_a_python() -> None:
+    """Claude Code runs a hook in Git Bash on Windows, where python3 may be only the Microsoft
+    Store's stand-in: no hook names python3 itself."""
+    commands = [hook["command"] for groups in json.loads((HOOKS / "hooks.json").read_text(encoding="utf-8"))["hooks"].values()
+                for group in groups for hook in group["hooks"]]
+    assert commands and all(command.startswith('sh "${CLAUDE_PLUGIN_ROOT}/hooks/python.sh" ') for command in commands)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="stands in for Git Bash's uname with a script on the PATH")
+@pytest.mark.parametrize("system, ran", [("MINGW64_NT-10.0-26100", "py -3"), ("Linux", "python3")])
+def test_the_hook_script_takes_py_on_windows_and_python3_elsewhere(tmp_path: Path, system: str, ran: str) -> None:
+    for name, said in (("uname", f"echo {system}"), ("py", 'echo py "$@"'), ("python3", 'echo python3 "$@"')):
+        (tmp_path / name).write_text(f"#!/bin/sh\n{said}\n", encoding="utf-8")
+        (tmp_path / name).chmod(0o755)
+    result = subprocess.run(["sh", str(HOOKS / "python.sh"), "gate.py", "before-tool"], capture_output=True, text=True,
+                            env={**os.environ, "PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}"})
+    assert result.stdout.strip() == f"{ran} gate.py before-tool"

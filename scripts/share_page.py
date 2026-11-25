@@ -2,8 +2,9 @@
 
 Three folders are shared, each written in tex-mcp-web alone. Two are shared whole:
 tex_mcp_web/static/shared, the files the review pages load, and tex_mcp_web/shared, the server
-modules. The third, plugin/hooks, holds each tool's own hook beside the file they share,
-guide_record.py, and only that file is shared, to a tool whose plugin has hooks. This script
+modules. The third, plugin/hooks, holds each tool's own hook beside the files they share,
+guide_record.py and python.sh, which runs a hook with a Python that runs, and only those files
+are shared, to a tool whose plugin has hooks. This script
 copies each into the same place in another tool and writes MANIFEST.json there, with each
 shared file's SHA-256 and the tex-mcp-web commit they came from. That tool's tests check its
 copies against the manifests, so a copy edited by hand fails there. A file tex-mcp-web no longer
@@ -25,7 +26,7 @@ from pathlib import Path
 PACKAGE = Path(__file__).resolve().parent.parent / "tex_mcp_web"
 FOLDERS = (Path("static") / "shared", Path("shared"))
 HOOKS = Path("plugin") / "hooks"
-HOOK_FILES = ("guide_record.py",)
+HOOK_FILES = ("guide_record.py", "python.sh")
 MANIFEST = "MANIFEST.json"
 
 

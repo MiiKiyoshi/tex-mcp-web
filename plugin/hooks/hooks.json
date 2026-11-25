@@ -3,7 +3,7 @@
     "SessionStart": [
       {
         "hooks": [
-          {"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/guide_gate.py\" session-start"}
+          {"type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/python.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/guide_gate.py\" session-start"}
         ]
       }
     ],
@@ -11,13 +11,13 @@
       {
         "matcher": "mcp__tex-mcp__guide",
         "hooks": [
-          {"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/guide_gate.py\" guide-read"}
+          {"type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/python.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/guide_gate.py\" guide-read"}
         ]
       },
       {
         "matcher": "Read",
         "hooks": [
-          {"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/guide_gate.py\" file-read"}
+          {"type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/python.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/guide_gate.py\" file-read"}
         ]
       }
     ],
@@ -25,13 +25,13 @@
       {
         "matcher": "mcp__tex-mcp__.*",
         "hooks": [
-          {"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/guide_gate.py\" before-tool"}
+          {"type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/python.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/guide_gate.py\" before-tool"}
         ]
       },
       {
         "matcher": "Edit|Write|MultiEdit|NotebookEdit",
         "hooks": [
-          {"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/guide_gate.py\" before-edit"}
+          {"type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/python.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/guide_gate.py\" before-edit"}
         ]
       }
     ]
