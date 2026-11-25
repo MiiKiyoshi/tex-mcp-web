@@ -6,7 +6,7 @@
 // when it gave none; apply(answer), which takes in what such an answer says, read at /overleaf or
 // given by a request that changed the project; heardWaiting(count), the number of threads waiting
 // as the socket tells it; heardCookie(refused), what the page heard of the cookie from Overleaf;
-// changed(listener), which hands in a function called after each of these three;
+// changed(listener), which hands in a function called when one of these three changes a fact;
 // heardFollowed(files), the files the live session keeps in step, which changes nothing shown;
 // and the facts: project(), cookie(), cookieRefused(), fullSync(), waiting(), remote(),
 // imported(id), importedCount(), unplaced(id), suggested(), followed(path), whether the live
@@ -41,26 +41,40 @@ export function createOverleafProject() {
     followed: new Set(),
   };
 
+  // The facts the listeners are told of, read as one string. An edit that changes none of them
+  // tells nothing: the comments' reading takes in the same answer again and again, and the live
+  // session tells the same of the cookie with each snapshot.
+  function facts() {
+    const { followed, imported, ...rest } = known;
+    return JSON.stringify({ ...rest, imported: [...imported].sort() });
+  }
+
+  function edit(change) {
+    const before = facts();
+    change();
+    if (facts() !== before) changes.tell();
+  }
+
   async function read() {
     const response = await fetch("/overleaf", { cache: "no-store" });
     return response.ok ? response.json() : null;
   }
 
   function apply(answer) {
-    known.project = answer.project ?? null;
-    known.cookie = answer.cookie ?? null;
-    known.fullSync = Boolean(answer.live);
-    known.waiting = answer.waiting ?? 0;
-    known.remote = answer.git ?? null;
-    known.imported = new Set(answer.imported ?? []);
-    known.unplaced = answer.unplaced ?? {};
-    known.suggested = answer.suggested ?? [];
-    changes.tell();
+    edit(() => {
+      known.project = answer.project ?? null;
+      known.cookie = answer.cookie ?? null;
+      known.fullSync = Boolean(answer.live);
+      known.waiting = answer.waiting ?? 0;
+      known.remote = answer.git ?? null;
+      known.imported = new Set(answer.imported ?? []);
+      known.unplaced = answer.unplaced ?? {};
+      known.suggested = answer.suggested ?? [];
+    });
   }
 
   function heardWaiting(count) {
-    known.waiting = count;
-    changes.tell();
+    edit(() => { known.waiting = count; });
   }
 
   function heardFollowed(files) {
@@ -70,9 +84,7 @@ export function createOverleafProject() {
   // That Overleaf turned the cookie away (true), let a session in with it (false), or nothing of
   // it (undefined), which changes nothing.
   function heardCookie(refused) {
-    if (refused === undefined) return;
-    known.cookieRefused = refused;
-    changes.tell();
+    if (refused !== undefined) edit(() => { known.cookieRefused = refused; });
   }
 
   return {

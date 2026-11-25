@@ -3376,6 +3376,53 @@ def stamp(store: Path, moments: dict[str, list[str]]) -> None:
 
 
 @needs_browser
+def test_the_overleaf_facts_tell_their_listeners_only_of_a_change(tmp_path: Path) -> None:
+    """The comments' reading takes in the same answer of the project again and again, and the live
+    session tells the same of the cookie with each snapshot: the parts that follow the project's
+    facts are told only when one of them changes."""
+    (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    browser = None
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        browser = chrome.launch()
+        browser.navigate(base)
+        wait_until(lambda: browser.execute_script('return document.querySelector("#comment-search") !== null'))
+        told = browser.execute_script('''
+          return import("/static/page/overleaf-project.js").then(({ createOverleafProject }) => {
+            const overleaf = createOverleafProject();
+            let told = 0;
+            overleaf.changed(() => { told += 1; });
+            const answer = { project: "https://example.org/project/1", cookie: "file", imported: ["b", "a"] };
+            const counts = [];
+            overleaf.apply(answer);
+            counts.push(told);
+            overleaf.apply({ ...answer, imported: ["a", "b"] });
+            overleaf.heardCookie(false);
+            overleaf.heardCookie(undefined);
+            overleaf.heardWaiting(0);
+            counts.push(told);
+            overleaf.heardCookie(true);
+            overleaf.heardCookie(true);
+            overleaf.heardWaiting(3);
+            overleaf.heardWaiting(3);
+            counts.push(told);
+            return counts;
+          });
+        ''')
+        assert told == [1, 1, 3]
+    finally:
+        if browser is not None:
+            browser.quit()
+        shared.stop()
+
+
+@needs_browser
 def test_the_search_reads_the_conditions_mail_and_code_search_have(tmp_path: Path) -> None:
     """Each word typed is held somewhere in a comment, in any letter case. OR in capitals takes
     either side and binds looser than the spaces, quotes hold a phrase together, and a minus
