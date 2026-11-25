@@ -24,7 +24,9 @@ import { createProblems } from "./page/problems.js";
 import { createBuild } from "./page/build.js";
 import { createSections } from "./page/sections.js";
 import { createTranslation } from "./page/translation.js";
-import { anchorLabel, commentQuote, createCommentPlaces } from "./page/comment-places.js";
+import { anchorLabel, commentQuote } from "./page/comment-places.js";
+import { createPlaces } from "./page/places.js";
+import { createOverleafProject } from "./page/overleaf-project.js";
 import { createOverleafSettings } from "./page/overleaf-settings.js";
 import { createOverleafGit } from "./page/overleaf-git.js";
 import { createOverleafSync } from "./page/overleaf-sync.js";
@@ -56,33 +58,11 @@ const state = {
   markedComments: [],
 };
 
-// What the page knows of the paper's Overleaf project, which several of its parts read. Each
-// part's head says which fields it writes.
-const overleaf = {
-  // Where on Overleaf the comments from there are whose words are not in the file here yet.
-  unplaced: {},
-  // Where the cookie comes from ("file" or "environment", null when there is none) and whether
-  // Overleaf turned it away, the files are kept the same both ways (which brings new threads
-  // in by themselves), how many open threads on Overleaf wait to be synced, the git remote of
-  // a folder cloned from the project (null when it is none), where that folder stands against
-  // Overleaf's branch (null until read), and why the last reading of the branch failed.
-  cookie: null,
-  cookieRefused: false,
-  project: null,
-  // The reviewer's own name on Overleaf, once the page sits in the project.
-  me: "",
-  fullSync: false,
-  waiting: 0,
-  remote: null,
-  git: null,
-  gitTrouble: "",
-  // Where a folder brought together with Overleaf by Get and Send stands, or null.
-  files: null,
-  // Comments brought in from Overleaf.
-  imported: new Set(),
-  // The edits made on Overleaf with track changes on, waiting to be accepted or rejected.
-  suggested: [],
-};
+// What the page knows of the paper's Overleaf project as the server says it, which several of its
+// parts read. Each other fact of Overleaf has one part that writes it too: whether Overleaf turned
+// the cookie away, Settings (overleaf-settings.js); where the folder stands against Overleaf,
+// overleaf-git.js; and the reviewer's own name there, overleaf-live.js.
+const overleaf = createOverleafProject();
 
 // The comment panel as the Preview and the editor reach it: the open comments of the comment tab
 // shown, which they mark, the ringed one and whether a card is open, and a comment shown in the
@@ -137,18 +117,15 @@ const pdf = createPdfView({
   digest: () => paper.digest(),
   comments: panelComments,
   openCompose: (...args) => panel.openCompose(...args),
-  showSourceBesidePreview: () => workspace.sourceBesidePreview(),
-  openSource: (...args) => source.open(...args),
-  selectQuoteInLines: (...args) => source.selectQuote(...args),
+  showWhereWritten: (selection) => places.showSelectionInSource(selection),
   scheduleTranslation: (delay) => translation.schedule(delay),
 });
 
 const source = createSourceEditor({
   panelComments,
-  project: () => overleaf.project,
-  suggested: () => overleaf.suggested,
-  workspace: reach(() => workspace, "view", "show"),
-  pdf: reach(() => pdf, "loaded", "scrollTo", "markPlace"),
+  project: overleaf.project,
+  suggested: overleaf.suggested,
+  showWherePrinted: (selection) => places.showSelectionInPreview(selection),
   openCompose: (...args) => panel.openCompose(...args),
   refreshComments: () => panel.refreshComments(),
   openSuggestedEdit: (id) => threads.openSuggestedEdit(id),
@@ -157,15 +134,15 @@ const source = createSourceEditor({
   renderOverleafCursors: () => live.renderCursors(),
   tellCursor: () => live.tellCursor(),
   followSourceCursor: () => translation.followCursor(),
-  scheduleTranslation: (delay) => translation.schedule(delay),
+  followFile: () => translation.followFile(),
   cursorAt: () => settings.cursorAt(),
 });
 
-const problems = createProblems({
-  workspace: reach(() => workspace, "view", "show"),
-  pdf: reach(() => pdf, "scrollTo", "marksReady", "markPlace"),
-  source: reach(() => source, "open"),
-});
+// Where a place of the paper is shown, the one part that holds the Preview, the Source and the
+// view together.
+const places = createPlaces({ state, digest: () => paper.digest(), workspace, pdf, source });
+
+const problems = createProblems({ showLayoutLine: places.showLayoutLine });
 
 const build = createBuild({
   paper,
@@ -179,34 +156,26 @@ const build = createBuild({
 });
 
 const sections = createSections({
-  workspace: reach(() => workspace, "view"),
-  source: reach(() => source, "init", "open"),
-  pdf: reach(() => pdf, "showLine"),
+  showLine: places.showLine,
   panel: reach(() => panel, "openCompose", "actionButton"),
 });
 
 const translation = createTranslation({
   wait: WAITS.translation,
-  workspace: reach(() => workspace, "view", "apply", "shows", "show", "sourceBesidePreview"),
-  source: reach(() => source, "init", "open", "file", "started", "cursorRow"),
+  workspace: reach(() => workspace, "view", "apply"),
+  source: reach(() => source, "file", "started", "cursorRow"),
   pdf: reach(() => pdf, "scrolls", "currentPage"),
+  showInSource: places.showInSource,
   digest: () => paper.digest(),
   failed: () => build.failed(),
   showProblems: () => build.showProblems(),
 });
 
-const places = createCommentPlaces({
-  state,
-  workspace: reach(() => workspace, "view", "show"),
-  editor: reach(() => source, "open", "showPlace", "focus"),
-  pdf: reach(() => pdf, "zoomTo", "selectComment", "showLine"),
-});
-
 const overleafSettings = createOverleafSettings({
   overleaf,
   openSettings: (options) => settings.open(options),
+  relinkGit: () => git.relinked(),
   readOverleafGitSoon: (delay) => git.readSoon(delay),
-  renderGitButtons: () => git.renderButtons(),
   renderOverleafThreadSync: () => sync.render(),
   renderPickedActions: () => panel.renderPickedActions(),
   renderNoPaper: () => build.renderNoPaper(),
@@ -227,24 +196,26 @@ const sync = createOverleafSync({
   overleaf,
   commentTab: () => state.commentTab,
   gitWait: WAITS.overleafGit,
-  showSettings: (status) => overleafSettings.show(status),
+  gitStanding: git.standing,
+  gitTrouble: git.trouble,
+  filesByHand: git.byHand,
   readOverleafGitState: () => git.readState(),
+  showSettings: (status) => overleafSettings.show(status),
   refreshComments: () => panel.refreshComments(),
-  renderOverleafCookie: () => overleafSettings.renderCookie(),
+  cookieHeard: (refused) => overleafSettings.cookieHeard(refused),
   loadOverleafStatus: () => overleafSettings.load(),
   overleafFailed: (error) => overleafSettings.failed(error),
 });
 
 const live = createOverleafLive({
-  overleaf,
-  source: reach(() => source, "ace", "file", "init", "showFile", "open", "resize"),
+  source: reach(() => source, "ace", "file", "resize"),
+  showInSource: places.showInSource,
   socket: reach(() => socket, "open", "send"),
-  workspace: reach(() => workspace, "view", "show"),
   refreshComments: () => panel.refreshComments(),
-  renderOverleafFiles: (now) => git.renderFiles(now),
-  renderGitButtons: () => git.renderButtons(),
+  byHand: git.byHand,
+  heardByHand: (now) => git.heardByHand(now),
   readOverleafGitSoon: (delay) => git.readSoon(delay),
-  renderOverleafCookie: () => overleafSettings.renderCookie(),
+  cookieHeard: (refused) => overleafSettings.cookieHeard(refused),
   renderOverleafThreadSync: () => sync.render(),
 });
 
@@ -253,7 +224,7 @@ const suggestedEdits = createSuggestedEdits({
   overleaf,
   panel: reach(() => panel, "renderComments", "refreshComments", "pickBox", "actionButton"),
   rangeIds: () => panel.keys.rangeIds(),
-  jumpToComment: (id) => places.show(id),
+  jumpToComment: (id) => places.showComment(id),
 });
 
 const outgoing = createOverleafReplies({
@@ -267,6 +238,7 @@ const outgoing = createOverleafReplies({
 const threads = createOverleafThreads({
   state,
   overleaf,
+  me: live.me,
   panel: reach(() => panel, "unanswered", "replyButton", "setStatus", "setView", "showTab", "refreshComments",
     "showComment"),
   keyHint: (name) => panel.keys.hint(name),
@@ -302,8 +274,8 @@ const panel = createCommentPanel({
   settings,
   label: anchorLabel,
   quote: commentQuote,
-  showPlace: (id) => places.show(id),
-  enterPlace: (comment) => places.enter(comment),
+  showPlace: (id) => places.showComment(id),
+  enterPlace: (comment) => places.enterComment(comment),
   marked: (comments) => {
     state.markedComments = comments;
     pdf.markComments();
@@ -443,7 +415,8 @@ async function handleWebSocketMessage(message) {
       live.render(message);
       break;
     case "overleaf_waiting":
-      sync.heardWaiting(message);
+      overleaf.heardWaiting(message.count);
+      sync.render();
       break;
   }
 }

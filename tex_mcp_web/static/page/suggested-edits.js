@@ -3,10 +3,10 @@
 // ones from the row, and read again now and then.
 //
 // createSuggestedEdits takes state, the comment panel's (comments, picked, expanded and
-// focusedCommentId); overleaf, the page's knowledge of the project, of which it reads project;
-// panel (renderComments(), refreshComments(), pickBox(item), actionButton(name, text, onClick));
-// rangeIds(), the comments in the keys' range; and jumpToComment(id). It gives attach(),
-// reviewing, the edits being accepted or rejected now, render(item) and read().
+// focusedCommentId); overleaf, the page's knowledge of the project (overleaf-project.js), of which
+// it reads project(); panel (renderComments(), refreshComments(), pickBox(item), actionButton(name,
+// text, onClick)); rangeIds(), the comments in the keys' range; and jumpToComment(id). It gives
+// attach(), reviewing, the edits being accepted or rejected now, render(item) and read().
 
 import { $, h } from "../shared/dom.js";
 import { shortTime } from "../shared/comment-panel.js";
@@ -74,7 +74,7 @@ export function createSuggestedEdits({ state, overleaf, panel, rangeIds, jumpToC
   // view, at most every ten seconds: an edit suggested in a file the page does not follow live
   // is not told to it. The list changes once the reading finds something new.
   function readSuggestedEdits() {
-    if (!overleaf.project || Date.now() - suggestedRead < 10000) return;
+    if (!overleaf.project() || Date.now() - suggestedRead < 10000) return;
     suggestedRead = Date.now();
     fetch("/overleaf/changes/read", { method: "POST" }).catch((error) => console.error(error));
   }

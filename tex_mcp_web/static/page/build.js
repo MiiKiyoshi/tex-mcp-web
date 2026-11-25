@@ -4,10 +4,10 @@
 //
 // createBuild takes paper (digest(), setDigest(digest), refresh(), current()), pdf (view(),
 // open(view), shown()), problems' show(result), overleaf, the page's knowledge of the Overleaf
-// project, of which it reads project, cookie and fullSync, source's dirty() and save(),
-// refreshComments(), scheduleTranslation(delay) and showTab(name). It gives attach() and
-// attachCompileKey(), compile() and compileFromKeys(), start(), showProblems(), failed(),
-// whether the last build failed, renderNoPaper(), and what the socket hears of builds:
+// project (overleaf-project.js), of which it reads project(), cookie() and fullSync(), source's
+// dirty() and save(), refreshComments(), scheduleTranslation(delay) and showTab(name). It gives
+// attach() and attachCompileKey(), compile() and compileFromKeys(), start(), showProblems(),
+// failed(), whether the last build failed, renderNoPaper(), and what the socket hears of builds:
 // heardCompiling, heardRequested, heardCompiled, heardSourceChanged, configReloaded,
 // configFailed and heardState, each given the message.
 
@@ -39,9 +39,9 @@ export function createBuild({ paper, pdf, problems, overleaf, source, refreshCom
   // brings it, which changes once the project is connected.
   function renderNoPaper() {
     if (!state.noMain || pdf.shown()) return;
-    const next = !overleaf.project ? "If the paper is on Overleaf, Connect Overleaf brings it here."
-      : !overleaf.cookie ? "Save your Overleaf cookie in Settings to bring the paper from Overleaf."
-      : overleaf.fullSync ? "The paper is coming from Overleaf." : "Get brings the paper from Overleaf.";
+    const next = !overleaf.project() ? "If the paper is on Overleaf, Connect Overleaf brings it here."
+      : !overleaf.cookie() ? "Save your Overleaf cookie in Settings to bring the paper from Overleaf."
+      : overleaf.fullSync() ? "The paper is coming from Overleaf." : "Get brings the paper from Overleaf.";
     $("#pdf-viewer").replaceChildren(h("p", { class: "placeholder" }, `${state.noMain} is not in this folder. ${next}`));
   }
 

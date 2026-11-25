@@ -3,9 +3,9 @@
 // picked threads from the row.
 //
 // createOverleafReplies takes state, the comment panel's (comments, picked and expanded);
-// overleaf, the page's knowledge of the project, of which it reads cookie; panel
-// (renderComments(), refreshComments(), renderPickedActions(), actionButton(name, text, onClick),
-// mutate(id, action, body, options)); keyHint(name); and draftedThread(comment). It gives
+// overleaf, the page's knowledge of the project (overleaf-project.js), of which it reads cookie();
+// panel (renderComments(), refreshComments(), renderPickedActions(), actionButton(name, text,
+// onClick), mutate(id, action, body, options)); keyHint(name); and draftedThread(comment). It gives
 // attach(), sending, the threads whose replies are on their way, text(comment), what a reply box
 // holds, render(comment) and send(id, text, from).
 
@@ -147,13 +147,13 @@ export function createOverleafReplies({ state, overleaf, panel, keyHint, drafted
     textarea.disabled = sending;
     // Send waits for a cookie, which the note says when nothing else is to be said.
     const note = h("div", { class: "overleaf-reply-note", role: "status",
-      text: sending ? "Sending…" : kept?.error ?? (overleaf.cookie ? "" : OVERLEAF_COOKIE_WANTED) });
+      text: sending ? "Sending…" : kept?.error ?? (overleaf.cookie() ? "" : OVERLEAF_COOKIE_WANTED) });
     const send = h("button", {
       class: `overleaf-send${sending ? " busy" : ""}`, type: "button",
-      title: overleaf.cookie ? `Send to Overleaf as a public reply, for everyone in the project${keyHint("overleaf-send")}`
+      title: overleaf.cookie() ? `Send to Overleaf as a public reply, for everyone in the project${keyHint("overleaf-send")}`
         : OVERLEAF_COOKIE_WANTED,
     }, "Send to ", leafIcon());
-    send.disabled = !overleaf.cookie || sending;
+    send.disabled = !overleaf.cookie() || sending;
     send.addEventListener("click", () => {
       if (textarea.value.trim()) sendToOverleaf(comment.id, textarea.value, draft?.text);
     });

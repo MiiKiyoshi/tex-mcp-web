@@ -1,11 +1,10 @@
-// The Problems tab, and the count beside its name. createProblems takes workspace's view() and
-// show(view), pdf's scrollTo(place), marksReady() and markPlace(page, bbox, rects, look), and
-// source's open(file, line), to show a line of the layout where it is printed and in the source.
-// It gives show(result), which lists what a build's result says.
+// The Problems tab, and the count beside its name. createProblems takes showLayoutLine(at), which
+// shows a line of the layout where it is printed and in the source (places.js). It gives
+// show(result), which lists what a build's result says.
 
 import { $, h, clear, placeholder } from "../shared/dom.js";
 
-export function createProblems({ workspace, pdf, source }) {
+export function createProblems({ showLayoutLine }) {
   const state = {
     errors: [],
     warnings: [],
@@ -61,26 +60,7 @@ export function createProblems({ workspace, pdf, source }) {
           h("span", { text: at.source ?? "" })),
         h("div", { class: "err-msg", text: message }));
       if (at.bbox) {
-        node.addEventListener("click", async () => {
-          if (workspace.view() === "source") {
-            await workspace.show("split");
-            // The Preview takes its new width before it is scrolled.
-            await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-          }
-          // At the zoom the Preview is read at, the line in the middle and marked.
-          const [x1, y1, x2, y2] = at.bbox;
-          pdf.scrollTo({
-            pageNumber: at.page, pageCoordinates: { x: (x1 + x2) / 2, y: (y1 + y2) / 2 },
-            behavior: "instant", alignX: 50, alignY: 50,
-          });
-          if (pdf.marksReady()) {
-            pdf.markPlace(at.page, at.bbox, [at.bbox], { opacity: 0.55, color: "#fbdc00" });
-          }
-          if (workspace.view() === "split" && at.source) {
-            const [, file, line] = /^(.*):(\d+)$/.exec(at.source);
-            await source.open(file, Number(line));
-          }
-        });
+        node.addEventListener("click", () => showLayoutLine(at));
         node.title = "Show in the Preview";
       }
       banner.appendChild(node);

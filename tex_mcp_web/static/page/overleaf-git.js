@@ -1,21 +1,31 @@
 // Where a folder connected to Overleaf stands against it, in Settings and in the top bar, and the
 // buttons that bring the two together: git pull and commit & push in a git clone of the project,
-// Get and Send in a folder synced by hand, and the dialog commit & push asks in first.
+// Get and Send in a folder synced by hand, and the dialog commit & push asks in first. It owns
+// where the folder stands, which the page's other parts read through it.
 //
-// createOverleafGit takes overleaf, the page's knowledge of the project, of which it writes git,
-// gitTrouble and files; gitAfterEdit, the milliseconds it waits after a file changes here;
-// showSettings(status); renderOverleafThreadSync(); overleafFailed(error); and
-// readSuggestedEdits(). It gives attach(), render(standing), renderFiles(standing),
-// renderButtons(), readState(), readStateSoon() and readSoon(delay).
+// createOverleafGit takes overleaf, the page's knowledge of the project (overleaf-project.js), of
+// which it reads project(), cookie(), fullSync() and remote(); gitAfterEdit, the milliseconds it
+// waits after a file changes here; showSettings(status); renderOverleafThreadSync();
+// overleafFailed(error); and readSuggestedEdits(). It gives attach(); where the folder stands:
+// standing(), a git clone's against Overleaf's branch, null until read, trouble(), why the last
+// reading of the branch failed, and byHand(), a folder synced by hand's, or null; relinked(),
+// after the project's link changes; heardByHand(standing), what the live session says of a folder
+// synced by hand; render(standing), readState(), readStateSoon() and readSoon(delay).
 
 import { $, h } from "../shared/dom.js";
 import { responseError } from "./response-error.js";
-import { commits, fileCount, OVERLEAF_BY_HAND } from "./leaf.js";
+import { commits, fileCount, OVERLEAF_BY_GIT, OVERLEAF_BY_HAND } from "./leaf.js";
 
 export function createOverleafGit({
   overleaf, gitAfterEdit, showSettings, renderOverleafThreadSync, overleafFailed, readSuggestedEdits,
 }) {
   const state = {
+    // Where a folder cloned from the project stands against Overleaf's branch (null until read),
+    // and why the last reading of the branch failed.
+    git: null,
+    gitTrouble: "",
+    // Where a folder brought together with Overleaf by Get and Send stands, or null.
+    files: null,
     overleafGitRead: 0,
     overleafGitTimer: null,
     overleafGitStateTimer: null,
@@ -26,10 +36,10 @@ export function createOverleafGit({
   // Where the folder stands against Overleaf's branch: said in the dialog, and Pull and Push
   // in the top bar, each shown only when it has commits to move.
   function renderOverleafGit(now) {
-    overleaf.git = now;
-    overleaf.gitTrouble = "";
+    state.git = now;
+    state.gitTrouble = "";
     // With the files kept the same, comments come in by themselves, not after a commit.
-    const then = overleaf.fullSync ? "" : ", and comments sync after that";
+    const then = overleaf.fullSync() ? "" : ", and comments sync after that";
     $("#overleaf-git-state").textContent = {
       same: `This folder is at Overleaf's commit (${now.there}).`,
       ahead: `This folder is ${commits(now.ahead)} ahead of Overleaf. Press commit & push in the top bar to send `
@@ -48,7 +58,7 @@ export function createOverleafGit({
 
   // A folder brought together with Overleaf by hand: Get and Send, each with the files it moves.
   function renderOverleafFiles(now) {
-    overleaf.files = now;
+    state.files = now;
     const counts = [now.get.length, now.send.length];
     $("#overleaf-git").hidden = false;
     $("#overleaf-git-way").textContent = OVERLEAF_BY_HAND;
@@ -62,10 +72,38 @@ export function createOverleafGit({
     renderOverleafThreadSync();
   }
 
+  // What the live session says of a folder synced by hand: where it stands, or nothing once the
+  // folder is not one.
+  function heardByHand(now) {
+    if (now) {
+      renderOverleafFiles(now);
+      return;
+    }
+    if (!state.files) return;
+    state.files = null;
+    $("#overleaf-git").hidden = !overleaf.remote();
+    renderGitButtons();
+  }
+
+  // The project's link as the server last gave it. Without the project or the cookie no session
+  // runs, so where a folder synced by hand stood goes, and where a git clone stood goes with its
+  // remote. Settings says how the folder syncs, and the top bar's buttons what is left to move.
+  function relinked() {
+    const remote = overleaf.remote();
+    if (!overleaf.project() || !overleaf.cookie()) state.files = null;
+    $("#overleaf-git").hidden = !remote && !state.files;
+    $("#overleaf-git-way").textContent = remote ? OVERLEAF_BY_GIT : OVERLEAF_BY_HAND;
+    if (!remote) {
+      state.git = null;
+      state.gitTrouble = "";
+    }
+    renderGitButtons();
+  }
+
   function renderGitButtons() {
     const pull = $("#git-pull-btn");
     const push = $("#git-push-btn");
-    const byHand = overleaf.files;
+    const byHand = state.files;
     for (const button of [pull, push]) {
       button.querySelector(".by-hand-mark").hidden = !byHand;
       button.querySelector(".wide-label").textContent = byHand ? (button === pull ? "Get" : "Send")
@@ -81,12 +119,12 @@ export function createOverleafGit({
       push.title = `Send the edits to ${fileCount(byHand.send.length)} to Overleaf: ${byHand.send.join(", ")}`;
       return;
     }
-    const now = overleaf.git;
+    const now = state.git;
     // The commits git push sends: those Overleaf lacks, and one more of the edits not committed.
     const sending = (now?.ahead ?? 0) + (now?.uncommitted.length ? 1 : 0);
     pull.hidden = !now?.behind;
     // With the files kept the same, Push takes Overleaf's commits in first by itself.
-    push.hidden = !sending || (Boolean(now?.behind) && !overleaf.fullSync);
+    push.hidden = !sending || (Boolean(now?.behind) && !overleaf.fullSync());
     pull.disabled = push.disabled = false;
     if (!now) return;
     pull.querySelector(".git-count").textContent = now.behind ? String(now.behind) : "";
@@ -105,7 +143,7 @@ export function createOverleafGit({
 
   // A file changed here, so commit & push shows once there is an edit to commit.
   function readOverleafGitStateSoon() {
-    if (!overleaf.git) return;
+    if (!state.git) return;
     clearTimeout(state.overleafGitStateTimer);
     state.overleafGitStateTimer = setTimeout(
       () => readOverleafGitState().catch((error) => console.error(error)), gitAfterEdit);
@@ -116,7 +154,7 @@ export function createOverleafGit({
   // project.
   async function openCommitDialog() {
     await readOverleafGitState();
-    const now = overleaf.git;
+    const now = state.git;
     if (!now.ahead && !now.uncommitted.length) return;
     state.committing = now.uncommitted;
     const at = new Date();
@@ -136,7 +174,7 @@ export function createOverleafGit({
   // Reading Overleaf's branch, or pulling from it or pushing to it, as the reviewer asked.
   // A pull or push that does not go through says why in Settings.
   async function overleafGitAction(action, commit) {
-    if (overleaf.files) return overleafFilesAction({ fetch: "read", pull: "get", push: "send" }[action]);
+    if (state.files) return overleafFilesAction({ fetch: "read", pull: "get", push: "send" }[action]);
     for (const id of ["#git-pull-btn", "#git-push-btn", "#overleaf-sync-comments-btn"]) $(id).disabled = true;
     if (action !== "fetch") {
       $("#overleaf-git-state").textContent = action === "pull" ? "Running git pull from Overleaf…"
@@ -156,8 +194,8 @@ export function createOverleafGit({
     const why = await responseError(response);
     if (action === "fetch") {
       // Said in the leaf tab too, where comments wait on the branch.
-      overleaf.gitTrouble = `Could not read Overleaf's branch: ${why}`;
-      $("#overleaf-git-state").textContent = overleaf.gitTrouble;
+      state.gitTrouble = `Could not read Overleaf's branch: ${why}`;
+      $("#overleaf-git-state").textContent = state.gitTrouble;
       renderGitButtons();
       renderOverleafThreadSync();
       return;
@@ -171,7 +209,7 @@ export function createOverleafGit({
   // Reading where the files brought together by hand stand, or a Get or a Send the reviewer asked
   // for. One that does not go through says why in Settings.
   async function overleafFilesAction(action) {
-    const sending = overleaf.files?.send ?? [];
+    const sending = state.files?.send ?? [];
     if (action === "send" && !confirm(`Send the edits to ${fileCount(sending.length)} (${sending.join(", ")}) to Overleaf, `
       + "for everyone in the project?")) return;
     for (const id of ["#git-pull-btn", "#git-push-btn", "#overleaf-sync-comments-btn"]) $(id).disabled = true;
@@ -198,7 +236,7 @@ export function createOverleafGit({
   // A connected folder cloned by git, or brought together by hand, is read whether or not a
   // reading before went through, so one that failed is tried again.
   function readOverleafGitSoon(delay) {
-    if (!overleaf.project || (!overleaf.remote && !overleaf.files)) return;
+    if (!overleaf.project() || (!overleaf.remote() && !state.files)) return;
     clearTimeout(state.overleafGitTimer);
     state.overleafGitTimer = setTimeout(() => overleafGitAction("fetch").catch((error) => console.error(error)), delay);
   }
@@ -207,7 +245,7 @@ export function createOverleafGit({
   function attach() {
     $("#git-pull-btn").addEventListener("click", () => overleafGitAction("pull").catch(overleafFailed));
     $("#git-push-btn").addEventListener("click", () =>
-      (overleaf.files ? overleafGitAction("push") : openCommitDialog()).catch(overleafFailed));
+      (state.files ? overleafGitAction("push") : openCommitDialog()).catch(overleafFailed));
     $("#commit-form").addEventListener("submit", () => {
       const files = state.committing;
       overleafGitAction("push", files.length ? { message: $("#commit-message").value.trim(), files } : undefined)
@@ -222,9 +260,12 @@ export function createOverleafGit({
 
   return {
     attach,
+    standing: () => state.git,
+    trouble: () => state.gitTrouble,
+    byHand: () => state.files,
+    relinked,
+    heardByHand,
     render: renderOverleafGit,
-    renderFiles: renderOverleafFiles,
-    renderButtons: renderGitButtons,
     readState: readOverleafGitState,
     readStateSoon: readOverleafGitStateSoon,
     readSoon: readOverleafGitSoon,

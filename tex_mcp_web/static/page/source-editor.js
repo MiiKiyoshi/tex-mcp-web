@@ -6,18 +6,18 @@
 //
 // createSourceEditor takes panelComments, the comment panel as the editor reaches it: marked(),
 // the open comments of the comment tab shown, showTab() and show(id); project() and suggested(),
-// the Overleaf project and its suggested edits; workspace's view() and show(view); pdf's
-// loaded(), scrollTo(place) and markPlace(page, bbox, rects, look); openCompose(anchor, label,
-// fields), refreshComments() and openSuggestedEdit(id); compileFromKeys();
-// followedOnOverleaf(path), renderOverleafCursors() and tellCursor(), of the Overleaf session;
-// followSourceCursor() and scheduleTranslation(delay), of the translation; and cursorAt(), where
-// Settings holds the cursor's line.
+// the Overleaf project and its suggested edits; showWherePrinted({ file, line_start, line_end,
+// text }), which shows words selected here where the Preview prints them (places.js);
+// openCompose(anchor, label, fields), refreshComments() and openSuggestedEdit(id);
+// compileFromKeys(); followedOnOverleaf(path), renderOverleafCursors() and tellCursor(), of the
+// Overleaf session; followSourceCursor() and followFile(), of the translation, told as the cursor
+// moves and a file opens; and cursorAt(), where Settings holds the cursor's line.
 //
 // It gives attach() and init(); the file open (file(), dirty(), open(path, line, force, focus),
-// save(), refreshFiles(), showFile(path), sourceChanged(message)); the editor (started(), ace(),
-// resize(), focus(), setTheme(), holdCursorLine(), cursorRow()); a place shown in it
-// (showPlace(row, column), selectQuote(quote, first, last)); markComments(), applyLeaf(), for the
-// leaf beside + Comment, and scheduleCompletions(delay).
+// save(), refreshFiles(), sourceChanged(message)); the editor (started(), ace(), resize(),
+// focus(), setTheme(), holdCursorLine(), cursorRow()); a place shown in it (showPlace(row,
+// column), selectQuote(quote, first, last)); markComments(), applyLeaf(), for the leaf beside
+// + Comment, and scheduleCompletions(delay).
 
 import { $, h, clear } from "../shared/dom.js";
 import { RING_AT } from "../shared/comment-keys.js";
@@ -70,8 +70,8 @@ function sourceForOverleaf() {
 }
 
 export function createSourceEditor({
-  panelComments, project, suggested, workspace, pdf, openCompose, refreshComments, openSuggestedEdit, compileFromKeys,
-  followedOnOverleaf, renderOverleafCursors, tellCursor, followSourceCursor, scheduleTranslation, cursorAt,
+  panelComments, project, suggested, showWherePrinted, openCompose, refreshComments, openSuggestedEdit,
+  compileFromKeys, followedOnOverleaf, renderOverleafCursors, tellCursor, followSourceCursor, followFile, cursorAt,
 }) {
   const state = {
     editor: null,
@@ -179,38 +179,14 @@ export function createSourceEditor({
     $("#source-pdf-btn").disabled = !selected;
   }
 
-  // The words selected in the editor, shown where the Preview prints them, beside the editor
-  // in Split, at the zoom the Preview is read at: SyncTeX names the boxes of their lines, and
-  // the server finds the printed words in them.
+  // The words selected in the editor, shown where the Preview prints them. A selection that ends
+  // at the start of a line ends on the line before.
   async function showSourceSelectionInPdf() {
     const text = state.editor.getSelectedText();
-    if (!text.trim() || !state.sourcePath || !pdf.loaded()) return;
+    if (!text.trim() || !state.sourcePath) return;
     const range = state.editor.getSelectionRange();
     const lastRow = range.end.column === 0 && range.end.row > range.start.row ? range.end.row - 1 : range.end.row;
-    const response = await fetch("/synctex/source-to-pdf-words", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ file: state.sourcePath, line_start: range.start.row + 1, line_end: lastRow + 1, text }),
-    });
-    if (!response.ok) throw new Error(await responseError(response));
-    const place = await response.json();
-    if (workspace.view() !== "split") {
-      await workspace.show("split");
-      // The Preview takes its new width before it is scrolled.
-      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    }
-    const [x1, y1, x2, y2] = place.bbox;
-    // At once: a smooth scroll in Safari came late, or stopped short, when one place followed
-    // another.
-    pdf.scrollTo({
-      pageNumber: place.page,
-      pageCoordinates: { x: (x1 + x2) / 2, y: (y1 + y2) / 2 },
-      behavior: "instant",
-      alignX: 50,
-      alignY: 50,
-    });
-    // The editor's selection blue, apart from the comments' yellow.
-    pdf.markPlace(place.page, place.bbox, place.rects, { opacity: 0.6, color: "#b5d5ff" });
+    await showWherePrinted({ file: state.sourcePath, line_start: range.start.row + 1, line_end: lastRow + 1, text });
   }
 
   // The marks drawn again, and the status line, which says when the cursor is in their words.
@@ -283,7 +259,7 @@ export function createSourceEditor({
     state.sourceRevision = source.revision;
     state.sourceDirty = false;
     showSourceFile(source.path);
-    if (workspace.view() !== "pdf") scheduleTranslation(300);
+    followFile();
     $("#source-save-btn").disabled = true;
     $("#source-reload-btn").disabled = false;
     setSourceStatus("Saved");
@@ -655,7 +631,6 @@ export function createSourceEditor({
     open: openSource,
     save: saveSource,
     refreshFiles: refreshSourceFiles,
-    showFile: showSourceFile,
     sourceChanged,
     resize: () => state.editor?.resize(),
     focus: () => state.editor?.focus(),

@@ -4,15 +4,15 @@
 // open file is drawn in the editor; a file changed on Overleaf says so above the editor;
 // Settings lists all of it.
 // The reviewer's own cursor in the editor is told to the server too, which shows it on Overleaf.
+// It owns the reviewer's own name on Overleaf, which the session tells it.
 //
-// createOverleafLive takes overleaf, the page's knowledge of the project, of which it writes me,
-// cookieRefused and files; source (ace(), file(), init(), showFile(path), open(file, line),
-// resize()); socket's open() and send(message); workspace's view() and show(view);
-// refreshComments(); renderOverleafFiles(standing), renderGitButtons() and
-// readOverleafGitSoon(delay), of the folder's git standing; renderOverleafCookie(); and
-// renderOverleafThreadSync(). It gives render(snapshot), for each snapshot the socket brings,
-// renderCursors(), followed(path), whether a file is kept in step with Overleaf, tellCursor(),
-// chooseCursor(choice) and cursorShown().
+// createOverleafLive takes source (ace(), file(), resize()), the editor the cursors are drawn on;
+// showInSource(file, line), which shows a file at a line in the Source (places.js); socket's open()
+// and send(message); refreshComments(); byHand(), heardByHand(standing) and
+// readOverleafGitSoon(delay), of the folder's git standing; cookieHeard(refused), of the cookie;
+// and renderOverleafThreadSync(). It gives render(snapshot), for each snapshot the socket brings,
+// renderCursors(), followed(path), whether a file is kept in step with Overleaf, me(), the
+// reviewer's own name on Overleaf, tellCursor(), chooseCursor(choice) and cursorShown().
 
 import { $, h } from "../shared/dom.js";
 import { responseError } from "./response-error.js";
@@ -75,10 +75,12 @@ function overleafCursorShown() {
 }
 
 export function createOverleafLive({
-  overleaf, source, socket, workspace, refreshComments, renderOverleafFiles, renderGitButtons, readOverleafGitSoon,
-  renderOverleafCookie, renderOverleafThreadSync,
+  source, showInSource, socket, refreshComments, byHand, heardByHand, readOverleafGitSoon, cookieHeard,
+  renderOverleafThreadSync,
 }) {
-  const overleafLive = { snapshot: null, layer: null, notice: "", settled: false };
+  // The last snapshot, and the reviewer's own name on Overleaf (me) once the page sits in the
+  // project.
+  const overleafLive = { snapshot: null, me: "", layer: null, notice: "", settled: false };
   const state = {
     overleafEdits: "",
   };
@@ -112,8 +114,8 @@ export function createOverleafLive({
   function renderOverleafChoices(files, choosing) {
     const head = $("#overleaf-sync-head");
     const followed = files.filter((file) => file.status !== "unsupported").length;
-    head.hidden = !files.length || (Boolean(overleaf.files) && !choosing.length);
-    head.textContent = overleaf.files ? `${choosing.length} file${choosing.length === 1 ? " needs" : "s need"} a decision.`
+    head.hidden = !files.length || (Boolean(byHand()) && !choosing.length);
+    head.textContent = byHand() ? `${choosing.length} file${choosing.length === 1 ? " needs" : "s need"} a decision.`
       : choosing.length
       ? `${choosing.length} file${choosing.length === 1 ? " needs" : "s need"} a decision; the rest are in sync with Overleaf.`
       : `${followed} file${followed === 1 ? "" : "s"} in sync with Overleaf.`;
@@ -148,22 +150,15 @@ export function createOverleafLive({
 
   function renderOverleafLive(snapshot) {
     overleafLive.snapshot = snapshot;
-    if ((snapshot.me ?? "") !== overleaf.me) {
-      overleaf.me = snapshot.me ?? "";
+    if ((snapshot.me ?? "") !== overleafLive.me) {
+      overleafLive.me = snapshot.me ?? "";
       // Which threads wait for the reviewer's answer, in unanswered and in the tab's number too.
       refreshComments().catch((error) => console.error(error));
     }
-    if (snapshot.by_hand) renderOverleafFiles(snapshot.by_hand);
-    else if (overleaf.files) {
-      overleaf.files = null;
-      $("#overleaf-git").hidden = !overleaf.remote;
-      renderGitButtons();
-    }
+    heardByHand(snapshot.by_hand ?? null);
     const { status, users = [], changes = [] } = snapshot;
     // Signed out with a cookie is Overleaf turning it away, until a session gets in with one.
-    if (status === "signed_out") overleaf.cookieRefused = true;
-    else if (status === "live") overleaf.cookieRefused = false;
-    renderOverleafCookie();
+    cookieHeard(status === "signed_out" ? true : status === "live" ? false : undefined);
     const button = $("#overleaf-live-btn");
     const off = status === "off";
     const commentsTrouble = status === "live" ? snapshot.comments_trouble : "";
@@ -223,10 +218,7 @@ export function createOverleafLive({
   async function goToOverleafPlace(file, row) {
     if (!file) return;
     if ($("#settings-dialog").open) $("#settings-dialog").close();
-    if (workspace.view() === "pdf") await workspace.show("split");
-    await source.init();
-    source.showFile(file);
-    await source.open(file, row === null || row === undefined ? null : row + 1).catch((error) => alert(error.message));
+    await showInSource(file, row === null || row === undefined ? null : row + 1).catch((error) => alert(error.message));
   }
 
   // Collaborators' cursors in the open file, drawn over the editor after each render.
@@ -309,6 +301,7 @@ export function createOverleafLive({
     render: renderOverleafLive,
     renderCursors: renderOverleafCursors,
     followed,
+    me: () => overleafLive.me,
     tellCursor,
     chooseCursor: chooseOverleafCursor,
     cursorShown: overleafCursorShown,

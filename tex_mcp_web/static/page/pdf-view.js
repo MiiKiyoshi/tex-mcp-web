@@ -6,13 +6,13 @@
 //
 // createPdfView takes digest(), the digest of the PDF to show; comments, the comment panel as
 // pdf-marks.js takes it, with opened(id), whether a comment's card is open; openCompose(anchor,
-// label); showSourceBesidePreview(), openSource(file, line) and selectQuoteInLines(quote, first,
-// last), to show a selection in the source; and scheduleTranslation(delay). It gives attach(),
-// open(view), view(), the place to open the next PDF at, shown(), setTheme(theme), zoomMode()
-// and refit(zoomMode), refitSoon(), loaded(), scrolls(), currentPage(), scrollTo(place),
-// zoomTo(page, bbox), showTarget(target), showLine(file, line), selectComment(id, page),
-// markComments(), marksReady(), markPlace(page, bbox, rects, look), and compose, the panel's
-// hooks for a comment written on the PDF.
+// label); showWhereWritten({ page, rects, quote }), which shows words selected on a page where
+// the source writes them (places.js); and scheduleTranslation(delay). It gives attach(),
+// open(view), view(), the place to open the next PDF at, shown(), setTheme(theme), zoomMode() and
+// refit(zoomMode), refitSoon(), loaded(), scrolls(), currentPage(), scrollTo(place),
+// jumpToPage(page), zoomTo(page, bbox), showTarget(target), selectComment(id, page),
+// markComments(), marksReady(), markPlace(page, bbox, rects, look), and compose, the panel's hooks
+// for a comment written on the PDF.
 
 import EmbedPDF from "/static/embedpdf/embedpdf.js?v=selection-yellow";
 import { $, clear } from "../shared/dom.js";
@@ -20,7 +20,6 @@ import { viewerTheme, VIEWER_STYLE } from "./pdf-theme.js";
 import { attachPdfPresses } from "./pdf-touch.js";
 import { createPdfMarks } from "./pdf-marks.js";
 import { setSidebarCollapsed } from "./sidebar.js";
-import { responseError } from "./response-error.js";
 
 const DOCUMENT_ID = "paper";
 
@@ -39,9 +38,7 @@ function rectToBBox(rect) {
 // pointer back.
 const AREA_MODE = "texArea";
 
-export function createPdfView({
-  digest, comments, openCompose, showSourceBesidePreview, openSource, selectQuoteInLines, scheduleTranslation,
-}) {
+export function createPdfView({ digest, comments, openCompose, showWhereWritten, scheduleTranslation }) {
   const marks = createPdfMarks({ comments });
   const state = {
     viewer: null,
@@ -359,20 +356,9 @@ export function createPdfView({
       return;
     }
     const quote = (await state.selection.getSelectedText().toPromise()).join(" ");
-    const response = await fetch("/synctex/pdf-to-source", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        page: formatted[0].pageIndex + 1,
-        rects: formatted[0].segmentRects.map(rectToBBox),
-        pdf_digest: digest(),
-      }),
+    await showWhereWritten({
+      page: formatted[0].pageIndex + 1, rects: formatted[0].segmentRects.map(rectToBBox), quote,
     });
-    if (!response.ok) throw new Error(await responseError(response));
-    const place = await response.json();
-    await showSourceBesidePreview();
-    if (!(await openSource(place.file, place.line_start))) return;
-    selectQuoteInLines(quote, place.line_start, place.line_end);
   }
 
 
@@ -406,15 +392,6 @@ export function createPdfView({
     if (!target.bbox || !marks.ready()) return;
     marks.place(target.page, target.bbox, target.rects ?? [target.bbox],
       { opacity: 0.55, color: "#fbdc00", contents: target.quote ?? "" });
-  }
-
-  // The PDF page a source line compiles to.
-  async function showPdfPageOf(file, line) {
-    const params = new URLSearchParams({ file, line: String(line) });
-    const response = await fetch(`/synctex/source-to-pdf?${params}`);
-    if (!response.ok) throw new Error(await responseError(response));
-    const data = await response.json();
-    jumpToPage(data.page);
   }
 
   // The Preview keeps its zoom mode, such as fitting the page width, through a change of the
@@ -457,9 +434,9 @@ export function createPdfView({
     scrolls: () => Boolean(state.scroll),
     currentPage: () => state.scroll.getCurrentPage(),
     scrollTo: (place) => state.scroll?.scrollToPage(place),
+    jumpToPage,
     zoomTo: positionPdfTarget,
     showTarget: showGotoTarget,
-    showLine: showPdfPageOf,
     selectComment: marks.select,
     markComments: marks.sync,
     marksReady: marks.ready,

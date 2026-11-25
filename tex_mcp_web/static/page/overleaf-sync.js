@@ -1,19 +1,20 @@
 // The button atop the leaf Comments tab that brings Overleaf's new threads in, and the note under
 // it that says what stands in their way.
 //
-// createOverleafSync takes overleaf, the page's knowledge of the project, of which it writes
-// cookieRefused and waiting; commentTab(), the comment tab shown; gitWait, the milliseconds
-// between reads of the folder's git standing while comments wait on it; showSettings(status);
-// readOverleafGitState(); refreshComments(); renderOverleafCookie(); loadOverleafStatus(); and
-// overleafFailed(error). It gives attach(), render(), and heardWaiting(message), from the socket.
+// createOverleafSync takes overleaf, the page's knowledge of the project (overleaf-project.js), of
+// which it reads project(), cookie(), fullSync() and waiting(); commentTab(), the comment tab
+// shown; gitWait, the milliseconds between reads of the folder's git standing while comments wait
+// on it; gitStanding(), gitTrouble(), filesByHand() and readOverleafGitState(), of the folder's
+// git standing; showSettings(status); refreshComments(); cookieHeard(refused), of the cookie;
+// loadOverleafStatus(); and overleafFailed(error). It gives attach() and render().
 
 import { $, h } from "../shared/dom.js";
 import { responseError } from "./response-error.js";
 import { commits, OVERLEAF_COOKIE_WANTED } from "./leaf.js";
 
 export function createOverleafSync({
-  overleaf, commentTab, gitWait, showSettings, readOverleafGitState, refreshComments, renderOverleafCookie,
-  loadOverleafStatus, overleafFailed,
+  overleaf, commentTab, gitWait, gitStanding, gitTrouble, filesByHand, readOverleafGitState, showSettings,
+  refreshComments, cookieHeard, loadOverleafStatus, overleafFailed,
 }) {
   const state = {
     // Whether Overleaf's threads are being synced: the button shows the work under way until the
@@ -28,18 +29,18 @@ export function createOverleafSync({
   // Sync comments, atop the comment list.
   function renderOverleafThreadSync() {
     const side = $("#overleaf-sync-comments-btn");
-    const waiting = overleaf.waiting;
+    const waiting = overleaf.waiting();
     // Files kept the same both ways bring new threads in by themselves: nothing to press.
-    side.hidden = !overleaf.project || overleaf.fullSync || commentTab() !== "overleaf-comments";
+    side.hidden = !overleaf.project() || overleaf.fullSync() || commentTab() !== "overleaf-comments";
     side.querySelector(".count").textContent = waiting ? String(waiting) : "";
     const words = waiting ? `Sync comments from Overleaf (${waiting} new)` : "Sync comments from Overleaf";
     side.title = words;
     side.setAttribute("aria-label", words);
-    const files = overleaf.files;
+    const files = filesByHand();
     // Comments sync once the folder and Overleaf hold the same files: until then the tab says what
     // stands in the way and which button in the top bar clears it, since a greyed button says nothing.
     // Commits that change no file, which Overleaf makes many of, stand in no one's way.
-    const git = overleaf.git;
+    const git = gitStanding();
     const gitWhy = git !== null && git.state !== "same" && git.apart
       ? {
         behind: `This folder is ${commits(git.behind)} behind Overleaf. Comments sync after you run git pull, from the top bar or a terminal.`,
@@ -48,10 +49,10 @@ export function createOverleafSync({
       }[git.state]
       : "";
     // Live, new threads come in by themselves once every file is the same as on Overleaf.
-    const why = overleaf.fullSync
+    const why = overleaf.fullSync()
       ? (waiting ? `${waiting} new Overleaf thread${waiting === 1 ? "" : "s"} will appear once every file is in sync.` : "")
-      : !overleaf.cookie ? OVERLEAF_COOKIE_WANTED
-      : overleaf.gitTrouble || gitWhy || (files === null ? ""
+      : !overleaf.cookie() ? OVERLEAF_COOKIE_WANTED
+      : gitTrouble() || gitWhy || (files === null ? ""
         : !files.read ? "Reading Overleaf's files…"
         : files.get.length + files.send.length > 0
           ? "This folder and Overleaf have different files. Comments sync after you press Get or Send in the top bar."
@@ -66,7 +67,7 @@ export function createOverleafSync({
       note = h("p", { id: "overleaf-sync-why", class: "panel-note" });
       $("#comments-list").before(note);
     }
-    note.hidden = !overleaf.project || commentTab() !== "overleaf-comments" || !why;
+    note.hidden = !overleaf.project() || commentTab() !== "overleaf-comments" || !why;
     // The missing cookie is pasted in Settings, which the sentence opens.
     note.replaceChildren(why === OVERLEAF_COOKIE_WANTED
       ? h("button", { type: "button", class: "panel-note-go", onclick: () => showSettings() }, why) : why);
@@ -93,10 +94,7 @@ export function createOverleafSync({
       const response = await fetch("/overleaf/comments", { method: "POST" });
       if (!response.ok) {
         // A cookie Overleaf turned away is asked for again.
-        if (response.status === 401) {
-          overleaf.cookieRefused = true;
-          renderOverleafCookie();
-        }
+        if (response.status === 401) cookieHeard(true);
         showSettings(`Could not sync comments: ${await responseError(response)}`);
         return;
       }
@@ -109,14 +107,9 @@ export function createOverleafSync({
     }
   }
 
-  function heardWaiting(message) {
-    overleaf.waiting = message.count;
-    renderOverleafThreadSync();
-  }
-
   function attach() {
     $("#overleaf-sync-comments-btn").addEventListener("click", () => syncOverleafComments().catch(overleafFailed));
   }
 
-  return { attach, render: renderOverleafThreadSync, heardWaiting };
+  return { attach, render: renderOverleafThreadSync };
 }

@@ -1,18 +1,19 @@
 // Overleaf in Settings: the paper's project, connected and disconnected, the cookie that signs in
-// to it, how the files follow it, and whether the reviewer's cursor shows there.
+// to it, how the files follow it, and whether the reviewer's cursor shows there. It owns whether
+// Overleaf turned the cookie away, which the cookie's row says.
 //
-// createOverleafSettings takes overleaf, the page's knowledge of the project, of which it writes
-// project, cookie, cookieRefused, fullSync, waiting, remote, and git, gitTrouble and files as a
-// project's link changes; openSettings(options), which opens the Settings dialog;
-// readOverleafGitSoon(delay) and renderGitButtons(), of the folder's git standing;
+// createOverleafSettings takes overleaf, the page's knowledge of the project (overleaf-project.js),
+// which it reads and gives the server's answers to; openSettings(options), which opens the
+// Settings dialog; relinkGit() and readOverleafGitSoon(delay), of the folder's git standing;
 // renderOverleafThreadSync(); renderPickedActions(); renderNoPaper(); and overleafCursorShown()
 // and chooseOverleafCursor(choice). It gives attach(), show(status), the Settings dialog opened,
-// saying status at Overleaf; loadStanding(); load(); renderCookie(); and failed(error), which
-// says in Settings that the server could not be reached.
+// saying status at Overleaf; loadStanding(); load(); cookieHeard(refused), what the page heard of
+// the cookie from Overleaf; and failed(error), which says in Settings that the server could not
+// be reached.
 
 import { $, $$ } from "../shared/dom.js";
 import { responseError } from "./response-error.js";
-import { leafIcon, OVERLEAF_BY_GIT, OVERLEAF_BY_HAND } from "./leaf.js";
+import { leafIcon } from "./leaf.js";
 
 // Connecting names the project in the paper's config, as a line written there by hand
 // would. Keeping the files the same asks once before it starts, since it changes what
@@ -26,9 +27,13 @@ const OVERLEAF_SYNC_QUESTION = "While a review page is open, the paper's files a
   + "Turn on live sync?";
 
 export function createOverleafSettings({
-  overleaf, openSettings, readOverleafGitSoon, renderGitButtons, renderOverleafThreadSync, renderPickedActions,
+  overleaf, openSettings, relinkGit, readOverleafGitSoon, renderOverleafThreadSync, renderPickedActions,
   renderNoPaper, overleafCursorShown, chooseOverleafCursor,
 }) {
+  // Whether Overleaf turned the cookie away, as the live session or a sync last heard it, until a
+  // new cookie is saved (cookieHeard, saveOverleafCookie).
+  let cookieRefused = false;
+
   // Settings: the paper's Overleaf project, the cookie that signs in to it, how the files
   // follow it, where they stand, and the page's look. The cookie is handed over once and is
   // never shown again. It opens at its head, where Overleaf is, unless it opens to say something
@@ -47,12 +52,13 @@ export function createOverleafSettings({
     readOverleafGitSoon(0);
   }
 
-  function renderOverleafStatus({ project, cookie, sync = false, live = false, settable = true, git = null, waiting = 0 }) {
-    // Without the project or the cookie no session runs, so what it showed goes with it.
-    if (!project || !cookie) {
-      overleaf.files = null;
-      $("#overleaf-live-faces").replaceChildren();
-    }
+  // A server's answer of where the project stands, taken in and shown in Settings.
+  function renderOverleafStatus(answer) {
+    const { project, cookie, sync = false, settable = true, git = null } = answer;
+    overleaf.apply(answer);
+    // Without the project or the cookie no session runs, so what it showed goes with it (the
+    // faces here, and relinkGit drops where a folder synced by hand stood).
+    if (!project || !cookie) $("#overleaf-live-faces").replaceChildren();
     $("#overleaf-link-row").hidden = Boolean(project) || !settable;
     $("#overleaf-connected").hidden = !project;
     $("#overleaf-disconnect-btn").hidden = !settable;
@@ -86,18 +92,7 @@ export function createOverleafSettings({
       : "While this page is open, text files such as .tex sync both ways within a second, and new Overleaf comment threads appear here automatically. Figures and other uploaded files are copied in full when either side replaces them, and new figures or source files added here are uploaded automatically.";
     $("#overleaf-direct").hidden = !project;
     $("#overleaf-tracking-git").hidden = !git;
-    $("#overleaf-git").hidden = !git && !overleaf.files;
-    $("#overleaf-git-way").textContent = git ? OVERLEAF_BY_GIT : OVERLEAF_BY_HAND;
-    overleaf.remote = git;
-    if (!git) {
-      overleaf.git = null;
-      overleaf.gitTrouble = "";
-    }
-    renderGitButtons();
-    overleaf.cookie = cookie ?? null;
-    overleaf.project = project ?? null;
-    overleaf.fullSync = live;
-    overleaf.waiting = waiting;
+    relinkGit();
     if (project) {
       $("#overleaf-project").href = project;
       $("#overleaf-project").textContent = project.replace(/^https?:\/\//, "");
@@ -112,8 +107,8 @@ export function createOverleafSettings({
   // one away. A cookie from the environment variable, which comes before a saved one, is
   // changed where it is set.
   function renderOverleafCookie() {
-    const cookie = overleaf.cookie;
-    const refused = Boolean(cookie) && overleaf.cookieRefused;
+    const cookie = overleaf.cookie();
+    const refused = Boolean(cookie) && cookieRefused;
     const asked = !cookie || (refused && cookie === "file");
     $("#overleaf-cookie-row").hidden = !asked;
     $("#overleaf-cookie-help").hidden = !asked;
@@ -126,12 +121,17 @@ export function createOverleafSettings({
     $("#overleaf-cookie-forget").hidden = cookie !== "file";
   }
 
+  // What the page heard of the cookie from Overleaf, through the live session or a sync: that
+  // Overleaf turned it away (true), let a session in with it (false), or nothing of it
+  // (undefined). The cookie's row says where it stands either way.
+  function cookieHeard(refused) {
+    if (refused !== undefined) cookieRefused = refused;
+    renderOverleafCookie();
+  }
 
   async function loadOverleafStatus() {
-    const response = await fetch("/overleaf", { cache: "no-store" });
-    if (!response.ok) return null;
-    const linked = await response.json();
-    renderOverleafStatus(linked);
+    const linked = await overleaf.read();
+    if (linked) renderOverleafStatus(linked);
     return linked;
   }
 
@@ -166,15 +166,15 @@ export function createOverleafSettings({
     const input = $("#overleaf-cookie");
     // A new cookie is not turned away until Overleaf says so, which the page may hear before
     // the answer to this request: so it is cleared before the request goes.
-    const refused = overleaf.cookieRefused;
-    overleaf.cookieRefused = false;
+    const refused = cookieRefused;
+    cookieRefused = false;
     const response = await fetch("/overleaf/cookie", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ cookie: input.value }),
     });
     if (!response.ok) {
-      overleaf.cookieRefused = refused;
+      cookieRefused = refused;
       showSettings(`Could not save the cookie: ${await responseError(response)}`);
       return;
     }
@@ -228,7 +228,7 @@ export function createOverleafSettings({
     show: showSettings,
     loadStanding: loadOverleafStanding,
     load: loadOverleafStatus,
-    renderCookie: renderOverleafCookie,
+    cookieHeard,
     failed: overleafFailed,
   };
 }

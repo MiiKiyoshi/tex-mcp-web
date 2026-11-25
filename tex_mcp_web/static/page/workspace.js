@@ -6,10 +6,11 @@
 // pair is stacked, as Split always stacked its two panes there.
 //
 // The view tabs choose the view, and the browser keeps it, with the room each grip shares out,
-// for next time. createWorkspace takes source's init() and resize(), pdf's zoomMode() and
-// refit(zoomMode), and translationShown(), whether the translation shows. It gives attach(),
-// restore(), view(), show(view), apply(refit), shows(pane), sourceBesidePreview(), and split(),
-// how the panel's grips hold a split stacked above the panel.
+// for next time. Which view a place of the paper is shown in is places.js's to choose.
+// createWorkspace takes source's init() and resize(), pdf's zoomMode() and refit(zoomMode), and
+// translationShown(), whether the translation shows. It gives attach(), restore(), view(),
+// show(view), apply(refit), shows(pane), and split(), how the panel's grips hold a split stacked
+// above the panel.
 
 import { $, $$ } from "../shared/dom.js";
 
@@ -158,13 +159,6 @@ export function createWorkspace({ source, pdf, translationShown }) {
     if (refit) requestAnimationFrame(refitWorkspace);
   }
 
-  // Source beside the Preview is Split, unless Split's translation stands in for Source:
-  // then the Source view, where the translation sits under the editor.
-  async function showSourceBesidePreview() {
-    if (state.view !== "split") await setWorkspaceView("split");
-    if (!layoutShows("source")) await setWorkspaceView("source");
-  }
-
   async function setWorkspaceView(view) {
     const zoomMode = pdf.zoomMode();
     state.view = view;
@@ -280,7 +274,6 @@ export function createWorkspace({ source, pdf, translationShown }) {
     show: setWorkspaceView,
     apply: applyLayout,
     shows: layoutShows,
-    sourceBesidePreview: showSourceBesidePreview,
     split: () => state.split,
   };
 }

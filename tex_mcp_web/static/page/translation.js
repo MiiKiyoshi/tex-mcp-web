@@ -8,11 +8,12 @@
 // Settings choice stays hidden. The language is undefined until the paper is read.
 //
 // createTranslation takes wait, the milliseconds before it asks again for paragraphs still being
-// translated; workspace (view(), apply(), shows(pane), show(view), sourceBesidePreview()); source
-// (init(), open(file, line), file(), started(), cursorRow()); pdf (scrolls(), currentPage());
-// digest(), the PDF's digest; failed(), whether the last build failed; and showProblems(). It
-// gives attach(), applyLanguage(language), shown(), whether the pane shows, schedule(delay), and
-// followCursor(), for the editor's cursor.
+// translated; workspace's view() and apply(), of the layout the pane is in; source (file(),
+// started(), cursorRow()) and pdf (scrolls(), currentPage()), which it follows; showInSource(file,
+// line), which shows a paragraph's lines in the Source (places.js); digest(), the PDF's digest;
+// failed(), whether the last build failed; and showProblems(). It gives attach(),
+// applyLanguage(language), shown(), whether the pane shows, schedule(delay), followCursor(), for
+// the editor's cursor, and followFile(), for a file the editor opens.
 
 import { $, h, placeholder } from "../shared/dom.js";
 import { responseError } from "./response-error.js";
@@ -21,7 +22,7 @@ import { responseError } from "./response-error.js";
 // configuration gives a language.
 const TRANSLATION_LANGS = { korean: "ko", japanese: "ja", chinese: "zh" };
 
-export function createTranslation({ wait, workspace, source, pdf, digest, failed, showProblems }) {
+export function createTranslation({ wait, workspace, source, pdf, showInSource, digest, failed, showProblems }) {
   const translation = { on: false, language: undefined, page: 0, file: null, timer: null };
 
   function setTranslation(on) {
@@ -151,12 +152,7 @@ export function createTranslation({ wait, workspace, source, pdf, digest, failed
       class: ["translation-para", paragraph.text ? "" : "pending", paragraph.on_page ? "on-page" : ""].join(" ").trim(),
       title: `Open ${data.file}:${paragraph.line_start}-${paragraph.line_end} in the editor`,
       data: { start: paragraph.line_start, end: paragraph.line_end },
-      onclick: async () => {
-        if (workspace.view() === "pdf") await workspace.sourceBesidePreview();
-        else await source.init();
-        if (!workspace.shows("source")) await workspace.show("source");
-        await source.open(data.file, paragraph.line_start);
-      },
+      onclick: () => showInSource(data.file, paragraph.line_start),
     }, h("span", {
       class: "translation-line",
       text: paragraph.line_start === paragraph.line_end
@@ -184,6 +180,11 @@ export function createTranslation({ wait, workspace, source, pdf, digest, failed
       if (here) marked = item;
     }
     return marked;
+  }
+
+  // A file the editor opened, which the translation follows while the Source shows it.
+  function followSourceFile() {
+    if (workspace.view() !== "pdf") scheduleTranslation(300);
   }
 
   function followSourceCursor() {
@@ -224,5 +225,6 @@ export function createTranslation({ wait, workspace, source, pdf, digest, failed
     shown: translationShown,
     schedule: scheduleTranslation,
     followCursor: followSourceCursor,
+    followFile: followSourceFile,
   };
 }
