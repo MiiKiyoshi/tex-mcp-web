@@ -19,7 +19,8 @@
 .help-tabs [role="tab"][aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent); }
 .help-tabs [role="tab"]:focus { outline: none; }
 .help-tabs [role="tab"]:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 3px 3px 0 0; }
-.help-pages { flex: 1; min-height: 0; overflow-y: auto; overflow-wrap: break-word; font-size: var(--text-body); line-height: 1.5; }
+.help-pages { flex: 1; min-height: 0; overflow-y: auto; overflow-wrap: break-word; font-size: var(--text-body); line-height: 1.5;
+  container-type: inline-size; }
 .help-page[hidden] { display: none; }
 .help-page h4 { margin: 1rem 0 0.25rem; font-size: var(--text-body); }
 .help-page h5 { margin: 0.75rem 0 0.25rem; font-size: var(--text-body); font-weight: 600; color: var(--fg-dim); }
@@ -40,6 +41,14 @@
 .help-table th { font-size: var(--text-small); font-weight: 600; color: var(--fg-dim); text-align: left; }
 .help-table th, .help-table td { padding: 0.25rem 0.75rem 0.25rem 0; border-bottom: 1px solid var(--border); vertical-align: top; }
 .help-table td:first-child { white-space: nowrap; }
+/* A table needs about 17em beside its terms, more in some browsers' fonts: Help narrower than
+   24em, as at a large text size on a phone, shows each term above what it finds instead. */
+@container (max-width: 24em) {
+  .help-table thead { display: none; }
+  .help-table, .help-table tbody, .help-table tr, .help-table td { display: block; }
+  .help-table td { padding-right: 0; }
+  .help-table td:first-child { padding-bottom: 0; border-bottom: none; }
+}
 .help-nowrap, .help-page p code { white-space: nowrap; }
 /* The Keys page is one grid, so the keys of every section line up in one column. In a narrow
    dialog both columns may shrink: a row's keys wrap between keys, and its words anywhere. */

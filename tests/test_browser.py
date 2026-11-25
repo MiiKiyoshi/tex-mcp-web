@@ -4081,6 +4081,10 @@ def test_help_fits_a_narrow_window_on_every_page(tmp_path: Path) -> None:
                     .map((node) => node.id || node.tagName);
                   return [out, sideways, box.right <= innerWidth, document.documentElement.scrollWidth <= innerWidth];''')
                 assert spill == [[], [], True, True], (system, size, page, spill)
+            # The search terms keep their table where it fits whatever the fonts, and stand above
+            # what they find where it may not.
+            assert script('return getComputedStyle(document.querySelector("#help-search-terms td")).display') == (
+                "block" if size == "150" else "table-cell"), (system, size)
     finally:
         if browser is not None:
             browser.quit()
