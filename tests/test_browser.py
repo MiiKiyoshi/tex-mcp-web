@@ -94,7 +94,9 @@ def post_json(url: str, payload: dict) -> dict:
         return json.loads(response.read().decode("utf-8"))
 
 
-def wait_until(check, timeout: float = 30.0):
+def wait_until(check, timeout: float = 30.0, seen=None):
+    """Wait for check() to answer truly, and give its answer. When it does not in time, the
+    failure says its last answer, and what seen() then gives when a seen is passed."""
     deadline = time.monotonic() + timeout
     last = None
     while time.monotonic() < deadline:
@@ -105,6 +107,11 @@ def wait_until(check, timeout: float = 30.0):
         except Exception as error:
             last = error
         time.sleep(0.02)
+    if seen is not None:
+        try:
+            last = f"{last}; seen: {seen()}"
+        except Exception as error:
+            last = f"{last}; seen: {error!r}"
     raise AssertionError(f"condition was not met: {last}")
 
 
@@ -1212,24 +1219,51 @@ def test_highlight_badges_leave_pdf_text_selectable(tmp_path: Path) -> None:
             : [viewport.clientWidth, pages.getBoundingClientRect().width];
         '''
 
+        # The pane, the pages, the first page and the middle of the first highlight, as the
+        # viewer draws them now; null while a gesture runs.
+        geometry = '''
+          const root = document.querySelector("embedpdf-container").shadowRoot;
+          const viewport = Array.from(root.querySelectorAll("div")).find((node) =>
+            /(auto|scroll)/.test(getComputedStyle(node).overflowY) && node.scrollHeight > node.clientHeight);
+          const pages = viewport.firstElementChild;
+          if (/scale/.test(pages.style.transform)) return null;
+          const view = viewport.getBoundingClientRect(), page = pages.firstElementChild.getBoundingClientRect();
+          const box = root.querySelector(".tex-comment-segment").getBoundingClientRect();
+          return {pane: viewport.clientWidth, pages: pages.getBoundingClientRect().width,
+                  view: [view.left, view.top, view.right, view.bottom],
+                  page: [page.left, page.top, page.right, page.bottom],
+                  x: box.left + box.width / 2, y: box.top + box.height / 2};
+        '''
+
+        def on_its_page(now):
+            # The highlight lies on its page in the pane: after a zoom the viewer may draw
+            # the highlights a moment after the page.
+            inside = lambda box: box[0] < now["x"] < box[2] and box[1] < now["y"] < box[3]
+            return inside(now["page"]) and inside(now["view"])
+
         def pinch_to(share):
-            pane, pages = wait_until(lambda: browser.execute_script(widths))
-            delta = -100 * math.log(share * pane / pages)
+            now = wait_until(lambda: (now := browser.execute_script(geometry)) and on_its_page(now) and now,
+                             seen=lambda: browser.execute_script(geometry))
+            pane, x, y = now["pane"], now["x"], now["y"]
+            delta = -100 * math.log(share * pane / now["pages"])
             # A trackpad's steps are small; one past 40px reads as a mouse notch.
             steps = max(1, math.ceil(abs(delta) / 30))
-            x, y, _ = browser.execute_script('''
+            lost = browser.execute_script('''
               const root = document.querySelector("embedpdf-container").shadowRoot;
-              const box = root.querySelector(".tex-comment-segment").getBoundingClientRect();
-              const x = box.left + box.width / 2, y = box.top + box.height / 2;
-              for (let step = 0; step < arguments[1]; step++) {
-                root.elementFromPoint(x, y).dispatchEvent(new WheelEvent("wheel", {
-                  deltaY: arguments[0] / arguments[1], deltaMode: WheelEvent.DOM_DELTA_PIXEL, ctrlKey: true,
+              const [x, y, delta, steps] = arguments;
+              for (let step = 0; step < steps; step++) {
+                const target = root.elementFromPoint(x, y);
+                if (target === null) return {step, x, y, width: innerWidth, height: innerHeight};
+                target.dispatchEvent(new WheelEvent("wheel", {
+                  deltaY: delta / steps, deltaMode: WheelEvent.DOM_DELTA_PIXEL, ctrlKey: true,
                   clientX: x, clientY: y, bubbles: true, cancelable: true, composed: true}));
               }
-              return [x, y, box.width];
-            ''', script_args=[delta, steps])
+              return null;
+            ''', script_args=[x, y, delta, steps])
+            assert lost is None, (lost, now)
             wait_until(lambda: (now := browser.execute_script(widths))
-                       and abs(now[1] - share * pane) < 0.02 * pane)
+                       and abs(now[1] - share * pane) < 0.02 * pane,
+                       seen=lambda: (share * pane, browser.execute_script(geometry)))
             return x, y
 
         pinch_to(0.95)
@@ -1265,7 +1299,8 @@ def test_highlight_badges_leave_pdf_text_selectable(tmp_path: Path) -> None:
           if (/scale/.test(pages.style.transform)) return null;
           const box = pages.firstElementChild.getBoundingClientRect();
           return [box.left + box.width / 2, box.width];
-        ''')) and page[1] > middle[1] * 1.05 and abs(page[0] - middle[0]) <= 2)
+        ''')) and page[1] > middle[1] * 1.05 and abs(page[0] - middle[0]) <= 2,
+            seen=lambda: (middle, browser.execute_script(geometry)))
         zoomed = wait_until(lambda: browser.execute_script(f'''
           const root = document.querySelector("embedpdf-container").shadowRoot;
           const badge = root.querySelector(".tex-comment-badge");
