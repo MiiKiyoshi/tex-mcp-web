@@ -4,6 +4,7 @@ The comment sidebar is plain DOM code that the HTTP tests never execute, so the
 one-click close and the in-place edit are exercised through actual clicks here.
 """
 
+import base64
 import json
 import math
 import re
@@ -35,6 +36,43 @@ PAPER = (
     "Hello world.\n"
     "\\end{document}\n"
 )
+
+
+def screenshot(browser) -> bytes:
+    """The viewport as a PNG at one image pixel per CSS pixel, as the tests measure it. Safari's
+    driver gives the screen's pixels, of which a Mac's screen has several to a CSS pixel."""
+    shot = base64.b64decode(browser.driver.get_screenshot_as_base64())
+    if chrome.KIND == "safari":
+        import pymupdf
+        pixmap = pymupdf.Pixmap(shot)
+        ratio = round(pixmap.width / browser.execute_script("return innerWidth"))
+        if ratio > 1:
+            pixmap.shrink(ratio.bit_length() - 1)
+            shot = pixmap.tobytes("png")
+    return shot
+
+
+def time_zone(browser, name: str) -> None:
+    """Have the browser read its clock in the time zone *name*, as "Pacific/Honolulu"."""
+    if chrome.KIND == "safari":
+        pytest.skip("Safari: the time zone a browser reads its clock in cannot be set")
+    browser.driver.execute_cdp_cmd("Emulation.setTimezoneOverride", {"timezoneId": name})
+
+
+# Whether the browser's canvas turns into an image. On some of the macOS machines CI runs on,
+# Safari's canvas gives none (toBlob gives null, even for a few pixels), so no page of any PDF
+# is drawn there, though the same Safari draws them on a Mac with a screen.
+CANVAS_GIVES_AN_IMAGE = """const done = arguments[arguments.length - 1];
+const canvas = document.createElement("canvas");
+canvas.width = canvas.height = 8;
+canvas.getContext("2d").fillRect(0, 0, 8, 8);
+try { canvas.toBlob((blob) => done(blob !== null)); } catch (error) { done(false); }"""
+
+
+def needs_page_image(browser) -> None:
+    """Skip a test that needs the PDF's pages drawn, on a machine whose Safari cannot draw them."""
+    if chrome.KIND == "safari" and not browser.driver.execute_async_script(CANVAS_GIVES_AN_IMAGE):
+        pytest.skip("Safari: this machine's canvas gives no image, so no PDF page is drawn")
 
 
 def type_keys(browser, keys):
@@ -917,7 +955,7 @@ def test_a_pdf_from_an_earlier_build_shows_while_the_first_build_runs(tmp_path: 
         browser = chrome.launch()
         browser.set_window_rect(x=0, y=0, width=1200, height=800)
         browser.navigate(base)
-        chrome.needs_page_image(browser)
+        needs_page_image(browser)
         script = browser.execute_script
         shape = lambda: script(f"""{PREVIEW_PAGE} return rect && rect.width > 50
           ? (rect.width < rect.height ? "portrait" : "landscape") : null;""")
@@ -1439,7 +1477,7 @@ def test_the_area_button_draws_a_box_to_comment_on(tmp_path: Path) -> None:
         browser = chrome.launch()
         browser.set_window_rect(x=0, y=0, width=1200, height=800)
         browser.navigate(base)
-        chrome.needs_page_image(browser)
+        needs_page_image(browser)
         page = wait_until(lambda: browser.execute_script(f'''
           const image = document.querySelector("embedpdf-container")?.shadowRoot?.querySelector("img");
           const rect = image?.getBoundingClientRect();
@@ -1523,7 +1561,7 @@ def test_source_beside_comment_opens_the_selected_words_in_the_editor(tmp_path: 
         browser = chrome.launch()
         browser.set_window_rect(x=0, y=0, width=1400, height=900)
         browser.navigate(base)
-        chrome.needs_page_image(browser)
+        needs_page_image(browser)
         page = wait_until(lambda: browser.execute_script(f'''
           const image = document.querySelector("embedpdf-container")?.shadowRoot?.querySelector("img");
           const rect = image?.getBoundingClientRect();
@@ -1676,7 +1714,7 @@ def test_the_selection_bubble_goes_with_the_selection(tmp_path: Path) -> None:
         browser = chrome.launch()
         browser.set_window_rect(x=0, y=0, width=1200, height=800)
         browser.navigate(base)
-        chrome.needs_page_image(browser)
+        needs_page_image(browser)
         script = browser.execute_script
         wait_until(lambda: script(f"{PREVIEW_PAGE} return rect !== undefined && rect.width > 100;"))
         select_words = lambda: select_in_preview(browser, words, page_width)
@@ -2230,8 +2268,7 @@ def test_browser_source_selection_and_split_resize(tmp_path: Path) -> None:
         browser.refresh()
         wait_until(lambda: browser.execute_script('return document.querySelector("#split-grip").getAttribute("aria-valuenow")') == ratio)
         wait_until(lambda: browser.execute_script(coverage) == [False, True, True, True, False])
-        import base64
-        (tmp_path / "split-selection.png").write_bytes(base64.b64decode(browser.screenshot()))
+        (tmp_path / "split-selection.png").write_bytes(screenshot(browser))
         browser.set_window_rect(width=800, height=1000)
         wait_until(lambda: browser.execute_script('return document.querySelector("#split-grip").getAttribute("aria-orientation")') == "horizontal")
         grip = browser.execute_script('''
@@ -2438,13 +2475,13 @@ def test_a_finger_on_a_field_keeps_an_iphone_from_zooming_into_it(tmp_path: Path
         free = "width=device-width, initial-scale=1.0"
         # A browser that does not zoom into fields keeps its viewport. It is named, since the
         # Chrome of a Mac with a touch screen emulated reads as an iPad.
-        browser.driver.execute_cdp_cmd("Emulation.setUserAgentOverride", {"userAgent": ANDROID})
+        browser.user_agent(ANDROID)
         browser.navigate(base)
         wait_until(lambda: browser.execute_script('return document.querySelector("#comment-search") !== null'))
         assert browser.execute_script(FINGER, script_args=["touchstart", "#comment-search"]) == free
         browser.execute_script(FINGER, script_args=["touchend", "#comment-search"])
 
-        browser.driver.execute_cdp_cmd("Emulation.setUserAgentOverride", {"userAgent": IPHONE})
+        browser.user_agent(IPHONE)
         browser.navigate(base)
         wait_until(lambda: browser.execute_script('return navigator.userAgent.includes("iPhone")'))
         wait_until(lambda: browser.execute_script('return document.querySelector("#comment-search") !== null'))
@@ -2982,7 +3019,7 @@ def test_a_comment_highlight_shows_on_the_cursors_line_in_every_look(tmp_path: P
             spot = browser.execute_script(
                 'const mark = document.querySelector("#source-editor .source-comment-highlight").getBoundingClientRect();'
                 ' return [Math.round(mark.left + 60), Math.round(mark.top + mark.height / 2)];')
-            return pymupdf.Pixmap(browser.screenshot(format="binary")).pixel(*spot)[:3]
+            return pymupdf.Pixmap(screenshot(browser)).pixel(*spot)[:3]
 
         for look in ("light", "dark", "warm"):
             browser.execute_script(f'document.querySelector(\'[data-theme-choice="{look}"]\').click()')
@@ -3217,7 +3254,7 @@ def test_the_comments_tab_opens_on_open_and_marks_what_waits_for_the_reviewer(tm
         script('document.querySelector("#comments-list").focus()')
         for accept in (False, True):
             type_keys(browser, ["D"])
-            asked_first = wait_until(lambda: browser.switch_to_alert())
+            asked_first = wait_until(lambda: browser.driver.switch_to.alert)
             assert asked_first.text == "Delete this message?"
             asked_first.accept() if accept else asked_first.dismiss()
             if not accept:
@@ -3516,7 +3553,7 @@ def test_a_day_in_the_search_and_on_the_cards_is_the_browsers_own(tmp_path: Path
         stamp(tmp_path / ".tex-mcp-web" / "comments.json",
               {early: ["2026-11-13T20:00:00+00:00"], late: ["2026-11-14T03:00:00+00:00"]})
         browser = chrome.launch()
-        browser.time_zone("Pacific/Honolulu")
+        time_zone(browser, "Pacific/Honolulu")
         browser.navigate(base)
         script = browser.execute_script
         show_view(browser, "all")
@@ -5478,7 +5515,7 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
         wait_until(lambda: browser.execute_script('return document.querySelector("#settings-dialog").open'))
         browser.execute_script('document.querySelector("#settings-dialog").close()')
         # On a phone the row has no room for it or for the gear, and the ⋯ menu offers Settings.
-        size = browser.window_rect
+        size = browser.execute_script("return [innerWidth, innerHeight]")
         drawn = lambda selector: browser.execute_script(f'return getComputedStyle(document.querySelector("{selector}")).display')
         assert drawn("#settings-btn") != "none" and drawn("#settings-menu-btn") == "none"
         browser.set_window_rect(width=480, height=800)
@@ -5490,7 +5527,7 @@ def test_the_more_menu_opens_overleaf_and_its_comments_have_their_own_tab(tmp_pa
         wait_until(lambda: browser.execute_script('return document.querySelector("#settings-dialog").open'))
         assert browser.execute_script('return document.querySelector("#more-menu").hidden') is True
         browser.execute_script('document.querySelector("#settings-dialog").close()')
-        browser.set_window_rect(width=size["width"], height=size["height"])
+        browser.set_window_rect(width=size[0], height=size[1])
         wait_until(lambda: drawn("#overleaf-live-btn") != "none" and drawn("#settings-btn") != "none")
         browser.execute_script('document.querySelector("#settings-btn").click()')
         wait_until(lambda: browser.execute_script('return document.querySelector("#settings-dialog").open'))

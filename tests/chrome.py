@@ -1,11 +1,16 @@
-"""The review page in Google Chrome, or in Safari on macOS, for the tests.
+"""A review tool's page in Google Chrome, or in Safari on macOS, for the tool's tests.
 
 Chrome is driven through Selenium, which finds the driver that fits the installed Chrome by
 itself. ``launch()`` gives a headless window. ``REVIEW_BROWSER=headed`` shows it, to watch
 a test run. ``REVIEW_BROWSER_KIND=safari`` runs the same tests in Safari through
 safaridriver, which must be enabled once (``safaridriver --enable``). Safari has no headless
 window and runs one automation session at a time, so its window shows and the tests take it
-in turn. What Safari cannot be made to do, a test marks with ``not_in_safari``.
+in turn, with ``pytest -n 0``. What Safari cannot be made to do, a test marks with
+``not_in_safari``, and a method Safari cannot carry out skips the test that calls it.
+
+What one tool's tests alone use is kept in that tool's tests. A tool whose tests start another
+Chromium browser, or Chrome with flags or preferences of their own, gives them in a subclass of
+Chrome through options() and start().
 """
 
 from __future__ import annotations
@@ -105,11 +110,10 @@ class Actions:
 
 
 class Chrome:
-    """A Chrome window on the review page."""
+    """A Chrome window on a tool's page."""
 
     def __init__(self, downloads: Path | None = None, touch: bool = False):
-        options = webdriver.ChromeOptions()
-        options.binary_location = binary()
+        options = self.options()
         environment = dict(os.environ)
         if os.environ.get("REVIEW_BROWSER") != "headed":
             options.add_argument("--headless=new")
@@ -126,9 +130,10 @@ class Chrome:
         options.set_capability("goog:loggingPrefs", {"browser": "ALL"})
         if downloads is not None:
             options.add_experimental_option("prefs", {
+                **options.experimental_options.get("prefs", {}),
                 "download.default_directory": str(downloads), "download.prompt_for_download": False,
                 "plugins.always_open_pdf_externally": True})
-        self.driver = webdriver.Chrome(options=options, service=webdriver.ChromeService(env=environment))
+        self.driver = self.start(options, environment)
         self.driver.set_script_timeout(60)
         # The tests are written for a light system. A machine set to dark, whose setting
         # reaches headless Chrome, would otherwise turn System to dark.
@@ -136,6 +141,17 @@ class Chrome:
         if touch:
             # A finger is a coarse pointer, which the page's touch rules key off.
             self.driver.execute_cdp_cmd("Emulation.setTouchEmulationEnabled", {"enabled": True, "maxTouchPoints": 2})
+
+    def options(self) -> webdriver.ChromeOptions:
+        """The options the browser starts with, before the flags every test gives it: Chrome's,
+        with where it is installed."""
+        options = webdriver.ChromeOptions()
+        options.binary_location = binary()
+        return options
+
+    def start(self, options: webdriver.ChromeOptions, environment: dict[str, str]):
+        """The driver of the browser, started with *options* in *environment*."""
+        return webdriver.Chrome(options=options, service=webdriver.ChromeService(env=environment))
 
     def quit(self) -> None:
         # A test quits its browser in a finally clause, so a failing one quits with its failure
@@ -194,7 +210,7 @@ class Chrome:
         except Exception as error:
             record["page"] = repr(error)
         try:
-            record["console"] = [f"{entry['level']} {entry['message']}" for entry in self.driver.get_log("browser")]
+            record["console"] = [f"{entry['level']} {entry['message']}" for entry in self.driver.get_log("browser")][-200:]
         except Exception as error:
             record["console"] = repr(error)
         (folder / f"{name}.json").write_text(json.dumps(record, indent=1, ensure_ascii=False), encoding="utf-8")
@@ -210,26 +226,19 @@ class Chrome:
         returns: a promise's value once it settles."""
         return self.driver.execute_script(script, *script_args)
 
-    def set_window_rect(self, x: int = 0, y: int = 0, width: int = 1500, height: int = 1000) -> None:
+    def set_window_rect(self, *, x: int = 0, y: int = 0, width: int = 1500, height: int = 1000) -> None:
         """Size the page's viewport, which is what a test measures against."""
         self.driver.execute_cdp_cmd("Emulation.setDeviceMetricsOverride", {
             "width": width, "height": height, "deviceScaleFactor": 1, "mobile": False})
-
-    @property
-    def window_rect(self) -> dict:
-        width, height = self.driver.execute_script("return [innerWidth, innerHeight]")
-        return {"x": 0, "y": 0, "width": width, "height": height}
 
     def find_element(self, strategy: str, selector: str):
         assert strategy == "css selector"
         return self.driver.find_element(By.CSS_SELECTOR, selector)
 
-    def screenshot(self, format: str = "base64"):
-        shot = self.driver.get_screenshot_as_base64()
-        return base64.b64decode(shot) if format == "binary" else shot
-
-    def switch_to_alert(self):
-        return self.driver.switch_to.alert
+    def console_errors(self) -> list[str]:
+        """The errors the page's console took since this was last asked, as Chrome logs them:
+        a script's error, console.error, and a request that failed."""
+        return [entry["message"] for entry in self.driver.get_log("browser") if entry["level"] == "SEVERE"]
 
     def prefer_scheme(self, scheme: str | None) -> None:
         """Have the system say it prefers dark or light, or with None light, the scheme the
@@ -237,9 +246,10 @@ class Chrome:
         self.driver.execute_cdp_cmd("Emulation.setEmulatedMedia", {
             "features": [{"name": "prefers-color-scheme", "value": scheme or "light"}]})
 
-    def time_zone(self, name: str) -> None:
-        """Have the browser read its clock in the time zone *name*, as "Pacific/Honolulu"."""
-        self.driver.execute_cdp_cmd("Emulation.setTimezoneOverride", {"timezoneId": name})
+    def user_agent(self, text: str) -> None:
+        """Have the browser say it is the browser *text* names, as navigator.userAgent gives
+        it, for the pages loaded from then on."""
+        self.driver.execute_cdp_cmd("Emulation.setUserAgentOverride", {"userAgent": text})
 
     def platform(self, name: str) -> None:
         """Have the browser say it runs on the system *name*, as navigator.platform gives it,
@@ -282,7 +292,7 @@ class SafariElement:
 
 
 class Safari(Chrome):
-    """A Safari window on the review page. It shows on the screen, since Safari has no
+    """A Safari window on a tool's page. It shows on the screen, since Safari has no
     headless window, and its viewport is sized by sizing the window around it."""
 
     def __init__(self, downloads: Path | None = None, touch: bool = False):
@@ -343,7 +353,7 @@ class Safari(Chrome):
         super().refresh()
         self._loaded()
 
-    def set_window_rect(self, x: int = 0, y: int = 0, width: int = 1500, height: int = 1000) -> None:
+    def set_window_rect(self, *, x: int = 0, y: int = 0, width: int = 1500, height: int = 1000) -> None:
         """Size the window so that the viewport inside it has the size asked for."""
         self.driver.set_window_rect(x=x, y=y, width=width, height=height)
         for _ in range(3):
@@ -354,22 +364,14 @@ class Safari(Chrome):
             self.driver.set_window_rect(x=x, y=y, width=rect["width"] + width - inner[0],
                                         height=rect["height"] + height - inner[1])
 
-    def screenshot(self, format: str = "base64"):
-        """The viewport at one image pixel per CSS pixel, as the tests measure it."""
-        import pymupdf
-        shot = base64.b64decode(self.driver.get_screenshot_as_base64())
-        pixmap = pymupdf.Pixmap(shot)
-        ratio = round(pixmap.width / self.driver.execute_script("return innerWidth"))
-        if ratio > 1:
-            pixmap.shrink(ratio.bit_length() - 1)
-            shot = pixmap.tobytes("png")
-        return shot if format == "binary" else base64.b64encode(shot).decode()
+    def console_errors(self) -> list[str]:
+        pytest.skip("Safari: its driver gives no console to read")
+
+    def user_agent(self, text: str) -> None:
+        pytest.skip("Safari: what a browser says it is cannot be set")
 
     def platform(self, name: str) -> None:
         pytest.skip("Safari: the system a browser says it runs on cannot be set")
-
-    def time_zone(self, name: str) -> None:
-        pytest.skip("Safari: the time zone a browser reads its clock in cannot be set")
 
     def find_element(self, strategy: str, selector: str):
         return SafariElement(self, super().find_element(strategy, selector))
@@ -390,29 +392,5 @@ class Safari(Chrome):
             self.dark(scheme == "dark")
 
 
-# Whether the browser's canvas turns into an image. On some of the macOS machines CI runs on,
-# Safari's canvas gives none (toBlob gives null, even for a few pixels), so no page of any PDF
-# is drawn there, though the same Safari draws them on a Mac with a screen.
-_CANVAS_GIVES_AN_IMAGE = """const done = arguments[arguments.length - 1];
-const canvas = document.createElement("canvas");
-canvas.width = canvas.height = 8;
-canvas.getContext("2d").fillRect(0, 0, 8, 8);
-try { canvas.toBlob((blob) => done(blob !== null)); } catch (error) { done(false); }"""
-
-
-def needs_page_image(browser: Chrome) -> None:
-    """Skip a test that needs the PDF's pages drawn, on a machine whose Safari cannot draw them."""
-    if KIND == "safari" and not browser.driver.execute_async_script(_CANVAS_GIVES_AN_IMAGE):
-        pytest.skip("Safari: this machine's canvas gives no image, so no PDF page is drawn")
-
-
 def launch(downloads: Path | None = None, touch: bool = False) -> Chrome:
     return (Safari if KIND == "safari" else Chrome)(downloads, touch)
-
-
-@pytest.fixture
-def browser():
-    """A browser window, closed when the test ends."""
-    window = launch()
-    yield window
-    window.quit()
