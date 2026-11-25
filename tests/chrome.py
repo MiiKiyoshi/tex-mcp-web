@@ -8,9 +8,10 @@ window and runs one automation session at a time, so its window shows and the te
 in turn, with ``pytest -n 0``. What Safari cannot be made to do, a test marks with
 ``not_in_safari``, and a method Safari cannot carry out skips the test that calls it.
 
-What one tool's tests alone use is kept in that tool's tests. A tool whose tests start another
-Chromium browser, or Chrome with flags or preferences of their own, gives them in a subclass of
-Chrome through options() and start().
+Shared by the review tools' tests. It is written in tex-mcp-web, and scripts/share_page.py
+copies it to the others. A copy is never edited by hand. What one tool's tests alone use is kept
+in that tool's tests. A tool whose tests start another Chromium browser, or Chrome with flags or
+preferences of their own, gives them in a subclass of Chrome through options() and start().
 """
 
 from __future__ import annotations

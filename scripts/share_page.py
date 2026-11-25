@@ -1,16 +1,18 @@
 """Copy what the review tools share into another tool, with a manifest per folder.
 
-Three folders are shared, each written in tex-mcp-web alone. Two are shared whole:
+Four folders are shared, each written in tex-mcp-web alone. Two are shared whole:
 tex_mcp_web/static/shared, the files the review pages load, and tex_mcp_web/shared, the server
 modules. The third, plugin/hooks, holds each tool's own hook beside the files they share,
 guide_record.py and python.sh, which runs a hook with a Python that runs, and only those files
-are shared, to a tool whose plugin has hooks. This script
-copies each into the same place in another tool and writes MANIFEST.json there, with each
-shared file's SHA-256 and the tex-mcp-web commit they came from. That tool's tests check its
-copies against the manifests, so a copy edited by hand fails there. A file tex-mcp-web no longer
-shares is removed: in a folder shared whole, any file but the manifest, and in plugin/hooks, a
-file the last manifest named. Folders in them, as Python's __pycache__, are left. Each file is
-put in place whole, since a running Claude Code may run a hook from the folder at any moment.
+are shared, to a tool whose plugin has hooks. The fourth, tests, holds each tool's own tests
+beside chrome.py, the browser they drive, and only that file is shared, to a tool with a tests
+folder. This script copies each into the same place in another tool and writes MANIFEST.json
+there, with each shared file's SHA-256 and the tex-mcp-web commit they came from. That tool's
+tests check its copies against the manifests, so a copy edited by hand fails there. A file
+tex-mcp-web no longer shares is removed: in a folder shared whole, any file but the manifest,
+and in plugin/hooks and tests, a file the last manifest named. Folders in them, as Python's
+__pycache__, are left. Each file is put in place whole, since a running Claude Code may run a
+hook from the folder at any moment.
 
     python scripts/share_page.py <the other tool's package folder>
 """
@@ -27,6 +29,8 @@ PACKAGE = Path(__file__).resolve().parent.parent / "tex_mcp_web"
 FOLDERS = (Path("static") / "shared", Path("shared"))
 HOOKS = Path("plugin") / "hooks"
 HOOK_FILES = ("guide_record.py", "python.sh")
+TESTS = Path("tests")
+TEST_FILES = ("chrome.py",)
 MANIFEST = "MANIFEST.json"
 
 
@@ -59,11 +63,14 @@ def share(source: Path, target: Path, names: tuple[str, ...] | None = None) -> d
 
 
 def share_all(package: Path) -> list[dict]:
-    """Copy the shared folders into *package*, another tool's package folder, and the shared
-    hook file into the plugin beside it, when that plugin has hooks."""
+    """Copy the shared folders into *package*, another tool's package folder, the shared hook
+    files into the plugin beside it, when that plugin has hooks, and the browser the tests
+    drive into the tests beside it, when it has tests."""
     manifests = [share(PACKAGE / folder, package / folder) for folder in FOLDERS]
     if (package.parent / HOOKS).is_dir():
         manifests.append(share(PACKAGE.parent / HOOKS, package.parent / HOOKS, HOOK_FILES))
+    if (package.parent / TESTS).is_dir():
+        manifests.append(share(PACKAGE.parent / TESTS, package.parent / TESTS, TEST_FILES))
     return manifests
 
 
