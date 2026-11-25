@@ -3,18 +3,21 @@
 // face per person in the top bar goes to where they are; a collaborator's cursor in the
 // open file is drawn in the editor; a file changed on Overleaf says so above the editor;
 // Settings lists all of it.
-// The reviewer's own cursor in the editor is told to the server too, which shows it on Overleaf.
-// It owns the reviewer's own name on Overleaf, which the session tells it.
+// The reviewer's own cursor in the editor is told to the server too, which shows it on Overleaf,
+// unless Settings' choice under Overleaf hides it. It owns the reviewer's own name on Overleaf,
+// which the session tells it, and that choice.
 //
 // createOverleafLive takes source (ace(), file(), resize()), the editor the cursors are drawn on;
 // showInSource(file, line), which shows a file at a line in the Source (places.js); socket's open()
-// and send(message); refreshComments(); byHand(), heardByHand(standing) and
-// readOverleafGitSoon(delay), of the folder's git standing; cookieHeard(refused), of the cookie;
-// and renderOverleafThreadSync(). It gives render(snapshot), for each snapshot the socket brings,
-// renderCursors(), followed(path), whether a file is kept in step with Overleaf, me(), the
-// reviewer's own name on Overleaf, tellCursor(), chooseCursor(choice) and cursorShown().
+// and send(message); refreshComments(); overleaf, the page's knowledge of the project
+// (overleaf-project.js), whose project() shows the choice, which follows changed(), and which
+// heardCookie(refused) and heardFollowed(files) are told what the session says of the cookie and
+// of the files it keeps in step; and byHand(),
+// heardByHand(standing) and readOverleafGitSoon(delay), of the folder's git standing. It gives
+// attach(); render(snapshot), for each snapshot the socket brings; renderCursors(); me(), the
+// reviewer's own name on Overleaf; and tellCursor().
 
-import { $, h } from "../shared/dom.js";
+import { $, $$, h } from "../shared/dom.js";
 import { responseError } from "../shared/comment-api.js";
 import { overleafColor } from "./leaf.js";
 
@@ -75,8 +78,7 @@ function overleafCursorShown() {
 }
 
 export function createOverleafLive({
-  source, showInSource, socket, refreshComments, byHand, heardByHand, readOverleafGitSoon, cookieHeard,
-  renderOverleafThreadSync,
+  source, showInSource, socket, refreshComments, overleaf, byHand, heardByHand, readOverleafGitSoon,
 }) {
   // The last snapshot, and the reviewer's own name on Overleaf (me) once the page sits in the
   // project.
@@ -158,11 +160,12 @@ export function createOverleafLive({
     heardByHand(snapshot.by_hand ?? null);
     const { status, users = [], changes = [] } = snapshot;
     // Signed out with a cookie is Overleaf turning it away, until a session gets in with one.
-    cookieHeard(status === "signed_out" ? true : status === "live" ? false : undefined);
+    overleaf.heardCookie(status === "signed_out" ? true : status === "live" ? false : undefined);
     const button = $("#overleaf-live-btn");
     const off = status === "off";
     const commentsTrouble = status === "live" ? snapshot.comments_trouble : "";
     const files = snapshot.files ?? [];
+    overleaf.heardFollowed(files);
     const choosing = files.filter((file) => ["differs", "stopped", "held", "gone", "dropped"].includes(file.status));
     // The leaf button connects an unconnected paper, and otherwise shows only when something
     // needs a look in the dialog; a session that is up shows faces alone.
@@ -173,7 +176,6 @@ export function createOverleafLive({
     button.hidden = !off && !trouble;
     button.title = off ? "Connect this paper to its Overleaf project" : "Overleaf needs your attention";
     renderOverleafChoices(files, choosing);
-    renderOverleafThreadSync();
     $("#overleaf-live-label").textContent = off ? "Connect Overleaf"
       : choosing.length ? `${choosing.length} waiting`
       : commentsTrouble ? "Comments not syncing"
@@ -292,18 +294,27 @@ export function createOverleafLive({
     else if (socket.open()) socket.send({ type: "cursor", hidden: true });
   }
 
-  // A file kept in step with Overleaf, whose edits there are written here.
-  function followed(path) {
-    return (overleafLive.snapshot?.files ?? []).some((file) => file.path === path);
+  // The choice in Settings shows with a connected project, as the reviewer last made it.
+  function renderCursorChoice() {
+    $("#overleaf-cursor").hidden = !overleaf.project();
+    for (const box of $$('#overleaf-cursor input[name="overleaf-cursor"]')) {
+      box.checked = box.value === (overleafCursorShown() ? "show" : "hidden");
+    }
+  }
+
+  overleaf.changed(renderCursorChoice);
+
+  function attach() {
+    for (const box of $$('#overleaf-cursor input[name="overleaf-cursor"]')) {
+      box.addEventListener("change", () => chooseOverleafCursor(box.value));
+    }
   }
 
   return {
+    attach,
     render: renderOverleafLive,
     renderCursors: renderOverleafCursors,
-    followed,
     me: () => overleafLive.me,
     tellCursor,
-    chooseCursor: chooseOverleafCursor,
-    cursorShown: overleafCursorShown,
   };
 }

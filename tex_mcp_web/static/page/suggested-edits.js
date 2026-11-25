@@ -109,6 +109,7 @@ export function createSuggestedEdits({ overleaf, panel, jumpToComment }) {
         reviewSuggestedEdits(action, edits).catch((error) => alert(error.message));
       });
     }
+    window.addEventListener("focus", readSuggestedEdits);
   }
 
   return { attach, reviewing: reviewingEdits, render: renderSuggestedEdit, read: readSuggestedEdits };

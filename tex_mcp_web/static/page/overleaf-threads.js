@@ -8,18 +8,21 @@
 // which it reads and gives the answer read with each list to; me(), the reviewer's own name on
 // Overleaf; panel, the comment panel (listed(), tab(), replyButton(comment), setStatus(ids,
 // status), setView(view), showTab(name), refreshComments(), showComment(id)); keyHint(name);
-// outgoing, the replies on their way; suggestedEdits; showTab(name), the sidebar's tab shown;
-// applySourceLeaf(); and renderOverleafThreadSync(). It gives the panel's hooks (tab, files,
-// along, status, search, card, row, compose and keys), drafted(comment) and
-// openSuggestedEdit(id).
+// outgoing, the replies on their way; suggestedEdits; showTab(name), the sidebar's tab shown; and
+// applySourceLeaf(). It gives the panel's hooks (tab, files, along, status, search, card, row,
+// compose and keys), drafted(comment), openSuggestedEdit(id) and applied(listener), which hands
+// in a function called once the list's reading of the project is taken in and the leaf tab shown
+// or hidden by it.
 
 import { $, h } from "../shared/dom.js";
 import { leafIcon, replies, OVERLEAF_COOKIE_WANTED } from "./leaf.js";
 import { suggestedItem } from "./suggested-edits.js";
+import { createListeners } from "./listeners.js";
 
 export function createOverleafThreads({
-  overleaf, me, panel, keyHint, outgoing, suggestedEdits, showTab, applySourceLeaf, renderOverleafThreadSync,
+  overleaf, me, panel, keyHint, outgoing, suggestedEdits, showTab, applySourceLeaf,
 }) {
+  const applied = createListeners();
   // The status a comment is listed under: "hidden" for an open thread the reviewer hid on the
   // page, else its own.
   function statusOf(comment) {
@@ -86,6 +89,7 @@ export function createOverleafThreads({
   return {
     drafted: draftedThread,
     openSuggestedEdit,
+    applied: applied.add,
     // The comments written here are in one tab, and Overleaf's threads, with those drafted for
     // it, in this one.
     tab: {
@@ -137,7 +141,7 @@ export function createOverleafThreads({
           if (leafTab.classList.contains("active")) showTab("comments");
           else panel.showTab("comments");
         }
-        renderOverleafThreadSync();
+        applied.tell();
       },
     },
     status: {

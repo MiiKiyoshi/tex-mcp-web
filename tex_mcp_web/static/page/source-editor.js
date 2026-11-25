@@ -9,17 +9,19 @@
 // the Overleaf project and its suggested edits; showWherePrinted({ file, line_start, line_end,
 // text }), which shows words selected here where the Preview prints them (places.js);
 // openCompose(anchor, label, fields), refreshComments() and openSuggestedEdit(id);
-// compileFromKeys(); followedOnOverleaf(path), renderOverleafCursors() and tellCursor(), of the
-// Overleaf session; followSourceCursor() and followFile(), of the translation, told as the cursor
-// moves and a file opens; and cursorAt(), where Settings holds the cursor's line.
+// compileFromKeys(); followed(path), whether Overleaf's live session keeps a file in step; and
+// cursorAt(), where Settings holds the cursor's line.
 //
-// It gives attach() and init(); the file open (file(), dirty(), open(path, line, force, focus),
+// It gives attach() and init(); what happens in it, each of which hands in a function called
+// when it does: opened(listener), a file opened, cursorMoved(listener) and drawn(listener), the
+// editor drawn again; the file open (file(), dirty(), open(path, line, force, focus),
 // save(), refreshFiles(), sourceChanged(message)); the editor (started(), ace(), resize(),
 // focus(), setTheme(), holdCursorLine(), cursorRow()); a place shown in it (showPlace(row,
 // column), selectQuote(quote, first, last)); markComments(), applyLeaf(), for the leaf beside
 // + Comment, and scheduleCompletions(delay).
 
 import { $, h, clear } from "../shared/dom.js";
+import { createListeners } from "./listeners.js";
 import { RING_AT } from "../shared/comment-keys.js";
 import { responseError } from "../shared/comment-api.js";
 import { setSidebarCollapsed } from "../shared/sidebar.js";
@@ -71,8 +73,11 @@ function sourceForOverleaf() {
 
 export function createSourceEditor({
   panelComments, project, suggested, showWherePrinted, openCompose, refreshComments, openSuggestedEdit,
-  compileFromKeys, followedOnOverleaf, renderOverleafCursors, tellCursor, followSourceCursor, followFile, cursorAt,
+  compileFromKeys, followed, cursorAt,
 }) {
+  const opened = createListeners();
+  const cursorMoved = createListeners();
+  const drawn = createListeners();
   const state = {
     editor: null,
     sourcePath: null,
@@ -255,11 +260,10 @@ export function createSourceEditor({
     state.editor.setValue(source.text, -1);
     state.sourceLoading = false;
     state.sourcePath = source.path;
-    tellCursor();
     state.sourceRevision = source.revision;
     state.sourceDirty = false;
     showSourceFile(source.path);
-    followFile();
+    opened.tell();
     $("#source-save-btn").disabled = true;
     $("#source-reload-btn").disabled = false;
     setSourceStatus("Saved");
@@ -426,8 +430,7 @@ export function createSourceEditor({
       if (!state.sourceLoading) setSourceDirty(true);
     });
     state.editor.on("changeSelection", updateSourceCommentButton);
-    state.editor.selection.on("changeCursor", followSourceCursor);
-    state.editor.selection.on("changeCursor", tellCursor);
+    state.editor.selection.on("changeCursor", () => cursorMoved.tell());
     state.editor.on("guttermousedown", (event) => {
       const row = event.getDocumentPosition().row;
       // A suggested edit's mark beside its line opens it in the leaf tab.
@@ -479,7 +482,7 @@ export function createSourceEditor({
     attachVimInputMethod(state.editor);
     definitions.attachBack(state.editor);
     completion.attach(state.editor);
-    state.editor.renderer.on("afterRender", renderOverleafCursors);
+    state.editor.renderer.on("afterRender", () => drawn.tell());
     applyVimKeys();
     await refreshSourceFiles();
   }
@@ -541,9 +544,9 @@ export function createSourceEditor({
     if (!state.editor || message.path !== state.sourcePath
         || message.revision === state.sourceRevision) return;
     if (state.sourceDirty) {
-      const followed = followedOnOverleaf(message.path);
-      setSourceStatus(followed ? "Edited on Overleaf · saving merges both" : "Changed on disk · reload",
-        followed ? "" : "conflict");
+      const inStep = followed(message.path);
+      setSourceStatus(inStep ? "Edited on Overleaf · saving merges both" : "Changed on disk · reload",
+        inStep ? "" : "conflict");
       return;
     }
     const line = state.editor.getCursorPosition().row + 1;
@@ -624,6 +627,9 @@ export function createSourceEditor({
   return {
     attach,
     init: initializeSourceEditor,
+    opened: opened.add,
+    cursorMoved: cursorMoved.add,
+    drawn: drawn.add,
     started: () => Boolean(state.editor),
     ace: () => state.editor,
     file: () => state.sourcePath,

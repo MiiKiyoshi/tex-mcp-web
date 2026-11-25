@@ -4,21 +4,27 @@
 // where the folder stands, which the page's other parts read through it.
 //
 // createOverleafGit takes overleaf, the page's knowledge of the project (overleaf-project.js), of
-// which it reads project(), cookie(), fullSync() and remote(); gitAfterEdit, the milliseconds it
-// waits after a file changes here; showSettings(status); renderOverleafThreadSync();
-// overleafFailed(error); and readSuggestedEdits(). It gives attach(); where the folder stands:
-// standing(), a git clone's against Overleaf's branch, null until read, trouble(), why the last
-// reading of the branch failed, and byHand(), a folder synced by hand's, or null; relinked(),
-// after the project's link changes; heardByHand(standing), what the live session says of a folder
-// synced by hand; render(standing), readState(), readStateSoon() and readSoon(delay).
+// which it reads project(), cookie(), fullSync() and remote() and follows changed(); and
+// gitAfterEdit, the milliseconds it waits after a file changes here. It gives attach(); what the
+// reviewer is to read, each of which hands in a function called with it: said(listener), a pull,
+// push, Get or Send that did not go through, and unreachable(listener), the error of a request
+// that did not reach the server; where the folder stands: standing(), a git clone's
+// against Overleaf's branch, null until read, trouble(), why the last reading of the branch
+// failed, and byHand(), a folder synced by hand's, or null; changed(listener), which hands in a
+// function called when where the folder stands changes; heardByHand(standing), what the live
+// session says of a folder synced by hand; render(standing), readState(), readStateSoon() and
+// readSoon(delay).
 
 import { $, h } from "../shared/dom.js";
 import { responseError } from "../shared/comment-api.js";
 import { commits, fileCount, OVERLEAF_BY_GIT, OVERLEAF_BY_HAND } from "./leaf.js";
+import { createListeners } from "./listeners.js";
 
-export function createOverleafGit({
-  overleaf, gitAfterEdit, showSettings, renderOverleafThreadSync, overleafFailed, readSuggestedEdits,
-}) {
+export function createOverleafGit({ overleaf, gitAfterEdit }) {
+  const changes = createListeners();
+  const said = createListeners();
+  const unreachable = createListeners();
+  const overleafFailed = (error) => unreachable.tell(error);
   const state = {
     // Where a folder cloned from the project stands against Overleaf's branch (null until read),
     // and why the last reading of the branch failed.
@@ -52,7 +58,7 @@ export function createOverleafGit({
     $("#overleaf-git-uncommitted").hidden = !now.uncommitted.length;
     $("#overleaf-git-uncommitted").textContent = `Not committed yet (commit & push commits them first): ${now.uncommitted.join(", ")}`;
     renderGitButtons();
-    renderOverleafThreadSync();
+    changes.tell();
   }
 
 
@@ -69,7 +75,7 @@ export function createOverleafGit({
       : "This folder is in sync with Overleaf.";
     $("#overleaf-git-uncommitted").hidden = true;
     renderGitButtons();
-    renderOverleafThreadSync();
+    changes.tell();
   }
 
   // What the live session says of a folder synced by hand: where it stands, or nothing once the
@@ -83,6 +89,7 @@ export function createOverleafGit({
     state.files = null;
     $("#overleaf-git").hidden = !overleaf.remote();
     renderGitButtons();
+    changes.tell();
   }
 
   // The project's link as the server last gave it. Without the project or the cookie no session
@@ -98,7 +105,10 @@ export function createOverleafGit({
       state.gitTrouble = "";
     }
     renderGitButtons();
+    changes.tell();
   }
+
+  overleaf.changed(relinked);
 
   function renderGitButtons() {
     const pull = $("#git-pull-btn");
@@ -197,10 +207,10 @@ export function createOverleafGit({
       state.gitTrouble = `Could not read Overleaf's branch: ${why}`;
       $("#overleaf-git-state").textContent = state.gitTrouble;
       renderGitButtons();
-      renderOverleafThreadSync();
+      changes.tell();
       return;
     }
-    showSettings(`Could not ${action}: ${why}`);
+    said.tell(`Could not ${action}: ${why}`);
     await overleafGitAction("fetch");
   }
 
@@ -229,7 +239,7 @@ export function createOverleafGit({
       renderGitButtons();
       return;
     }
-    showSettings(`Could not ${action === "get" ? "Get" : "Send"}: ${why}`);
+    said.tell(`Could not ${action === "get" ? "Get" : "Send"}: ${why}`);
     await overleafFilesAction("read");
   }
 
@@ -254,7 +264,6 @@ export function createOverleafGit({
     $("#commit-cancel").addEventListener("click", () => $("#commit-dialog").close());
     window.addEventListener("focus", () => {
       if (Date.now() - state.overleafGitRead > 60000) readOverleafGitSoon(0);
-      readSuggestedEdits();
     });
   }
 
@@ -263,7 +272,9 @@ export function createOverleafGit({
     standing: () => state.git,
     trouble: () => state.gitTrouble,
     byHand: () => state.files,
-    relinked,
+    changed: changes.add,
+    said: said.add,
+    unreachable: unreachable.add,
     heardByHand,
     render: renderOverleafGit,
     readState: readOverleafGitState,

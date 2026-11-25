@@ -99,12 +99,7 @@ const socket = createSocket({
   gone: (gone) => panel.bell.show({ waiters: 0, gone }),
 });
 
-const paper = createPaper({
-  read: (now) => {
-    translation.applyLanguage(now.translation_language ?? null);
-    sections.render(now);
-  },
-});
+const paper = createPaper();
 
 const workspace = createWorkspace({
   source: reach(() => source, "init", "resize"),
@@ -133,11 +128,7 @@ const source = createSourceEditor({
   refreshComments: () => panel.refreshComments(),
   openSuggestedEdit: (id) => threads.openSuggestedEdit(id),
   compileFromKeys: () => build.compileFromKeys(),
-  followedOnOverleaf: (path) => live.followed(path),
-  renderOverleafCursors: () => live.renderCursors(),
-  tellCursor: () => live.tellCursor(),
-  followSourceCursor: () => translation.followCursor(),
-  followFile: () => translation.followFile(),
+  followed: overleaf.followed,
   cursorAt: () => settings.cursorAt(),
 });
 
@@ -150,11 +141,9 @@ const problems = createProblems({ showLayoutLine: places.showLayoutLine });
 const build = createBuild({
   paper,
   pdf: reach(() => pdf, "view", "open", "shown"),
-  problems,
   overleaf,
   source: reach(() => source, "dirty", "save"),
   refreshComments: () => panel.refreshComments(),
-  scheduleTranslation: (delay) => translation.schedule(delay),
   showTab: (name) => strip.show(name),
 });
 
@@ -177,35 +166,17 @@ const translation = createTranslation({
 const overleafSettings = createOverleafSettings({
   overleaf,
   openSettings: (options) => settings.open(options),
-  relinkGit: () => git.relinked(),
-  readOverleafGitSoon: (delay) => git.readSoon(delay),
-  renderOverleafThreadSync: () => sync.render(),
-  renderPickedActions: () => panel.renderPickedActions(),
-  renderNoPaper: () => build.renderNoPaper(),
-  overleafCursorShown: () => live.cursorShown(),
-  chooseOverleafCursor: (choice) => live.chooseCursor(choice),
 });
 
-const git = createOverleafGit({
-  overleaf,
-  gitAfterEdit: WAITS.gitAfterEdit,
-  showSettings: (status) => overleafSettings.show(status),
-  renderOverleafThreadSync: () => sync.render(),
-  overleafFailed: (error) => overleafSettings.failed(error),
-  readSuggestedEdits: () => suggestedEdits.read(),
-});
+const git = createOverleafGit({ overleaf, gitAfterEdit: WAITS.gitAfterEdit });
 
 const sync = createOverleafSync({
   overleaf,
   commentTab: () => panel.tab(),
   gitWait: WAITS.overleafGit,
-  gitStanding: git.standing,
-  gitTrouble: git.trouble,
-  filesByHand: git.byHand,
-  readOverleafGitState: () => git.readState(),
+  git,
   showSettings: (status) => overleafSettings.show(status),
   refreshComments: () => panel.refreshComments(),
-  cookieHeard: (refused) => overleafSettings.cookieHeard(refused),
   loadOverleafStatus: () => overleafSettings.load(),
   overleafFailed: (error) => overleafSettings.failed(error),
 });
@@ -215,11 +186,10 @@ const live = createOverleafLive({
   showInSource: places.showInSource,
   socket: reach(() => socket, "open", "send"),
   refreshComments: () => panel.refreshComments(),
+  overleaf,
   byHand: git.byHand,
   heardByHand: (now) => git.heardByHand(now),
   readOverleafGitSoon: (delay) => git.readSoon(delay),
-  cookieHeard: (refused) => overleafSettings.cookieHeard(refused),
-  renderOverleafThreadSync: () => sync.render(),
 });
 
 const suggestedEdits = createSuggestedEdits({
@@ -247,7 +217,6 @@ const threads = createOverleafThreads({
   suggestedEdits,
   showTab: (name) => strip.show(name),
   applySourceLeaf: () => source.applyLeaf(),
-  renderOverleafThreadSync: () => sync.render(),
 });
 
 // ----- The parts shared with the other review pages -----
@@ -336,6 +305,44 @@ const update = createUpdate({
 // A press of the bell, for the session listening or the agent picked beside the bell. The
 // picked comments go with a press for the session: with overleaf_picked, a thread from
 // Overleaf reaches the agent with its Overleaf words only when picked.
+// ----- What the parts follow of each other, once they all exist -----
+
+// The translation's language and the sections follow the paper as it is read.
+paper.read((now) => {
+  translation.applyLanguage(now.translation_language ?? null);
+  sections.render(now);
+});
+// Problems and the translation's pane follow each build's result.
+build.applied((result) => {
+  problems.show(result);
+  translation.buildEnded();
+});
+// What git could not do, or could not reach the server for, is said in Settings.
+git.said((status) => overleafSettings.show(status));
+git.unreachable((error) => overleafSettings.failed(error));
+
+// Settings asks where the folder stands as it opens and as a project is connected.
+overleafSettings.standingAsked(() => git.readSoon(0));
+// The translation follows the file open in the editor and its cursor, and the server is told
+// where the cursor is, which it shows on Overleaf; the collaborators' cursors are drawn again
+// with the editor.
+source.opened(() => {
+  live.tellCursor();
+  translation.followFile();
+});
+source.cursorMoved(() => {
+  translation.followCursor();
+  live.tellCursor();
+});
+source.drawn(() => live.renderCursors());
+// The note atop the leaf tab follows the tab shown, once the list's reading is taken in.
+threads.applied(() => sync.render());
+// The picked comments' actions and the note of a paper with no main file follow the project.
+overleaf.changed(() => {
+  panel.renderPickedActions();
+  build.renderNoPaper();
+});
+
 async function callAgent(lane) {
   const response = await fetch("/review-request", {
     method: "POST", headers: { "Content-Type": "application/json" },
@@ -410,7 +417,6 @@ async function handleWebSocketMessage(message) {
       break;
     case "overleaf_waiting":
       overleaf.heardWaiting(message.count);
-      sync.render();
       break;
   }
 }
@@ -426,6 +432,7 @@ async function init() {
   attachEscapeKey({ own: "#source-editor" });
   sync.attach();
   git.attach();
+  live.attach();
   attachSidebarToggle({ key: "sidebarCollapsed" });
   attachPanelGrips({
     prefix: PREFIX,

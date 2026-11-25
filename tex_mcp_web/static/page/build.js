@@ -3,19 +3,22 @@
 // Preview shows the PDF of the build before it.
 //
 // createBuild takes paper (digest(), setDigest(digest), refresh(), current()), pdf (view(),
-// open(view), shown()), problems' show(result), overleaf, the page's knowledge of the Overleaf
-// project (overleaf-project.js), of which it reads project(), cookie() and fullSync(), source's
-// dirty() and save(), refreshComments(), scheduleTranslation(delay) and showTab(name). It gives
-// attach() and attachCompileKey(), compile() and compileFromKeys(), start(), showProblems(),
-// failed(), whether the last build failed, renderNoPaper(), and what the socket hears of builds:
-// heardCompiling, heardRequested, heardCompiled, heardSourceChanged, configReloaded,
-// configFailed and heardState, each given the message.
+// open(view), shown()), overleaf, the page's knowledge of the Overleaf project
+// (overleaf-project.js), of which it reads project(), cookie() and fullSync(), source's dirty()
+// and save(), refreshComments() and showTab(name). It gives attach() and attachCompileKey(),
+// compile() and compileFromKeys(), start(), showProblems(), failed(), whether the last build
+// failed, renderNoPaper(), applied(listener), which hands in a function called with each build's
+// result once the page shows it, and what the socket hears of builds: heardCompiling,
+// heardRequested, heardCompiled, heardSourceChanged, configReloaded, configFailed and heardState,
+// each given the message.
 
 import { $, h, eventOrigin } from "../shared/dom.js";
 import { responseError } from "../shared/comment-api.js";
 import { setSidebarCollapsed } from "../shared/sidebar.js";
+import { createListeners } from "./listeners.js";
 
-export function createBuild({ paper, pdf, problems, overleaf, source, refreshComments, scheduleTranslation, showTab }) {
+export function createBuild({ paper, pdf, overleaf, source, refreshComments, showTab }) {
+  const applied = createListeners();
   const state = {
     appliedCompileTimestamp: null,
     compileRefreshPromise: null,
@@ -53,7 +56,6 @@ export function createBuild({ paper, pdf, problems, overleaf, source, refreshCom
     state.compileNote = "";
     state.configError = "";
     renderCompileStatus();
-    problems.show(result);
     state.buildFailed = !result.success;
     // Until a build makes a PDF, the Preview says why there is none and where to read it, and
     // so does the translation, which follows the PDF's pages.
@@ -63,7 +65,7 @@ export function createBuild({ paper, pdf, problems, overleaf, source, refreshCom
       else $("#pdf-viewer").replaceChildren(h("p", { class: "placeholder" }, "The build failed. See Problems for details. ",
         h("button", { type: "button", onclick: showProblems }, "Show Problems")));
     }
-    if (!paper.digest()) scheduleTranslation(0);
+    applied.tell(result);
   }
 
   function showProblems() {
@@ -226,6 +228,7 @@ export function createBuild({ paper, pdf, problems, overleaf, source, refreshCom
   return {
     attach, attachCompileKey, compile, compileFromKeys, start, showProblems, renderNoPaper,
     failed: () => state.buildFailed,
+    applied: applied.add,
     heardCompiling, heardRequested, heardCompiled, heardSourceChanged, configReloaded, configFailed, heardState,
   };
 }

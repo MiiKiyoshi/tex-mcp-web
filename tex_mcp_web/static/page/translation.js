@@ -13,7 +13,8 @@
 // line), which shows a paragraph's lines in the Source (places.js); digest(), the PDF's digest;
 // failed(), whether the last build failed; and showProblems(). It gives attach(),
 // applyLanguage(language), shown(), whether the pane shows, schedule(delay), followCursor(), for
-// the editor's cursor, and followFile(), for a file the editor opens.
+// the editor's cursor, followFile(), for a file the editor opens, and buildEnded(), after which a
+// paper with no PDF says why in the pane.
 
 import { $, h, placeholder } from "../shared/dom.js";
 import { responseError } from "../shared/comment-api.js";
@@ -219,8 +220,13 @@ export function createTranslation({ wait, workspace, source, pdf, showInSource, 
     try { if (localStorage.getItem("texMcpTranslation") === "1") setTranslation(true); } catch { /* per-viewer only */ }
   }
 
+  function buildEnded() {
+    if (!digest()) scheduleTranslation(0);
+  }
+
   return {
     attach,
+    buildEnded,
     applyLanguage: applyTranslationLanguage,
     shown: translationShown,
     schedule: scheduleTranslation,
