@@ -127,13 +127,16 @@ jobs:
         run: |
           sudo safaridriver --enable
           /usr/bin/safaridriver --version
+          # A Mac whose screen goes to sleep during the tests fails them in Safari, so they run
+          # under caffeinate. The log keeps the runner's own sleep settings.
+          pmset -g | grep -i sleep || true
       - name: Browser tests in Safari
         env:
           REVIEW_BROWSER_KIND: safari
           REVIEW_FAILURES: ${{ runner.temp }}/failures
         run: |
-          python -m pytest -n 0 -rfs --part ${{ matrix.part }} tests/test_browser.py \
-            || python -m pytest -n 0 -rfs --last-failed tests/test_browser.py
+          caffeinate -dimsu python -m pytest -n 0 -rfs --part ${{ matrix.part }} tests/test_browser.py \
+            || caffeinate -dimsu python -m pytest -n 0 -rfs --last-failed tests/test_browser.py
       - name: Pages of failed tests
         if: always()
         uses: actions/upload-artifact@v4
