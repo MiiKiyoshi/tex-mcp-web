@@ -1279,7 +1279,14 @@ def test_highlight_badges_leave_pdf_text_selectable(tmp_path: Path) -> None:
           return left >= view.left - 1 && right <= view.left + viewport.clientWidth + 1;
         ''', script_args=[x]))
         # On the gap between the columns, the middle of the page, no column is chosen: the
-        # page zooms about the pointer, and its middle stays under it.
+        # page zooms about the pointer, and its middle stays under it. The pinch comes once the
+        # page has stayed put, as the badges are clicked below.
+        def page_at_rest():
+            before = browser.execute_script(geometry)
+            time.sleep(0.3)
+            return before is not None and browser.execute_script(geometry) == before
+
+        wait_until(page_at_rest, seen=lambda: browser.execute_script(geometry))
         middle = browser.execute_script('''
           const root = document.querySelector("embedpdf-container").shadowRoot;
           const viewport = Array.from(root.querySelectorAll("div")).find((node) =>
