@@ -405,7 +405,7 @@ button {
   .view-tabs { order: 1; }
   .topbar .compile-status { order: 2; }
   .topbar .actions { order: 3; flex: none; margin-left: auto; }
-  /* Still too wide, the bar gives way a step at a time (fitTopbar in viewer.js). */
+  /* Still too wide, the bar gives way a step at a time (fitTopbar in page/top-bar.js). */
   .topbar.one-face .overleaf-face:not(:first-child) { display: none; }
   .topbar.tight, .topbar.tight .actions { gap: 0.2rem; }
   .topbar.tight .view-tab { padding: 0.2rem 0.3rem; }

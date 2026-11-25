@@ -256,17 +256,21 @@ async def test_root_serves_the_viewer(client):
 
 def test_a_change_to_a_shared_file_moves_the_static_tag(tmp_path, monkeypatch):
     """The page names its files under the tag of the newest change among them, and the files
-    the review pages share, in a folder of their own, count too."""
+    the review pages share and the page's own modules, each in a folder of their own, count
+    too."""
     from tex_mcp_web import server as server_module
 
     (tmp_path / "shared").mkdir()
-    for name in ("viewer.js", "shared/look.css"):
+    (tmp_path / "page").mkdir()
+    for name in ("viewer.js", "shared/look.css", "page/pdf-view.js"):
         (tmp_path / name).write_text("", encoding="utf-8")
         os.utime(tmp_path / name, (1000, 1000))
     monkeypatch.setattr(server_module, "STATIC_DIR", tmp_path)
     assert TexMcpWebServer.static_tag() == "v1000"
     os.utime(tmp_path / "shared" / "look.css", (2000, 2000))
     assert TexMcpWebServer.static_tag() == "v2000"
+    os.utime(tmp_path / "page" / "pdf-view.js", (3000, 3000))
+    assert TexMcpWebServer.static_tag() == "v3000"
 
 
 @pytest.mark.asyncio
