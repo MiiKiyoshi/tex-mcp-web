@@ -30,9 +30,12 @@ part's variable: a whole part, a part's function, an arrow calling a part, or a 
 the module that does (a facade). Parts are the variables wiring calls are assigned to and the
 namespace imports. A handle is `() => part`. A late binding is a reference to a part before the
 call that creates it, or inside that call. The part graph has an edge from each part to the parts
-its creation names, and its cycles are the parts that reach each other. It misses parts reached
-through the module's own functions (a hook handed a function declared in the file), and arrow
-parameters or locals that shadow a part's name.
+its creation names. A call on a part at the top level once the parts exist, `part.method(...)`,
+adds edges too: a function handed to it, an arrow or a part's function, listens, and each part it
+names gets an edge to the part called, which it follows; a whole part handed to it gets an edge
+from the part called, as a hook would. The graph's cycles are the parts that reach each other. It
+misses parts reached through the module's own functions (a hook handed a function declared in the
+file), and arrow parameters or locals that shadow a part's name.
 
 Encapsulation. (a) Writes into an object a module was handed: `p.field = ...`, `p.field[key] =
 ...`, `p.field++`, `delete p.field`, or a call that changes a collection, as `p.field.add(...)`.
@@ -639,7 +642,32 @@ def wiring(modules: dict[str, Module], module: Module) -> dict:
             if (module.value(i - 1) == "=>" and module.value(i - 2) == ")" and module.value(i - 3) == "("
                     and module.value(i + 1) in (",", ")")):
                 handles.append(site)
-    return {"calls": shown, "late": late, "handles": handles, "spans": [call.args for call in calls]}
+    # A call on a part at the top level after the parts exist, `part.method(...)`, connects it to
+    # the parts its arguments name. A function handed so, an arrow or a part's function, is a
+    # listener: the parts it names follow the part called, and depend on it. A whole part handed
+    # so is the part called taking it, as a hook does.
+    subscriptions = []
+    for i, token in enumerate(module.tokens):
+        if (module.depth[i] or token.value not in created or not module.is_reference(i)
+                or module.value(i + 1) not in (".", "?.") or module.tokens[i + 2].kind != "id"
+                or module.value(i + 3) != "("):
+            continue
+        follows, taken = set(), set()
+        for first, last in module.split(i + 4, module.pair[i + 3]):
+            if last - first == 1 and module.tokens[first].value in parts:
+                taken.add(module.tokens[first].value)
+                continue
+            for j in references(module, first, last, parts | set(facades)):
+                value = module.tokens[j].value
+                follows |= {value} if value in parts else facades[value]
+        follows.discard(token.value)
+        taken.discard(token.value)
+        if follows or taken:
+            subscriptions.append({"module": module.name, "line": token.line, "part": token.value,
+                                  "method": module.tokens[i + 2].value, "follows": sorted(follows),
+                                  "taken": sorted(taken)})
+    return {"calls": shown, "late": late, "handles": handles, "subscriptions": subscriptions,
+            "spans": [call.args for call in calls]}
 
 
 # ----- Encapsulation -----
@@ -902,6 +930,7 @@ def measure(package: Path, commits: int) -> dict:
                "outside": sorted({i["spec"] for m in modules.values() for i in m.imports if not i["target"]})}
 
     calls, late, handles, writes, reads, part_graph = [], [], [], [], [], defaultdict(set)
+    subscriptions = []
     for module in modules.values():
         if module.unparsed:
             continue
@@ -909,6 +938,12 @@ def measure(package: Path, commits: int) -> dict:
         calls += wired["calls"]
         late += [{**site, "shared": module.shared} for site in wired["late"]]
         handles += [{**site, "shared": module.shared} for site in wired["handles"]]
+        subscriptions += [{**site, "shared": module.shared} for site in wired["subscriptions"]]
+        for site in wired["subscriptions"]:
+            for part in site["follows"]:
+                part_graph[f"{module.name}:{part}"].add(f"{module.name}:{site['part']}")
+            for part in site["taken"]:
+                part_graph[f"{module.name}:{site['part']}"].add(f"{module.name}:{part}")
         w, r = encapsulation(module, handed_out(module, wired["spans"]))
         writes += [{**site, "shared": module.shared} for site in w]
         reads += [{**site, "shared": module.shared} for site in r]
@@ -940,7 +975,7 @@ def measure(package: Path, commits: int) -> dict:
         "js": {"own": sizes(js["own"]), "shared": sizes(js["shared"])},
         "python": {"own": sizes(python["own"]), "shared": sizes(python["shared"])},
         "imports": imports,
-        "wiring": {"calls": calls, "late": late, "handles": handles, "part_cycles": [[n.split(":", 1)[1] for n in c]
+        "wiring": {"calls": calls, "late": late, "handles": handles, "subscriptions": subscriptions, "part_cycles": [[n.split(":", 1)[1] for n in c]
                                                                 for c in cycles(part_graph)]},
         "writes": writes,
         "reads": reads,
@@ -1006,6 +1041,7 @@ def summary(result: dict) -> dict:
     own_calls = [c for c in result["wiring"]["calls"] if not c["shared"]]
     own_late = [s for s in result["wiring"]["late"] if not s["shared"]]
     own_handles = [s for s in result["wiring"]["handles"] if not s["shared"]]
+    own_subscriptions = [s for s in result["wiring"]["subscriptions"] if not s["shared"]]
     cycles_ = result["imports"]["cycles"]
     coupling = result["change_coupling"]
     return {
@@ -1025,6 +1061,7 @@ def summary(result: dict) -> dict:
         "hooks": sum(len(c["hooks"]) for c in own_calls),
         "hooks naming a part": sum(c["naming_parts"] for c in own_calls),
         "late bindings": len(own_late),
+        "subscriptions": len(own_subscriptions),
         "handles () => part": len(own_handles),
         "late handles": sum(1 for s in own_handles if s["late"]),
         "largest part cycle": max((len(c) for c in result["wiring"]["part_cycles"]), default=0),
@@ -1081,7 +1118,7 @@ def report(result: dict, everything: bool) -> str:
     s = summary(result)
     out.append(f"Wiring: {s['wiring calls']} calls with {s['hooks']} hooks, {s['hooks naming a part']} naming "
                f"another part; {s['handles () => part']} handles () => part, {s['late handles']} of them late; "
-               f"{s['late bindings']} late bindings in all")
+               f"{s['late bindings']} late bindings in all; {s['subscriptions']} calls on parts after they exist")
     own_calls = sorted((c for c in result["wiring"]["calls"] if not c["shared"]), key=lambda c: -len(c["hooks"]))
     for call in own_calls[:TOP]:
         out.append(f"  {call['module']}:{call['line']} {call['part']} = {call['factory']}: {len(call['hooks'])} "

@@ -90,6 +90,31 @@ def test_a_factory_call_counts_its_hooks_the_parts_they_name_handles_and_late_bi
     assert wiring["part_cycles"] == [["a", "b"]]
 
 
+def test_a_part_that_listens_to_another_after_both_exist_follows_it(tmp_path):
+    """b reads a's state at its creation, and a's change is handed on to b once both exist, by an
+    arrow and by b's own function: b follows a, and the two do not reach each other. a handed the
+    whole of c takes it, as a hook would, and c's creation names a: those two reach each other."""
+    modularity = load_script()
+    folder = package(tmp_path / "tool", {
+        "static/page/a.js": "export function createA() { return { state() {}, changed() {}, use() {} }; }\n",
+        "static/page/b.js": "export function createB({ state }) { return { render() {} }; }\n",
+        "static/page/c.js": "export function createC({ a }) { return {}; }\n",
+        "static/viewer.js": 'import { createA } from "./page/a.js";\nimport { createB } from "./page/b.js";\n'
+                            'import { createC } from "./page/c.js";\n'
+                            "const a = createA();\n"
+                            "const b = createB({ state: a.state });\n"
+                            "const c = createC({ a });\n"
+                            "a.changed(() => b.render());\n"
+                            "a.changed(b.render);\n"
+                            "a.use(c);\n",
+    })
+    wiring = measure(modularity, folder)["wiring"]
+    assert [(s["line"], s["part"], s["follows"], s["taken"]) for s in wiring["subscriptions"]] == [
+        (7, "a", ["b"], []), (8, "a", ["b"], []), (9, "a", [], ["c"])]
+    assert wiring["late"] == []
+    assert wiring["part_cycles"] == [["a", "c"]]
+
+
 def test_writes_into_a_handed_object_and_reads_of_its_state_are_counted_with_their_sites(tmp_path):
     """The factory is handed a store and the panel's hooks. Setting a field, a field's key and
     adding to a field's set are writes; reading a field and finding in a list are reads; calling
