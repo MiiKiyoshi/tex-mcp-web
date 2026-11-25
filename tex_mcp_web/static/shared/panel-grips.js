@@ -1,7 +1,8 @@
 // The grips that size a review page's panel, #sidebar, within .layout: its left edge,
 // #sidebar-width-grip, where the panel sits beside what is reviewed, and the bar along its
 // top, #sidebar-grip, where it sits under it. A drag sets the size, and so do the keys on a
-// focused grip: the arrows by a step, Home to the largest and End to the smallest. The browser
+// focused grip: the arrows by a step, Home to the largest and End to the smallest. A double
+// click on a grip gives back the size the page's CSS sets, and forgets the kept one. The browser
 // keeps each size under the page's prefix, as <prefix>SidebarWidth and <prefix>PanelHeight,
 // and the size is set on .layout as the CSS variable the page names, which the page's CSS lays
 // the panel out by. The page's CSS also shows the grip its layout has. Their look is
@@ -25,16 +26,20 @@ const STEP = 40;
 
 // The panel's grips, wired. The page gives `prefix`, what the browser keeps the sizes under,
 // and `width` and `height`, the CSS variables the panel's width beside what is reviewed and
-// its height under it are set as. It also gives what it changes of these, each called each
-// time it is needed:
+// its height under it are set as, and may give `narrowest`, the least width in pixels, 240 by
+// default, for a panel whose row needs more. It also gives what it changes of these, each
+// called each time it is needed:
 //   split()         a split stacked above the panel, { holdable(), centerY(), holdAt(y), keep() },
 //                   whose bar stays where it is on the screen while the panel's height moves;
 //                   none by default
 //   resizing(size)  told of each frame a drag sets "width" or "height" in
-//   resized(size)   told once a drag has ended, or a key has moved a grip
+//   resized(size)   told once a drag has ended, a key has moved a grip, or a double click has
+//                   given back the page's own size
 // It gives back setHeight(pixels), which sets the panel's height within its limits as a drag
 // does, without keeping it, and gives back the height set.
-export function attachPanelGrips({ prefix, width, height, split = () => null, resizing = () => {}, resized = () => {} }) {
+export function attachPanelGrips({
+  prefix, width, height, narrowest = 240, split = () => null, resizing = () => {}, resized = () => {},
+}) {
   const layout = $(".layout");
   const sidebar = $("#sidebar");
   const widthGrip = $("#sidebar-width-grip");
@@ -46,8 +51,9 @@ export function attachPanelGrips({ prefix, width, height, split = () => null, re
     layout.style.setProperty(name, `${limited}px`);
     return limited;
   };
-  // The width runs from 240px to 70% of the window, the height from 90px to 140px short of it.
-  const setWidth = (pixels) => set(width, Math.max(240, Math.min(pixels, window.innerWidth * 0.7)));
+  // The width runs from the narrowest to 70% of the window, the height from 90px to 140px short
+  // of it.
+  const setWidth = (pixels) => set(width, Math.max(narrowest, Math.min(pixels, window.innerWidth * 0.7)));
   const setHeight = (pixels) => set(height, Math.max(90, Math.min(pixels, window.innerHeight - 140)));
   const keep = (name, pixels) => {
     try { localStorage.setItem(`${prefix}${name}`, String(pixels)); } catch { /* per-viewer only */ }
@@ -56,6 +62,16 @@ export function attachPanelGrips({ prefix, width, height, split = () => null, re
     let saved = 0;
     try { saved = Number(localStorage.getItem(`${prefix}${name}`)); } catch { /* per-viewer only */ }
     if (saved > 0) layout.style.setProperty(variable, `${saved}px`);
+  }
+
+  // The size the page's CSS sets, given back by a double click on the grip.
+  for (const [grip, name, variable, size] of [[widthGrip, "SidebarWidth", width, "width"],
+    [heightGrip, "PanelHeight", height, "height"]]) {
+    grip.addEventListener("dblclick", () => {
+      try { localStorage.removeItem(`${prefix}${name}`); } catch { /* per-viewer only */ }
+      layout.style.removeProperty(variable);
+      resized(size);
+    });
   }
 
   sidebar.addEventListener("click", (event) => {

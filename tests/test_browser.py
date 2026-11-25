@@ -2396,6 +2396,9 @@ def test_the_panels_left_edge_sets_its_width_and_keeps_it(tmp_path: Path) -> Non
         browser.execute_script('const grip = document.querySelector("#sidebar-width-grip"); grip.focus();'
                                ' grip.dispatchEvent(new KeyboardEvent("keydown", {key: "Home", bubbles: true, cancelable: true}));')
         assert browser.execute_script(ringed) == second
+        # A double click on the edge gives back the page's own width and forgets the kept one.
+        browser.execute_script('document.querySelector("#sidebar-width-grip").dispatchEvent(new MouseEvent("dblclick", {bubbles: true}))')
+        assert [browser.execute_script(width), browser.execute_script('return localStorage.getItem("texMcpSidebarWidth")')] == [380, None]
 
         # Stacked, the panel sits under the Preview and the bar on its top sets its height.
         browser.set_window_rect(x=0, y=0, width=500, height=900)
