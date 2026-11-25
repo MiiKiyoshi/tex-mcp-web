@@ -37,7 +37,7 @@ def test_the_shared_files_go_to_another_package_with_a_manifest_of_their_digests
                           "socket.js", "sidebar.js", "page-keys.js", "pdf-touch.js", "pdf-theme.js",
                           "pdf-view.js", "pdf-marks.js", "listeners.js"},
         "shared": {"__init__.py", "tool.py", "shared_file.py", "filelock.py", "agents.py", "calls.py",
-                   "plugin_monitor.py", "monitor.py", "waiter.py", "update.py"},
+                   "plugin_monitor.py", "monitor.py", "tied.py", "waiter.py", "update.py"},
     }
     # A tool whose plugin has no hooks, and that has no tests beside it, gets the two folders alone.
     assert len(manifests) == len(expected)

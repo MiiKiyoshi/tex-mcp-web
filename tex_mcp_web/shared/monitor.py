@@ -3,7 +3,8 @@ plugin/monitors/review.sh, and turns each line it prints into a notification. It
 of its own: it runs the newest waiter command the tool's server hands this session (see
 plugin_monitor), at the session's start or on listen(), in place of the one it ran before, and
 passes on what the waiter prints. It ends with the session's Claude Code process, and at once
-where none is above it, since nothing can then hand it a waiter.
+where none is above it, since nothing can then hand it a waiter. On Linux and Windows the waiter
+ends with it even when it is ended outright, as Claude Code may end a plugin's monitor (tied.py).
 
 Each tool runs it as ``python -m <package>.monitor [session pid | --from pid]``.
 """
@@ -19,7 +20,7 @@ import time
 
 import psutil
 
-from . import plugin_monitor, shared_file
+from . import plugin_monitor, shared_file, tied
 from .tool import Tool
 
 
@@ -77,7 +78,7 @@ def main(tool: Tool, argv: list[str] | None = None) -> None:
                 _end(child)
                 current = handed
                 # The first line only makes each handing over differ from the last.
-                child = subprocess.Popen(shlex.split(handed.splitlines()[1]), stdin=subprocess.DEVNULL)
+                child = tied.popen(shlex.split(handed.splitlines()[1]), stdin=subprocess.DEVNULL)
             time.sleep(1)
     finally:
         _end(child)
