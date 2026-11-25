@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import sys
 import time
+import traceback
 from pathlib import Path
 
 import pytest
@@ -150,11 +151,18 @@ class Chrome:
     def keep_failure(self, folder: Path) -> None:
         """The page as the test left it, under the test's name: a screenshot, the page's markup,
         the values of its fields and where the focus is, and its console where the browser
-        gives it. Each part that cannot be had is said in the record instead."""
+        gives it. The record says too at which lines of the tests it failed, which a log leaves
+        out once the test passes when run again. Each part that cannot be had is said in the
+        record instead."""
         test = os.environ.get("PYTEST_CURRENT_TEST", "test").split(" ")[0]
         name = f"{re.sub(r'[^A-Za-z0-9_-]+', '_', test)[-120:]}-{time.time_ns()}"
         folder.mkdir(parents=True, exist_ok=True)
-        record: dict[str, object] = {"test": test, "error": repr(sys.exc_info()[1])[:2000]}
+        _, failure, trace = sys.exc_info()
+        record: dict[str, object] = {
+            "test": test, "error": repr(failure)[:2000],
+            "where": [f"{Path(frame.filename).name}:{frame.lineno}" for frame in traceback.extract_tb(trace)
+                      if Path(frame.filename).parent == Path(__file__).parent],
+        }
         try:
             (folder / f"{name}.png").write_bytes(base64.b64decode(self.driver.get_screenshot_as_base64()))
         except Exception as error:

@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -27,6 +28,7 @@ def test_a_failing_test_keeps_what_its_page_showed(tmp_path: Path, monkeypatch) 
     assert all("test_a_failing_test_keeps_what_its_page_showed-" in path.name for path in kept.iterdir())
     record = json.loads(next(kept.glob("*.json")).read_text(encoding="utf-8"))
     assert "the page did not answer" in record["error"]
+    assert re.fullmatch(r"test_test_browser\.py:\d+", record["where"][-1])
     assert ["#box", None, "typed"] in record["page"]["fields"] and record["page"]["focus"] == "body."
     assert any("seen" in line for line in record["console"])
     quiet = chrome.launch()
