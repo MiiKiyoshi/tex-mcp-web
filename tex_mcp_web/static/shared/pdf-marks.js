@@ -14,8 +14,6 @@
 
 // The same specifier as pdf-view.js's, so that both have the one module.
 import { PdfAnnotationBorderStyle, PdfAnnotationSubtype } from "/static/embedpdf/embedpdf.js?v=selection-yellow";
-import { $ } from "./dom.js";
-import { setSidebarCollapsed } from "./sidebar.js";
 
 function bboxToRect([x1, y1, x2, y2]) {
   return {
@@ -167,12 +165,11 @@ export function createPdfMarks({ prefix, comments }) {
         // the panel already shows hides the panel, to read the paper at its full width.
         badge.addEventListener("click", (event) => {
           event.stopPropagation();
-          if (!$(".layout").classList.contains("sidebar-collapsed")
-            && comments.ringed() === plan.comment.id) {
-            setSidebarCollapsed(true);
+          if (comments.inSight() && comments.ringed() === plan.comment.id) {
+            comments.putOutOfSight();
             return;
           }
-          setSidebarCollapsed(false);
+          comments.bringIntoSight();
           comments.showTab();
           comments.show(plan.comment.id).catch((error) => console.error(error));
         });

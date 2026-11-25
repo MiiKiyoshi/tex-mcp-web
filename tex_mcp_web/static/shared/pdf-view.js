@@ -36,9 +36,16 @@ const DEFAULTS = {
   base: () => "",
   // The comment panel as the view reaches it: marked(), the open comments its highlights and
   // badges mark; ringed(), the ringed comment's id; opened(id), whether its card is open;
-  // show(id), which shows a comment in the panel; and showTab(), which first brings the panel's
-  // tab into sight.
-  comments: { marked: null, ringed: null, opened: null, show: null, showTab: () => {} },
+  // show(id), which shows a comment in the panel; showTab(), which first brings the panel's
+  // tab into sight; and inSight(), bringIntoSight() and putOutOfSight(), whether the panel is
+  // in sight and the two ways to change it, by default the page's sidebar (sidebar.js). A view
+  // in a frame of its own, whose page holds the panel, gives its own three.
+  comments: {
+    marked: null, ringed: null, opened: null, show: null, showTab: () => {},
+    inSight: () => !$(".layout").classList.contains("sidebar-collapsed"),
+    bringIntoSight: () => setSidebarCollapsed(false),
+    putOutOfSight: () => setSidebarCollapsed(true),
+  },
   // Opens the new comment dialog on an anchor, with the label it shows (the panel's openCompose).
   openCompose: null,
   // The comment Comment opens over words selected on one page, given { page, bbox, rects, quote,
@@ -253,7 +260,7 @@ export function createPdfView(given) {
       if (selectedNow === null || !chosen) return;
       const commentId = marks.commentOf(selectedNow);
       if (commentId) {
-        setSidebarCollapsed(false);
+        comments.bringIntoSight();
         comments.showTab();
         const comment = comments.marked().find((each) => each.id === commentId);
         // The comment the list has just opened and shown here is left as the list has it.
