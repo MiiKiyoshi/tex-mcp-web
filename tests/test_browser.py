@@ -888,7 +888,9 @@ def test_a_call_taken_while_the_page_cannot_hear_its_server_is_not_said_to_wait(
     listens. An agent may take the press while the page's socket is not open: before it first
     opens, on a page slow to load, or while it is closed, as when the server starts again or the
     computer sleeps. The page then hears no waiter come or go, and once its socket opens it hears
-    that nothing is queued, and the note goes. So it does for an agent the configuration names."""
+    that nothing is queued, and the note goes. So it does for an agent the configuration names.
+    A call waits for the agent it was made for: nothing queued for another agent, picked since,
+    leaves its note."""
     import asyncio
     import threading
 
@@ -935,18 +937,28 @@ def test_a_call_taken_while_the_page_cannot_hear_its_server_is_not_said_to_wait(
         letting.set()
         wait_until(lambda: shared.server.websockets and note() is None)
 
-        # The socket closes, and an agent the configuration names takes the call made for it.
-        script('const pick = document.querySelector("#call-agent-select"); pick.value = "second";'
-               ' pick.dispatchEvent(new Event("change", {bubbles: true}));')
-        press()
-        letting.clear()
-
         async def drop() -> None:
             for page in list(shared.server.websockets):
                 await page.close()
 
-        asyncio.run_coroutine_threadsafe(drop(), shared.loop).result(5)
-        wait_until(lambda: not shared.server.websockets)
+        def dropped() -> None:
+            asyncio.run_coroutine_threadsafe(drop(), shared.loop).result(5)
+            wait_until(lambda: not shared.server.websockets)
+
+        # A call for the session, then another agent picked: back after a break, the page hears
+        # that nothing is queued for that agent, and the session's call still waits.
+        press()
+        script('const pick = document.querySelector("#call-agent-select"); pick.value = "second";'
+               ' pick.dispatchEvent(new Event("change", {bubbles: true}));')
+        dropped()
+        wait_until(lambda: shared.server.websockets)
+        time.sleep(1)
+        assert note() == queued
+
+        # The socket closes, and an agent the configuration names takes the call made for it.
+        press()
+        letting.clear()
+        dropped()
         assert take("agent=second&").startswith(b"[review]")
         assert not shared.server.websockets
         letting.set()
