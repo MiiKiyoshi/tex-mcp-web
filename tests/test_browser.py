@@ -2263,6 +2263,9 @@ def test_browser_source_selection_and_split_resize(tmp_path: Path) -> None:
 # A page an iPhone shows, which is the only one that zooms into a field as it takes the cursor.
 IPHONE = ("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 "
           "(KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1")
+# And one an Android phone's Chrome shows, which does not.
+ANDROID = ("Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) "
+           "Chrome/131.0.0.0 Mobile Safari/537.36")
 # A finger landing on, or lifting from, the element the selector names, as a touch screen sends it.
 FINGER = '''
   const [kind, selector] = arguments;
@@ -2382,7 +2385,9 @@ def test_a_finger_on_a_field_keeps_an_iphone_from_zooming_into_it(tmp_path: Path
         browser = chrome.launch(touch=True)
         browser.set_window_rect(x=0, y=0, width=900, height=1000)
         free = "width=device-width, initial-scale=1.0"
-        # A browser that does not zoom into fields keeps its viewport.
+        # A browser that does not zoom into fields keeps its viewport. It is named, since the
+        # Chrome of a Mac with a touch screen emulated reads as an iPad.
+        browser.driver.execute_cdp_cmd("Emulation.setUserAgentOverride", {"userAgent": ANDROID})
         browser.navigate(base)
         wait_until(lambda: browser.execute_script('return document.querySelector("#comment-search") !== null'))
         assert browser.execute_script(FINGER, script_args=["touchstart", "#comment-search"]) == free
