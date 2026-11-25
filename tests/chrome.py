@@ -251,6 +251,12 @@ class Chrome:
         a script's error, console.error, and a request that failed."""
         return [entry["message"] for entry in self.driver.get_log("browser") if entry["level"] == "SEVERE"]
 
+    def assert_quiet_console(self) -> None:
+        """Fail on an error the page's console took since it was last asked: the check a test
+        ends with, which Safari, giving no console, leaves out while the test's other checks
+        stand."""
+        assert self.console_errors() == []
+
     def prefer_scheme(self, scheme: str | None) -> None:
         """Have the system say it prefers dark or light, or with None light, the scheme the
         tests take a system to have whatever this machine is set to."""
@@ -377,6 +383,9 @@ class Safari(Chrome):
 
     def console_errors(self) -> list[str]:
         pytest.skip("Safari: its driver gives no console to read")
+
+    def assert_quiet_console(self) -> None:
+        pass
 
     def user_agent(self, text: str) -> None:
         pytest.skip("Safari: what a browser says it is cannot be set")
