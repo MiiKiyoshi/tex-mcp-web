@@ -231,6 +231,12 @@ class FakeRealtime:
         if name == "applyOtUpdate":
             self.updates.append(args[1])
             op = args[1]["op"]
+            # Overleaf drops a suggested edit that an undo takes back: an insertion of the
+            # words a suggested deletion holds, or a deletion of those a suggested insertion
+            # added, where it was.
+            undone = {(part["p"], part.get("i", part.get("d"))) for part in op if part.get("u")}
+            self.changes[doc] = [change for change in self.changes.get(doc, [])
+                                 if (change["op"]["p"], change["op"].get("d", change["op"].get("i"))) not in undone]
             self.texts[doc] = ot.apply(self.texts[doc], ot.text_only(op))
             self.versions[doc] += 1
             self.applied.append((doc, op))
@@ -1153,6 +1159,10 @@ async def test_suggested_edits_show_where_they_are_and_go_when_accepted_or_rejec
     assert fake.updates[-1] == {"doc": "d-main", "v": 1, "op": [{"p": at + 5, "i": "folks", "u": True},
                                                                 {"p": at, "d": "there", "u": True}]}
     assert fake.texts["d-main"] == MAIN.replace("there", "folks") and await suggested(client) == []
+    # Overleaf drops the edits an undo takes back, so a reading after finds none.
+    assert (await client.post("/overleaf/changes/read")).status == 200
+    await wait_for(lambda: server._overleaf_reader.done())
+    assert await suggested(client) == []
     # The file here takes it as any edit made on Overleaf: by Get.
     await wait_for(lambda: server.overleaf_hand.state()["get"] == ["main.tex"])
     await page.close()
