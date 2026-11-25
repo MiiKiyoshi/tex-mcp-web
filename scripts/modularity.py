@@ -33,7 +33,11 @@ call that creates it, or inside that call. The part graph has an edge from each 
 its creation names. A call on a part at the top level once the parts exist, `part.method(...)`,
 adds an edge from the part called to each part its arguments name, as the same function handed to
 the part's creation would: where a function is handed in does not change who calls whom. The
-graph's cycles are the parts that reach each other. It misses parts reached through the module's
+graph's cycles are the parts that reach each other. A second graph keeps only the edges whose hook
+the factory uses the answer of: it reads what a call returns, awaits it, reads a field of it or
+hands it on, rather than calling it as a statement or as an arrow's body, which a caller drops.
+Its cycles are the parts that use each other's answers. A hook the factory cannot be read for, as
+one spread from a call, counts as used. It misses parts reached through the module's
 own functions (a hook handed a function declared in the file), and arrow parameters or locals that
 shadow a part's name.
 
@@ -531,6 +535,8 @@ class Call:
     binding: int  # the first token of what the call is assigned to
     args: tuple[int, int]
     hooks: list[tuple[str, int, int]]  # (name, start, stop) of each hook's value
+    target: str | None = None  # the module the factory is exported from, and its name there
+    name: str = ""
 
 
 def factory_target(modules: dict[str, Module], target: str | None, name: str) -> bool:
@@ -566,7 +572,7 @@ def wiring_calls(modules: dict[str, Module], module: Module) -> list[Call]:
                 binding = module.pair[before - 1]
                 part = pattern_names(module, binding + 1, before - 1)
         args = (i + 2, module.pair[i + 1])
-        calls.append(Call(module.name, callee, label, part, binding, args, hooks_of(module, *args)))
+        calls.append(Call(module.name, callee, label, part, binding, args, hooks_of(module, *args), target, name))
     return calls
 
 
@@ -603,6 +609,92 @@ def entries(module: Module, start: int, stop: int) -> list[tuple[str, int, int]]
     return found
 
 
+# Tokens before an expression whose value goes nowhere: it stands as a statement, or as an
+# arrow's body, which a callback's caller drops.
+STATEMENT_START = {";", "{", "}", "else", "=>"}
+# What a promise is chained with that still lets its value go.
+LET_GO = {"then", "catch", "finally"}
+
+
+def value_used(module: Module, start: int, close: int) -> bool:
+    """Whether the value of the call from *start* to its closing parenthesis *close* is used:
+    awaited, assigned, returned, compared or handed on, rather than standing as a statement or
+    as the whole of an arrow's body."""
+    before = module.value(start - 1)
+    if before == "await":
+        return True
+    after = close + 1
+    while module.value(after) in (".", "?.") and module.value(after + 1) in LET_GO and module.value(after + 2) == "(":
+        after = module.pair[after + 2] + 1
+    statement = before in STATEMENT_START or (
+        before == ")" and module.value(module.pair[start - 1] - 1) in ("if", "for", "while"))
+    # Standing so, the value is dropped unless something after it takes it, as `+ 1` does.
+    return not (statement and module.value(after) in (";", "}", ")", ",", ""))
+
+
+def hook_used(modules: dict[str, Module], call: Call, hook: str) -> bool | None:
+    """Whether the factory *call* calls uses what its hook *hook* gives back: True when it reads a
+    value a call of it returns, awaits it, reads a field of it or hands it on; False when it only
+    calls it, or its functions, as statements or as an arrow's body; None when the factory or the
+    hook cannot be read, as a hook spread from a call."""
+    if call.target not in modules or call.name not in modules[call.target].exports or hook.startswith("..."):
+        return None
+    module, function = modules[call.target], modules[call.target].exports[call.name]
+    if hook.startswith("#"):
+        index = int(hook[1:]) - 1
+        if index >= len(function.params):
+            return None
+        hook = function.params[index]
+    first, last = function.body
+    seen = False
+    for i in range(first, last):
+        token = module.tokens[i]
+        if token.kind != "id" or token.value != hook:
+            continue
+        if module.value(i - 1) in (".", "?."):
+            # given.hook: the object it is read from is where the expression starts.
+            start = i - 2
+            while module.value(start - 1) in (".", "?.") and module.tokens[start - 2].kind == "id":
+                start -= 2
+        elif module.is_reference(i) and module.value(i - 1) not in ("let", "const", "var"):
+            start = i
+        else:
+            continue
+        if module.value(i + 1) in (":", "=") and module.value(i - 1) in ("{", ","):
+            continue  # a key of a pattern or a literal naming it, not a use
+        seen = True
+        after = module.value(i + 1)
+        if after in ("!==", "===", "!=", "==") and module.value(i + 2) in ("null", "undefined"):
+            continue  # whether it was given, not what it gives
+        if after == "?." and module.value(i + 2) == "(":
+            if value_used(module, start, module.pair[i + 2]):
+                return True
+        elif after == "(":
+            if value_used(module, start, module.pair[i + 1]):
+                return True
+        elif after in (".", "?.") and module.tokens[i + 2].kind == "id" and module.value(i + 3) == "(":
+            if value_used(module, start, module.pair[i + 3]):
+                return True
+        elif after in (",", ")", "}", ";") and module.value(i - 1) in ("{", ","):
+            continue  # destructured from the hooks: `{ a, b }`
+        else:
+            return True
+    return False if seen else None
+
+
+def spread_call(module: Module, name: str, first: int) -> tuple[Call, list[tuple[str, int, int]]] | None:
+    """A hook list spread from a call of an imported function on an object literal,
+    `...f({ a, b })`: the call, read as a factory's, and the literal's entries, whose use is read
+    in that function."""
+    if not name.startswith("...") or module.tokens[first].value not in module.bindings:
+        return None
+    if module.value(first + 1) != "(" or module.value(first + 2) != "{" or module.pair[first + 2] + 1 != module.pair[first + 1]:
+        return None
+    target, function = module.bindings[module.tokens[first].value]
+    call = Call(module.name, first, function, [], first, (first + 2, module.pair[first + 1]), [], target, function)
+    return call, entries(module, first + 3, module.pair[first + 2])
+
+
 def references(module: Module, start: int, stop: int, names) -> list[int]:
     return [i for i in range(start, stop) if module.tokens[i].value in names and module.is_reference(i)]
 
@@ -620,13 +712,20 @@ def wiring(modules: dict[str, Module], module: Module) -> dict:
     shown = []
     for call in calls:
         hooks = []
-        for name, first, last in call.hooks:
+        listed = [(call, name, first, last) for name, first, last in call.hooks]
+        while listed:
+            reader, name, first, last = listed.pop(0)
+            spread = spread_call(module, name, first)
+            if spread is not None:
+                listed[:0] = [(spread[0], inner, a, b) for inner, a, b in spread[1]]
+                continue
             named = set()
             for i in references(module, first, last, parts | set(facades)):
                 value = module.tokens[i].value
                 named |= {value} if value in parts else facades[value]
             named -= set(call.part)
-            hooks.append({"hook": name, "parts": sorted(named)})
+            hooks.append({"hook": name if reader is call else f"{name} ({reader.name})", "parts": sorted(named),
+                          "used": hook_used(modules, reader, name) if named else None})
         shown.append({"module": module.name, "line": module.tokens[call.index].line, "factory": call.factory,
                       "part": ", ".join(call.part) or f"{call.factory}()", "hooks": hooks})
     late, handles = [], []
@@ -922,7 +1021,7 @@ def measure(package: Path, commits: int) -> dict:
                "outside": sorted({i["spec"] for m in modules.values() for i in m.imports if not i["target"]})}
 
     calls, late, handles, writes, reads, part_graph = [], [], [], [], [], defaultdict(set)
-    subscriptions = []
+    subscriptions, depend_graph = [], defaultdict(set)
     for module in modules.values():
         if module.unparsed:
             continue
@@ -941,6 +1040,8 @@ def measure(package: Path, commits: int) -> dict:
             for hook in call["hooks"]:
                 for part in hook["parts"]:
                     part_graph[f"{module.name}:{call['part']}"].add(f"{module.name}:{part}")
+                    if hook["used"] is not False:
+                        depend_graph[f"{module.name}:{call['part']}"].add(f"{module.name}:{part}")
     for call in calls:
         call["shared"] = modules[call["module"]].shared
         call["naming_parts"] = sum(1 for hook in call["hooks"] if hook["parts"])
@@ -965,7 +1066,9 @@ def measure(package: Path, commits: int) -> dict:
         "js": {"own": sizes(js["own"]), "shared": sizes(js["shared"])},
         "python": {"own": sizes(python["own"]), "shared": sizes(python["shared"])},
         "imports": imports,
-        "wiring": {"calls": calls, "late": late, "handles": handles, "subscriptions": subscriptions, "part_cycles": [[n.split(":", 1)[1] for n in c]
+        "wiring": {"calls": calls, "late": late, "handles": handles, "subscriptions": subscriptions,
+                   "depend_cycles": [[n.split(":", 1)[1] for n in c] for c in cycles(depend_graph)],
+                   "part_cycles": [[n.split(":", 1)[1] for n in c]
                                                                 for c in cycles(part_graph)]},
         "writes": writes,
         "reads": reads,
@@ -1055,6 +1158,7 @@ def summary(result: dict) -> dict:
         "handles () => part": len(own_handles),
         "late handles": sum(1 for s in own_handles if s["late"]),
         "largest part cycle": max((len(c) for c in result["wiring"]["part_cycles"]), default=0),
+        "largest dependency cycle": max((len(c) for c in result["wiring"].get("depend_cycles", [])), default=0),
         "writes into handed objects": sum(1 for s in result["writes"] if not s["shared"] and s["owner"] != "(owner)"),
         "owner writes of handed-out objects": sum(1 for s in result["writes"]
                                                   if not s["shared"] and s["owner"] == "(owner)" and s["crossing"]),
@@ -1115,6 +1219,8 @@ def report(result: dict, everything: bool) -> str:
                    f"hooks, {call['naming_parts']} naming parts")
     for members in result["wiring"]["part_cycles"]:
         out.append(f"  parts reaching each other ({len(members)}): {' '.join(members)}")
+    for members in result["wiring"]["depend_cycles"]:
+        out.append(f"  parts using each other's answers ({len(members)}): {' '.join(members)}")
     writes = [w for w in result["writes"] if not w["shared"]]
     reads = [r for r in result["reads"] if not r["shared"]]
     out.append("Encapsulation (own code):")

@@ -119,6 +119,32 @@ def test_a_function_handed_to_a_part_after_it_exists_counts_as_one_handed_to_its
     assert by_hooks["part_cycles"] == by_listeners["part_cycles"] == [["a", "b", "c"]]
 
 
+def test_a_hook_whose_answer_the_factory_uses_is_a_dependency_and_one_it_only_calls_is_not(tmp_path):
+    """a calls b's tell as a statement, checks only whether it got b's check, and reads b's value:
+    of the three hooks naming b only the last makes a use b's answer. b's own hooks, spread from a
+    helper, are read in the helper: it awaits a's load and drops a's note in an arrow's body. So
+    a and b reach each other, and use each other's answers through value and load alone."""
+    modularity = load_script()
+    folder = package(tmp_path / "tool", {
+        "static/page/a.js": "export function createA({ tell, check = null, value }) {\n"
+                            "  if (check !== null) check();\n"
+                            "  tell();\n"
+                            "  return { size: () => value() + 1, load() {}, note() {} };\n}\n",
+        "static/page/b.js": "export function createB({ load, ping }) { return { tell() {}, check() {}, value: () => 1 }; }\n",
+        "static/page/hooks.js": "export function hooksOf({ load, note }) {\n"
+                                "  return { load: async () => { await load(); }, ping: () => note() };\n}\n",
+        "static/viewer.js": 'import { createA } from "./page/a.js";\nimport { createB } from "./page/b.js";\n'
+                            'import { hooksOf } from "./page/hooks.js";\n'
+                            "const b = createB({ ...hooksOf({ load: () => a.load(), note: () => a.note() }) });\n"
+                            "const a = createA({ tell: () => b.tell(), check: () => b.check(), value: () => b.value() });\n",
+    })
+    wiring = measure(modularity, folder)["wiring"]
+    used = {hook["hook"]: hook["used"] for call in wiring["calls"] if call["factory"] in ("createA", "createB")
+            for hook in call["hooks"] if hook["parts"]}
+    assert used == {"load (hooksOf)": True, "note (hooksOf)": False, "tell": False, "check": False, "value": True}
+    assert wiring["part_cycles"] == [["a", "b"]] and wiring["depend_cycles"] == [["a", "b"]]
+
+
 def test_writes_into_a_handed_object_and_reads_of_its_state_are_counted_with_their_sites(tmp_path):
     """The factory is handed a store and the panel's hooks. Setting a field, a field's key and
     adding to a field's set are writes; reading a field and finding in a list are reads; calling
