@@ -7545,8 +7545,9 @@ def test_the_editor_completes_labels_citations_environments_files_and_commands(t
 
         row = new_line_after(3)                                         # under \\input{sec/a}
         type_at_end_of(row, "Here \\label{sec:typed} see \\ref{")
-        listed = wait_until(shown)
-        assert {"sec:a", "fig:flow", "sec:typed"} <= set(listed)
+        # A list opened before the paper's lists have come takes them in when they come.
+        listed = wait_until(lambda: (now := shown()) and {"sec:a", "fig:flow", "sec:typed"} <= set(now) and now,
+                            seen=shown)
         type_here("flo")
         assert wait_until(lambda: (now := shown()) and now[0] == "fig:flow" and now)
         enter()

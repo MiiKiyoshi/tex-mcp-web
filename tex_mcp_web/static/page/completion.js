@@ -77,7 +77,7 @@ function openEnvironments(editor, row) {
 }
 
 export function createCompletion({ sourcePath }) {
-  const completion = { data: null, timer: null };
+  const completion = { data: null, timer: null, editor: null, completer: null };
 
   function scheduleCompletions(delay = 800) {
     clearTimeout(completion.timer);
@@ -86,7 +86,16 @@ export function createCompletion({ sourcePath }) {
 
   async function loadCompletions() {
     const response = await fetch("/completions");
-    if (response.ok) completion.data = await response.json();
+    if (!response.ok) return;
+    completion.data = await response.json();
+    // A list opened before the lists came, as just after the page opens, takes them in: it
+    // offered only the open file's own labels.
+    const open = completion.completer;
+    if (open?.activated) {
+      open.detach();
+      open.autoShown = true;
+      open.showPopup(completion.editor);
+    }
   }
 
 
@@ -196,6 +205,8 @@ export function createCompletion({ sourcePath }) {
     // starts the next line.
     const { Autocomplete } = window.ace.require("ace/autocomplete");
     const completer = Autocomplete.for(editor);
+    completion.editor = editor;
+    completion.completer = completer;
     completer.keyboardHandler.bindKey("Return", (target) => {
       const chosen = completer.popup?.getData(completer.popup.getRow());
       if (!chosen || chosen.value === (completer.completions?.filterText ?? "")) {

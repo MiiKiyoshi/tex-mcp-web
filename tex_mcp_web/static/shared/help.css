@@ -48,8 +48,12 @@
   .help-table, .help-table tbody, .help-table tr, .help-table td { display: block; }
   .help-table td { padding-right: 0; }
   .help-table td:first-child { padding-bottom: 0; border-bottom: none; }
+  .help-page p code { white-space: normal; }
 }
 .help-nowrap, .help-page p code { white-space: nowrap; }
+/* A term in a sentence is a box of its own, so the line may break before it: Safari kept "so"
+   and a whole search typed on one line and pushed it past Help's edge. */
+.help-page p code { display: inline-block; max-width: 100%; }
 /* The Keys page is one grid, so the keys of every section line up in one column. In a narrow
    dialog both columns may shrink: a row's keys wrap between keys, and its words anywhere. */
 .keys-grid {
