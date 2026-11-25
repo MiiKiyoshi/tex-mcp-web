@@ -2456,8 +2456,11 @@ def test_a_finger_on_a_field_keeps_an_iphone_from_zooming_into_it(tmp_path: Path
           return [parseFloat(field) < 16, hidden];''') == [True, "16px"]
         held = f"{free}, maximum-scale=1"
         assert browser.execute_script(FINGER, script_args=["touchstart", "#comment-search"]) == held
-        browser.execute_script('document.querySelector("#comment-search").focus()')
-        assert browser.execute_script(FINGER, script_args=["touchend", "#comment-search"]) == held
+        # The field takes the cursor and the finger lifts in one script, as a phone does both
+        # within milliseconds: the hold ends 500 ms after the cursor comes, which a second
+        # command from the test may come after.
+        assert browser.execute_script('document.querySelector(arguments[1]).focus();' + FINGER,
+                                      script_args=["touchend", "#comment-search"]) == held
         wait_until(lambda: browser.execute_script('return document.querySelector(\'meta[name="viewport"]\').content') == free)
         # A finger on anything but a field frees the page at once.
         browser.execute_script(FINGER, script_args=["touchstart", "#comment-search"])
