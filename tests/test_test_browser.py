@@ -12,10 +12,10 @@ from tests.chrome import needs_browser
 @chrome.not_in_safari("a data: page is enough to check this, and Safari's driver refuses one")
 def test_a_failing_test_keeps_what_its_page_showed(tmp_path: Path, monkeypatch) -> None:
     """A browser quit with a failure on its way out leaves the page's screenshot, its markup,
-    its fields and its console in the folder TEX_MCP_FAILURES names. One quit without a
+    its fields and its console in the folder REVIEW_FAILURES names. One quit without a
     failure leaves nothing."""
     kept = tmp_path / "kept"
-    monkeypatch.setenv("TEX_MCP_FAILURES", str(kept))
+    monkeypatch.setenv("REVIEW_FAILURES", str(kept))
     browser = chrome.launch()
     browser.navigate("data:text/html,<textarea id=box>typed</textarea><script>console.error('seen')</script>")
     with pytest.raises(AssertionError):

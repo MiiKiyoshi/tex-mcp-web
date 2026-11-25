@@ -1,8 +1,8 @@
 """The review page in Google Chrome, or in Safari on macOS, for the tests.
 
 Chrome is driven through Selenium, which finds the driver that fits the installed Chrome by
-itself. ``launch()`` gives a headless window. ``TEX_MCP_BROWSER=headed`` shows it, to watch
-a test run. ``TEX_MCP_BROWSER_KIND=safari`` runs the same tests in Safari through
+itself. ``launch()`` gives a headless window. ``REVIEW_BROWSER=headed`` shows it, to watch
+a test run. ``REVIEW_BROWSER_KIND=safari`` runs the same tests in Safari through
 safaridriver, which must be enabled once (``safaridriver --enable``). Safari has no headless
 window and runs one automation session at a time, so its window shows and the tests take it
 in turn. What Safari cannot be made to do, a test marks with ``not_in_safari``.
@@ -28,8 +28,8 @@ from selenium import webdriver  # noqa: E402
 from selenium.common.exceptions import SessionNotCreatedException  # noqa: E402
 from selenium.webdriver.common.by import By  # noqa: E402
 
-KIND = os.environ.get("TEX_MCP_BROWSER_KIND", "chrome")
-assert KIND in ("chrome", "safari"), f"TEX_MCP_BROWSER_KIND is chrome or safari, not {KIND}"
+KIND = os.environ.get("REVIEW_BROWSER_KIND", "chrome")
+assert KIND in ("chrome", "safari"), f"REVIEW_BROWSER_KIND is chrome or safari, not {KIND}"
 
 # Where Chrome is on each system, when it is not on the PATH.
 _INSTALLED = {
@@ -110,7 +110,7 @@ class Chrome:
         options = webdriver.ChromeOptions()
         options.binary_location = binary()
         environment = dict(os.environ)
-        if os.environ.get("TEX_MCP_BROWSER") != "headed":
+        if os.environ.get("REVIEW_BROWSER") != "headed":
             options.add_argument("--headless=new")
             # A headless Chrome still connects to the display it is given. Over ssh with X
             # forwarding that display is the far machine's, which prints a refusal for each try.
@@ -139,10 +139,10 @@ class Chrome:
     def quit(self) -> None:
         # A test quits its browser in a finally clause, so a failing one quits with its failure
         # still on its way out: what the page showed then is kept in the folder
-        # TEX_MCP_FAILURES names, which the CI keeps, a failure that passes when run again too.
+        # REVIEW_FAILURES names, which the CI keeps, a failure that passes when run again too.
         failure = sys.exc_info()[1]
-        if failure is not None and not isinstance(failure, pytest.skip.Exception) and os.environ.get("TEX_MCP_FAILURES"):
-            self.keep_failure(Path(os.environ["TEX_MCP_FAILURES"]))
+        if failure is not None and not isinstance(failure, pytest.skip.Exception) and os.environ.get("REVIEW_FAILURES"):
+            self.keep_failure(Path(os.environ["REVIEW_FAILURES"]))
         try:
             self.driver.quit()
         except Exception:

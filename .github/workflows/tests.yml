@@ -32,7 +32,7 @@ jobs:
         run: pip install -e ".[dev]"
       - name: Tests
         env:
-          TEX_MCP_FAILURES: ${{ runner.temp }}/failures
+          REVIEW_FAILURES: ${{ runner.temp }}/failures
         run: |
           google-chrome --version
           # A browser test that a loaded runner fails once is run again by itself.
@@ -81,7 +81,7 @@ jobs:
       - name: Tests
         shell: bash
         env:
-          TEX_MCP_FAILURES: ${{ runner.temp }}/failures
+          REVIEW_FAILURES: ${{ runner.temp }}/failures
         run: |
           # The runner's own chromedriver can be older than its Chrome. Without it Selenium
           # fetches the one that fits.
@@ -129,8 +129,8 @@ jobs:
           /usr/bin/safaridriver --version
       - name: Browser tests in Safari
         env:
-          TEX_MCP_BROWSER_KIND: safari
-          TEX_MCP_FAILURES: ${{ runner.temp }}/failures
+          REVIEW_BROWSER_KIND: safari
+          REVIEW_FAILURES: ${{ runner.temp }}/failures
         run: |
           python -m pytest -n 0 -rfs --part ${{ matrix.part }} tests/test_browser.py \
             || python -m pytest -n 0 -rfs --last-failed tests/test_browser.py
