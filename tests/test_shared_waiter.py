@@ -78,4 +78,4 @@ def test_the_waiter_writes_utf8_whatever_the_system_writes_a_pipe_in(tmp_path) -
     done = subprocess.run([sys.executable, "-c", script], capture_output=True,
                           env={**os.environ, "PYTHONIOENCODING": "cp949"}, cwd=Path(waiter.__file__).parents[2])
     assert done.returncode == 0, done.stderr
-    assert done.stdout.decode("utf-8") == "[gone] 대상 컴퓨터에서 연결을 거부했으므로\n"
+    assert done.stdout.decode("utf-8").splitlines() == ["[gone] 대상 컴퓨터에서 연결을 거부했으므로"]

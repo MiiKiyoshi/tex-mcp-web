@@ -123,8 +123,11 @@ class Chrome:
             for name in ("DISPLAY", "WAYLAND_DISPLAY"):
                 environment.pop(name, None)
         # A container has no user namespace for Chrome's sandbox, and its /dev/shm is small.
+        # Chrome's own updates and background requests left a url_fetcher folder in the
+        # temporary folder of a CI runner after each browser.
         for flag in ("--no-sandbox", "--disable-dev-shm-usage", "--window-size=1500,1000",
-                     "--force-device-scale-factor=1", "--hide-scrollbars"):
+                     "--force-device-scale-factor=1", "--hide-scrollbars",
+                     "--disable-component-update", "--disable-background-networking"):
             options.add_argument(flag)
         options.set_capability("unhandledPromptBehavior", "ignore")
         # The page's console, kept for what a failing test leaves behind (keep_failure).
