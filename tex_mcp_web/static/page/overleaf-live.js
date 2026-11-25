@@ -15,7 +15,7 @@
 // reviewer's own name on Overleaf, tellCursor(), chooseCursor(choice) and cursorShown().
 
 import { $, h } from "../shared/dom.js";
-import { responseError } from "./response-error.js";
+import { responseError } from "../shared/comment-api.js";
 import { overleafColor } from "./leaf.js";
 
 function overleafInitials(name) {

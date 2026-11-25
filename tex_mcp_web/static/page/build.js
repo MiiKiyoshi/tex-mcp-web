@@ -12,8 +12,8 @@
 // configFailed and heardState, each given the message.
 
 import { $, h, eventOrigin } from "../shared/dom.js";
-import { responseError } from "./response-error.js";
-import { setSidebarCollapsed } from "./sidebar.js";
+import { responseError } from "../shared/comment-api.js";
+import { setSidebarCollapsed } from "../shared/sidebar.js";
 
 export function createBuild({ paper, pdf, problems, overleaf, source, refreshComments, scheduleTranslation, showTab }) {
   const state = {

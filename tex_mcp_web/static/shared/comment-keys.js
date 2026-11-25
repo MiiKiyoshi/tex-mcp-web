@@ -27,18 +27,21 @@ function spoken(keys) {
   return `${keys.slice(0, -1).join(", ")} and ${keys.at(-1)}`;
 }
 
-// The keys, which the comment panel makes, on the page's `state` it shares with them. A key for
+// The keys, which the comment panel makes on what it holds of the comments it shows. A key for
 // a part the page has not is not there: no K without enterPlace, no c without whole, no ?
 // without help, and no aa or nn without suggestions. The panel gives:
 //
+//   state        what the panel holds of the comments it shows (comment-state.js)
 //   labels       `document`, what the page calls what is reviewed, and `firstSort`, the name
 //                of the sort list's first order
-//   panel()      the comment panel, whose list the keys work
+//   panel()      what the keys call of the panel: renderComments(), renderPickedActions(),
+//                foldAll(), undoStatus(), closeReply(), chosenView(), cycleSort() and
+//                openCommentSearch()
 //   rows(press)  the page's own keys: an entry with `after` goes after the shared entry its
 //                first key names, and one without gives its fields to the shared entry with
 //                its first key. `press` holds what the shared keys press with: pressCard,
 //                pressPickedOr, pressForRange and focusedCard.
-//   showPlace(id)       what Space shows of a comment it opens: where it is, the keys staying
+//   showPlace(comment)  what Space shows of a comment it opens: where it is, the keys staying
 //                       with the list
 //   enterPlace(comment) what K does: the comment's words in the source, the keys going there
 //   whole()             what c does: a comment on the whole document
@@ -47,6 +50,11 @@ function spoken(keys) {
 //   lettersShown()      whether Settings shows the key letters on the ringed comment's buttons
 //   rests(event)        whether the keys rest for this key, as for a part of the page that is
 //                       shown over the list and has keys of its own
+//
+// It gives table, the keys as Help lists them; hint(button), a button's key for its title;
+// showLetters(shown); rangeIds(), the comments in the range v holds; mark(), the ringed card's
+// controls marked with their keys; placeRing(), the list scrolled to the ring; attach(); and
+// reset(), the range let go.
 export function createCommentKeys(host) {
   const { state, labels } = host;
   // The comment a range started from, while v holds one.
@@ -134,7 +142,7 @@ export function createCommentKeys(host) {
     const comment = focused();
     const card = comment && $(`#comments-list [data-comment-id="${CSS.escape(comment.id)}"]`);
     if (!card || rangeIds().length > 0) return;
-    const picking = state.comments.some((item) => state.picked.has(item.id));
+    const picking = state.listed().some((item) => state.isPicked(item.id));
     for (const entry of entries()) {
       if (picking && entry.picked) continue;
       const where = typeof entry.marks === "function" ? entry.marks(comment)
@@ -158,7 +166,7 @@ export function createCommentKeys(host) {
   }
 
   function focused() {
-    return state.comments.find((comment) => comment.id === state.focusedCommentId);
+    return state.listed().find((comment) => comment.id === state.ringed());
   }
 
   // The focused comment's card, opened unless asked not to, since a closed card shows none of
@@ -166,8 +174,8 @@ export function createCommentKeys(host) {
   function focusedCard(open = true) {
     const comment = focused();
     if (comment === undefined) return null;
-    if (open && !state.expanded.has(comment.id)) {
-      state.expanded.add(comment.id);
+    if (open && !state.isOpen(comment.id)) {
+      state.setOpen(comment.id, true);
       panel().renderComments();
     }
     return $(`#comments-list [data-comment-id="${CSS.escape(comment.id)}"]`);
@@ -181,7 +189,7 @@ export function createCommentKeys(host) {
 
   // With comments picked, the row's first button that can act on them; else the focused card's.
   function pressPickedOr(rows, card) {
-    if (state.comments.some((comment) => state.picked.has(comment.id))) {
+    if (state.listed().some((comment) => state.isPicked(comment.id))) {
       rows.map((selector) => $(selector)).find((button) => !button.hidden && !button.disabled)?.click();
     } else {
       pressCard(card);
@@ -191,17 +199,18 @@ export function createCommentKeys(host) {
   // The keys move the ring alone: every card stays as it was, and the list scrolls at once, not
   // smoothly, to put the ring in its place.
   function moveFocus(to) {
-    const last = state.comments.length - 1;
+    const comments = state.listed();
+    const last = comments.length - 1;
     if (last < 0) return;
-    const comment = state.comments[to(state.comments.findIndex((item) => item.id === state.focusedCommentId), last)];
-    state.focusedCommentId = comment.id;
+    const comment = comments[to(comments.findIndex((item) => item.id === state.ringed()), last)];
+    state.ring(comment.id);
     panel().renderComments();
     placeRing();
   }
 
   // The list scrolled to put the ringed card in its place.
   function placeRing() {
-    const card = $(`#comments-list [data-comment-id="${CSS.escape(state.focusedCommentId ?? "")}"]`);
+    const card = $(`#comments-list [data-comment-id="${CSS.escape(state.ringed() ?? "")}"]`);
     const list = $("#comments-list");
     if (!card) return;
     const box = list.getBoundingClientRect();
@@ -221,16 +230,15 @@ export function createCommentKeys(host) {
   function foldFocused() {
     const comment = focused();
     if (comment === undefined) return;
-    const opening = !state.expanded.has(comment.id);
-    if (opening) state.expanded.add(comment.id);
-    else state.expanded.delete(comment.id);
+    const opening = !state.isOpen(comment.id);
+    state.setOpen(comment.id, opening);
     panel().renderComments();
     const card = $(`#comments-list [data-comment-id="${CSS.escape(comment.id)}"]`);
     const list = $("#comments-list");
     const below = card ? card.getBoundingClientRect().bottom - list.getBoundingClientRect().bottom + 8 : 0;
     if (!opening) return;
     if (below > 0) list.scrollTop += below;
-    host.showPlace(comment.id)?.catch?.((error) => console.error(error));
+    host.showPlace(comment)?.catch?.((error) => console.error(error));
   }
 
   // A click on the card's box, so picking by key is picking by mouse.
@@ -241,16 +249,17 @@ export function createCommentKeys(host) {
   // The comments from the one the range started at to the ringed one, both ends included, or
   // none while no range is held or its start has left the view.
   function rangeIds() {
-    const ids = state.comments.map((comment) => comment.id);
+    const ids = state.listed().map((comment) => comment.id);
     const from = ids.indexOf(rangeFrom);
-    const to = ids.indexOf(state.focusedCommentId);
+    const to = ids.indexOf(state.ringed());
     return from === -1 || to === -1 ? [] : ids.slice(Math.min(from, to), Math.max(from, to) + 1);
   }
 
   function holdRange() {
-    const comment = focused() ?? state.comments[0];
+    const comment = focused() ?? state.listed()[0];
     if (comment === undefined) return;
-    state.focusedCommentId = rangeFrom = comment.id;
+    rangeFrom = comment.id;
+    state.ring(comment.id);
     panel().renderComments();
   }
 
@@ -262,23 +271,18 @@ export function createCommentKeys(host) {
   // The range picked, or let go when all of it is picked already.
   function pickRange() {
     const ids = rangeIds();
-    const all = ids.every((id) => state.picked.has(id));
-    for (const id of ids) {
-      if (all) state.picked.delete(id);
-      else state.picked.add(id);
-    }
+    state.pick(ids, !ids.every((id) => state.isPicked(id)));
     letRangeGo();
   }
 
   // What the row's button does to the picked comments, done to the range. The comments picked
   // before stay picked: the button reads which comments it acts on as it is pressed.
   function pressForRange(rows) {
-    const kept = state.picked;
-    state.picked = new Set(rangeIds());
+    const restore = state.swapPicked(rangeIds());
     rangeFrom = null;
     panel().renderPickedActions();
     rows.map((selector) => $(selector)).find((button) => !button.hidden && !button.disabled)?.click();
-    state.picked = kept;
+    restore();
     panel().renderComments();
   }
 
@@ -304,7 +308,7 @@ export function createCommentKeys(host) {
     list.addEventListener("mousedown", (event) => {
       const card = event.target.closest(".cmt");
       if (card !== null) {
-        state.focusedCommentId = card.dataset.commentId;
+        state.ring(card.dataset.commentId);
         for (const node of list.querySelectorAll(".cmt.is-focused")) node.classList.remove("is-focused");
         card.classList.add("is-focused");
       }

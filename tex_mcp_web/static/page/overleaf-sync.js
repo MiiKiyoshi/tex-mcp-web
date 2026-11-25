@@ -9,7 +9,7 @@
 // loadOverleafStatus(); and overleafFailed(error). It gives attach() and render().
 
 import { $, h } from "../shared/dom.js";
-import { responseError } from "./response-error.js";
+import { responseError } from "../shared/comment-api.js";
 import { commits, OVERLEAF_COOKIE_WANTED } from "./leaf.js";
 
 export function createOverleafSync({

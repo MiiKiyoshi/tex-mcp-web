@@ -174,6 +174,8 @@ export function createSettings({ prefix, onTheme = () => {}, onTextSize = () => 
   });
 
   return {
+    // What the browser keeps the page's choices under, which the comment panel keeps its own under too.
+    prefix,
     sendKeyName,
     // Whether the key letters show on the ringed comment's buttons.
     keyLetters: () => !lettersOff,

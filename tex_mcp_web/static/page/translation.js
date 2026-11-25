@@ -16,7 +16,7 @@
 // the editor's cursor, and followFile(), for a file the editor opens.
 
 import { $, h, placeholder } from "../shared/dom.js";
-import { responseError } from "./response-error.js";
+import { responseError } from "../shared/comment-api.js";
 
 // Codes of the languages whose lines break differently from English, by the name the
 // configuration gives a language.

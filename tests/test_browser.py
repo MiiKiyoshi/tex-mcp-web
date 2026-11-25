@@ -7654,3 +7654,88 @@ def test_a_reply_written_before_the_page_first_hears_its_server_is_shown(tmp_pat
         if browser is not None:
             browser.quit()
         shared.stop()
+
+
+# The comment panel alone, on a document of the page's server emptied for it, so its calls go to
+# that server: the panel's own markup, a Settings that sends nothing by key, a bell, and a count of
+# the comments the page was told were posted. The answers to a reply and to a new comment wait
+# until the test lets each go, by window.held.reply() and window.held.comment().
+PANEL_ALONE = """
+  document.documentElement.innerHTML = '<head></head><body><div class="layout"><div id="tab-comments"></div></div>'
+    + '<dialog id="compose-dialog"></dialog></body>';
+  const fetched = window.fetch;
+  window.held = {};
+  window.answered = {};
+  window.fetch = (url, init) => {
+    const kind = init?.method !== "POST" ? null : /\\/reply$/.test(url) ? "reply" : /\\/comments$/.test(url) ? "comment" : null;
+    if (kind === null) return fetched(url, init);
+    return new Promise((resolve) => {
+      window.held[kind] = () => {
+        const answer = fetched(url, init);
+        answer.then(() => { window.answered[kind] = true; });
+        resolve(answer);
+      };
+    });
+  };
+  window.posted = 0;
+  return import("/static/shared/comment-panel.js").then(({ createCommentPanel }) => {
+    window.panel = createCommentPanel({
+      settings: { prefix: "panelAlone", sendOn: () => {}, sendKeyName: () => "Enter", keyLetters: () => true },
+      bell: { call: async () => ({ delivered: true }) },
+      compose: { posted: () => { window.posted += 1; } },
+    });
+    window.panel.attach();
+    return window.panel.refreshComments();
+  });
+"""
+
+
+@needs_browser
+def test_an_answer_that_comes_after_the_panel_was_reset_changes_nothing_it_shows_now(tmp_path: Path) -> None:
+    """A page that shows another document in the list's place resets the panel. A reply or a new
+    comment posted on the one before whose answer comes back after that is saved there, and marks
+    nothing on the one shown now: the line above the list does not say that comments reach the
+    agent at the bell, and the page is not told a comment was posted."""
+    (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    browser = None
+    try:
+        shared.ensure()
+        base = f"http://127.0.0.1:{port}"
+        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        asked = post_json(f"{base}/comments", {"anchor": {"kind": "paper"}, "text": "Is the bound tight?"})["id"]
+        browser = chrome.launch()
+        browser.navigate(f"{base}/static/shared/look.css")
+        script = browser.execute_script
+        script(PANEL_ALONE)
+        card = f'document.querySelector(\'#comments-list [data-comment-id="{asked}"]\')'
+        wait_until(lambda: script(f"return {card} !== null"))
+        note = 'const note = document.querySelector("#call-agent-why"); return note.hidden ? null : note.textContent'
+        # The comment waits for the agent, and nothing was posted on the page yet.
+        assert script(note) is None
+        # A reply, and a new comment, each posted and its answer held.
+        script(f'{card}.querySelector(".cmt-head").click(); {card}.querySelector(".cmt-reply").click();'
+               f' const box = {card}.querySelector(".cmt-form-input"); box.value = "Tighter, please.";'
+               ' box.dispatchEvent(new Event("input")); document.querySelector(".cmt-form-submit").click();')
+        script('window.panel.openCompose({ kind: "paper" }, "Paper"); document.querySelector("#compose-text").value = "Cut §2.";'
+               ' document.querySelector("#compose-form").requestSubmit();')
+        wait_until(lambda: script("return typeof window.held.reply === 'function' && typeof window.held.comment === 'function'"))
+        # The panel shows another document, read afresh; then both answers come back.
+        script("window.panel.reset(); return window.panel.refreshComments();")
+        script("window.held.reply(); window.held.comment();")
+        wait_until(lambda: script("return window.answered.reply && window.answered.comment"))
+        script("return new Promise((resolve) => setTimeout(resolve, 500)).then(() => window.panel.refreshComments());")
+        assert script(note) is None
+        assert script("return window.posted") == 0
+        # Both were saved where they were written.
+        comments = get_json(f"{base}/comments")["comments"]
+        assert [entry["text"] for entry in next(c for c in comments if c["id"] == asked)["thread"]] == \
+            ["Is the bound tight?", "Tighter, please."]
+        assert any(c["thread"][0]["text"] == "Cut §2." for c in comments)
+    finally:
+        if browser is not None:
+            browser.quit()
+        shared.stop()

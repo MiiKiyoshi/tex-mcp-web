@@ -5,7 +5,7 @@
 // the paper as last read, digest(), and setDigest(digest), for a build that ends with a new PDF.
 
 import { $ } from "../shared/dom.js";
-import { responseError } from "./response-error.js";
+import { responseError } from "../shared/comment-api.js";
 
 export function createPaper({ read }) {
   const state = {

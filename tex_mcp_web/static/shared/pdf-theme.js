@@ -1,6 +1,10 @@
-// The Preview's look: the PDF viewer's colours for each of the page's themes (viewerTheme), and
-// the rules the page adds inside the viewer (VIEWER_STYLE), for its toolbar, a selection and the
-// Area tool, the comments' badges, its scroll bars, and touch.
+// The look of a review page's PDF viewer (EmbedPDF): its colours for each of the page's themes
+// (viewerTheme), and the rules the page adds inside the viewer (viewerStyle), for its toolbar, a
+// selection and the Area tool, the comments' badges, a badge whose words are gone, its scroll
+// bars, and touch.
+//
+// Shared by the review pages. It is written in tex-mcp-web, and scripts/share_page.py copies
+// it to the others. A copy is never edited by hand.
 
 // The viewer's colours for each of the page's themes. Warm, the restful one, is drawn on
 // the viewer's light scheme with its own warm paper colours.
@@ -117,8 +121,11 @@ export function viewerTheme(theme) {
   };
 }
 
-// The rules the page adds in the viewer's shadow root.
-export const VIEWER_STYLE = `
+// The rules the page adds in the viewer's shadow root, on its own classes and attributes there,
+// each named after `prefix`: .<prefix>-comment-badge, which .stale marks, and the host's
+// data-<prefix>-selecting, data-<prefix>-area and data-<prefix>-theme.
+export function viewerStyle(prefix) {
+  return `
     [data-epdf-i="main-toolbar"] {
       gap: 4px !important;
       padding: 0 6px !important;
@@ -132,15 +139,15 @@ export const VIEWER_STYLE = `
       height: 16px !important;
       width: 16px !important;
     }
-    :host([data-tex-selecting]) [data-no-interaction] *,
-    :host([data-tex-area]) [data-no-interaction] * {
+    :host([data-${prefix}-selecting]) [data-no-interaction] *,
+    :host([data-${prefix}-area]) [data-no-interaction] * {
       pointer-events: none !important;
     }
-    :host([data-tex-area]) * {
+    :host([data-${prefix}-area]) * {
       cursor: crosshair !important;
       touch-action: none !important;
     }
-    .tex-comment-badge {
+    .${prefix}-comment-badge {
       position: absolute;
       min-width: 18px;
       height: 18px;
@@ -156,13 +163,13 @@ export const VIEWER_STYLE = `
       cursor: pointer;
       z-index: 2;
     }
-    .tex-comment-badge.stale {
+    .${prefix}-comment-badge.stale {
       border-style: dashed;
       color: #6d6650;
       background: #f6f1e2;
     }
-    :host([data-tex-theme="dark"]) * { color-scheme: dark; scrollbar-color: #8a867c #403f3b; }
-    :host([data-tex-theme="warm"]) * { scrollbar-color: #b3a896 #d9d2c5; }
+    :host([data-${prefix}-theme="dark"]) * { color-scheme: dark; scrollbar-color: #8a867c #403f3b; }
+    :host([data-${prefix}-theme="warm"]) * { scrollbar-color: #b3a896 #d9d2c5; }
     /* On a touch screen a finger dragged on the pages scrolls them in the pointer mode too,
        as a page does, and a finger held still selects first. The viewer turns touch
        scrolling off in that mode so that every drag selects. */
@@ -172,3 +179,4 @@ export const VIEWER_STYLE = `
       }
     }
   `;
+}

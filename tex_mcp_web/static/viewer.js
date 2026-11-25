@@ -11,11 +11,11 @@ import { createHelp } from "./shared/help.js";
 import { createUpdate } from "./shared/update.js";
 import { holdZoomOnFields, holdPinchOutside } from "./shared/page-zoom.js";
 import { attachPanelGrips } from "./shared/panel-grips.js";
-import { responseError } from "./page/response-error.js";
-import { attachCopyGuard, attachEscapeKey } from "./page/page-keys.js";
+import { responseError } from "./shared/comment-api.js";
+import { attachCopyGuard, attachEscapeKey } from "./shared/page-keys.js";
+import { attachSidebarToggle } from "./shared/sidebar.js";
+import { createSocket } from "./shared/socket.js";
 import { attachTopBar } from "./page/top-bar.js";
-import { attachSidebarToggle } from "./page/sidebar.js";
-import { createSocket } from "./page/socket.js";
 import { createPaper } from "./page/paper.js";
 import { createWorkspace } from "./page/workspace.js";
 import { createPdfView } from "./page/pdf-view.js";
@@ -49,14 +49,9 @@ const WAITS = {
 // What the browser keeps this page's choices under, named once, in index.html.
 const PREFIX = document.querySelector("script[data-prefix]").dataset.prefix;
 
-// What the comment panel shares with the page's parts.
-const state = {
-  // The comment panel sets the comments it lists, those opened and picked, the ringed one and
-  // the comment tab shown here too (shared/comment-panel.js).
-  //
-  // The open comments of the comment tab shown, which the paper and the editor mark.
-  markedComments: [],
-};
+// The open comments of the comment tab shown, as the panel last read them, which the paper and
+// the editor mark.
+let markedComments = [];
 
 // What the page knows of the paper's Overleaf project as the server says it, which several of its
 // parts read. Each other fact of Overleaf has one part that writes it too: whether Overleaf turned
@@ -68,10 +63,10 @@ const overleaf = createOverleafProject();
 // shown, which they mark, the ringed one and whether a card is open, and a comment shown in the
 // panel from its mark.
 const panelComments = {
-  marked: () => state.markedComments,
-  ringed: () => state.focusedCommentId,
-  opened: (id) => state.expanded.has(id),
-  showTab: () => strip.show(state.commentTab),
+  marked: () => markedComments,
+  ringed: () => panel.ringed(),
+  opened: (id) => panel.isOpen(id),
+  showTab: () => strip.show(panel.tab()),
   show: (id) => panel.showComment(id),
 };
 
@@ -83,8 +78,11 @@ function reach(part, ...names) {
 
 // ----- The page's own parts -----
 
+// The server runs inside the agent's process, so it stops with the agent, which the band says.
 const socket = createSocket({
   reconnect: WAITS.reconnect,
+  band: "The review page's server stopped. It runs inside your agent: start the agent again, "
+    + "or ask it to use a tex tool, and this page reconnects by itself.",
   opened: (again) => {
     // A server that comes back may be a new version's: the page asks which runs now.
     update.read().catch((error) => console.error(error));
@@ -140,7 +138,7 @@ const source = createSourceEditor({
 
 // Where a place of the paper is shown, the one part that holds the Preview, the Source and the
 // view together.
-const places = createPlaces({ state, digest: () => paper.digest(), workspace, pdf, source });
+const places = createPlaces({ digest: () => paper.digest(), workspace, pdf, source });
 
 const problems = createProblems({ showLayoutLine: places.showLayoutLine });
 
@@ -194,7 +192,7 @@ const git = createOverleafGit({
 
 const sync = createOverleafSync({
   overleaf,
-  commentTab: () => state.commentTab,
+  commentTab: () => panel.tab(),
   gitWait: WAITS.overleafGit,
   gitStanding: git.standing,
   gitTrouble: git.trouble,
@@ -220,26 +218,24 @@ const live = createOverleafLive({
 });
 
 const suggestedEdits = createSuggestedEdits({
-  state,
   overleaf,
-  panel: reach(() => panel, "renderComments", "refreshComments", "pickBox", "actionButton"),
-  rangeIds: () => panel.keys.rangeIds(),
-  jumpToComment: (id) => places.showComment(id),
+  panel: reach(() => panel, "listed", "picked", "renderComments", "refreshComments", "expand", "ring", "unpick",
+    "pickBox", "actionButton"),
+  jumpToComment: (item) => places.showComment(item),
 });
 
 const outgoing = createOverleafReplies({
-  state,
   overleaf,
-  panel: reach(() => panel, "renderComments", "refreshComments", "renderPickedActions", "actionButton", "mutate"),
+  panel: reach(() => panel, "listed", "renderComments", "refreshComments", "renderPickedActions", "expand", "unpick",
+    "actionButton", "mutate"),
   keyHint: (name) => panel.keys.hint(name),
   draftedThread: (comment) => threads.drafted(comment),
 });
 
 const threads = createOverleafThreads({
-  state,
   overleaf,
   me: live.me,
-  panel: reach(() => panel, "unanswered", "replyButton", "setStatus", "setView", "showTab", "refreshComments",
+  panel: reach(() => panel, "listed", "tab", "replyButton", "setStatus", "setView", "showTab", "refreshComments",
     "showComment"),
   keyHint: (name) => panel.keys.hint(name),
   outgoing,
@@ -269,15 +265,13 @@ const settings = createSettings({
 // hooks below: the two comment tabs, Overleaf's threads, drafts and suggested edits, the hidden
 // threads, the PDF and the editor.
 const panel = createCommentPanel({
-  state,
-  prefix: PREFIX,
   settings,
   label: anchorLabel,
   quote: commentQuote,
-  showPlace: (id) => places.showComment(id),
+  showPlace: (comment) => places.showComment(comment),
   enterPlace: (comment) => places.enterComment(comment),
   marked: (comments) => {
-    state.markedComments = comments;
+    markedComments = comments;
     pdf.markComments();
     source.markComments();
   },
@@ -294,12 +288,6 @@ const panel = createCommentPanel({
     },
     wordStays: WAITS.calledWord,
   },
-  // A comment shown from its mark on the paper or in the editor: its card opens and flashes.
-  bringIntoView: (id, card) => {
-    card.scrollIntoView({ behavior: "smooth", block: "center" });
-    card.classList.add("cmt-flash");
-    setTimeout(() => card.classList.remove("cmt-flash"), 1600);
-  },
   labels: {
     document: "paper", reply: "Reply privately", replyBox: "Private reply, for you and the agent…",
     firstSort: ["paper", "paper order"], composeTitle: "New private comment",
@@ -315,8 +303,7 @@ const panel = createCommentPanel({
     },
     "overleaf-comments": threads.tab,
   },
-  tabOf: threads.tabOf,
-  awaitsReviewer: threads.awaitsReviewer,
+  files: threads.files,
   along: threads.along,
   status: threads.status,
   search: threads.search,
@@ -345,7 +332,7 @@ const update = createUpdate({
 async function callAgent(lane) {
   const response = await fetch("/review-request", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(lane ?? { picked: [...state.picked] }),
+    body: JSON.stringify(lane ?? { picked: panel.picked() }),
   });
   if (!response.ok) throw new Error(await responseError(response));
   return response.json();
@@ -425,14 +412,14 @@ async function init() {
   holdZoomOnFields();
   // Over the Preview the viewer zooms the PDF with a pinch.
   holdPinchOutside("#pdf-viewer");
-  attachCopyGuard();
+  attachCopyGuard("#pdf-viewer");
   attachTopBar({ showSettings: () => overleafSettings.show(), digest: () => paper.digest() });
   overleafSettings.attach();
   build.attachCompileKey();
-  attachEscapeKey();
+  attachEscapeKey({ own: "#source-editor" });
   sync.attach();
   git.attach();
-  attachSidebarToggle();
+  attachSidebarToggle({ key: "sidebarCollapsed" });
   attachPanelGrips({
     prefix: PREFIX,
     width: "--tex-mcp-sidebar-width",

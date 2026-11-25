@@ -3,21 +3,21 @@
 // finds words selected in one of the two in the other, and a source line's page. A comment's
 // place, shown from the comment list, is one of them.
 //
-// createPlaces takes state, the comment panel's (comments); digest(), the digest of the PDF shown;
-// workspace (view(), show(view), shows(pane)); pdf (loaded(), scrollTo(place), jumpToPage(page),
-// zoomTo(page, bbox), marksReady(), markPlace(page, bbox, rects, look), selectComment(id, page));
-// and source (init(), open(file, line), selectQuote(quote, first, last), showPlace(row, column),
-// focus()). It gives showSelectionInSource(selection), for words selected in the Preview;
-// showSelectionInPreview(selection), for words selected in the editor; showLayoutLine(at), for
-// a line of the layout Problems lists; showInSource(file, line), which brings the Source into
-// sight; showLine(file, line), which shows a source line in each view shown; showComment(id), for
-// a comment shown from the list; and enterComment(comment), for K, which takes the keys to its
-// words in the source.
+// createPlaces takes digest(), the digest of the PDF shown; workspace (view(), show(view),
+// shows(pane)); pdf (loaded(), scrollTo(place), jumpToPage(page), zoomTo(page, bbox), marksReady(),
+// markPlace(page, bbox, rects, look), selectComment(id, page)); and source (init(), open(file,
+// line), selectQuote(quote, first, last), showPlace(row, column), focus()). It gives
+// showSelectionInSource(selection), for words selected in the Preview;
+// showSelectionInPreview(selection), for words selected in the editor; showLayoutLine(at), for a
+// line of the layout Problems lists; showInSource(file, line), which brings the Source into
+// sight; showLine(file, line), which shows a source line in each view shown;
+// showComment(comment), for a comment shown from the list; and enterComment(comment), for K,
+// which takes the keys to its words in the source.
 
 import { $ } from "../shared/dom.js";
-import { responseError } from "./response-error.js";
+import { responseError } from "../shared/comment-api.js";
 
-export function createPlaces({ state, digest, workspace, pdf, source }) {
+export function createPlaces({ digest, workspace, pdf, source }) {
   // The Source brought into sight beside the Preview: from the Preview, Split, and the Source view
   // where Split's translation stands in for Source, as the translation sits under the editor there.
   async function sourceBesidePreview() {
@@ -124,9 +124,7 @@ export function createPlaces({ state, digest, workspace, pdf, source }) {
 
   // Where a comment is, shown from the comments: the source moves its cursor there, and the
   // keys stay with the comments, where the reader clicked or pressed Enter.
-  async function showComment(commentId) {
-    const comment = state.comments.find((item) => item.id === commentId);
-    if (!comment) return;
+  async function showComment(comment) {
     if (comment.anchor.kind === "source_range" || comment.suggested) {
       await showCommentSource(comment, comment.resolved_source ?? comment.anchor);
     } else if (comment.anchor.kind === "text_selection" || comment.anchor.kind === "area") {

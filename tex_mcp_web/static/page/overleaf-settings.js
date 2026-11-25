@@ -12,7 +12,7 @@
 // be reached.
 
 import { $, $$ } from "../shared/dom.js";
-import { responseError } from "./response-error.js";
+import { responseError } from "../shared/comment-api.js";
 import { leafIcon } from "./leaf.js";
 
 // Connecting names the project in the paper's config, as a line written there by hand

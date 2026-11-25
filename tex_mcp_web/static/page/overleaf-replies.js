@@ -2,17 +2,17 @@
 // it, the agent's draft and the reviewer's words over it, and its send, from the card or for the
 // picked threads from the row.
 //
-// createOverleafReplies takes state, the comment panel's (comments, picked and expanded);
-// overleaf, the page's knowledge of the project (overleaf-project.js), of which it reads cookie();
-// panel (renderComments(), refreshComments(), renderPickedActions(), actionButton(name, text,
-// onClick), mutate(id, action, body, options)); keyHint(name); and draftedThread(comment). It gives
-// attach(), sending, the threads whose replies are on their way, text(comment), what a reply box
-// holds, render(comment) and send(id, text, from).
+// createOverleafReplies takes overleaf, the page's knowledge of the project (overleaf-project.js),
+// of which it reads cookie(); panel, the comment panel (listed(), renderComments(),
+// refreshComments(), renderPickedActions(), expand(id), unpick(ids), actionButton(name, text,
+// onClick), mutate(id, action, body, options)); keyHint(name); and draftedThread(comment). It
+// gives attach(), sending, the threads whose replies are on their way, text(comment), what a
+// reply box holds, render(comment) and send(id, text, from).
 
 import { $, h } from "../shared/dom.js";
 import { leafIcon, replies, OVERLEAF_COOKIE_WANTED } from "./leaf.js";
 
-export function createOverleafReplies({ state, overleaf, panel, keyHint, draftedThread }) {
+export function createOverleafReplies({ overleaf, panel, keyHint, draftedThread }) {
   // The threads whose replies are on their way to Overleaf: their buttons show the work under way
   // until the list shows what it did.
   const beingSent = new Set();
@@ -56,11 +56,11 @@ export function createOverleafReplies({ state, overleaf, panel, keyHint, drafted
         overleafReplies.delete(id);
       } else {
         overleafReplies.set(id, { text, from, error: answer.error });
-        state.expanded.add(id);
+        panel.expand(id);
       }
     } catch (error) {
       overleafReplies.set(id, { text, from, error: `Could not send: ${error.message}` });
-      state.expanded.add(id);
+      panel.expand(id);
     } finally {
       beingSent.delete(id);
       await panel.refreshComments();
@@ -75,16 +75,16 @@ export function createOverleafReplies({ state, overleaf, panel, keyHint, drafted
     const waiting = [];
     const refused = (id, text, from, error) => {
       overleafReplies.set(id, { text, from, error });
-      state.expanded.add(id);
+      panel.expand(id);
     };
     for (const id of ids) {
-      const comment = state.comments.find((item) => item.id === id);
+      const comment = panel.listed().find((item) => item.id === id);
       const text = comment ? overleafReplyText(comment) : "";
       if (!text.trim()) continue;
       const answer = await sendOverleafReply(id, text.trim());
       if (answer === null) {
         overleafReplies.delete(id);
-        state.picked.delete(id);
+        panel.unpick([id]);
       } else if (answer.apart.length) {
         waiting.push({ id, text, from: comment.overleaf_draft?.text, ...answer });
       } else {
@@ -99,7 +99,7 @@ export function createOverleafReplies({ state, overleaf, panel, keyHint, drafted
         const answer = await sendOverleafReply(reply.id, reply.text.trim(), true);
         if (answer === null) {
           overleafReplies.delete(reply.id);
-          state.picked.delete(reply.id);
+          panel.unpick([reply.id]);
         } else {
           refused(reply.id, reply.text, reply.from, answer.error);
         }

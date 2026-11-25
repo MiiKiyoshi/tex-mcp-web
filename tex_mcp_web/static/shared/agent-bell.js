@@ -48,7 +48,7 @@ const DEFAULTS = {
 // each time it is drawn, and panel.bell.show() with nothing draws it again.
 const WAY = { name: null, does: null, call: null, listens: true, note: () => "" };
 
-// How the bell's parts give way as the row does (ROW_STEPS in comment-panel.js), each step after
+// How the bell's parts give way as the row does (ROW_STEPS in comment-row.js), each step after
 // the panel's step it names: the word a press leaves goes once the sort list has shrunk, before
 // Resolve's; the model and effort lists wait behind the dots once the sort list does; and the
 // bell, with the agent list and the way, once the view list gives up its room. A page's own

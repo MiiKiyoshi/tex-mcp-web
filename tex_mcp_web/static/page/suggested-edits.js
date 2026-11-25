@@ -2,15 +2,16 @@
 // holds it (suggestedItem), its card, accepted or rejected on Overleaf from it or for the picked
 // ones from the row, and read again now and then.
 //
-// createSuggestedEdits takes state, the comment panel's (comments, picked, expanded and
-// focusedCommentId); overleaf, the page's knowledge of the project (overleaf-project.js), of which
-// it reads project(); panel (renderComments(), refreshComments(), pickBox(item), actionButton(name,
-// text, onClick)); rangeIds(), the comments in the keys' range; and jumpToComment(id). It gives
-// attach(), reviewing, the edits being accepted or rejected now, render(item) and read().
+// createSuggestedEdits takes overleaf, the page's knowledge of the project (overleaf-project.js),
+// of which it reads project(); panel, the comment panel (listed(), picked(), renderComments(),
+// refreshComments(), expand(id, open), ring(id), unpick(ids), pickBox(item), actionButton(name,
+// text, onClick)); and jumpToComment(item), which shows an edit in the source. It gives attach(),
+// reviewing, the edits being accepted or rejected now, render(item, { open, ringed, inRange }),
+// the card of an edit, and read().
 
 import { $, h } from "../shared/dom.js";
-import { shortTime } from "../shared/comment-panel.js";
-import { responseError } from "./response-error.js";
+import { shortTime } from "../shared/comment-card.js";
+import { responseError } from "../shared/comment-api.js";
 import { leafIcon, overleafColor } from "./leaf.js";
 
 // A suggested edit as the list holds it, beside the comments: open until accepted or rejected,
@@ -22,23 +23,21 @@ export function suggestedItem(edit) {
            resolved_source: { file: edit.file, ...place } };
 }
 
-export function createSuggestedEdits({ state, overleaf, panel, rangeIds, jumpToComment }) {
+export function createSuggestedEdits({ overleaf, panel, jumpToComment }) {
   // The suggested edits being accepted or rejected now, and when they were last read.
   const reviewingEdits = new Set();
   let suggestedRead = 0;
 
-  // A suggested edit's card: who suggested it and when, its words as a proposal's − and + lines
-  // show them, and Accept and Reject, which act on Overleaf for everyone in the project. A click
-  // shows it in the source, and opens long words in full.
-  function renderSuggestedEdit(item) {
-    const expanded = state.expanded.has(item.id);
+  // A suggested edit's card, given whether it is open, ringed and in the keys' range: who
+  // suggested it and when, its words as a proposal's − and + lines show them, and Accept and
+  // Reject, which act on Overleaf for everyone in the project. A click shows it in the source, and
+  // opens long words in full.
+  function renderSuggestedEdit(item, { open: expanded, ringed, inRange }) {
     const show = (event) => {
       event.stopPropagation();
-      if (expanded) state.expanded.delete(item.id);
-      else state.expanded.add(item.id);
-      state.focusedCommentId = item.id;
-      panel.renderComments();
-      jumpToComment(item.id).catch((error) => console.error(error));
+      panel.expand(item.id, !expanded);
+      panel.ring(item.id);
+      jumpToComment(item).catch((error) => console.error(error));
     };
     const where = `${item.file}:${item.here ? item.here.line_start : item.line}`;
     const head = h("div", { class: "cmt-head", title: "Show it in the source", onclick: show },
@@ -60,8 +59,7 @@ export function createSuggestedEdits({ state, overleaf, panel, rangeIds, jumpToC
       button.classList.toggle("busy", busy);
     }
     return h("div", {
-      class: `cmt suggested-edit${state.focusedCommentId === item.id ? " is-focused" : ""}`
-        + `${rangeIds().includes(item.id) ? " in-range" : ""}`,
+      class: `cmt suggested-edit${ringed ? " is-focused" : ""}${inRange ? " in-range" : ""}`,
       data: { commentId: item.id },
     }, head, words,
     item.here ? null : h("div", { class: "cmt-unplaced" }, leafIcon(), h("span", {
@@ -93,7 +91,7 @@ export function createSuggestedEdits({ state, overleaf, panel, rangeIds, jumpToC
           body: JSON.stringify({ doc, ids: edits.flatMap((item) => item.ids) }),
         });
         if (!response.ok) throw new Error(await responseError(response));
-        for (const item of edits) state.picked.delete(item.id);
+        panel.unpick(edits.map((item) => item.id));
       }
     } finally {
       for (const item of items) reviewingEdits.delete(item.id);
@@ -104,7 +102,8 @@ export function createSuggestedEdits({ state, overleaf, panel, rangeIds, jumpToC
   function attach() {
     for (const [id, action, word] of [["#accept-picked-btn", "accept", "Accept"], ["#reject-picked-btn", "reject", "Reject"]]) {
       $(id).addEventListener("click", () => {
-        const edits = state.comments.filter((item) => item.suggested && state.picked.has(item.id));
+        const picked = panel.picked();
+        const edits = panel.listed().filter((item) => item.suggested && picked.includes(item.id));
         if (edits.length === 0 || !confirm(`${word} ${edits.length} suggested edit${edits.length === 1 ? "" : "s"} `
           + "on Overleaf, for everyone in the project?")) return;
         reviewSuggestedEdits(action, edits).catch((error) => alert(error.message));

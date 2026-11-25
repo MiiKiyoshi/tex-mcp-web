@@ -13,7 +13,7 @@
 // synced by hand; render(standing), readState(), readStateSoon() and readSoon(delay).
 
 import { $, h } from "../shared/dom.js";
-import { responseError } from "./response-error.js";
+import { responseError } from "../shared/comment-api.js";
 import { commits, fileCount, OVERLEAF_BY_GIT, OVERLEAF_BY_HAND } from "./leaf.js";
 
 export function createOverleafGit({

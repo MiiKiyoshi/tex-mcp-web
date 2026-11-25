@@ -1,7 +1,8 @@
 // The comment calls of the review pages. Every page's server answers them on the same routes,
 // under a base the page names: GET <base>/comments[?status=], POST <base>/comments, POST
 // <base>/comments/status, POST <base>/comments/<id>/<action> and DELETE <base>/comments/<id>.
-// The statuses are "open", "resolved" and "archived", and a refusal is JSON { error, reason }.
+// The statuses are "open", "resolved" and "archived", and a refusal is JSON { error, reason },
+// which refusalOf and responseError read, for any request a page makes.
 //
 // Shared by the review pages. It is written in tex-mcp-web, and scripts/share_page.py copies
 // it to the others. A copy is never edited by hand.
@@ -17,6 +18,11 @@ export async function refusalOf(response) {
   } catch {
     return { error: `${response.status}: ${text}` };
   }
+}
+
+// What a refused request says, in words: the reason refusalOf reads, for a page's own calls.
+export async function responseError(response) {
+  return (await refusalOf(response)).error;
 }
 
 // The calls, each under the base `base()` names when it is made: "" for the page's own routes,

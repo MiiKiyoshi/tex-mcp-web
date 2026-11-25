@@ -1,8 +1,8 @@
 // The Preview: the PDF viewer (EmbedPDF), set up afresh for each build's PDF where the reader was
 // in the one before, its Area tool and the menu over a selection, which comments on the words or
 // shows them in the source, the preview of a reference clicked, and the places the page scrolls
-// it to. Its look is pdf-theme.js, the presses it reads first pdf-touch.js, and the marks on its
-// pages pdf-marks.js.
+// it to. Its look is shared/pdf-theme.js, the presses it reads first shared/pdf-touch.js, and the
+// marks on its pages pdf-marks.js.
 //
 // createPdfView takes digest(), the digest of the PDF to show; comments, the comment panel as
 // pdf-marks.js takes it, with opened(id), whether a comment's card is open; openCompose(anchor,
@@ -16,10 +16,10 @@
 
 import EmbedPDF from "/static/embedpdf/embedpdf.js?v=selection-yellow";
 import { $, clear } from "../shared/dom.js";
-import { viewerTheme, VIEWER_STYLE } from "./pdf-theme.js";
-import { attachPdfPresses } from "./pdf-touch.js";
+import { viewerTheme, viewerStyle } from "../shared/pdf-theme.js";
+import { attachPdfPresses } from "../shared/pdf-touch.js";
 import { createPdfMarks } from "./pdf-marks.js";
-import { setSidebarCollapsed } from "./sidebar.js";
+import { setSidebarCollapsed } from "../shared/sidebar.js";
 
 const DOCUMENT_ID = "paper";
 
@@ -112,9 +112,9 @@ export function createPdfView({ digest, comments, openCompose, showWhereWritten,
     if (!state.viewer) throw new Error("EmbedPDF did not create a viewer");
 
     const registry = await state.viewer.registry;
-    const viewerStyle = document.createElement("style");
-    viewerStyle.textContent = VIEWER_STYLE;
-    state.viewer.shadowRoot.appendChild(viewerStyle);
+    const style = document.createElement("style");
+    style.textContent = viewerStyle("tex");
+    state.viewer.shadowRoot.appendChild(style);
     state.viewer.setAttribute("data-tex-theme", document.documentElement.dataset.theme);
     state.viewer.shadowRoot.addEventListener("pointerdown", (event) => {
       state.lastViewerPointer = { x: event.clientX, y: event.clientY };
@@ -138,7 +138,7 @@ export function createPdfView({ digest, comments, openCompose, showWhereWritten,
       setTimeout(() => openSelectionInSource()
         .catch((error) => alert(`Could not open the source: ${error.message}`)), 120);
     });
-    attachPdfPresses(state.viewer, () => state.areaMode);
+    attachPdfPresses(state.viewer, () => state.areaMode, "tex");
     state.annotations = annotationCapability.forDocument(DOCUMENT_ID);
     marks.start(state.viewer, state.annotations);
     state.scroll = scrollCapability.forDocument(DOCUMENT_ID);

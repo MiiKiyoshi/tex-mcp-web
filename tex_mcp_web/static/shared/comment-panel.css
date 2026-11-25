@@ -523,7 +523,7 @@
   word-wrap: break-word;
 }
 /* The box starts at the rows the page gives it and grows with what is typed (fitComposeBox in
-   comment-panel.js) up to about a third of the screen's height, past which it scrolls. */
+   comment-compose.js) up to about a third of the screen's height, past which it scrolls. */
 #compose-text {
   font-family: var(--sans);
   font-size: var(--text-body);

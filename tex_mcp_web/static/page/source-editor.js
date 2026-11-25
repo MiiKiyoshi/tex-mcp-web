@@ -21,8 +21,8 @@
 
 import { $, h, clear } from "../shared/dom.js";
 import { RING_AT } from "../shared/comment-keys.js";
-import { responseError } from "./response-error.js";
-import { setSidebarCollapsed } from "./sidebar.js";
+import { responseError } from "../shared/comment-api.js";
+import { setSidebarCollapsed } from "../shared/sidebar.js";
 import { attachMenu } from "./menu.js";
 import { createSourceMarks } from "./source-marks.js";
 import { createCompletion } from "./completion.js";

@@ -11,7 +11,7 @@
 // The same specifier as pdf-view.js's, so that both have the one module.
 import { PdfAnnotationSubtype } from "/static/embedpdf/embedpdf.js?v=selection-yellow";
 import { $ } from "../shared/dom.js";
-import { setSidebarCollapsed } from "./sidebar.js";
+import { setSidebarCollapsed } from "../shared/sidebar.js";
 
 const ANNOTATION_PREFIX = "tex-web:";
 const GOTO_ANNOTATION_ID = "tex-web-goto";

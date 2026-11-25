@@ -29,9 +29,12 @@ def test_the_shared_files_go_to_another_package_with_a_manifest_of_their_digests
     manifests = share_page.share_all(package)
     expected = {
         "static/shared": {"look.css", "look-early.js", "settings.js", "dom.js", "comment-api.js", "comment-search.js",
-                          "comment-panel.js", "comment-panel.css", "comment-keys.js", "agent-bell.js",
+                          "comment-panel.js", "comment-state.js", "comment-markup.js", "comment-list.js",
+                          "comment-views.js", "comment-row.js", "comment-status.js", "comment-card.js",
+                          "comment-compose.js", "comment-panel.css", "comment-keys.js", "agent-bell.js",
                           "agent-bell.css", "help.js", "help.css", "tab-strip.js", "tab-strip.css", "markdown.js",
-                          "update.js", "update.css", "page-zoom.js", "panel-grips.js", "panel-grips.css"},
+                          "update.js", "update.css", "page-zoom.js", "panel-grips.js", "panel-grips.css",
+                          "socket.js", "sidebar.js", "page-keys.js", "pdf-touch.js", "pdf-theme.js"},
         "shared": {"__init__.py", "tool.py", "shared_file.py", "filelock.py", "agents.py", "calls.py",
                    "plugin_monitor.py", "monitor.py", "waiter.py", "update.py"},
     }

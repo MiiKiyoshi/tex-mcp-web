@@ -1,8 +1,13 @@
-// The presses on the Preview's pages that the page reads before the PDF viewer does: a finger, and
-// a press on a comment's highlight. attachPdfPresses takes the viewer, on whose shadow root it
-// listens, and areaMode(), whether the Area tool is on, which takes the presses as they come.
+// The presses on a PDF's pages that a review page reads before the PDF viewer (EmbedPDF) does: a
+// finger, and a press on a comment's highlight. attachPdfPresses takes the viewer, on whose
+// shadow root it listens; areaMode(), whether the Area tool is on, which takes the presses as
+// they come; and prefix, the page's name for its own classes and attributes in the viewer, as
+// .<prefix>-comment-badge and data-<prefix>-selecting (viewerStyle in pdf-theme.js).
+//
+// Shared by the review pages. It is written in tex-mcp-web, and scripts/share_page.py copies
+// it to the others. A copy is never edited by hand.
 
-export function attachPdfPresses(viewer, areaMode) {
+export function attachPdfPresses(viewer, areaMode, prefix) {
   const root = viewer.shadowRoot;
   // The viewer selects text by a pointer dragged across it or a double click on a word.
   // A finger held still on a word, which is how a tablet asks for a selection, did
@@ -87,10 +92,10 @@ export function attachPdfPresses(viewer, areaMode) {
     if (touchHold !== null) event.preventDefault();
   });
   root.addEventListener("pointerdown", (event) => {
-    if (areaMode() || event.target.closest(".tex-comment-badge")) return;
+    if (areaMode() || event.target.closest(`.${prefix}-comment-badge`)) return;
     if (!event.isTrusted || event.button !== 0 || !event.target.closest("[data-no-interaction]")) return;
     highlightPress = { target: event.target, x: event.clientX, y: event.clientY, dragged: false };
-    viewer.setAttribute("data-tex-selecting", "");
+    viewer.setAttribute(`data-${prefix}-selecting`, "");
     const underneath = root.elementFromPoint(event.clientX, event.clientY);
     event.stopImmediatePropagation();
     underneath.dispatchEvent(new PointerEvent("pointerdown", event));
@@ -104,10 +109,10 @@ export function attachPdfPresses(viewer, areaMode) {
     const press = highlightPress;
     highlightPress = null;
     if (press && !press.dragged) press.target.dispatchEvent(new PointerEvent("pointerdown", event));
-    queueMicrotask(() => viewer.removeAttribute("data-tex-selecting"));
+    queueMicrotask(() => viewer.removeAttribute(`data-${prefix}-selecting`));
   }, { capture: true });
   root.addEventListener("pointercancel", () => {
     highlightPress = null;
-    viewer.removeAttribute("data-tex-selecting");
+    viewer.removeAttribute(`data-${prefix}-selecting`);
   }, { capture: true });
 }
