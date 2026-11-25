@@ -125,7 +125,6 @@ const source = createSourceEditor({
   showWherePrinted: (selection) => places.showSelectionInPreview(selection),
   openCompose: (...args) => panel.openCompose(...args),
   refreshComments: () => panel.refreshComments(),
-  openSuggestedEdit: (id) => threads.openSuggestedEdit(id),
   followed: overleaf.followed,
   cursorAt: () => settings.cursorAt(),
 });
@@ -202,7 +201,6 @@ const outgoing = createOverleafReplies({
   panel: reach(() => panel, "listed", "renderComments", "refreshComments", "renderPickedActions", "expand", "unpick",
     "actionButton", "mutate"),
   keyHint: (name) => panel.keys.hint(name),
-  draftedThread: (comment) => threads.drafted(comment),
 });
 
 const threads = createOverleafThreads({
@@ -335,6 +333,8 @@ source.cursorMoved(() => {
 source.drawn(() => live.renderCursors());
 // :make in the editor compiles as Ctrl+Enter does.
 source.compileAsked(() => build.compileFromKeys());
+// A suggested edit chosen in the editor opens in the leaf tab.
+source.suggestionChosen((id) => threads.openSuggestedEdit(id).catch((error) => console.error(error)));
 // The note atop the leaf tab follows the tab shown, once the list's reading is taken in.
 threads.applied(() => sync.render());
 // The picked comments' actions and the note of a paper with no main file follow the project.

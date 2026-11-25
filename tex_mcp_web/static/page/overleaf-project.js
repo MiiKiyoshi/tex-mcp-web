@@ -9,8 +9,9 @@
 // changed(listener), which hands in a function called after each of these three;
 // heardFollowed(files), the files the live session keeps in step, which changes nothing shown;
 // and the facts: project(), cookie(), cookieRefused(), fullSync(), waiting(), remote(),
-// imported(id), importedCount(), unplaced(id), suggested() and followed(path), whether the live
-// session keeps a file in step with Overleaf, so that its edits there are written here.
+// imported(id), importedCount(), unplaced(id), suggested(), followed(path), whether the live
+// session keeps a file in step with Overleaf, so that its edits there are written here, and
+// drafted(comment), whether a comment is a thread drafted for Overleaf and not opened there yet.
 
 import { createListeners } from "../shared/listeners.js";
 
@@ -92,5 +93,10 @@ export function createOverleafProject() {
     unplaced: (id) => known.unplaced[id],
     suggested: () => known.suggested,
     followed: (path) => known.followed.has(path),
+    // A thread drafted for Overleaf, or started for it by the reviewer, and not yet opened there:
+    // it holds the draft of its first message, once the agent writes one, and what the reviewer
+    // and the agent say about it here, which stays here.
+    drafted: (comment) => !known.imported.has(comment.id)
+      && (Boolean(comment.overleaf_draft) || Boolean(comment.for_overleaf)),
   };
 }

@@ -10,7 +10,7 @@
 // status), setView(view), showTab(name), refreshComments(), showComment(id)); keyHint(name);
 // outgoing, the replies on their way; suggestedEdits; showTab(name), the sidebar's tab shown; and
 // applySourceLeaf(). It gives the panel's hooks (tab, files, along, status, search, card, row,
-// compose and keys), drafted(comment), openSuggestedEdit(id) and applied(listener), which hands
+// compose and keys), openSuggestedEdit(id) and applied(listener), which hands
 // in a function called once the list's reading of the project is taken in and the leaf tab shown
 // or hidden by it.
 
@@ -29,12 +29,7 @@ export function createOverleafThreads({
     return comment.hidden && comment.status === "open" ? "hidden" : comment.status;
   }
 
-  // A thread drafted for Overleaf, or started for it by the reviewer, and not yet opened there:
-  // it holds the draft of its first message, once the agent writes one, and what the reviewer
-  // and the agent say about it here, which stays here.
-  function draftedThread(comment) {
-    return !overleaf.imported(comment.id) && (Boolean(comment.overleaf_draft) || Boolean(comment.for_overleaf));
-  }
+  const draftedThread = overleaf.drafted;
 
   // A thread in the leaf tab with something not yet sent to Overleaf, listed in the drafts view:
   // a new thread not opened there yet, or a thread from Overleaf with a reply drafted for it. One
@@ -87,7 +82,6 @@ export function createOverleafThreads({
   }
 
   return {
-    drafted: draftedThread,
     openSuggestedEdit,
     applied: applied.add,
     // The comments written here are in one tab, and Overleaf's threads, with those drafted for

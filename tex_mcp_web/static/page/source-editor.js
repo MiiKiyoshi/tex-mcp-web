@@ -8,13 +8,14 @@
 // the open comments of the comment tab shown, showTab() and show(id); project() and suggested(),
 // the Overleaf project and its suggested edits; showWherePrinted({ file, line_start, line_end,
 // text }), which shows words selected here where the Preview prints them (places.js);
-// openCompose(anchor, label, fields), refreshComments() and openSuggestedEdit(id);
+// openCompose(anchor, label, fields) and refreshComments();
 // followed(path), whether Overleaf's live session keeps a file in step; and cursorAt(), where
 // Settings holds the cursor's line.
 //
 // It gives attach() and init(); what happens in it, each of which hands in a function called
 // when it does: opened(listener), a file opened, cursorMoved(listener), drawn(listener), the
-// editor drawn again, and compileAsked(listener), :make with Vim keys; the file open (file(), dirty(), open(path, line, force, focus),
+// editor drawn again, compileAsked(listener), :make with Vim keys, and suggestionChosen(listener),
+// told the id of a suggested edit chosen at its line; the file open (file(), dirty(), open(path, line, force, focus),
 // save(), refreshFiles(), sourceChanged(message)); the editor (started(), ace(), resize(),
 // focus(), setTheme(), holdCursorLine(), cursorRow()); a place shown in it (showPlace(row,
 // column), selectQuote(quote, first, last)); markComments(), applyLeaf(), for the leaf beside
@@ -72,10 +73,10 @@ function sourceForOverleaf() {
 }
 
 export function createSourceEditor({
-  panelComments, project, suggested, showWherePrinted, openCompose, refreshComments, openSuggestedEdit,
-  followed, cursorAt,
+  panelComments, project, suggested, showWherePrinted, openCompose, refreshComments, followed, cursorAt,
 }) {
   const opened = createListeners();
+  const suggestionChosen = createListeners();
   const compileAsked = createListeners();
   const cursorMoved = createListeners();
   const drawn = createListeners();
@@ -381,7 +382,7 @@ export function createSourceEditor({
     setSidebarCollapsed(false);
     state.editor.blur();
     if (chosen?.suggested) {
-      openSuggestedEdit(chosen.id).catch((error) => console.error(error));
+      suggestionChosen.tell(chosen.id);
       return;
     }
     panelComments.showTab();
@@ -440,7 +441,7 @@ export function createSourceEditor({
           && !event.domEvent.target.classList.contains("source-comment-line")) {
         event.stop();
         setSidebarCollapsed(false);
-        openSuggestedEdit(edit.id).catch((error) => console.error(error));
+        suggestionChosen.tell(edit.id);
         return;
       }
       const comments = marks.onRow(row);
@@ -632,6 +633,7 @@ export function createSourceEditor({
     cursorMoved: cursorMoved.add,
     drawn: drawn.add,
     compileAsked: compileAsked.add,
+    suggestionChosen: suggestionChosen.add,
     started: () => Boolean(state.editor),
     ace: () => state.editor,
     file: () => state.sourcePath,

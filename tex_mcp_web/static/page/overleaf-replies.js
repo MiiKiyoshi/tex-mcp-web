@@ -3,16 +3,17 @@
 // picked threads from the row.
 //
 // createOverleafReplies takes overleaf, the page's knowledge of the project (overleaf-project.js),
-// of which it reads cookie(); panel, the comment panel (listed(), renderComments(),
+// of which it reads cookie() and drafted(comment); panel, the comment panel (listed(), renderComments(),
 // refreshComments(), renderPickedActions(), expand(id), unpick(ids), actionButton(name, text,
-// onClick), mutate(id, action, body, options)); keyHint(name); and draftedThread(comment). It
+// onClick), mutate(id, action, body, options)); and keyHint(name). It
 // gives attach(), sending, the threads whose replies are on their way, text(comment), what a
 // reply box holds, render(comment) and send(id, text, from).
 
 import { $, h } from "../shared/dom.js";
 import { leafIcon, replies, OVERLEAF_COOKIE_WANTED } from "./leaf.js";
 
-export function createOverleafReplies({ overleaf, panel, keyHint, draftedThread }) {
+export function createOverleafReplies({ overleaf, panel, keyHint }) {
+  const draftedThread = overleaf.drafted;
   // The threads whose replies are on their way to Overleaf: their buttons show the work under way
   // until the list shows what it did.
   const beingSent = new Set();
