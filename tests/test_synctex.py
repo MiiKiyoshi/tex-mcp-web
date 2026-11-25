@@ -19,6 +19,7 @@ from tex_mcp_web.synctex import (
     selection_to_source_range,
     source_to_page,
 )
+from tests.links import symlink
 
 
 # Sample SyncTeX content (simplified) — WITH column field
@@ -505,10 +506,7 @@ def test_the_forward_search_asks_by_the_name_the_record_has_for_the_file(tmp_pat
     (real / "main.tex").write_text("Words.\n", encoding="utf-8", newline="")
     (real / "main.pdf").write_bytes(b"%PDF-1.4\n")
     link = tmp_path / "t"
-    try:
-        link.symlink_to(real, target_is_directory=True)
-    except OSError:
-        pytest.skip("this system does not let the test make a link")
+    symlink(link, real, target_is_directory=True)
     recorded = f"{link.as_posix()}/./main.tex"
     with gzip.open(real / "main.synctex.gz", "wt", encoding="utf-8") as record:
         record.write(f"SyncTeX Version:1\nInput:1:{recorded}\nInput:2:/elsewhere/article.cls\nContent:\n")

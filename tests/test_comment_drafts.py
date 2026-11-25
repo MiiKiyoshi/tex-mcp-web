@@ -8,16 +8,7 @@ import re
 import pytest
 
 from tex_mcp_web.comments import CommentStore, PaperAnchor
-
-
-def _symlink(link, target, **kwargs):
-    """Make a symlink; on Windows without the privilege to, skip the test."""
-    try:
-        link.symlink_to(target, **kwargs)
-    except OSError as error:
-        if os.name == "nt":
-            pytest.skip(f"symlinks need a privilege on Windows: {error}")
-        raise
+from tests.links import symlink
 
 
 @pytest.fixture
@@ -119,11 +110,11 @@ def test_path_confinement(store, tmp_path, attack):
         if attack == "hardlink":
             target.hardlink_to(outside)
         else:
-            _symlink(target, outside)
+            symlink(target, outside)
     else:
         moved = path.parent.with_name("moved")
         path.parent.rename(moved)
-        _symlink(path.parent, moved, target_is_directory=True)
+        symlink(path.parent, moved, target_is_directory=True)
     before = store.path.read_bytes()
     with pytest.raises(ValueError):
         store.reply_file(str(path))

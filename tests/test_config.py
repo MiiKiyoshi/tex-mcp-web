@@ -13,6 +13,7 @@ from tex_mcp_web.config import (
     get_watch_dir,
     load_config,
 )
+from tests.links import symlink
 
 
 class TestConfig:
@@ -331,7 +332,7 @@ class TestGuidelines:
                                         encoding="utf-8", newline="")
         mine = tmp_path / "home" / "tex-mcp-web" / "guidelines" / "paper-writing"
         mine.mkdir(parents=True)
-        (mine / "GUIDELINE.md").symlink_to(skill / "SKILL.md")
+        symlink(mine / "GUIDELINE.md", skill / "SKILL.md")
         files = get_guideline_files(Config(main="main.tex", guideline="paper-writing"))
         assert [path.parent.name for path in files] == ["paper-writing"]
         (mine / "GUIDELINE.md").unlink()

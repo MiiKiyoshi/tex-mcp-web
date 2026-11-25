@@ -33,16 +33,7 @@ from tex_mcp_web.compiler import CompileResult
 from tex_mcp_web.server import TexMcpWebServer
 from tex_mcp_web.shared.calls import Calls
 from tex_mcp_web.tool import TOOL
-
-
-def _symlink(link, target, **kwargs):
-    """Make a symlink; on Windows without the privilege to, skip the test."""
-    try:
-        link.symlink_to(target, **kwargs)
-    except OSError as error:
-        if os.name == "nt":
-            pytest.skip(f"symlinks need a privilege on Windows: {error}")
-        raise
+from tests.links import symlink
 
 
 # The plugin's monitor finds its session with POSIX ps and signals; on Windows there is
@@ -288,14 +279,14 @@ def test_a_change_to_a_shared_file_moves_the_static_tag(tmp_path, monkeypatch):
 
     (tmp_path / "shared").mkdir()
     (tmp_path / "page").mkdir()
-    for name in ("viewer.js", "shared/look.css", "page/pdf-view.js"):
+    for name in ("viewer.js", "shared/look.css", "page/places.js"):
         (tmp_path / name).write_text("", encoding="utf-8")
         os.utime(tmp_path / name, (1000, 1000))
     monkeypatch.setattr(server_module, "STATIC_DIR", tmp_path)
     assert TexMcpWebServer.static_tag() == "v1000"
     os.utime(tmp_path / "shared" / "look.css", (2000, 2000))
     assert TexMcpWebServer.static_tag() == "v2000"
-    os.utime(tmp_path / "page" / "pdf-view.js", (3000, 3000))
+    os.utime(tmp_path / "page" / "places.js", (3000, 3000))
     assert TexMcpWebServer.static_tag() == "v3000"
 
 
@@ -365,7 +356,7 @@ async def test_source_api_rejects_outside_ignored_and_non_utf8_files(client, pro
     tc, server = client
     outside = project.parent / "outside.tex"
     outside.write_text("outside\n", encoding="utf-8", newline="")
-    _symlink(project / "outside-link.tex", outside)
+    symlink(project / "outside-link.tex", outside)
     (project / "ignored.tex").write_text("ignored\n", encoding="utf-8", newline="")
     (project / "binary.tex").write_bytes(b"\xff")
     server.config.ignore = ["ignored.tex"]
@@ -827,7 +818,7 @@ async def test_apply_source_suggestion_rejects_source_outside_project(
     outside = project.parent / "outside.tex"
     outside.write_text("outside text\n", encoding="utf-8", newline="")
     if outside_path == "outside-link.tex":
-        _symlink(project / outside_path, outside)
+        symlink(project / outside_path, outside)
     comment = server.comments.add(
         SourceRangeAnchor(file=outside_path, line_start=1, line_end=1),
         "Do not escape the project.",
