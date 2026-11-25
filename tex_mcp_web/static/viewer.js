@@ -298,9 +298,6 @@ const update = createUpdate({
   how: "https://github.com/MiiKiyoshi/tex-mcp-web/blob/main/docs/reviewing.md#updating",
 });
 
-// A press of the bell, for the session listening or the agent picked beside the bell. The
-// picked comments go with a press for the session: with overleaf_picked, a thread from
-// Overleaf reaches the agent with its Overleaf words only when picked.
 // ----- What the parts follow of each other, once they all exist -----
 
 // The translation's language and the sections follow the paper as it is read.
@@ -343,6 +340,9 @@ overleaf.changed(() => {
   build.renderNoPaper();
 });
 
+// A press of the bell, for the session listening or the agent picked beside the bell. The
+// picked comments go with a press for the session: with overleaf_picked, a thread from
+// Overleaf reaches the agent with its Overleaf words only when picked.
 async function callAgent(lane) {
   const response = await fetch("/review-request", {
     method: "POST", headers: { "Content-Type": "application/json" },
