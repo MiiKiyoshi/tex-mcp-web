@@ -9,10 +9,10 @@
 // line), selectQuote(quote, first, last), showPlace(row, column), focus()). It gives
 // showSelectionInSource(selection), for words selected in the Preview;
 // showSelectionInPreview(selection), for words selected in the editor; showLayoutLine(at), for a
-// line of the layout Problems lists; showInSource(file, line), which brings the Source into
-// sight; showLine(file, line), which shows a source line in each view shown;
-// showComment(comment), for a comment shown from the list; and enterComment(comment), for K,
-// which takes the keys to its words in the source.
+// line of the layout Problems lists; showTarget(target), for the agent's goto; showInSource(file,
+// line), which brings the Source into sight; showLine(file, line), which shows a source line in
+// each view shown; showComment(comment), for a comment shown from the list; and
+// enterComment(comment), for K, which takes the keys to its words in the source.
 
 import { $ } from "../shared/dom.js";
 import { responseError } from "../shared/comment-api.js";
@@ -104,6 +104,16 @@ export function createPlaces({ digest, workspace, pdf, source }) {
     }
   }
 
+  // The agent's goto ({ page, bbox, rects, quote }), a place on a printed page, which the Preview
+  // zooms to and marks.
+  function showTarget(target) {
+    if (!target.page) return;
+    pdf.zoomTo(target.page, target.bbox);
+    if (!target.bbox || !pdf.marksReady()) return;
+    pdf.markPlace(target.page, target.bbox, target.rects ?? [target.bbox],
+      { opacity: 0.55, color: "#fbdc00", contents: target.quote ?? "" });
+  }
+
   // A source line shown in each view that shows: in the editor, with the keys there, unless the
   // Preview shows alone, and on its page unless the Source does.
   async function showLine(file, line) {
@@ -155,6 +165,7 @@ export function createPlaces({ digest, workspace, pdf, source }) {
   }
 
   return {
-    showSelectionInSource, showSelectionInPreview, showLayoutLine, showInSource, showLine, showComment, enterComment,
+    showSelectionInSource, showSelectionInPreview, showLayoutLine, showTarget, showInSource, showLine, showComment,
+    enterComment,
   };
 }

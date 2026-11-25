@@ -15,10 +15,11 @@ import { responseError } from "./shared/comment-api.js";
 import { attachCopyGuard, attachEscapeKey } from "./shared/page-keys.js";
 import { attachSidebarToggle } from "./shared/sidebar.js";
 import { createSocket } from "./shared/socket.js";
+import { createPdfView } from "./shared/pdf-view.js";
 import { attachTopBar } from "./page/top-bar.js";
 import { createPaper } from "./page/paper.js";
 import { createWorkspace } from "./page/workspace.js";
-import { createPdfView } from "./page/pdf-view.js";
+import { previewHooks, pdfRefusal } from "./page/preview.js";
 import { createSourceEditor } from "./page/source-editor.js";
 import { createProblems } from "./page/problems.js";
 import { createBuild } from "./page/build.js";
@@ -111,12 +112,16 @@ const workspace = createWorkspace({
   translationShown: () => translation.shown(),
 });
 
+// The Preview: the PDF view the review pages share, with the paper's own hooks (preview.js).
 const pdf = createPdfView({
-  digest: () => paper.digest(),
+  prefix: "tex",
   comments: panelComments,
   openCompose: (...args) => panel.openCompose(...args),
-  showWhereWritten: (selection) => places.showSelectionInSource(selection),
-  scheduleTranslation: (delay) => translation.schedule(delay),
+  ...previewHooks({
+    digest: () => paper.digest(),
+    showWhereWritten: (selection) => places.showSelectionInSource(selection),
+    scheduleTranslation: (delay) => translation.schedule(delay),
+  }),
 });
 
 const source = createSourceEditor({
@@ -162,7 +167,7 @@ const translation = createTranslation({
   wait: WAITS.translation,
   workspace: reach(() => workspace, "view", "apply"),
   source: reach(() => source, "file", "started", "cursorRow"),
-  pdf: reach(() => pdf, "scrolls", "currentPage"),
+  pdf: reach(() => pdf, "loaded", "currentPage"),
   showInSource: places.showInSource,
   digest: () => paper.digest(),
   failed: () => build.failed(),
@@ -309,7 +314,9 @@ const panel = createCommentPanel({
   search: threads.search,
   card: threads.card,
   row: threads.row,
-  compose: { ...threads.compose, ...pdf.compose },
+  // A comment written on the PDF: refused, it says so when the PDF was rebuilt, and once the
+  // dialog closes the selection it was opened on goes, and the viewer's bubble with it.
+  compose: { ...threads.compose, refused: pdfRefusal, closed: () => pdf.clearSelection() },
   keys: threads.keys,
 });
 
@@ -396,7 +403,7 @@ async function handleWebSocketMessage(message) {
       panel.bell.show({ lanes: message.lanes });
       break;
     case "goto":
-      pdf.showTarget(message);
+      places.showTarget(message);
       break;
     case "overleaf_live":
       live.render(message);

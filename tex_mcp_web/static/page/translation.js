@@ -9,7 +9,7 @@
 //
 // createTranslation takes wait, the milliseconds before it asks again for paragraphs still being
 // translated; workspace's view() and apply(), of the layout the pane is in; source (file(),
-// started(), cursorRow()) and pdf (scrolls(), currentPage()), which it follows; showInSource(file,
+// started(), cursorRow()) and pdf (loaded(), currentPage()), which it follows; showInSource(file,
 // line), which shows a paragraph's lines in the Source (places.js); digest(), the PDF's digest;
 // failed(), whether the last build failed; and showProblems(). It gives attach(),
 // applyLanguage(language), shown(), whether the pane shows, schedule(delay), followCursor(), for
@@ -105,14 +105,14 @@ export function createTranslation({ wait, workspace, source, pdf, showInSource, 
     // The Preview's page marks its paragraphs, and with no file chosen, picks the file. With
     // no PDF yet a chosen file is translated without marks, and with none chosen the pane
     // says what it waits for. A PDF the Preview is still loading asks again once laid out.
-    if (!pdf.scrolls()) {
+    if (!pdf.loaded()) {
       if (digest()) return;
       if (!chosen) {
         showTranslationWait();
         return;
       }
     }
-    const page = pdf.scrolls() ? pdf.currentPage() : null;
+    const page = pdf.loaded() ? pdf.currentPage() : null;
     const params = new URLSearchParams();
     if (page !== null) params.set("page", String(page));
     if (chosen) params.set("file", chosen);

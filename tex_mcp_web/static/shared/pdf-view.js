@@ -1,27 +1,82 @@
-// The Preview: the PDF viewer (EmbedPDF), set up afresh for each build's PDF where the reader was
-// in the one before, its Area tool and the menu over a selection, which comments on the words or
-// shows them in the source, the preview of a reference clicked, and the places the page scrolls
-// it to. Its look is shared/pdf-theme.js, the presses it reads first shared/pdf-touch.js, and the
-// marks on its pages pdf-marks.js.
+// The PDF view of the review pages (EmbedPDF): the viewer, set up afresh for each PDF the page
+// opens and at the place the reader had in the one before when the page asks; its Area tool; the
+// menu over a selection, which comments on the words or shows them in their source; the preview
+// of a reference clicked; and the places the page scrolls it to. It draws into the page's
+// #pdf-viewer, shows a reference's words in #reference-preview-text inside #reference-preview,
+// and loads the viewer from the page's /static/embedpdf/. It takes the page's hooks DEFAULTS
+// lists. Its look is pdf-theme.js, the presses it reads first pdf-touch.js, and the marks on its
+// pages pdf-marks.js. A page holds none of what the view holds: it reads it, and changes it,
+// through the view createPdfView gives.
 //
-// createPdfView takes digest(), the digest of the PDF to show; comments, the comment panel as
-// pdf-marks.js takes it, with opened(id), whether a comment's card is open; openCompose(anchor,
-// label); showWhereWritten({ page, rects, quote }), which shows words selected on a page where
-// the source writes them (places.js); and scheduleTranslation(delay). It gives attach(),
-// open(view), view(), the place to open the next PDF at, shown(), setTheme(theme), zoomMode() and
-// refit(zoomMode), refitSoon(), loaded(), scrolls(), currentPage(), scrollTo(place),
-// jumpToPage(page), zoomTo(page, bbox), showTarget(target), selectComment(id, page),
-// markComments(), marksReady(), markPlace(page, bbox, rects, look), and compose, the panel's hooks
-// for a comment written on the PDF.
+// Shared by the review pages. It is written in tex-mcp-web, and scripts/share_page.py copies
+// it to the others. A copy is never edited by hand.
 
 import EmbedPDF from "/static/embedpdf/embedpdf.js?v=selection-yellow";
-import { $, clear } from "../shared/dom.js";
-import { viewerTheme, viewerStyle } from "../shared/pdf-theme.js";
-import { attachPdfPresses } from "../shared/pdf-touch.js";
+import { $, clear } from "./dom.js";
+import { viewerTheme, viewerStyle } from "./pdf-theme.js";
+import { attachPdfPresses } from "./pdf-touch.js";
 import { createPdfMarks } from "./pdf-marks.js";
-import { setSidebarCollapsed } from "../shared/sidebar.js";
+import { setSidebarCollapsed } from "./sidebar.js";
 
 const DOCUMENT_ID = "paper";
+
+// The hooks the page gives createPdfView, each with what the view does without it, so a page
+// gives only what it changes. prefix, url, openCompose and the comments' members but showTab are
+// required. A hook is called each time it is needed, so what it answers may change. A name the
+// view does not know is refused.
+const DEFAULTS = {
+  // The page's name for what it adds to the viewer: its classes and attributes there, as
+  // .<prefix>-comment-badge and data-<prefix>-selecting (pdf-theme.js), its Area tool's mode
+  // <prefix>Area, its commands, as <prefix>-web:area, and the ids of its marks.
+  prefix: null,
+  // The address of the PDF open() opens, asked at each open.
+  url: null,
+  // The root of the route a reference clicked is read from, before
+  // /reference-preview?page=&bbox=, which answers { text }.
+  base: () => "",
+  // The comment panel as the view reaches it: marked(), the open comments its highlights and
+  // badges mark; ringed(), the ringed comment's id; opened(id), whether its card is open;
+  // show(id), which shows a comment in the panel; and showTab(), which first brings the panel's
+  // tab into sight.
+  comments: { marked: null, ringed: null, opened: null, show: null, showTab: () => {} },
+  // Opens the new comment dialog on an anchor, with the label it shows (the panel's openCompose).
+  openCompose: null,
+  // The comment Comment opens over words selected on one page, given { page, bbox, rects, quote,
+  // excerpt }: bbox and rects in PDF points, and excerpt the quote's first 80 characters, as a
+  // label quotes it. It answers [anchor, label], as openCompose takes them, or null for none.
+  words: ({ page, bbox, rects, quote, excerpt }) =>
+    [{ kind: "text_selection", quote, selection: { page, bbox, rects } }, `Text on p${page}: "${excerpt}"`],
+  // The comment a box drawn with the Area tool opens, given { page, bbox }: [anchor, label], or
+  // null for none.
+  box: ({ page, bbox }) => [{ kind: "area", page, bbox }, `Area on p${page}`],
+  // Shows words selected on one page in the source they are written in, given { page, rects,
+  // quote }, the quote as the viewer reads its lines, joined by spaces: the Source button over a
+  // selection, and a double click with Cmd (macOS) or Ctrl. Without it neither is there.
+  source: null,
+  // Told as the PDF turns to another page.
+  pageChanged: () => {},
+  // Told once the pages of each PDF opened are laid out, which the first page shown tells no
+  // turn of.
+  layoutReady: () => {},
+};
+
+// The hooks the page gives over the defaults, the comments' over their own. A hook the view does
+// not know is refused, so a misspelt or retired name does not pass unseen.
+function withDefaults(given) {
+  const known = (names, defaults, where) => {
+    for (const name of names) if (!(name in defaults)) throw new Error(`createPdfView: no hook ${where}${name}`);
+  };
+  known(Object.keys(given), DEFAULTS, "");
+  known(Object.keys(given.comments ?? {}), DEFAULTS.comments, "comments.");
+  const host = { ...DEFAULTS, ...given, comments: { ...DEFAULTS.comments, ...given.comments } };
+  for (const name of ["prefix", "url", "openCompose"]) {
+    if (host[name] == null) throw new Error(`createPdfView: ${name} is required`);
+  }
+  for (const name of ["marked", "ringed", "opened", "show"]) {
+    if (host.comments[name] == null) throw new Error(`createPdfView: comments.${name} is required`);
+  }
+  return host;
+}
 
 function rectToBBox(rect) {
   return [
@@ -32,14 +87,33 @@ function rectToBBox(rect) {
   ];
 }
 
-// The Area tool sits with the pan and pointer tools in the viewer's toolbar and is a mode
-// of the viewer as they are. In it a drag on a page draws a box instead of selecting text,
-// and the comment written for the box opens when the drag ends. The tool then gives the
-// pointer back.
-const AREA_MODE = "texArea";
-
-export function createPdfView({ digest, comments, openCompose, showWhereWritten, scheduleTranslation }) {
-  const marks = createPdfMarks({ comments });
+// The view of the page's PDF, which open() draws into #pdf-viewer. `given` is the page's hooks,
+// over DEFAULTS.
+//
+// It gives the view. Its readers each give the value at the moment they are called: shown(),
+// whether a viewer is made; loaded(), whether its PDF is loaded, so that its page can be read and
+// its pages marked; laidOut(), whether its pages are laid out, so that a place on them can be
+// scrolled to; marksReady(), whether the PDF's own annotations are read, so that the place mark
+// can be drawn; currentPage(), the page shown, undefined before a PDF is loaded; view(), the place
+// to open the next PDF at, or null before the pages are laid out; and zoomMode(), the zoom, a mode
+// such as fitting the page's width, or a level. Its commands: attach(); open(at), which opens the
+// PDF url() names afresh, at `at`, a place view() gave, or at its start; setTheme(theme);
+// refit(zoomMode) and refitSoon(), which keep a zoom mode through a change of the room the view
+// has; scrollTo(place), as EmbedPDF's scrollToPage takes it; jumpToPage(page); zoomTo(page,
+// bbox), the page zoomed to a box on it in PDF points, or brought to the middle without one;
+// selectComment(id, page); markComments(), the comments marked() gives drawn again;
+// markPlace(page, bbox, rects, { opacity, color, contents }), the one mark that shows a place,
+// which the next press anywhere takes away; outline(page, bbox, ms), a box outlined for ms
+// milliseconds; and clearSelection().
+export function createPdfView(given) {
+  const host = withDefaults(given);
+  const { prefix, comments } = host;
+  const marks = createPdfMarks({ prefix, comments });
+  // The Area tool sits with the pan and pointer tools in the viewer's toolbar and is a mode
+  // of the viewer as they are. In it a drag on a page draws a box instead of selecting text,
+  // and the comment written for the box opens when the drag ends. The tool then gives the
+  // pointer back.
+  const AREA_MODE = `${prefix}Area`;
   const state = {
     viewer: null,
     selection: null,
@@ -51,11 +125,6 @@ export function createPdfView({ digest, comments, openCompose, showWhereWritten,
     referencePreviewRequest: 0,
     lastViewerPointer: null,
   };
-
-  function pdfUrl() {
-    const version = digest() ?? Date.now().toString();
-    return `/pdf?v=${encodeURIComponent(version)}`;
-  }
 
   function capturePdfView() {
     if (!state.layoutReady || !state.scroll || !state.zoom) return null;
@@ -76,8 +145,8 @@ export function createPdfView({ digest, comments, openCompose, showWhereWritten,
   async function initializePdfViewer(pdfView) {
     marks.stop();
     hideReferencePreview();
-    const host = $("#pdf-viewer");
-    clear(host);
+    const target = $("#pdf-viewer");
+    clear(target);
     state.selection = null;
     state.areaMode = false;
     state.annotations = null;
@@ -87,7 +156,7 @@ export function createPdfView({ digest, comments, openCompose, showWhereWritten,
 
     state.viewer = EmbedPDF.init({
       type: "container",
-      target: host,
+      target,
       wasmUrl: "/static/embedpdf/pdfium.wasm",
       worker: false,
       fonts: { ui: null, signature: null },
@@ -98,7 +167,7 @@ export function createPdfView({ digest, comments, openCompose, showWhereWritten,
       // viewer's style), so a phone starts in the mode that also selects.
       pan: { defaultMode: "never" },
       documentManager: {
-        initialDocuments: [{ url: pdfUrl(), documentId: DOCUMENT_ID }],
+        initialDocuments: [{ url: host.url(), documentId: DOCUMENT_ID }],
       },
       annotations: { autoCommit: false, selectAfterCreate: false },
       stamp: { manifests: [] },
@@ -113,9 +182,9 @@ export function createPdfView({ digest, comments, openCompose, showWhereWritten,
 
     const registry = await state.viewer.registry;
     const style = document.createElement("style");
-    style.textContent = viewerStyle("tex");
+    style.textContent = viewerStyle(prefix);
     state.viewer.shadowRoot.appendChild(style);
-    state.viewer.setAttribute("data-tex-theme", document.documentElement.dataset.theme);
+    state.viewer.setAttribute(`data-${prefix}-theme`, document.documentElement.dataset.theme);
     state.viewer.shadowRoot.addEventListener("pointerdown", (event) => {
       state.lastViewerPointer = { x: event.clientX, y: event.clientY };
     }, { capture: true });
@@ -128,44 +197,47 @@ export function createPdfView({ digest, comments, openCompose, showWhereWritten,
 
     state.selection = selectionCapability.forDocument(DOCUMENT_ID);
     installAreaTool(registry, selectionCapability, commands, ui);
-    state.selection.onBeginSelection(() => state.viewer.setAttribute("data-tex-selecting", ""));
-    state.selection.onEndSelection(() => state.viewer.removeAttribute("data-tex-selecting"));
-    const root = state.viewer.shadowRoot;
-    // Cmd (macOS) or Ctrl + double click: the double click selects the word as usual,
-    // and Source opens it beside the PDF.
-    root.addEventListener("dblclick", (event) => {
-      if (!event.metaKey && !event.ctrlKey) return;
-      setTimeout(() => openSelectionInSource()
-        .catch((error) => alert(`Could not open the source: ${error.message}`)), 120);
-    });
-    attachPdfPresses(state.viewer, () => state.areaMode, "tex");
+    state.selection.onBeginSelection(() => state.viewer.setAttribute(`data-${prefix}-selecting`, ""));
+    state.selection.onEndSelection(() => state.viewer.removeAttribute(`data-${prefix}-selecting`));
+    if (host.source) {
+      // Cmd (macOS) or Ctrl + double click: the double click selects the word as usual,
+      // and Source shows it where it is written.
+      state.viewer.shadowRoot.addEventListener("dblclick", (event) => {
+        if (!event.metaKey && !event.ctrlKey) return;
+        setTimeout(() => openSelectionInSource().catch(sourceFailed), 120);
+      });
+    }
+    attachPdfPresses(state.viewer, () => state.areaMode, prefix);
     state.annotations = annotationCapability.forDocument(DOCUMENT_ID);
     marks.start(state.viewer, state.annotations);
     state.scroll = scrollCapability.forDocument(DOCUMENT_ID);
-    state.scroll.onPageChange(() => scheduleTranslation(600));
+    state.scroll.onPageChange(() => host.pageChanged());
     state.zoom = zoomCapability.forDocument(DOCUMENT_ID);
 
     commands.registerCommand({
-      id: "tex-web:comment-selection",
+      id: `${prefix}-web:comment-selection`,
       label: "Comment",
       icon: "comment",
       action: openTextSelectionCompose,
     });
-    state.viewer.registerIcon("tex-source", { viewBox: "0 0 24 24", path: "M8 7l-5 5 5 5 M16 7l5 5-5 5", strokeWidth: 2 });
-    commands.registerCommand({
-      id: "tex-web:selection-source",
-      label: "Source",
-      icon: "tex-source",
-      action: () => openSelectionInSource().catch((error) => alert(`Could not open the source: ${error.message}`)),
-    });
     const item = (id, commandId) => ({ type: "command-button", id, commandId, variant: "icon-text" });
+    const items = [item(`${prefix}-web-comment-selection`, `${prefix}-web:comment-selection`)];
+    if (host.source) {
+      state.viewer.registerIcon(`${prefix}-source`, { viewBox: "0 0 24 24", path: "M8 7l-5 5 5 5 M16 7l5 5-5 5", strokeWidth: 2 });
+      commands.registerCommand({
+        id: `${prefix}-web:selection-source`,
+        label: "Source",
+        icon: `${prefix}-source`,
+        action: () => openSelectionInSource().catch(sourceFailed),
+      });
+      items.push(item(`${prefix}-web-selection-source`, `${prefix}-web:selection-source`));
+    }
     ui.mergeSchema({
       selectionMenus: {
         selection: {
           id: "selection",
-          visibilityDependsOn: { itemIds: ["tex-web-comment-selection"] },
-          items: [item("tex-web-comment-selection", "tex-web:comment-selection"),
-            item("tex-web-selection-source", "tex-web:selection-source")],
+          visibilityDependsOn: { itemIds: [`${prefix}-web-comment-selection`] },
+          items,
         },
       },
     });
@@ -183,7 +255,7 @@ export function createPdfView({ digest, comments, openCompose, showWhereWritten,
       if (commentId) {
         setSidebarCollapsed(false);
         comments.showTab();
-        const comment = comments.marked().find((item) => item.id === commentId);
+        const comment = comments.marked().find((each) => each.id === commentId);
         // The comment the list has just opened and shown here is left as the list has it.
         if (comment && !(comment.id === comments.ringed() && comments.opened(comment.id))) {
           comments.show(comment.id).catch((error) => console.error(error));
@@ -200,7 +272,7 @@ export function createPdfView({ digest, comments, openCompose, showWhereWritten,
     scrollCapability.onLayoutReady((event) => {
       if (event.documentId !== DOCUMENT_ID) return;
       state.layoutReady = true;
-      scheduleTranslation(0);   // asked for before the pages existed, and page 1 fires no change
+      host.layoutReady();
       if (pdfView && event.totalPages > 0) {
         state.zoom.requestZoom(pdfView.zoomLevel);
         state.scroll.scrollToPage({
@@ -249,7 +321,7 @@ export function createPdfView({ digest, comments, openCompose, showWhereWritten,
       page: String(annotation.pageIndex + 1),
       bbox: bbox.join(","),
     });
-    const response = await fetch(`/reference-preview?${params}`);
+    const response = await fetch(`${host.base()}/reference-preview?${params}`);
     if (requestId !== state.referencePreviewRequest || !response.ok) return;
     const result = await response.json();
     if (requestId !== state.referencePreviewRequest) return;
@@ -263,7 +335,7 @@ export function createPdfView({ digest, comments, openCompose, showWhereWritten,
   }
 
   async function openTextSelectionCompose() {
-    if (!state.selection || !digest()) return;
+    if (!state.selection) return;
     const formatted = state.selection.getFormattedSelection();
     if (formatted.length === 0) return;
     if (formatted.length !== 1) {
@@ -274,21 +346,15 @@ export function createPdfView({ digest, comments, openCompose, showWhereWritten,
     const quote = lines.join(" ").replace(/\s+/g, " ").trim();
     if (!quote) return;
 
-    const formattedSelection = formatted[0];
-    const selection = {
-      page: formattedSelection.pageIndex + 1,
-      bbox: rectToBBox(formattedSelection.rect),
-      rects: formattedSelection.segmentRects.map(rectToBBox),
-    };
-    openCompose(
-      {
-        kind: "text_selection",
-        quote,
-        selection,
-        pdf_digest: digest(),
-      },
-      `PDF text: "${quote.slice(0, 80)}${quote.length > 80 ? "…" : ""}"`,
-    );
+    const [{ pageIndex, rect, segmentRects }] = formatted;
+    const comment = host.words({
+      page: pageIndex + 1,
+      bbox: rectToBBox(rect),
+      rects: segmentRects.map(rectToBBox),
+      quote,
+      excerpt: `${quote.slice(0, 80)}${quote.length > 80 ? "…" : ""}`,
+    });
+    if (comment) host.openCompose(...comment);
   }
 
 
@@ -298,7 +364,7 @@ export function createPdfView({ digest, comments, openCompose, showWhereWritten,
     const scope = interaction.forDocument(DOCUMENT_ID);
     interaction.onModeChange(({ activeMode }) => {
       state.areaMode = activeMode === AREA_MODE;
-      state.viewer.toggleAttribute("data-tex-area", state.areaMode);
+      state.viewer.toggleAttribute(`data-${prefix}-area`, state.areaMode);
       if (!state.areaMode) return;
       // The document's modes exist once it has loaded, which it has by the time a tool is picked.
       selectionCapability.enableForMode(AREA_MODE, {
@@ -311,20 +377,18 @@ export function createPdfView({ digest, comments, openCompose, showWhereWritten,
       // A click, not a box.
       if (rect.size.width < 4 || rect.size.height < 4) return;
       scope.activateDefaultMode();
-      openCompose(
-        { kind: "area", page: pageIndex + 1, bbox: rectToBBox(rect), pdf_digest: digest() },
-        `PDF area on p${pageIndex + 1}`,
-      );
+      const comment = host.box({ page: pageIndex + 1, bbox: rectToBBox(rect) });
+      if (comment) host.openCompose(...comment);
     });
-    state.viewer.registerIcon("tex-area", {
+    state.viewer.registerIcon(`${prefix}-area`, {
       viewBox: "0 0 24 24",
       path: "M3 9V3h6 M15 3h6v6 M21 15v6h-6 M9 21H3v-6 M8 12h8 M12 8v8",
       strokeWidth: 2,
     });
     commands.registerCommand({
-      id: "tex-web:area",
+      id: `${prefix}-web:area`,
       label: "Draw a box to comment on",
-      icon: "tex-area",
+      icon: `${prefix}-area`,
       categories: ["tools"],
       action: () => (scope.getActiveMode() === AREA_MODE ? scope.activateDefaultMode() : scope.activate(AREA_MODE)),
       active: ({ state: viewerState, documentId }) =>
@@ -333,7 +397,7 @@ export function createPdfView({ digest, comments, openCompose, showWhereWritten,
     const toolbar = ui.getSchema().toolbars["main-toolbar"];
     const items = toolbar.items.map((item) => item.id !== "center-group" ? item : {
       ...item,
-      items: [...item.items, { type: "command-button", id: "area-button", commandId: "tex-web:area", variant: "icon" }],
+      items: [...item.items, { type: "command-button", id: "area-button", commandId: `${prefix}-web:area`, variant: "icon" }],
     });
     // One rule at every width. The viewer's own rules took the pan, pointer and zoom buttons
     // into a menu below 500px, as on a phone, where this bar has room for all of them.
@@ -346,19 +410,22 @@ export function createPdfView({ digest, comments, openCompose, showWhereWritten,
     ui.mergeSchema({ toolbars: { "main-toolbar": { items, responsive: { breakpoints: { everyWidth } } } } });
   }
 
-  // Source opens the editor beside the Preview, in Split, where SyncTeX says the selected
-  // lines come from, and selects the words there.
+  // Source shows the selected lines where they are written, and selects the words there.
   async function openSelectionInSource() {
-    if (!state.selection || !digest()) return;
+    if (!state.selection) return;
     const formatted = state.selection.getFormattedSelection();
     if (formatted.length !== 1) {
       alert("Select text on one page at a time.");
       return;
     }
     const quote = (await state.selection.getSelectedText().toPromise()).join(" ");
-    await showWhereWritten({
+    await host.source({
       page: formatted[0].pageIndex + 1, rects: formatted[0].segmentRects.map(rectToBBox), quote,
     });
+  }
+
+  function sourceFailed(error) {
+    alert(`Could not open the source: ${error.message}`);
   }
 
 
@@ -386,16 +453,8 @@ export function createPdfView({ digest, comments, openCompose, showWhereWritten,
     });
   }
 
-  function showGotoTarget(target) {
-    if (!target.page) return;
-    positionPdfTarget(target.page, target.bbox);
-    if (!target.bbox || !marks.ready()) return;
-    marks.place(target.page, target.bbox, target.rects ?? [target.bbox],
-      { opacity: 0.55, color: "#fbdc00", contents: target.quote ?? "" });
-  }
-
-  // The Preview keeps its zoom mode, such as fitting the page width, through a change of the
-  // room it has.
+  // The view keeps its zoom mode, such as fitting the page width, through a change of the room
+  // it has.
   function refitPdf() {
     const zoomMode = state.zoom?.getState().zoomLevel;
     requestAnimationFrame(() => { if (typeof zoomMode === "string") state.zoom?.requestZoom(zoomMode); });
@@ -404,7 +463,7 @@ export function createPdfView({ digest, comments, openCompose, showWhereWritten,
   function setTheme(theme) {
     state.viewer?.setTheme?.(viewerTheme(theme));
     // The viewer's scroll bars take the page's scheme, which its own theme does not set.
-    state.viewer?.setAttribute("data-tex-theme", theme);
+    state.viewer?.setAttribute(`data-${prefix}-theme`, theme);
   }
 
   function attach() {
@@ -422,43 +481,25 @@ export function createPdfView({ digest, comments, openCompose, showWhereWritten,
   }
 
   return {
+    shown: () => Boolean(state.viewer),
+    loaded: () => Boolean(state.scroll && state.annotations),
+    laidOut: () => state.layoutReady && Boolean(state.scroll),
+    marksReady: marks.ready,
+    currentPage: () => state.scroll?.getCurrentPage(),
+    view: capturePdfView,
+    zoomMode: () => state.zoom?.getState().zoomLevel,
     attach,
     open: initializePdfViewer,
-    view: capturePdfView,
-    shown: () => Boolean(state.viewer),
     setTheme,
-    zoomMode: () => state.zoom?.getState().zoomLevel,
     refit: (zoomMode) => { if (typeof zoomMode === "string") state.zoom?.requestZoom(zoomMode); },
     refitSoon: refitPdf,
-    loaded: () => Boolean(state.scroll && state.annotations),
-    scrolls: () => Boolean(state.scroll),
-    currentPage: () => state.scroll.getCurrentPage(),
     scrollTo: (place) => state.scroll?.scrollToPage(place),
     jumpToPage,
     zoomTo: positionPdfTarget,
-    showTarget: showGotoTarget,
     selectComment: marks.select,
     markComments: marks.sync,
-    marksReady: marks.ready,
     markPlace: marks.place,
-    // The panel's hooks for a comment written on the PDF.
-    compose: {
-      // The PDF the selection was made on is being rebuilt, or was rebuilt since: a comment is
-      // placed only on a selection made on the PDF the server has. What was written waits in the
-      // comment box for the next selection.
-      refused: (refusal, body) => {
-        if (refusal.reason !== "rebuilding" && refusal.reason !== "rebuilt") return null;
-        const redo = body.anchor.kind === "area" ? "draw the box again" : "select the text again";
-        return { keep: true, say: refusal.reason === "rebuilding"
-          ? `The PDF is being rebuilt, so this comment can't be placed on it yet. When the new PDF appears, ${redo}. `
-            + "What you wrote will still be in the comment box."
-          : `The PDF was rebuilt after you made this selection, so the comment wasn't posted. Please ${redo}. `
-            + "What you wrote will still be in the comment box." };
-      },
-      // The selection the dialog was opened on goes, and the viewer's bubble with it.
-      closed: () => {
-        if (state.selection) state.selection.clear();
-      },
-    },
+    outline: marks.outline,
+    clearSelection: () => state.selection?.clear(),
   };
 }

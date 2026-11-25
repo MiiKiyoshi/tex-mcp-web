@@ -34,7 +34,8 @@ def test_the_shared_files_go_to_another_package_with_a_manifest_of_their_digests
                           "comment-compose.js", "comment-panel.css", "comment-keys.js", "agent-bell.js",
                           "agent-bell.css", "help.js", "help.css", "tab-strip.js", "tab-strip.css", "markdown.js",
                           "update.js", "update.css", "page-zoom.js", "panel-grips.js", "panel-grips.css",
-                          "socket.js", "sidebar.js", "page-keys.js", "pdf-touch.js", "pdf-theme.js"},
+                          "socket.js", "sidebar.js", "page-keys.js", "pdf-touch.js", "pdf-theme.js",
+                          "pdf-view.js", "pdf-marks.js"},
         "shared": {"__init__.py", "tool.py", "shared_file.py", "filelock.py", "agents.py", "calls.py",
                    "plugin_monitor.py", "monitor.py", "waiter.py", "update.py"},
     }

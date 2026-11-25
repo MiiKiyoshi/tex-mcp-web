@@ -1,30 +1,27 @@
-// The marks the page draws on the PDF's pages: each open comment's highlight, with its numbered
-// badge beside it, and the one mark that shows a place, as the agent's goto, the words selected
-// in the editor or a line from Problems do.
+// The marks a review page's PDF view (pdf-view.js) draws on the PDF's pages: each open comment's
+// highlight, with its numbered badge beside it, faint red where the comment's words are gone; the
+// one mark that shows a place; and a box outlined for a moment.
 //
-// createPdfMarks takes comments: marked(), the open comments of the comment tab shown; ringed(),
-// the ringed one; showTab() and show(id), which show a comment in the panel. It gives start(viewer,
-// annotations) as a PDF is shown, stop() before another is, loaded(), once the PDF's own
-// annotations are read, sync(), commentOf(uid), the comment a highlight is of, select(id, page),
-// place(page, bbox, rects, look), clearPlace(), and ready(), whether marks can be drawn.
+// createPdfMarks takes prefix, the page's name for its classes and ids in the viewer, as
+// pdf-view.js takes it; and comments, the comment panel as pdf-view.js takes it. It gives
+// start(viewer, annotations) as a PDF is shown, stop() before another is, loaded(), once the
+// PDF's own annotations are read, sync(), commentOf(uid), the comment a highlight is of,
+// select(id, page), place(page, bbox, rects, look), clearPlace(), outline(page, bbox, ms), and
+// ready(), whether marks can be drawn.
+//
+// Shared by the review pages. It is written in tex-mcp-web, and scripts/share_page.py copies
+// it to the others. A copy is never edited by hand.
 
 // The same specifier as pdf-view.js's, so that both have the one module.
-import { PdfAnnotationSubtype } from "/static/embedpdf/embedpdf.js?v=selection-yellow";
-import { $ } from "../shared/dom.js";
-import { setSidebarCollapsed } from "../shared/sidebar.js";
-
-const ANNOTATION_PREFIX = "tex-web:";
-const GOTO_ANNOTATION_ID = "tex-web-goto";
+import { PdfAnnotationBorderStyle, PdfAnnotationSubtype } from "/static/embedpdf/embedpdf.js?v=selection-yellow";
+import { $ } from "./dom.js";
+import { setSidebarCollapsed } from "./sidebar.js";
 
 function bboxToRect([x1, y1, x2, y2]) {
   return {
     origin: { x: x1, y: y1 },
     size: { width: x2 - x1, height: y2 - y1 },
   };
-}
-
-function annotationId(commentId, page) {
-  return `${ANNOTATION_PREFIX}${commentId}:p${page}`;
 }
 
 function annotationPage(layer) {
@@ -40,16 +37,13 @@ function annotationPage(layer) {
   return null;
 }
 
-function commentSegments(layer) {
-  return Array.from(layer.querySelectorAll("div")).filter((node) =>
-    node.classList.contains("tex-comment-segment")
-      || (node.style.position === "absolute"
-        && node.style.zIndex === "1"
-        && node.style.cursor === "pointer"
-        && (node.style.opacity === "0.2" || node.style.opacity === "0.35")));
-}
-
-export function createPdfMarks({ comments }) {
+export function createPdfMarks({ prefix, comments }) {
+  // The ids of the comments' highlights start with this, and the place's and an outline's are
+  // apart from it, so that drawing the highlights again leaves those.
+  const ANNOTATION_PREFIX = `${prefix}-web:`;
+  const GOTO_ANNOTATION_ID = `${prefix}-web-goto`;
+  const BADGE = `${prefix}-comment-badge`;
+  const SEGMENT = `${prefix}-comment-segment`;
   const state = {
     viewer: null,
     annotations: null,
@@ -59,6 +53,19 @@ export function createPdfMarks({ comments }) {
     badgeFrame: null,
   };
 
+  function annotationId(commentId, page) {
+    return `${ANNOTATION_PREFIX}${commentId}:p${page}`;
+  }
+
+  function commentSegments(layer) {
+    return Array.from(layer.querySelectorAll("div")).filter((node) =>
+      node.classList.contains(SEGMENT)
+        || (node.style.position === "absolute"
+          && node.style.zIndex === "1"
+          && node.style.cursor === "pointer"
+          && (node.style.opacity === "0.2" || node.style.opacity === "0.35")));
+  }
+
   function start(viewer, annotations) {
     state.viewer = viewer;
     state.annotations = annotations;
@@ -66,11 +73,11 @@ export function createPdfMarks({ comments }) {
     state.annotationObserver = new MutationObserver((records) => {
       const onlyOwnedChanges = records.every((record) => {
         if (record.type === "attributes") {
-          return record.target.classList.contains("tex-comment-badge")
-            || record.target.classList.contains("tex-comment-segment");
+          return record.target.classList.contains(BADGE)
+            || record.target.classList.contains(SEGMENT);
         }
         return [...record.addedNodes, ...record.removedNodes].every((node) =>
-          node.nodeType === Node.ELEMENT_NODE && node.classList.contains("tex-comment-badge"));
+          node.nodeType === Node.ELEMENT_NODE && node.classList.contains(BADGE));
       });
       if (!onlyOwnedChanges) scheduleCommentBadges();
     });
@@ -141,19 +148,19 @@ export function createPdfMarks({ comments }) {
       if (plan === undefined || segments.length < plan.segments) continue;
       const frame = segments[0]?.parentElement?.parentElement;
       for (const segment of segments.slice(0, plan.segments)) {
-        segment.classList.add("tex-comment-segment");
+        segment.classList.add(SEGMENT);
         segment.style.pointerEvents = "none";
         segment.style.cursor = "text";
       }
       if (!frame) continue;
       shown.add(plan.comment.id);
       let badge = layer.querySelector(
-        `.tex-comment-badge[data-comment-id="${CSS.escape(plan.comment.id)}"]`,
+        `.${BADGE}[data-comment-id="${CSS.escape(plan.comment.id)}"]`,
       );
       if (badge === null) {
         badge = document.createElement("button");
         badge.type = "button";
-        badge.className = "tex-comment-badge";
+        badge.className = BADGE;
         badge.dataset.commentId = plan.comment.id;
         badge.addEventListener("pointerdown", (event) => event.stopPropagation());
         // A click shows the comment in the panel, and a second click on the badge of the comment
@@ -181,7 +188,7 @@ export function createPdfMarks({ comments }) {
       badge.style.top = `${Math.max(0, parseFloat(frame.style.top) - 1 / scale)}px`;
       badge.style.transform = `scale(${1 / scale})`;
     }
-    for (const badge of state.viewer.shadowRoot.querySelectorAll(".tex-comment-badge")) {
+    for (const badge of state.viewer.shadowRoot.querySelectorAll(`.${BADGE}`)) {
       if (!shown.has(badge.dataset.commentId)) badge.remove();
     }
   }
@@ -225,7 +232,7 @@ export function createPdfMarks({ comments }) {
           opacity: stale ? 0.2 : 0.35,
           strokeColor: stale ? "#b44a43" : "#fbdc00",
           contents: comment.thread[0]?.text ?? "",
-          custom: { texWebCommentId: comment.id },
+          custom: { [`${prefix}WebCommentId`]: comment.id },
         });
       }
     }
@@ -264,8 +271,28 @@ export function createPdfMarks({ comments }) {
     });
   }
 
+  // A box on a page outlined for `ms` milliseconds, a little outside it.
+  function outline(page, [x1, y1, x2, y2], ms) {
+    if (!state.annotations) return;
+    const id = `${prefix}-web-block:${page}:${performance.now()}`;
+    state.annotations.createAnnotation(page - 1, {
+      id,
+      pageIndex: page - 1,
+      type: PdfAnnotationSubtype.SQUARE,
+      rect: bboxToRect([x1 - 3, y1 - 3, x2 + 3, y2 + 3]),
+      strokeColor: "#c27c0e",
+      strokeWidth: 2,
+      strokeStyle: PdfAnnotationBorderStyle.SOLID,
+      strokeDashArray: [],
+      color: "transparent",
+      opacity: 1,
+      flags: [],
+    });
+    setTimeout(() => state.annotations?.purgeAnnotation(page - 1, id), ms);
+  }
+
   return {
-    start, stop, loaded, select, place,
+    start, stop, loaded, select, place, outline,
     sync: syncCommentAnnotations,
     commentOf: (uid) => state.annotationCommentById.get(uid),
     clearPlace: clearGotoHighlight,
