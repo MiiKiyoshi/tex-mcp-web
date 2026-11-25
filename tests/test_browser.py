@@ -882,6 +882,82 @@ def test_the_page_says_why_it_waits_and_catches_up_when_its_server_returns(tmp_p
         shared.stop()
 
 
+@needs_browser
+def test_a_call_taken_while_the_page_cannot_hear_its_server_is_not_said_to_wait(tmp_path: Path, monkeypatch) -> None:
+    """A press no agent hears is queued, which the note above the list says until an agent
+    listens. An agent may take the press while the page's socket is not open: before it first
+    opens, on a page slow to load, or while it is closed, as when the server starts again or the
+    computer sleeps. The page then hears no waiter come or go, and once its socket opens it hears
+    that nothing is queued, and the note goes. So it does for an agent the configuration names."""
+    import asyncio
+    import threading
+
+    from tex_mcp_web.server import TexMcpWebServer
+
+    # The page's socket opens only while the test lets it.
+    letting = threading.Event()
+    serve_socket = TexMcpWebServer._handle_ws
+
+    async def held(self, request):
+        while not letting.is_set():
+            await asyncio.sleep(0.05)
+        return await serve_socket(self, request)
+
+    monkeypatch.setattr(TexMcpWebServer, "_handle_ws", held)
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nport: {port}\nagents:\n  second:\n", encoding="utf-8")
+    (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    base = f"http://127.0.0.1:{port}"
+    browser = None
+    script = lambda code: browser.execute_script(code)
+    note = lambda: script('const note = document.querySelector("#call-agent-why"); return note.hidden ? null : note.textContent')
+    queued = ("No agent is listening yet, so the call is queued. Claude Code listens when started in the "
+              "paper's folder. In Codex, send “do tex listen”.")
+    take = lambda lane: urllib.request.urlopen(f"{base}/wait-review?{lane}listener=one&pid={os.getpid()}", timeout=10).read()
+
+    def press() -> None:
+        wait_until(lambda: script('const bell = document.querySelector("#call-agent-btn");'
+                                  ' return bell.offsetWidth > 0 && !bell.disabled'))
+        script('document.querySelector("#call-agent-btn").click()')
+        wait_until(lambda: note() == queued)
+
+    try:
+        shared.ensure()
+        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        browser = chrome.launch()
+        browser.navigate(base)
+        # Pressed before the socket first opens, the bell queues the call, and an agent takes it.
+        press()
+        assert take("").startswith(b"[review]")
+        assert not shared.server.websockets
+        letting.set()
+        wait_until(lambda: shared.server.websockets and note() is None)
+
+        # The socket closes, and an agent the configuration names takes the call made for it.
+        script('const pick = document.querySelector("#call-agent-select"); pick.value = "second";'
+               ' pick.dispatchEvent(new Event("change", {bubbles: true}));')
+        press()
+        letting.clear()
+
+        async def drop() -> None:
+            for page in list(shared.server.websockets):
+                await page.close()
+
+        asyncio.run_coroutine_threadsafe(drop(), shared.loop).result(5)
+        wait_until(lambda: not shared.server.websockets)
+        assert take("agent=second&").startswith(b"[review]")
+        assert not shared.server.websockets
+        letting.set()
+        wait_until(lambda: shared.server.websockets and note() is None)
+    finally:
+        letting.set()
+        if browser is not None:
+            browser.quit()
+        shared.stop()
+
+
 def write_page_pdf(path: Path, width: float, height: float, line: str) -> None:
     """A PDF of one page with words to comment on, always at one place, and *line* under
     them, which tells one build's PDF from another's."""

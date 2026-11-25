@@ -4329,9 +4329,10 @@ async def test_an_agent_the_configuration_names_waits_in_a_lane_of_its_own(clien
     assert refused.status == 400 and server.review.lanes["second"].calls == 1
     await test_client.post("/review-request", json={"agent": "second"})
     assert server.review.lanes["second"].choice == {"model": "small", "effort": "low"}
-    # The page is told of every lane, with what a press for it picks from.
+    # The page is told of every lane, with whether a press waits for its waiter and what a press
+    # for it picks from.
     assert server.review.page_lanes()["second"] == {
-        "waiters": 0, "models": ["small", "large"], "efforts": ["low", "high"]}
+        "waiters": 0, "queued": True, "models": ["small", "large"], "efforts": ["low", "high"]}
     # Kept across a restart, as the listening session's are.
     again = TexMcpWebServer(server.config)
     lane = again.review.lane("second")

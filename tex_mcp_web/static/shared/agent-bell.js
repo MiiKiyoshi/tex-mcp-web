@@ -245,12 +245,18 @@ export function createAgentBell(given, { prefix, row, noteBefore, fit }) {
 
   return {
     attach,
-    // What the page hears: `waiters`, how many sessions listen; `lanes`, the agents the server
-    // names beside them, { name: { waiters, models, efforts } }; and `gone`, whether the page
-    // cannot reach its server. What is left out stays as it was.
-    show({ waiters: listening, lanes: named, gone: away } = {}) {
+    // What the page hears: `waiters`, how many sessions listen; `queued`, whether a press for
+    // them still waits for a waiter to be handed it; `lanes`, the agents the server names beside
+    // them, { name: { waiters, queued, models, efforts } }; and `gone`, whether the page cannot
+    // reach its server. What is left out stays as it was. An agent may take a call while the
+    // page cannot hear its server, and the note that the call is queued goes once the page hears
+    // that nothing is queued for the agent picked. That is read only as it is heard, so that it
+    // never takes away the note of a later press.
+    show({ waiters: listening, queued, lanes: named, gone: away } = {}) {
       if (listening !== undefined) waiters = listening;
       if (away !== undefined) gone = away;
+      const picked = $("#call-agent-select").value;
+      if ((picked ? named?.[picked]?.queued : queued) === false) callWaits = false;
       if (named === undefined) {
         renderBell();
       } else {

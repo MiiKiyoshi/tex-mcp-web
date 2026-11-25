@@ -398,7 +398,7 @@ async function handleWebSocketMessage(message) {
       break;
     case "state":
       build.heardState(message);
-      panel.bell.show({ lanes: message.lanes, waiters: message.review_waiters });
+      panel.bell.show({ lanes: message.lanes, waiters: message.review_waiters, queued: message.review_queued });
       // A build that ended after the page first read the paper and before its socket opened
       // left a PDF the page has not shown. A page that reconnects catches up as it opens.
       if (socket.closes() === 0 && message.pdf_digest !== paper.digest()) await catchUp();

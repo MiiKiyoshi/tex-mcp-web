@@ -866,6 +866,7 @@ class TexMcpWebServer:
                 "result": _result_to_dict(self.last_result),
                 "pdf_digest": self.pdf_digest,
                 "review_waiters": self.review.waiters,
+                "review_queued": self.review.queued,
                 "lanes": self.review.page_lanes(),
             }
         )

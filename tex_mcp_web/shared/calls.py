@@ -25,16 +25,23 @@ from . import plugin_monitor, shared_file
 
 class Lane:
     """The presses for one agent the configuration names: how many were made, how many its
-    waiter took, and the model and effort picked at the last, kept across a restart."""
+    waiter took, and the model and effort picked at the last, kept across a restart, and the
+    last its waiter was handed, which a restart forgets."""
 
     def __init__(self, name: str, path: Path) -> None:
         self.name, self.path = name, path
         self.calls, self.consumed, self.choice = 0, 0, {}
+        self.handed = 0
         self.called = asyncio.Event()
         self.waiters = 0
         if path.is_file():
             data = json.loads(shared_file.read_text(path))
             self.calls, self.consumed, self.choice = int(data["calls"]), int(data["consumed"]), dict(data["choice"])
+
+    @property
+    def queued(self) -> bool:
+        """Whether a press waits for the agent's waiter to be handed it."""
+        return self.calls > max(self.consumed, self.handed)
 
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -68,6 +75,10 @@ class Calls:
         self.agents, self.review_line, self.broadcast, self.on_press = agents, review_line, broadcast, on_press
         self.state_path = records / "review-state.json"
         self.calls, self.consumed = self._load()
+        # The last press a waiter was handed. A press is offered again until its waiter
+        # acknowledges it, and a page that did not hear the waiter come learns from this that
+        # an agent took it. A restarted server has handed none.
+        self.handed = 0
         self.called = asyncio.Event()
         self.waiters = 0
         # An agent the configuration names has a lane of its own beside the one listening
@@ -83,6 +94,11 @@ class Calls:
         self.listener_session: int | None = None
         self.listener_claimed = 0.0
         self.closing = False
+
+    @property
+    def queued(self) -> bool:
+        """Whether a press waits for the listening session's waiter to be handed it."""
+        return self.calls > max(self.consumed, self.handed)
 
     def add_routes(self, app: web.Application) -> None:
         app.router.add_post("/review-request", self._handle_press)
@@ -123,7 +139,8 @@ class Calls:
 
     def page_lanes(self) -> dict[str, dict[str, Any]]:
         """What the page shows of each agent the bell can call beside the session listening."""
-        return {name: {"waiters": self.lane(name).waiters, "models": agent["models"], "efforts": agent["efforts"]}
+        return {name: {"waiters": self.lane(name).waiters, "queued": self.lane(name).queued,
+                       "models": agent["models"], "efforts": agent["efforts"]}
                 for name, agent in self.agents().items()}
 
     async def _lane_press(self, lane: Lane, body: dict[str, Any]) -> web.Response:
@@ -159,6 +176,7 @@ class Calls:
                 except asyncio.TimeoutError:
                     return web.Response(status=204)
             line = self.review_line(lane.calls)
+            lane.handed = lane.calls
             if lane.choice:
                 line += " [" + " ".join(f"{key}={value}" for key, value in lane.choice.items()) + "]"
             return web.Response(text=line, headers={"X-Press": str(lane.calls)})
@@ -256,6 +274,7 @@ class Calls:
                     return web.Response(status=204)
                 if self.closing:
                     return web.Response(status=204)
+            self.handed = self.calls
             return web.Response(text=self.review_line(self.calls), headers={"X-Press": str(self.calls)})
         finally:
             self.waiters -= 1
