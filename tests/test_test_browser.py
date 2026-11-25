@@ -62,7 +62,7 @@ def test_a_browser_a_test_ends_leaves_nothing_in_the_temporary_folder(monkeypatc
         browser.navigate("data:text/html,<p>Nothing is left.</p>")
         assert any(folder.iterdir())
         browser.quit()
-        assert list(folder.iterdir()) == []
+        assert list(folder.iterdir()) == [], browser.ending
 
 
 @needs_browser

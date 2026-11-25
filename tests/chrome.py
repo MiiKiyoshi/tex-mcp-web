@@ -169,16 +169,31 @@ class Chrome:
     def end(self) -> None:
         """Close Chrome as its own Close does, then end its driver. Chrome then removes the
         folder it made in the temporary folder, which it leaves when its driver ends it. It has
-        exited once it waits for its driver to collect it."""
+        exited once it waits for its driver to collect it. How it closed is kept in `ending`:
+        the processes under the driver, what Close answered, and those still running when the
+        driver was ended."""
         try:
             browsers = psutil.Process(self.driver.service.process.pid).children()
+        except psutil.Error:
+            browsers = []
+        self.ending = {"browsers": [browser.pid for browser in browsers], "close": "answered"}
+        # Chrome may close before it answers, and the driver then raises: it is waited for all
+        # the same, since ended by its driver mid-close it leaves its folder.
+        try:
             self.driver.execute_cdp_cmd("Browser.close", {})
-            deadline = time.monotonic() + 5
-            while time.monotonic() < deadline and any(
-                    browser.is_running() and browser.status() != psutil.STATUS_ZOMBIE for browser in browsers):
-                time.sleep(0.05)
-        except Exception:
-            pass
+        except Exception as error:
+            self.ending["close"] = f"{type(error).__name__}: {str(error)[:200]}"
+
+        def running(browser: psutil.Process) -> bool:
+            try:
+                return browser.is_running() and browser.status() != psutil.STATUS_ZOMBIE
+            except psutil.Error:
+                return False
+
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and any(running(browser) for browser in browsers):
+            time.sleep(0.05)
+        self.ending["running"] = [browser.pid for browser in browsers if running(browser)]
         try:
             self.driver.quit()
         except Exception:
