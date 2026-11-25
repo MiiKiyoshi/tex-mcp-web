@@ -7,8 +7,9 @@
 // shows(pane)); pdf (loaded(), scrollTo(place), jumpToPage(page), zoomTo(page, bbox), marksReady(),
 // markPlace(page, bbox, rects, look), selectComment(id, page)); and source (init(), open(file,
 // line), selectQuote(quote, first, last), showPlace(row, column), focus()). It gives
-// showSelectionInSource(selection), for words selected in the Preview;
-// showSelectionInPreview(selection), for words selected in the editor; showLayoutLine(at), for a
+// showSelectionInSource(selection), for words selected in the Preview, and
+// showSelectionInPreview(selection), for words selected in the editor, each of which says itself
+// when it cannot; showLayoutLine(at), for a
 // line of the layout Problems lists; showTarget(target), for the agent's goto; showInSource(file,
 // line), which brings the Source into sight; showLine(file, line), which shows a source line in
 // each view shown; showComment(comment), for a comment shown from the list; and
@@ -62,7 +63,11 @@ export function createPlaces({ digest, workspace, pdf, source }) {
 
   // Words selected on a page of the Preview ({ page, rects, quote }), shown in the editor beside
   // it where SyncTeX says their lines come from, and selected there.
-  async function showSelectionInSource({ page, rects, quote }) {
+  async function showSelectionInSource(selection) {
+    await sourceOf(selection).catch((error) => alert(`Could not open the source: ${error.message}`));
+  }
+
+  async function sourceOf({ page, rects, quote }) {
     const response = await fetch("/synctex/pdf-to-source", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -76,7 +81,11 @@ export function createPlaces({ digest, workspace, pdf, source }) {
   // The words selected in the editor ({ file, line_start, line_end, text }), shown where the
   // Preview prints them, beside the editor in Split, at the zoom the Preview is read at: SyncTeX
   // names the boxes of their lines, and the server finds the printed words in them.
-  async function showSelectionInPreview({ file, line_start, line_end, text }) {
+  async function showSelectionInPreview(selection) {
+    await printedOf(selection).catch((error) => alert(`Could not show it in the Preview: ${error.message}`));
+  }
+
+  async function printedOf({ file, line_start, line_end, text }) {
     if (!pdf.loaded()) return;
     const response = await fetch("/synctex/source-to-pdf-words", {
       method: "POST",

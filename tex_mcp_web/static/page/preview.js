@@ -18,7 +18,7 @@ export function previewHooks({ digest, showWhereWritten, scheduleTranslation }) 
     box: ({ page, bbox }) => [{ kind: "area", page, bbox, pdf_digest: digest() }, `PDF area on p${page}`],
     // Source opens the editor beside the Preview, in Split, where SyncTeX says the selected lines
     // come from, and selects the words there.
-    source: (selection) => (digest() ? showWhereWritten(selection) : undefined),
+    source: (selection) => { if (digest()) showWhereWritten(selection); },
     pageChanged: () => scheduleTranslation(600),
     // Asked for before the pages existed, and page 1 fires no change.
     layoutReady: () => scheduleTranslation(0),

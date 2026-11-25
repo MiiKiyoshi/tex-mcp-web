@@ -679,7 +679,15 @@ def hook_used(modules: dict[str, Module], call: Call, hook: str) -> bool | None:
             continue  # destructured from the hooks: `{ a, b }`
         else:
             return True
-    return False if seen else None
+    if seen:
+        return False
+    # A factory that hands its hooks on to the parts it makes, as `host`, calls them there.
+    calls = [(other, i) for other in [module] + [modules[t["target"]] for t in module.imports if t["target"] in modules]
+             for i in range(2, len(other.tokens)) if other.tokens[i].value == hook
+             and other.value(i - 1) in (".", "?.") and other.value(i + 1) == "(" and other.tokens[i - 2].kind == "id"]
+    if not calls:
+        return None
+    return any(value_used(other, i - 2, other.pair[i + 1]) for other, i in calls)
 
 
 def spread_call(module: Module, name: str, first: int) -> tuple[Call, list[tuple[str, int, int]]] | None:

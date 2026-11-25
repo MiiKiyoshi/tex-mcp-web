@@ -188,12 +188,12 @@ export function createSourceEditor({
 
   // The words selected in the editor, shown where the Preview prints them. A selection that ends
   // at the start of a line ends on the line before.
-  async function showSourceSelectionInPdf() {
+  function showSourceSelectionInPdf() {
     const text = state.editor.getSelectedText();
     if (!text.trim() || !state.sourcePath) return;
     const range = state.editor.getSelectionRange();
     const lastRow = range.end.column === 0 && range.end.row > range.start.row ? range.end.row - 1 : range.end.row;
-    await showWherePrinted({ file: state.sourcePath, line_start: range.start.row + 1, line_end: lastRow + 1, text });
+    showWherePrinted({ file: state.sourcePath, line_start: range.start.row + 1, line_end: lastRow + 1, text });
   }
 
   // The marks drawn again, and the status line, which says when the cursor is in their words.
@@ -469,7 +469,7 @@ export function createSourceEditor({
     state.editor.commands.addCommand({
       name: "showInPreview",
       bindKey: { win: "Ctrl-Alt-P", mac: "Command-Alt-P" },
-      exec: () => showSourceSelectionInPdf().catch((error) => alert(`Could not show it in the Preview: ${error.message}`)),
+      exec: () => showSourceSelectionInPdf(),
     });
     state.editor.commands.addCommand({
       name: "showCommentAtCursor",
@@ -619,7 +619,7 @@ export function createSourceEditor({
     applyVimKeys();
     $("#source-comment-btn").addEventListener("click", commentSourceSelection);
     $("#source-pdf-btn").addEventListener("click", () => {
-      showSourceSelectionInPdf().catch((error) => alert(`Could not show it in the Preview: ${error.message}`));
+      showSourceSelectionInPdf();
     });
     $("#source-file").addEventListener("change", (event) => {
       openSource(event.target.value).catch((error) => alert(`Could not open source: ${error.message}`));

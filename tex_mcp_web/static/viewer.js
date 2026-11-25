@@ -205,7 +205,6 @@ const outgoing = createOverleafReplies({
 
 const threads = createOverleafThreads({
   overleaf,
-  me: live.me,
   panel: reach(() => panel, "listed", "tab", "replyButton", "setStatus", "setView", "showTab", "refreshComments",
     "showComment"),
   keyHint: (name) => panel.keys.hint(name),

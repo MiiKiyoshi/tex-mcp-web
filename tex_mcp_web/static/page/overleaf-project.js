@@ -7,11 +7,13 @@
 // given by a request that changed the project; heardWaiting(count), the number of threads waiting
 // as the socket tells it; heardCookie(refused), what the page heard of the cookie from Overleaf;
 // changed(listener), which hands in a function called when one of these three changes a fact;
-// heardFollowed(files), the files the live session keeps in step, which changes nothing shown;
+// heardFollowed(files), the files the live session keeps in step, and heardMe(name), the
+// reviewer's own name on Overleaf, which change nothing shown;
 // and the facts: project(), cookie(), cookieRefused(), fullSync(), waiting(), remote(),
 // imported(id), importedCount(), unplaced(id), suggested(), followed(path), whether the live
 // session keeps a file in step with Overleaf, so that its edits there are written here, and
-// drafted(comment), whether a comment is a thread drafted for Overleaf and not opened there yet.
+// drafted(comment), whether a comment is a thread drafted for Overleaf and not opened there yet,
+// and me(), the reviewer's own name on Overleaf, "" until the live session says it.
 
 import { createListeners } from "../shared/listeners.js";
 
@@ -37,15 +39,17 @@ export function createOverleafProject() {
     unplaced: {},
     // The edits made on Overleaf with track changes on, waiting to be accepted or rejected.
     suggested: [],
-    // The paths of the files the live session keeps in step with Overleaf.
+    // The paths of the files the live session keeps in step with Overleaf, and the reviewer's own
+    // name there.
     followed: new Set(),
+    me: "",
   };
 
   // The facts the listeners are told of, read as one string. An edit that changes none of them
   // tells nothing: the comments' reading takes in the same answer again and again, and the live
   // session tells the same of the cookie with each snapshot.
   function facts() {
-    const { followed, imported, ...rest } = known;
+    const { followed, me, imported, ...rest } = known;
     return JSON.stringify({ ...rest, imported: [...imported].sort() });
   }
 
@@ -81,6 +85,10 @@ export function createOverleafProject() {
     known.followed = new Set(files.map((file) => file.path));
   }
 
+  function heardMe(name) {
+    known.me = name;
+  }
+
   // That Overleaf turned the cookie away (true), let a session in with it (false), or nothing of
   // it (undefined), which changes nothing.
   function heardCookie(refused) {
@@ -93,6 +101,7 @@ export function createOverleafProject() {
     heardWaiting,
     heardCookie,
     heardFollowed,
+    heardMe,
     changed: changes.add,
     project: () => known.project,
     cookie: () => known.cookie,
@@ -105,6 +114,7 @@ export function createOverleafProject() {
     unplaced: (id) => known.unplaced[id],
     suggested: () => known.suggested,
     followed: (path) => known.followed.has(path),
+    me: () => known.me,
     // A thread drafted for Overleaf, or started for it by the reviewer, and not yet opened there:
     // it holds the draft of its first message, once the agent writes one, and what the reviewer
     // and the agent say about it here, which stays here.

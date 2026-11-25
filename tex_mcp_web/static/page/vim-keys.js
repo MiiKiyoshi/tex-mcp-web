@@ -89,7 +89,7 @@ export function defineVimCommands(Vim, editor, does) {
   // the line, gsip the paragraph.
   Vim.defineOperator("showInPreview", (cm, args, ranges) => {
     const start = select(ranges);
-    showSourceSelectionInPdf().catch((error) => alert(`Could not show it in the Preview: ${error.message}`));
+    showSourceSelectionInPdf();
     return start;
   });
   Vim.mapCommand("gs", "operator", "showInPreview");

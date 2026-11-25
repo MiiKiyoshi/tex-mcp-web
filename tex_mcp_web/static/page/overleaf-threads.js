@@ -5,8 +5,8 @@
 // suggested edits suggested-edits.js.
 //
 // createOverleafThreads takes overleaf, the page's knowledge of the project (overleaf-project.js),
-// which it reads and gives the answer read with each list to; me(), the reviewer's own name on
-// Overleaf; panel, the comment panel (listed(), tab(), replyButton(comment), setStatus(ids,
+// which it reads, with the reviewer's own name there, me(), and gives the answer read with each
+// list to; panel, the comment panel (listed(), tab(), replyButton(comment), setStatus(ids,
 // status), setView(view), showTab(name), refreshComments(), showComment(id)); keyHint(name);
 // outgoing, the replies on their way; suggestedEdits; showTab(name), the sidebar's tab shown; and
 // applySourceLeaf(). It gives the panel's hooks (tab, files, along, status, search, card, row,
@@ -20,8 +20,9 @@ import { suggestedItem } from "./suggested-edits.js";
 import { createListeners } from "../shared/listeners.js";
 
 export function createOverleafThreads({
-  overleaf, me, panel, keyHint, outgoing, suggestedEdits, showTab, applySourceLeaf,
+  overleaf, panel, keyHint, outgoing, suggestedEdits, showTab, applySourceLeaf,
 }) {
+  const me = overleaf.me;
   const applied = createListeners();
   // The status a comment is listed under: "hidden" for an open thread the reviewer hid on the
   // page, else its own.

@@ -11,11 +11,11 @@
 // showInSource(file, line), which shows a file at a line in the Source (places.js); socket's open()
 // and send(message); refreshComments(); overleaf, the page's knowledge of the project
 // (overleaf-project.js), whose project() shows the choice, which follows changed(), and which
-// heardCookie(refused) and heardFollowed(files) are told what the session says of the cookie and
-// of the files it keeps in step; and byHand(),
+// heardCookie(refused), heardFollowed(files) and heardMe(name) are told what the session says of
+// the cookie, of the files it keeps in step and of the reviewer's own name; and byHand(),
 // heardByHand(standing) and readOverleafGitSoon(delay), of the folder's git standing. It gives
-// attach(); render(snapshot), for each snapshot the socket brings; renderCursors(); me(), the
-// reviewer's own name on Overleaf; and tellCursor().
+// attach(); render(snapshot), for each snapshot the socket brings; renderCursors(); and
+// tellCursor().
 
 import { $, $$, h } from "../shared/dom.js";
 import { responseError } from "../shared/comment-api.js";
@@ -152,8 +152,8 @@ export function createOverleafLive({
 
   function renderOverleafLive(snapshot) {
     overleafLive.snapshot = snapshot;
-    if ((snapshot.me ?? "") !== overleafLive.me) {
-      overleafLive.me = snapshot.me ?? "";
+    if ((snapshot.me ?? "") !== overleaf.me()) {
+      overleaf.heardMe(snapshot.me ?? "");
       // Which threads wait for the reviewer's answer, in unanswered and in the tab's number too.
       refreshComments().catch((error) => console.error(error));
     }
@@ -314,7 +314,6 @@ export function createOverleafLive({
     attach,
     render: renderOverleafLive,
     renderCursors: renderOverleafCursors,
-    me: () => overleafLive.me,
     tellCursor,
   };
 }
