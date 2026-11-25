@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 import time
@@ -40,12 +41,33 @@ def lane_command(tool: Tool, port: int, agent: str) -> str:
     return f"{shlex.quote(Path(sys.executable).as_posix())} -m {tool.package}.waiter {port} - --agent {agent} --once"
 
 
+def _codex() -> str:
+    """The Codex program a line is queued with. On Windows, npm installs codex as codex.cmd,
+    which hands its arguments to the real program through cmd.exe, and cmd.exe ends an argument
+    at a newline: a line queued through it arrived as its first line alone, with no error. The
+    real program is the codex.exe the npm package carries, found by searching the package,
+    since where it sits changed between Codex versions. A codex.exe on PATH is the program
+    itself. Elsewhere codex hands its arguments on whole."""
+    if sys.platform != "win32":
+        return "codex"
+    found = shutil.which("codex")
+    if found is None:
+        raise FileNotFoundError("codex is not on PATH")
+    if Path(found).suffix.lower() == ".exe":
+        return found
+    package = Path(found).parent / "node_modules" / "@openai" / "codex"
+    programs = sorted(package.rglob("codex.exe"))
+    if not programs:
+        raise FileNotFoundError(f"no codex.exe in {package}, which {found} runs")
+    return str(programs[0])
+
+
 def _deliver(tool: Tool, line: str, thread: str | None) -> None:
     """Hand a line to the agent: printed, or queued to a Codex thread until it takes it."""
     if thread is None:
         print(line, flush=True)
         return
-    while subprocess.run(["codex", "queue", "--thread", thread, "--message", f"{tool.event}\n{line}"],
+    while subprocess.run([_codex(), "queue", "--thread", thread, "--message", f"{tool.event}\n{line}"],
                          stdin=subprocess.DEVNULL).returncode != 0:
         print("Queue delivery failed; retrying in 5 seconds", file=sys.stderr, flush=True)
         time.sleep(5)
