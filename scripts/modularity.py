@@ -31,11 +31,11 @@ the module that does (a facade). Parts are the variables wiring calls are assign
 namespace imports. A handle is `() => part`. A late binding is a reference to a part before the
 call that creates it, or inside that call. The part graph has an edge from each part to the parts
 its creation names. A call on a part at the top level once the parts exist, `part.method(...)`,
-adds edges too: a function handed to it, an arrow or a part's function, listens, and each part it
-names gets an edge to the part called, which it follows; a whole part handed to it gets an edge
-from the part called, as a hook would. The graph's cycles are the parts that reach each other. It
-misses parts reached through the module's own functions (a hook handed a function declared in the
-file), and arrow parameters or locals that shadow a part's name.
+adds an edge from the part called to each part its arguments name, as the same function handed to
+the part's creation would: where a function is handed in does not change who calls whom. The
+graph's cycles are the parts that reach each other. It misses parts reached through the module's
+own functions (a hook handed a function declared in the file), and arrow parameters or locals that
+shadow a part's name.
 
 Encapsulation. (a) Writes into an object a module was handed: `p.field = ...`, `p.field[key] =
 ...`, `p.field++`, `delete p.field`, or a call that changes a collection, as `p.field.add(...)`.
@@ -643,29 +643,21 @@ def wiring(modules: dict[str, Module], module: Module) -> dict:
                     and module.value(i + 1) in (",", ")")):
                 handles.append(site)
     # A call on a part at the top level after the parts exist, `part.method(...)`, connects it to
-    # the parts its arguments name. A function handed so, an arrow or a part's function, is a
-    # listener: the parts it names follow the part called, and depend on it. A whole part handed
-    # so is the part called taking it, as a hook does.
+    # the parts its arguments name, as a hook handed to its creation does.
     subscriptions = []
     for i, token in enumerate(module.tokens):
         if (module.depth[i] or token.value not in created or not module.is_reference(i)
                 or module.value(i + 1) not in (".", "?.") or module.tokens[i + 2].kind != "id"
                 or module.value(i + 3) != "("):
             continue
-        follows, taken = set(), set()
-        for first, last in module.split(i + 4, module.pair[i + 3]):
-            if last - first == 1 and module.tokens[first].value in parts:
-                taken.add(module.tokens[first].value)
-                continue
-            for j in references(module, first, last, parts | set(facades)):
-                value = module.tokens[j].value
-                follows |= {value} if value in parts else facades[value]
-        follows.discard(token.value)
-        taken.discard(token.value)
-        if follows or taken:
+        named = set()
+        for j in references(module, i + 4, module.pair[i + 3], parts | set(facades)):
+            value = module.tokens[j].value
+            named |= {value} if value in parts else facades[value]
+        named.discard(token.value)
+        if named:
             subscriptions.append({"module": module.name, "line": token.line, "part": token.value,
-                                  "method": module.tokens[i + 2].value, "follows": sorted(follows),
-                                  "taken": sorted(taken)})
+                                  "method": module.tokens[i + 2].value, "parts": sorted(named)})
     return {"calls": shown, "late": late, "handles": handles, "subscriptions": subscriptions,
             "spans": [call.args for call in calls]}
 
@@ -940,9 +932,7 @@ def measure(package: Path, commits: int) -> dict:
         handles += [{**site, "shared": module.shared} for site in wired["handles"]]
         subscriptions += [{**site, "shared": module.shared} for site in wired["subscriptions"]]
         for site in wired["subscriptions"]:
-            for part in site["follows"]:
-                part_graph[f"{module.name}:{part}"].add(f"{module.name}:{site['part']}")
-            for part in site["taken"]:
+            for part in site["parts"]:
                 part_graph[f"{module.name}:{site['part']}"].add(f"{module.name}:{part}")
         w, r = encapsulation(module, handed_out(module, wired["spans"]))
         writes += [{**site, "shared": module.shared} for site in w]
