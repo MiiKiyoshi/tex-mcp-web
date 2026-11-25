@@ -15,7 +15,7 @@
 import { $, h, eventOrigin } from "../shared/dom.js";
 import { responseError } from "../shared/comment-api.js";
 import { setSidebarCollapsed } from "../shared/sidebar.js";
-import { createListeners } from "./listeners.js";
+import { createListeners } from "../shared/listeners.js";
 
 export function createBuild({ paper, pdf, overleaf, source, refreshComments, showTab }) {
   const applied = createListeners();

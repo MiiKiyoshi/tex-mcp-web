@@ -7,7 +7,7 @@
 
 import { $ } from "../shared/dom.js";
 import { responseError } from "../shared/comment-api.js";
-import { createListeners } from "./listeners.js";
+import { createListeners } from "../shared/listeners.js";
 
 export function createPaper() {
   const read = createListeners();

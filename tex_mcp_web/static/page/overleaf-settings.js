@@ -13,7 +13,7 @@
 import { $, $$ } from "../shared/dom.js";
 import { responseError } from "../shared/comment-api.js";
 import { leafIcon } from "./leaf.js";
-import { createListeners } from "./listeners.js";
+import { createListeners } from "../shared/listeners.js";
 
 // Connecting names the project in the paper's config, as a line written there by hand
 // would. Keeping the files the same asks once before it starts, since it changes what

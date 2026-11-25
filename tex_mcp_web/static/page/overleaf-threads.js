@@ -17,7 +17,7 @@
 import { $, h } from "../shared/dom.js";
 import { leafIcon, replies, OVERLEAF_COOKIE_WANTED } from "./leaf.js";
 import { suggestedItem } from "./suggested-edits.js";
-import { createListeners } from "./listeners.js";
+import { createListeners } from "../shared/listeners.js";
 
 export function createOverleafThreads({
   overleaf, me, panel, keyHint, outgoing, suggestedEdits, showTab, applySourceLeaf,

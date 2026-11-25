@@ -12,7 +12,7 @@
 // imported(id), importedCount(), unplaced(id), suggested() and followed(path), whether the live
 // session keeps a file in step with Overleaf, so that its edits there are written here.
 
-import { createListeners } from "./listeners.js";
+import { createListeners } from "../shared/listeners.js";
 
 export function createOverleafProject() {
   const changes = createListeners();

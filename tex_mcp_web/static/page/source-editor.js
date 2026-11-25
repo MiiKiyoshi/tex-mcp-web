@@ -21,7 +21,7 @@
 // + Comment, and scheduleCompletions(delay).
 
 import { $, h, clear } from "../shared/dom.js";
-import { createListeners } from "./listeners.js";
+import { createListeners } from "../shared/listeners.js";
 import { RING_AT } from "../shared/comment-keys.js";
 import { responseError } from "../shared/comment-api.js";
 import { setSidebarCollapsed } from "../shared/sidebar.js";

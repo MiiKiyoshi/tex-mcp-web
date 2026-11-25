@@ -18,7 +18,7 @@
 import { $, h } from "../shared/dom.js";
 import { responseError } from "../shared/comment-api.js";
 import { commits, fileCount, OVERLEAF_BY_GIT, OVERLEAF_BY_HAND } from "./leaf.js";
-import { createListeners } from "./listeners.js";
+import { createListeners } from "../shared/listeners.js";
 
 export function createOverleafGit({ overleaf, gitAfterEdit }) {
   const changes = createListeners();
