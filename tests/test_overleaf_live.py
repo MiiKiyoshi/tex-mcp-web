@@ -1178,6 +1178,9 @@ async def test_edits_sent_by_hand_go_as_suggestions_while_overleaf_tracks_the_re
     page = await opened(client, fake)
     await wait_for(lambda: server.overleaf_live.tracking() is True)
     assert (await (await client.get("/overleaf/live")).json())["tracking"] is True
+    # Until the files are first read against Overleaf's, which side changed one is unknown, and
+    # Send asks to choose rather than send it. The page shows Send only once they are read.
+    await wait_for(lambda: server.overleaf_hand.read_once)
     (Path(server.watch_dir) / "main.tex").write_text(MAIN.replace("Hi", "Hello"), encoding="utf-8", newline="")
     response = await client.post("/overleaf/files/send")
     assert response.status == 200, await response.text()
@@ -1239,6 +1242,8 @@ async def test_suggested_edits_in_a_git_repository_of_its_own_leave_the_reposito
         await wait_for(lambda: server._overleaf_tracked)
         status = await (await client.get("/overleaf")).json()
         assert status["git"] is None and len(status["suggested"]) == 1
+        # Read first against Overleaf's files, so a change there after it is one to Get.
+        await wait_for(lambda: server.overleaf_hand.read_once)
         response = await client.post("/overleaf/changes/reject", json={"doc": "d-main", "ids": ["s1", "s2"]})
         assert response.status == 200, await response.text()
         await wait_for(lambda: server.overleaf_hand.state()["get"] == ["main.tex"])
