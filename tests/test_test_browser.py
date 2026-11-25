@@ -1,5 +1,7 @@
 import json
 import re
+import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -42,3 +44,20 @@ def test_a_failing_test_keeps_what_its_page_showed(tmp_path: Path, monkeypatch) 
         finally:
             skipping.quit()
     assert len(list(kept.iterdir())) == 3
+
+
+@needs_browser
+@chrome.not_in_safari("the folder this checks is Chrome's own")
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Chrome takes its temporary folder from TMPDIR on Linux")
+def test_a_browser_a_test_ends_leaves_nothing_in_the_temporary_folder(monkeypatch) -> None:
+    """Chrome makes a folder of its own in the temporary folder and removes it when it closes
+    by itself, so a test's browser, ended, leaves the folder as it found it. The folder has a
+    short path, since Chrome's socket in it takes a path of at most 107 bytes."""
+    with tempfile.TemporaryDirectory() as name:
+        folder = Path(name)
+        monkeypatch.setenv("TMPDIR", name)
+        browser = chrome.launch()
+        browser.navigate("data:text/html,<p>Nothing is left.</p>")
+        assert any(folder.iterdir())
+        browser.quit()
+        assert list(folder.iterdir()) == []

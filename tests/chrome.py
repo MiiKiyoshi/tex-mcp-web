@@ -21,6 +21,7 @@ import time
 import traceback
 from pathlib import Path
 
+import psutil
 import pytest
 
 selenium = pytest.importorskip("selenium")
@@ -143,6 +144,21 @@ class Chrome:
         failure = sys.exc_info()[1]
         if failure is not None and not isinstance(failure, pytest.skip.Exception) and os.environ.get("REVIEW_FAILURES"):
             self.keep_failure(Path(os.environ["REVIEW_FAILURES"]))
+        self.end()
+
+    def end(self) -> None:
+        """Close Chrome as its own Close does, then end its driver. Chrome then removes the
+        folder it made in the temporary folder, which it leaves when its driver ends it. It has
+        exited once it waits for its driver to collect it."""
+        try:
+            browsers = psutil.Process(self.driver.service.process.pid).children()
+            self.driver.execute_cdp_cmd("Browser.close", {})
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline and any(
+                    browser.is_running() and browser.status() != psutil.STATUS_ZOMBIE for browser in browsers):
+                time.sleep(0.05)
+        except Exception:
+            pass
         try:
             self.driver.quit()
         except Exception:
@@ -305,6 +321,12 @@ class Safari(Chrome):
         if self.system_dark is not None:
             self.dark(self.system_dark)
         super().quit()
+
+    def end(self) -> None:
+        try:
+            self.driver.quit()
+        except Exception:
+            pass
 
     def _loaded(self) -> None:
         """Wait for the page's scripts to have run: Safari's driver gives a page back while
