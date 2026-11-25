@@ -172,11 +172,11 @@ export function createBuild({ paper, pdf, problems, overleaf, source, refreshCom
     }
   }
 
-  function heardSourceChanged() {
-    // The PDF shows the sources as the last build read them. A change heard of while a
-    // build runs is most often the save that Compile made just before it, which the build
-    // has; the server says as the build ends whether one came after it began.
-    if (!$("#compile-btn").disabled) {
+  function heardSourceChanged(message) {
+    // The PDF shows the sources as the last build read them, and the server says whether
+    // the change is one it lacks: a file that build read as it is now is not, however late
+    // the change is heard of.
+    if (message.ahead) {
       state.sourceAhead = true;
       renderCompileStatus();
     }

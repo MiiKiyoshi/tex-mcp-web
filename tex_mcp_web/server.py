@@ -693,6 +693,11 @@ class TexMcpWebServer:
         a build reads for the first time comes in through an edit to one it read before."""
         return any(_mark(path) != mark for path, mark in self._compile_marks.items())
 
+    def _read_by_last_build(self, path: Path) -> bool:
+        """Whether the last build to begin read the file at *path*, a resolved path, as it is
+        now."""
+        return any(read.resolve() == path and mark == _mark(path) for read, mark in self._compile_marks.items())
+
     async def _compile_once(self) -> CompileResult:
         self.compiling = True
         await self.broadcast({"type": "compiling", "status": True})
@@ -813,8 +818,12 @@ class TexMcpWebServer:
             if data is not None and self.overleaf_sync is not None and self.overleaf_sync.owns(relative):
                 self._remember_source(relative, revision, data.decode("utf-8", errors="replace"))
             self.comments.refresh_source_anchors(self.watch_dir)
+            # Whether the PDF lacks the change. The watcher says a file changed once its
+            # changes settle, which may be after a build that read the change began or even
+            # ended. While a build runs, the build says as it ends.
+            ahead = not self.compiling and not self._read_by_last_build(path)
             await self.broadcast(
-                {"type": "source_changed", "path": relative, "revision": revision}
+                {"type": "source_changed", "path": relative, "revision": revision, "ahead": ahead}
             )
             await self._place_overleaf_comments_in(relative)
             # A suggested edit's place in the file moves with the file.

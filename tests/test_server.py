@@ -172,6 +172,32 @@ async def test_file_change_broadcasts_without_compiling(project):
 
 
 @pytest.mark.asyncio
+async def test_a_changed_source_is_ahead_of_the_pdf_unless_the_last_build_read_it_as_it_is(project):
+    """The top bar says a source changed when the PDF lacks the change. The watcher says a
+    file changed once its changes settle, which may be after the build that read the change
+    began, or ended: a file the last build to begin read as it is now is no change for the PDF.
+    A new file is one. While a build runs, the build says as it ends."""
+    server = TexMcpWebServer(Config(main="paper.tex", config_path=project / ".tex-mcp-web.yaml"))
+    server.broadcast = AsyncMock()
+    paper = project / "paper.tex"
+
+    async def ahead(path: Path) -> bool:
+        await server.on_file_change(str(path))
+        return next(call.args[0]["ahead"] for call in reversed(server.broadcast.await_args_list)
+                    if call.args[0]["type"] == "source_changed")
+
+    assert await ahead(paper) is True
+    server._compile_marks = server._source_marks()
+    assert await ahead(paper) is False
+    paper.write_text(paper.read_text(encoding="utf-8") + "% more\n", encoding="utf-8")
+    assert await ahead(paper) is True
+    (project / "extra.tex").write_text("Extra.\n", encoding="utf-8")
+    assert await ahead(project / "extra.tex") is True
+    server.compiling = True
+    assert await ahead(paper) is False
+
+
+@pytest.mark.asyncio
 async def test_config_edit_applies_without_restart(project):
     from tex_mcp_web.watcher import Watcher
 

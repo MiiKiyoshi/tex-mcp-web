@@ -411,7 +411,7 @@ async function handleWebSocketMessage(message) {
       break;
     case "source_changed":
       git.readStateSoon();
-      build.heardSourceChanged();
+      build.heardSourceChanged(message);
       await source.sourceChanged(message);
       break;
     case "config_reloaded":
