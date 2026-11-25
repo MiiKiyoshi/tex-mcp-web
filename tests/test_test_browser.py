@@ -8,6 +8,8 @@ import pytest
 
 from tests import chrome
 from tests.chrome import needs_browser
+from selenium.webdriver.support import expected_conditions
+from selenium.webdriver.support.ui import WebDriverWait
 
 
 @needs_browser
@@ -61,3 +63,24 @@ def test_a_browser_a_test_ends_leaves_nothing_in_the_temporary_folder(monkeypatc
         assert any(folder.iterdir())
         browser.quit()
         assert list(folder.iterdir()) == []
+
+
+@needs_browser
+@chrome.not_in_safari("a data: page is enough to check this, and Safari's driver refuses one")
+def test_a_failing_test_keeps_the_words_of_a_dialog_its_page_left_open(tmp_path: Path, monkeypatch) -> None:
+    """A dialog the page left open holds the browser's every later command. Its words go into
+    the record and it is closed, so the screenshot and the markup are kept after it."""
+    kept = tmp_path / "kept"
+    monkeypatch.setenv("REVIEW_FAILURES", str(kept))
+    browser = chrome.launch()
+    browser.navigate("data:text/html,<p>Behind the dialog.</p>")
+    browser.execute_script("setTimeout(() => alert('Full screen is not allowed.'))")
+    WebDriverWait(browser.driver, 10).until(expected_conditions.alert_is_present())
+    with pytest.raises(AssertionError):
+        try:
+            raise AssertionError("the page did not answer")
+        finally:
+            browser.quit()
+    assert sorted(path.suffix for path in kept.iterdir()) == [".html", ".json", ".png"]
+    assert json.loads(next(kept.glob("*.json")).read_text(encoding="utf-8"))["dialog"] == "Full screen is not allowed."
+    assert "Behind the dialog." in next(kept.glob("*.html")).read_text(encoding="utf-8")

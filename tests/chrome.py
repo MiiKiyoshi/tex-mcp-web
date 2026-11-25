@@ -32,7 +32,7 @@ import pytest
 
 selenium = pytest.importorskip("selenium")
 from selenium import webdriver  # noqa: E402
-from selenium.common.exceptions import SessionNotCreatedException  # noqa: E402
+from selenium.common.exceptions import NoAlertPresentException, SessionNotCreatedException  # noqa: E402
 from selenium.webdriver.common.by import By  # noqa: E402
 
 KIND = os.environ.get("REVIEW_BROWSER_KIND", "chrome")
@@ -183,10 +183,12 @@ class Chrome:
 
     def keep_failure(self, folder: Path) -> None:
         """The page as the test left it, under the test's name: a screenshot, the page's markup,
-        the values of its fields and where the focus is, and its console where the browser
-        gives it. The record says too at which lines of the tests it failed, which a log leaves
-        out once the test passes when run again. Each part that cannot be had is said in the
-        record instead."""
+        the values of its fields and where the focus is, its console where the browser gives
+        it, and the words of a dialog it left open, which is closed first: Safari answers no
+        later command while one is open, and the screenshot waited until the test timed out.
+        The record says too at which lines of the tests it failed, which a log leaves out once
+        the test passes when run again. Each part that cannot be had is said in the record
+        instead."""
         test = os.environ.get("PYTEST_CURRENT_TEST", "test").split(" ")[0]
         name = f"{re.sub(r'[^A-Za-z0-9_-]+', '_', test)[-120:]}-{time.time_ns()}"
         folder.mkdir(parents=True, exist_ok=True)
@@ -196,6 +198,14 @@ class Chrome:
             "where": [f"{Path(frame.filename).name}:{frame.lineno}" for frame in traceback.extract_tb(trace)
                       if Path(frame.filename).parent == Path(__file__).parent],
         }
+        try:
+            dialog = self.driver.switch_to.alert
+            record["dialog"] = dialog.text
+            dialog.dismiss()
+        except NoAlertPresentException:
+            pass
+        except Exception as error:
+            record["dialog"] = repr(error)
         try:
             (folder / f"{name}.png").write_bytes(base64.b64decode(self.driver.get_screenshot_as_base64()))
         except Exception as error:
