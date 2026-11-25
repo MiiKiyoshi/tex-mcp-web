@@ -24,8 +24,9 @@ const KEY = keyNames("Ctrl+Alt+Enter");
 // required. A name the bell does not know is refused.
 const DEFAULTS = {
   // call(lane), a press: it posts the press to the page's server and answers what the server
-  // answers, `delivered` false when the call is queued until an agent listens. An answer with
-  // `said` shows that word after the press in place of Called or Queued. `lane` is the agent
+  // answers, `delivered` false when the call is queued until an agent listens, and `calls`, the
+  // presses for that agent the server has counted, this one with them. An answer with `said`
+  // shows that word after the press in place of Called or Queued. `lane` is the agent
   // picked beside the bell, { agent, model, effort }, or null for the session listening. A press
   // the server refuses throws.
   call: null,
@@ -86,10 +87,12 @@ export function createAgentBell(given, { prefix, row, noteBefore, fit }) {
   let waiters = 0;
   let lanes = {};
   // The page cannot reach its server, and a call waits for an agent to listen, the agent picked
-  // when it was made, "" for the session listening.
+  // when it was made, "" for the session listening, and the presses for that agent the server
+  // had counted with it.
   let gone = false;
   let callWaits = false;
   let callFor = "";
+  let callAt = 0;
   // A comment or a reply was posted on what is shown, some comment waits for the agent, and the
   // bell was pressed in this visit: what the note goes by.
   let posted = false;
@@ -208,6 +211,7 @@ export function createAgentBell(given, { prefix, row, noteBefore, fit }) {
       word.textContent = reply.said ?? (reply.delivered ? "Called" : "Queued");
       callWaits = by.listens && !reply.delivered;
       callFor = lane?.agent ?? "";
+      callAt = reply.calls;
       called = true;
       renderNote();
     } catch (error) {
@@ -250,16 +254,19 @@ export function createAgentBell(given, { prefix, row, noteBefore, fit }) {
   return {
     attach,
     // What the page hears: `waiters`, how many sessions listen; `queued`, whether a press for
-    // them still waits for a waiter to be handed it; `lanes`, the agents the server names beside
-    // them, { name: { waiters, queued, models, efforts } }; and `gone`, whether the page cannot
-    // reach its server. What is left out stays as it was. An agent may take a call while the
-    // page cannot hear its server, and the note that the call is queued goes once the page hears
-    // that nothing is queued for the agent the call was made for, whichever is picked now. That
-    // is read only as it is heard, so that it never takes away the note of a later press.
-    show({ waiters: listening, queued, lanes: named, gone: away } = {}) {
+    // them still waits for a waiter to be handed it, and `calls`, the presses for them counted
+    // so far; `lanes`, the agents the server names beside them, { name: { waiters, queued,
+    // calls, models, efforts } }; and `gone`, whether the page cannot reach its server. What is
+    // left out stays as it was. An agent may take a call while the page cannot hear its server,
+    // and the note that the call is queued goes once the page hears that nothing is queued for
+    // the agent the call was made for, whichever is picked now. What the page hears comes apart
+    // from the answer to a press, and may have been so before the press: it ends the call only
+    // when it counts the press.
+    show({ waiters: listening, queued, calls, lanes: named, gone: away } = {}) {
       if (listening !== undefined) waiters = listening;
       if (away !== undefined) gone = away;
-      if ((callFor ? named?.[callFor]?.queued : queued) === false) callWaits = false;
+      const heard = callFor ? named?.[callFor] : { queued, calls };
+      if (heard?.queued === false && heard.calls >= callAt) callWaits = false;
       if (named === undefined) {
         renderBell();
       } else {

@@ -138,9 +138,11 @@ class Calls:
         return self.lanes[name]
 
     def page_lanes(self) -> dict[str, dict[str, Any]]:
-        """What the page shows of each agent the bell can call beside the session listening."""
+        """What the page shows of each agent the bell can call beside the session listening,
+        with the presses made for it so far, which tell a page whether what it hears was so
+        before or after its own press."""
         return {name: {"waiters": self.lane(name).waiters, "queued": self.lane(name).queued,
-                       "models": agent["models"], "efforts": agent["efforts"]}
+                       "calls": self.lane(name).calls, "models": agent["models"], "efforts": agent["efforts"]}
                 for name, agent in self.agents().items()}
 
     async def _lane_press(self, lane: Lane, body: dict[str, Any]) -> web.Response:

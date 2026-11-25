@@ -970,6 +970,54 @@ def test_a_call_taken_while_the_page_cannot_hear_its_server_is_not_said_to_wait(
         shared.stop()
 
 
+@needs_browser
+def test_a_state_made_before_a_press_and_heard_after_its_answer_leaves_its_note(tmp_path: Path) -> None:
+    """What the page hears from its socket and the answer to a press come by different ways, so
+    the state a page is sent as its socket opens, made before a press, can be heard after the
+    press's answer. It says that nothing is queued, which was so before the press, and the note
+    that the call is queued stays."""
+    import asyncio
+
+    port = available_port()
+    config_path = tmp_path / ".tex-mcp-web.yaml"
+    config_path.write_text(f"main: paper.tex\nport: {port}\n", encoding="utf-8")
+    (tmp_path / "paper.tex").write_text(PAPER, encoding="utf-8")
+    shared = SharedProjectServer(load_config(config_path))
+    base = f"http://127.0.0.1:{port}"
+    browser = None
+    script = lambda code: browser.execute_script(code)
+    note = lambda: script('const note = document.querySelector("#call-agent-why"); return note.hidden ? null : note.textContent')
+    queued = ("No agent is listening yet, so the call is queued. Claude Code listens when started in the "
+              "paper's folder. In Codex, send “do tex listen”.")
+    try:
+        shared.ensure()
+        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        browser = chrome.launch()
+        browser.navigate(base)
+        wait_until(lambda: shared.server.websockets)
+
+        async def state() -> dict:
+            return shared.server.page_state()
+
+        before = asyncio.run_coroutine_threadsafe(state(), shared.loop).result(5)
+        wait_until(lambda: script('const bell = document.querySelector("#call-agent-btn");'
+                                  ' return bell.offsetWidth > 0 && !bell.disabled'))
+        script('document.querySelector("#call-agent-btn").click()')
+        wait_until(lambda: note() == queued)
+
+        async def late() -> None:
+            for page in list(shared.server.websockets):
+                await page.send_json(before)
+
+        asyncio.run_coroutine_threadsafe(late(), shared.loop).result(5)
+        time.sleep(1)
+        assert note() == queued
+    finally:
+        if browser is not None:
+            browser.quit()
+        shared.stop()
+
+
 def write_page_pdf(path: Path, width: float, height: float, line: str) -> None:
     """A PDF of one page with words to comment on, always at one place, and *line* under
     them, which tells one build's PDF from another's."""

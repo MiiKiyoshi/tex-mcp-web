@@ -854,22 +854,26 @@ class TexMcpWebServer:
                 except Exception:
                     pass
 
+    def page_state(self) -> dict:
+        """The state a page is sent as its socket opens. It counts the presses of the bell made
+        before it, review_calls, so that a page hearing it after the answer to a later press
+        knows it says nothing of that press."""
+        return {
+            "type": "state",
+            "compiling": self.compiling,
+            "result": _result_to_dict(self.last_result),
+            "pdf_digest": self.pdf_digest,
+            "review_waiters": self.review.waiters,
+            "review_queued": self.review.queued,
+            "review_calls": self.review.calls,
+            "lanes": self.review.page_lanes(),
+        }
+
     async def _handle_ws(self, request: web.Request) -> web.WebSocketResponse:
         ws = web.WebSocketResponse(heartbeat=30)  # heartbeat handles ping/pong
         await ws.prepare(request)
         self.websockets.add(ws)
-        # Send initial state
-        await ws.send_json(
-            {
-                "type": "state",
-                "compiling": self.compiling,
-                "result": _result_to_dict(self.last_result),
-                "pdf_digest": self.pdf_digest,
-                "review_waiters": self.review.waiters,
-                "review_queued": self.review.queued,
-                "lanes": self.review.page_lanes(),
-            }
-        )
+        await ws.send_json(self.page_state())
         if self.overleaf_live is not None:
             await ws.send_json({"type": "overleaf_live", **self.overleaf_live.snapshot()})
         await self._sync_overleaf_live()
