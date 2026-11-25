@@ -104,7 +104,6 @@ const paper = createPaper();
 const workspace = createWorkspace({
   source: reach(() => source, "init", "resize"),
   pdf: reach(() => pdf, "zoomMode", "refit"),
-  translationShown: () => translation.shown(),
 });
 
 // The Preview: the PDF view the review pages share, with the paper's own hooks (preview.js).
@@ -127,7 +126,6 @@ const source = createSourceEditor({
   openCompose: (...args) => panel.openCompose(...args),
   refreshComments: () => panel.refreshComments(),
   openSuggestedEdit: (id) => threads.openSuggestedEdit(id),
-  compileFromKeys: () => build.compileFromKeys(),
   followed: overleaf.followed,
   cursorAt: () => settings.cursorAt(),
 });
@@ -154,7 +152,7 @@ const sections = createSections({
 
 const translation = createTranslation({
   wait: WAITS.translation,
-  workspace: reach(() => workspace, "view", "apply"),
+  workspace,
   source: reach(() => source, "file", "started", "cursorRow"),
   pdf: reach(() => pdf, "loaded", "currentPage"),
   showInSource: places.showInSource,
@@ -335,6 +333,8 @@ source.cursorMoved(() => {
   live.tellCursor();
 });
 source.drawn(() => live.renderCursors());
+// :make in the editor compiles as Ctrl+Enter does.
+source.compileAsked(() => build.compileFromKeys());
 // The note atop the leaf tab follows the tab shown, once the list's reading is taken in.
 threads.applied(() => sync.render());
 // The picked comments' actions and the note of a paper with no main file follow the project.

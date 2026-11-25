@@ -9,12 +9,12 @@
 // the Overleaf project and its suggested edits; showWherePrinted({ file, line_start, line_end,
 // text }), which shows words selected here where the Preview prints them (places.js);
 // openCompose(anchor, label, fields), refreshComments() and openSuggestedEdit(id);
-// compileFromKeys(); followed(path), whether Overleaf's live session keeps a file in step; and
-// cursorAt(), where Settings holds the cursor's line.
+// followed(path), whether Overleaf's live session keeps a file in step; and cursorAt(), where
+// Settings holds the cursor's line.
 //
 // It gives attach() and init(); what happens in it, each of which hands in a function called
-// when it does: opened(listener), a file opened, cursorMoved(listener) and drawn(listener), the
-// editor drawn again; the file open (file(), dirty(), open(path, line, force, focus),
+// when it does: opened(listener), a file opened, cursorMoved(listener), drawn(listener), the
+// editor drawn again, and compileAsked(listener), :make with Vim keys; the file open (file(), dirty(), open(path, line, force, focus),
 // save(), refreshFiles(), sourceChanged(message)); the editor (started(), ace(), resize(),
 // focus(), setTheme(), holdCursorLine(), cursorRow()); a place shown in it (showPlace(row,
 // column), selectQuote(quote, first, last)); markComments(), applyLeaf(), for the leaf beside
@@ -73,9 +73,10 @@ function sourceForOverleaf() {
 
 export function createSourceEditor({
   panelComments, project, suggested, showWherePrinted, openCompose, refreshComments, openSuggestedEdit,
-  compileFromKeys, followed, cursorAt,
+  followed, cursorAt,
 }) {
   const opened = createListeners();
+  const compileAsked = createListeners();
   const cursorMoved = createListeners();
   const drawn = createListeners();
   const state = {
@@ -361,7 +362,7 @@ export function createSourceEditor({
         return;
       }
       defineVimCommands(window.ace.require("ace/keyboard/vim").Vim, state.editor, {
-        compileFromKeys, saveSource, commentSourceSelection, showCommentAtCursor, showSourceSelectionInPdf,
+        compileFromKeys: () => compileAsked.tell(), saveSource, commentSourceSelection, showCommentAtCursor, showSourceSelectionInPdf,
         goToDefinition: definitions.go, backFromDefinition: definitions.back, setSourceStatus,
       });
       holdKeysOutsideInsert(state.editor);
@@ -630,6 +631,7 @@ export function createSourceEditor({
     opened: opened.add,
     cursorMoved: cursorMoved.add,
     drawn: drawn.add,
+    compileAsked: compileAsked.add,
     started: () => Boolean(state.editor),
     ace: () => state.editor,
     file: () => state.sourcePath,

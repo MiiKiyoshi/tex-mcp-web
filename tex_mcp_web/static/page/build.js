@@ -131,13 +131,17 @@ export function createBuild({ paper, pdf, overleaf, source, refreshComments, sho
   // Ctrl+Enter (Cmd+Enter), or :make with Vim keys, compiles as the button does, saving the
   // editor's changes first so that the PDF shows them. While a build runs, the server answers
   // with that build, or with one after it when a source changed since the build began, and
-  // the top bar says which.
+  // the top bar says which. A build that cannot start says why.
   async function compileFromKeys() {
-    if (source.dirty()) await source.save();
-    // Edits the file did not take, since it changed on disk, as the editor's status says,
-    // are not what a build would show.
-    if (source.dirty()) return;
-    await compile();
+    try {
+      if (source.dirty()) await source.save();
+      // Edits the file did not take, since it changed on disk, as the editor's status says,
+      // are not what a build would show.
+      if (source.dirty()) return;
+      await compile();
+    } catch (error) {
+      alert(`Could not compile: ${error.message}`);
+    }
   }
 
   async function compile() {
@@ -221,7 +225,7 @@ export function createBuild({ paper, pdf, overleaf, source, refreshComments, sho
         || (!inEditor && eventOrigin(event).matches?.("textarea, input, select, [contenteditable]"))) return;
       event.preventDefault();
       event.stopPropagation();
-      compileFromKeys().catch((error) => alert(`Could not compile: ${error.message}`));
+      compileFromKeys();
     }, true);
   }
 

@@ -8,11 +8,12 @@
 // Settings choice stays hidden. The language is undefined until the paper is read.
 //
 // createTranslation takes wait, the milliseconds before it asks again for paragraphs still being
-// translated; workspace's view() and apply(), of the layout the pane is in; source (file(),
+// translated; workspace's view(), apply(), translationShown() and showTranslation(on), of the
+// layout the pane is in, which holds whether it shows; source (file(),
 // started(), cursorRow()) and pdf (loaded(), currentPage()), which it follows; showInSource(file,
 // line), which shows a paragraph's lines in the Source (places.js); digest(), the PDF's digest;
 // failed(), whether the last build failed; and showProblems(). It gives attach(),
-// applyLanguage(language), shown(), whether the pane shows, schedule(delay), followCursor(), for
+// applyLanguage(language), schedule(delay), followCursor(), for
 // the editor's cursor, followFile(), for a file the editor opens, and buildEnded(), after which a
 // paper with no PDF says why in the pane.
 
@@ -24,11 +25,10 @@ import { responseError } from "../shared/comment-api.js";
 const TRANSLATION_LANGS = { korean: "ko", japanese: "ja", chinese: "zh" };
 
 export function createTranslation({ wait, workspace, source, pdf, showInSource, digest, failed, showProblems }) {
-  const translation = { on: false, language: undefined, page: 0, file: null, timer: null };
+  const translation = { language: undefined, page: 0, file: null, timer: null };
 
   function setTranslation(on) {
-    translation.on = on;
-    try { localStorage.setItem("texMcpTranslation", on ? "1" : "0"); } catch { /* per-viewer only */ }
+    workspace.showTranslation(on);
     showTranslation();
   }
 
@@ -44,11 +44,11 @@ export function createTranslation({ wait, workspace, source, pdf, showInSource, 
   }
 
   function translationShown() {
-    return translation.on;
+    return workspace.translationShown();
   }
 
   function translating() {
-    return translation.on && Boolean(translation.language);
+    return translationShown() && Boolean(translation.language);
   }
 
   function showTranslation() {
@@ -212,12 +212,12 @@ export function createTranslation({ wait, workspace, source, pdf, showInSource, 
   }
 
   function attach() {
-    $("#translation-btn").addEventListener("click", () => setTranslation(!translation.on));
+    $("#translation-btn").addEventListener("click", () => setTranslation(!translationShown()));
     $("#translation-file").addEventListener("change", () => scheduleTranslation(0));
     $("#translation-body").style.fontSize = `${translationFontSize()}px`;
     $("#translation-font-smaller-btn").addEventListener("click", () => stepTranslationFontSize(-1));
     $("#translation-font-larger-btn").addEventListener("click", () => stepTranslationFontSize(1));
-    try { if (localStorage.getItem("texMcpTranslation") === "1") setTranslation(true); } catch { /* per-viewer only */ }
+    if (translationShown()) showTranslation();
   }
 
   function buildEnded() {
@@ -228,7 +228,6 @@ export function createTranslation({ wait, workspace, source, pdf, showInSource, 
     attach,
     buildEnded,
     applyLanguage: applyTranslationLanguage,
-    shown: translationShown,
     schedule: scheduleTranslation,
     followCursor: followSourceCursor,
     followFile: followSourceFile,

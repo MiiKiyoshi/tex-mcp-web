@@ -5,12 +5,13 @@
 // under their pane; Split puts it where Settings says. At 950px wide or less every
 // pair is stacked, as Split always stacked its two panes there.
 //
-// The view tabs choose the view, and the browser keeps it, with the room each grip shares out,
-// for next time. Which view a place of the paper is shown in is places.js's to choose.
-// createWorkspace takes source's init() and resize(), pdf's zoomMode() and refit(zoomMode), and
-// translationShown(), whether the translation shows. It gives attach(), restore(), view(),
-// show(view), apply(refit), shows(pane), and split(), how the panel's grips hold a split stacked
-// above the panel.
+// The view tabs choose the view, and the browser keeps it, with whether the translation's pane
+// shows and the room each grip shares out, for next time. Which view a place of the paper is
+// shown in is places.js's to choose.
+// createWorkspace takes source's init() and resize() and pdf's zoomMode() and refit(zoomMode). It
+// gives attach(), restore(), view(), show(view), apply(refit), shows(pane), translationShown()
+// and showTranslation(on), of the translation's pane, and split(), how the panel's grips hold a
+// split stacked above the panel.
 
 import { $, $$ } from "../shared/dom.js";
 
@@ -45,14 +46,19 @@ function layoutBox(node) {
   };
 }
 
-export function createWorkspace({ source, pdf, translationShown }) {
-  // The view shown, and how a split stacked above the panel is held (attachWorkspaceLayout).
-  const state = { view: "pdf", split: null };
+function translationKept() {
+  try { return localStorage.getItem("texMcpTranslation") === "1"; } catch { return false; }
+}
+
+export function createWorkspace({ source, pdf }) {
+  // The view shown, whether the translation's pane shows, and how a split stacked above the panel
+  // is held (attachWorkspaceLayout).
+  const state = { view: "pdf", translation: translationKept(), split: null };
   const stackedWorkspace = matchMedia("(max-width: 950px)");
   const workspaceLayout = { place: "preview", split: 0.5, shares: {}, tree: "preview" };
 
   function layoutTree() {
-    const translated = translationShown();
+    const translated = state.translation;
     if (state.view === "pdf") return translated ? ["col", "preview", "translation", "tgrip"] : "preview";
     if (state.view === "source") return translated ? ["col", "source", "translation", "tgrip"] : "source";
     if (!translated) return ["row", "preview", "source", "split"];
@@ -267,6 +273,12 @@ export function createWorkspace({ source, pdf, translationShown }) {
     if (["source", "split"].includes(savedView)) await setWorkspaceView(savedView);
   }
 
+  function showTranslation(on) {
+    state.translation = on;
+    try { localStorage.setItem("texMcpTranslation", on ? "1" : "0"); } catch { /* per-viewer only */ }
+    applyLayout();
+  }
+
   return {
     attach: attachWorkspaceLayout,
     restore,
@@ -274,6 +286,8 @@ export function createWorkspace({ source, pdf, translationShown }) {
     show: setWorkspaceView,
     apply: applyLayout,
     shows: layoutShows,
+    translationShown: () => state.translation,
+    showTranslation,
     split: () => state.split,
   };
 }

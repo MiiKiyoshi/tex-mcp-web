@@ -61,9 +61,7 @@ export function defineVimCommands(Vim, editor, does) {
   } = does;
   // jj typed quickly leaves Insert mode, as Escape and Ctrl+[ do.
   Vim.map("jj", "<Esc>", "insert");
-  Vim.defineEx("make", "mak", () => {
-    compileFromKeys().catch((error) => alert(`Could not compile: ${error.message}`));
-  });
+  Vim.defineEx("make", "mak", () => compileFromKeys());
   Vim.defineEx("write", "w", () =>
     saveSource().catch((error) => alert(`Could not save: ${error.message}`)));
   // What an operator covers, selected in the editor; its start is where the cursor ends.
