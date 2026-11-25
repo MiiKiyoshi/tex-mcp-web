@@ -1352,7 +1352,16 @@ class CommentStore:
         _ranges_of_version_7). Through version 8 a draft did not say when it was put on
         the thread, and the record of a suggestion applied was told from a request only by
         its words. Version 9 gives a draft the time its comment last changed, which is
-        when it was put there unless the thread changed after, and marks those records."""
+        when it was put there unless the thread changed after, and marks those records.
+
+        A store of this version is only read, without the lock: a store opened to read does
+        not wait for a writer, which on Windows, where the lock is polled, it may never see
+        let go while one writes again and again."""
+        try:
+            if json.loads(shared_file.read_text(self.path))["version"] not in (5, 6, 7, 8):
+                return
+        except (OSError, ValueError, KeyError, TypeError):
+            return  # an unreadable store fails on its first operation, as before
         with self._locked():
             try:
                 data = json.loads(shared_file.read_text(self.path))
@@ -1380,13 +1389,22 @@ class CommentStore:
 
     def _assign_entry_ids(self) -> None:
         """Give entries written before they carried ids their ids, once, under the lock:
-        an id made on every load would name nothing across loads."""
+        an id made on every load would name nothing across loads. A store whose entries all
+        have ids is only read, without the lock, as in _upgrade."""
+        def named(data: dict[str, Any]) -> bool:
+            return all("id" in entry for comment in data["comments"] for entry in comment["thread"])
+
+        try:
+            if named(self._read()):
+                return
+        except (OSError, ValueError, KeyError, TypeError):
+            return  # an unreadable store fails on its first operation, as before
         with self._locked():
             try:
                 data = self._read()
             except (OSError, ValueError, KeyError, TypeError):
-                return  # an unreadable store fails on its first operation, as before
-            if all("id" in entry for comment in data["comments"] for entry in comment["thread"]):
+                return
+            if named(data):
                 return
             self._save([Comment.from_dict(value) for value in data["comments"]])
 

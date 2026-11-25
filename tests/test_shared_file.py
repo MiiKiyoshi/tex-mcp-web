@@ -6,6 +6,7 @@ import os
 import pathlib
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -162,6 +163,26 @@ while time.time() < until:
         errors.append(f"{type(error).__name__}: {error}")
 print(json.dumps({"role": role, "rounds": rounds, "errors": errors[:5], "error_count": len(errors), "fell": fell}))
 """
+
+
+def test_a_store_opened_to_read_waits_for_no_writer(tmp_path):
+    """A store of this version is opened and read without its lock, so a writer that holds
+    it, or takes it again and again, keeps no reader waiting."""
+    from tex_mcp_web.shared import filelock
+
+    path = tmp_path / "comments.json"
+    CommentStore(path).add(PaperAnchor(), "The first comment.")
+    counted = []
+    with open(path.with_name(path.name + ".lock"), "a") as held:
+        filelock.lock(held)
+        try:
+            reader = threading.Thread(target=lambda: counted.append(len(CommentStore(path).list())), daemon=True)
+            reader.start()
+            reader.join(5)
+            assert counted == [1]
+        finally:
+            filelock.unlock(held)
+    reader.join(5)
 
 
 def test_a_writer_and_two_readers_in_their_own_processes_meet_no_error(tmp_path):
