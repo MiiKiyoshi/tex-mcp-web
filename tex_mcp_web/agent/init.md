@@ -152,7 +152,7 @@ It needs no git and no download from Overleaf by hand.
 
        1. Open <the page's address> and press Connect Overleaf (in the ⋯ menu on a phone).
        2. In another tab, sign in to Overleaf and open the browser's developer tools:
-          Application (Chrome, Edge) or Storage (Safari, Firefox), then Cookies, then
+          Application (Chrome, Edge) or Storage (Safari), then Cookies, then
           overleaf.com. "Where to find the cookie" on the page links each browser's guide.
        3. Copy the value of overleaf_session2, paste it into the page, and press Save.
        4. Press Get in the top bar. The paper comes from Overleaf and is built.

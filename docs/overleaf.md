@@ -21,9 +21,8 @@ from the browser's developer tools and paste into the page, not into the chat wi
 
 1. Sign in to Overleaf in your browser.
 2. Open the developer tools and go to the cookies of overleaf.com, as your browser's own
-   guide shows: [Chrome](https://developer.chrome.com/docs/devtools/application/cookies),
-   [Edge](https://learn.microsoft.com/en-us/microsoft-edge/devtools/storage/cookies) or
-   [Firefox](https://firefox-source-docs.mozilla.org/devtools-user/storage_inspector/cookies/index.html).
+   guide shows: [Chrome](https://developer.chrome.com/docs/devtools/application/cookies) or
+   [Edge](https://learn.microsoft.com/en-us/microsoft-edge/devtools/storage/cookies).
    In Safari, [turn on Web Inspector](https://webkit.org/web-inspector/enabling-web-inspector/)
    first, then open its Storage tab.
 3. Copy the value of `overleaf_session2`, paste it under **Connect Overleaf** or in
