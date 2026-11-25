@@ -1,5 +1,6 @@
 import os
 import urllib.request
+from pathlib import Path
 
 import pytest
 
@@ -61,3 +62,20 @@ def test_a_codex_exe_on_path_is_run_as_it_is_and_elsewhere_codex_by_name(monkeyp
     assert waiter._codex() == str(tmp_path / "codex.exe")
     monkeypatch.setattr(sys, "platform", "linux")
     assert waiter._codex() == "codex"
+
+
+def test_the_waiter_writes_utf8_whatever_the_system_writes_a_pipe_in(tmp_path) -> None:
+    """On Windows a pipe takes the system's code page, cp949 on a Korean one, and the [gone]
+    line holds Windows' own words for a refused connection: the waiter writes UTF-8, which its
+    readers read."""
+    import subprocess
+    import sys
+
+    script = ("import sys; from tex_mcp_web.shared import waiter; from tex_mcp_web.shared.tool import Tool\n"
+              "tool = Tool(name='sample-mcp-web', package='sample', server='review server', event='[sample]')\n"
+              "waiter.wait = lambda *args: waiter._deliver(tool, '[gone] 대상 컴퓨터에서 연결을 거부했으므로', None)\n"
+              "waiter.main(tool, ['8765', 'one'])\n")
+    done = subprocess.run([sys.executable, "-c", script], capture_output=True,
+                          env={**os.environ, "PYTHONIOENCODING": "cp949"}, cwd=Path(waiter.__file__).parents[2])
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.decode("utf-8") == "[gone] 대상 컴퓨터에서 연결을 거부했으므로\n"

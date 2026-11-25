@@ -116,6 +116,11 @@ def wait(tool: Tool, port: int, listener: str, thread: str | None = None, agent:
 
 
 def main(tool: Tool, argv: list[str] | None = None) -> None:
+    # Whoever reads the lines, the plugin's monitor or the agent, reads UTF-8. On Windows a pipe
+    # takes the system's code page instead, and a line holding Windows' own words for a
+    # refused connection, in Korean for instance, reached them unreadable.
+    for stream in (sys.stdout, sys.stderr):
+        stream.reconfigure(encoding="utf-8", errors="replace")
     args = list(sys.argv[1:] if argv is None else argv)
     usage = f"usage: python -m {tool.package}.waiter <port> <listener> [--codex <thread>] [--agent <name>] [--once]"
     if len(args) < 2:
