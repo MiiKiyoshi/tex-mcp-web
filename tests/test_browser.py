@@ -2342,6 +2342,7 @@ def test_the_panels_left_edge_sets_its_width_and_keeps_it(tmp_path: Path) -> Non
         wait_until(lambda: browser.execute_script(width) == 280)
         # The keys the edge takes are not the comment list's: Home on it leaves the ring where it is.
         ringed = 'return document.querySelector("#comments-list .cmt.is-focused")?.dataset.commentId ?? null'
+        wait_until(lambda: browser.execute_script('return document.querySelectorAll("#comments-list .cmt").length') == 2)
         browser.execute_script('const list = document.querySelector("#comments-list"); list.focus();'
                                ' for (const key of ["j", "j"]) list.dispatchEvent(new KeyboardEvent("keydown", {key, bubbles: true, cancelable: true}));')
         wait_until(lambda: browser.execute_script(ringed) == second)
@@ -2482,14 +2483,17 @@ def test_the_top_bar_fits_a_phone_at_every_text_size(tmp_path: Path) -> None:
     try:
         shared.ensure()
         base = f"http://127.0.0.1:{port}"
-        wait_until(lambda: get_json(f"{base}/paper") is not None)
+        # The build is over first, so the page does not catch up with it once it is open.
+        wait_for_build(shared)
         browser = chrome.launch()
         browser.set_window_rect(width=480, height=800)
         browser.navigate(base)
         script = browser.execute_script
+        # The page draws its own git buttons once it has read where the folder stands, which
+        # also writes the note on following Overleaf by hand.
+        wait_until(lambda: script('return document.querySelector("#overleaf-mode-hand-note").textContent !== ""'))
         # Both git buttons with their counts, and two collaborators on Overleaf, as the page
-        # draws them, put in again before each reading, since the page draws its own as it
-        # learns where the folder stands.
+        # draws them, put in again before each reading.
         drawn = '''
           for (const [id, count] of [["#git-pull-btn", "3"], ["#git-push-btn", "12"]]) {
             const button = document.querySelector(id);
