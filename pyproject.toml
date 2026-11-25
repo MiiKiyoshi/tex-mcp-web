@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tex-mcp-web"
-version = "0.12.1"
+version = "0.13.0"
 description = "Comment on a LaTeX paper's PDF and have Claude Code or Codex edit the source, with Overleaf sync."
 dynamic = ["readme"]
 license = "MIT"
