@@ -164,18 +164,21 @@ export function createOverleafSettings({
 
   async function saveOverleafCookie() {
     const input = $("#overleaf-cookie");
+    // A new cookie is not turned away until Overleaf says so, which the page may hear before
+    // the answer to this request: so it is cleared before the request goes.
+    const refused = overleaf.cookieRefused;
+    overleaf.cookieRefused = false;
     const response = await fetch("/overleaf/cookie", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ cookie: input.value }),
     });
     if (!response.ok) {
+      overleaf.cookieRefused = refused;
       showSettings(`Could not save the cookie: ${await responseError(response)}`);
       return;
     }
     input.value = "";
-    // A new cookie is not turned away until Overleaf says so.
-    overleaf.cookieRefused = false;
     renderOverleafStatus(await response.json());
     showSettings("Cookie saved.");
   }

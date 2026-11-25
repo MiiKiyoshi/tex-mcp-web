@@ -6148,10 +6148,11 @@ def test_the_overleaf_dialog_keeps_the_cookie_and_reads_overleaf_itself(tmp_path
         wait_until(lambda: why().startswith("Could not read Overleaf's branch: "), timeout=15)
         git(paper, "remote", "set-url", "overleaf", str(remote))
 
-        # A cookie Overleaf turns away is asked for again.
+        # A cookie Overleaf turns away is asked for again, though Overleaf's word may reach the
+        # page before the answer to the save does.
         browser.execute_script('document.querySelector("#overleaf-cookie").value = "s%3Aturned.away";'
                                'document.querySelector("#overleaf-cookie-save").click()')
-        wait_until(lambda: shown("#overleaf-cookie-row") and shown("#overleaf-signed")
+        wait_until(lambda: status() == "Cookie saved." and shown("#overleaf-cookie-row") and shown("#overleaf-signed")
                    and text("#overleaf-signed-text") == "Overleaf rejected this cookie. Paste a new one.", timeout=15)
     finally:
         overleaf_server.shutdown()
