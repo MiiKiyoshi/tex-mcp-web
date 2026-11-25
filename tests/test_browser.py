@@ -2421,6 +2421,30 @@ def test_browser_source_selection_and_split_resize(tmp_path: Path) -> None:
         ''')
         assert keyed["after"] < keyed["before"] - 20, keyed
         assert abs(keyed["stored"] - keyed["after"]) <= 2, keyed
+
+        # A page whose own layout reaches below the window, with the panel standing at the
+        # window's foot as a phone's sheet does: the bar follows the pointer there too.
+        browser.execute_script('''
+          const style = document.createElement("style");
+          style.textContent = ".layout { display: block !important; flex: none !important; height: 4000px !important; }"
+            + " #sidebar { position: fixed !important; left: 0; right: 0; bottom: 0;"
+            + " height: var(--tex-mcp-panel-height, 45vh) !important; }";
+          document.head.append(style);''')
+        sheet = 'return document.querySelector("#sidebar").getBoundingClientRect().height'
+        box = browser.execute_script('''
+          const r = document.querySelector("#sidebar-grip").getBoundingClientRect();
+          return {x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2),
+                  foot: document.querySelector("#sidebar").getBoundingClientRect().bottom,
+                  below: document.querySelector(".layout").getBoundingClientRect().bottom > innerHeight + 1000};
+        ''')
+        assert box["below"], box
+        drag = browser.actions("pointer", "mouse", {"pointerType": "mouse"})
+        drag.pointer_move(box["x"], box["y"]).pointer_down()
+        for step in range(1, 5):
+            drag.pointer_move(box["x"], box["y"] + 20 * step, duration=30)
+        drag.pointer_up().perform()
+        wait_until(lambda: abs(browser.execute_script(sheet) - (box["foot"] - box["y"] - 80)) <= 1,
+                   seen=lambda: (box, browser.execute_script(sheet)))
     finally:
         if browser is not None:
             browser.quit()

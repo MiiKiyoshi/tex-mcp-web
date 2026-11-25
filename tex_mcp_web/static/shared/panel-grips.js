@@ -113,7 +113,9 @@ export function attachPanelGrips({
   });
 
   heightGrip.addEventListener("pointerdown", (down) => {
-    const bottom = layout.getBoundingClientRect().bottom;
+    // The panel grows up from its foot, which stays where it is: the foot of the page's layout,
+    // or of the window, where a phone's page scrolls under a panel standing at the window's foot.
+    const bottom = sidebar.getBoundingClientRect().bottom;
     const held = holdSplit();
     let pixels = null;
     follow(heightGrip, down, (pointer) => {
