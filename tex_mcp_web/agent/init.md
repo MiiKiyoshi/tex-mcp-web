@@ -60,9 +60,11 @@ its connection has been verified.
 ## 2. Confirm
 
 Decide what you can yourself, and show the user only what is theirs to decide, in their
-language. When your client has a tool that lets the user pick among options, ask every
-choice with it, the default first: where the paper is, where its files go, page token on or
-off, By hand or Live, which guideline. Put all the choices that are known at once into one call. What the user
+language. Write nothing until the user has answered: a request to set up, such as "do tex
+init" or "do it yourself", answers none of these choices. When your client has a tool that
+lets the user pick among options, ask every choice with it, the default first: where the
+paper is, where its files go, the page's port, page token on or off, By hand or Live, which
+guideline. Put all the choices that are known at once into one call. What the user
 types, such as a project's link or a folder's path, is asked in plain chat and never as an
 option to fill in. Without such a tool, show the choices as briefly as this:
 
