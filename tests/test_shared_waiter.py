@@ -12,6 +12,10 @@ class Asked(BaseException):
     """Stops the waiter at its first request, which the test reads."""
 
 
+# The words a sample tool tells its agent about listening with (shared/listening.py).
+WORDS = {"plugin": "sample-mcp", "page": "review page", "person": "reviewer", "work": "review", "press": "[review]"}
+
+
 @pytest.mark.parametrize("base", ["", "/reader"])
 def test_the_waiter_asks_under_the_path_its_tool_keeps_its_calls(monkeypatch, base) -> None:
     """A tool whose call routes sit under a path, as a page mounted at /reader, has its waiter
@@ -23,7 +27,7 @@ def test_the_waiter_asks_under_the_path_its_tool_keeps_its_calls(monkeypatch, ba
         raise Asked
 
     monkeypatch.setattr(urllib.request, "urlopen", opened)
-    tool = Tool(name="sample-mcp-web", package="sample", server="review server", event="[sample]", base=base)
+    tool = Tool(name="sample-mcp-web", package="sample", server="review server", event="[sample]", **WORDS, base=base)
     with pytest.raises(Asked):
         waiter.wait(tool, 8765, "one", agent="second", once=True)
     assert asked == [f"http://127.0.0.1:8765{base}/wait-review?listener=one&pid={os.getpid()}&agent=second"]
@@ -49,7 +53,7 @@ def test_on_windows_a_line_goes_to_codex_whole_through_the_program_npm_carries(m
     monkeypatch.setattr(sys, "platform", "win32")
     monkeypatch.setattr(waiter.shutil, "which", lambda name: str(npm / "codex.CMD") if name == "codex" else None)
     monkeypatch.setattr(subprocess, "run", lambda argv, **_: ran.append(argv) or subprocess.CompletedProcess(argv, 0))
-    tool = Tool(name="sample-mcp-web", package="sample", server="review server", event="[sample]")
+    tool = Tool(name="sample-mcp-web", package="sample", server="review server", event="[sample]", **WORDS)
     waiter._deliver(tool, 'Two lines & | % ^ "quoted"', "thread-1")
     assert ran == [[str(program), "queue", "--thread", "thread-1", "--message", '[sample]\nTwo lines & | % ^ "quoted"']]
 
@@ -72,7 +76,8 @@ def test_the_waiter_writes_utf8_whatever_the_system_writes_a_pipe_in(tmp_path) -
     import sys
 
     script = ("import sys; from tex_mcp_web.shared import waiter; from tex_mcp_web.shared.tool import Tool\n"
-              "tool = Tool(name='sample-mcp-web', package='sample', server='review server', event='[sample]')\n"
+              "tool = Tool(name='sample-mcp-web', package='sample', server='review server', event='[sample]',\n"
+              "            plugin='sample-mcp', page='review page', person='reviewer', work='review', press='[review]')\n"
               "waiter.wait = lambda *args: waiter._deliver(tool, '[gone] 대상 컴퓨터에서 연결을 거부했으므로', None)\n"
               "waiter.main(tool, ['8765', 'one'])\n")
     done = subprocess.run([sys.executable, "-c", script], capture_output=True,

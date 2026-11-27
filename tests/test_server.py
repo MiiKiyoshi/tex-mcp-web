@@ -3057,7 +3057,8 @@ async def test_a_session_with_the_plugin_listens_from_its_start(bound_project, p
     import aiohttp
 
     from tex_mcp_web.shared import plugin_monitor
-    from tex_mcp_web.mcp_server import _listen_from_start, create_server
+    from tex_mcp_web.mcp_server import create_server
+    from tex_mcp_web.shared.listening import listen_from_start
 
     cache = tmp_path / "cache"
     monkeypatch.setattr(TOOL, "monitors", cache / "tex-mcp-web" / "monitor")
@@ -3073,11 +3074,11 @@ async def test_a_session_with_the_plugin_listens_from_its_start(bound_project, p
         async with aiohttp.ClientSession() as client:
             async with client.post(f"{base}/wait-review/listen?listener=other") as response:
                 assert (await response.json())["listening"]
-            await asyncio.to_thread(_listen_from_start, shared)
+            await asyncio.to_thread(listen_from_start, TOOL, shared.port)
             assert not handed.exists()
             # The other session never started its waiter: this one listens in its place.
             shared.server.review.LISTENER_START = 0
-            await asyncio.to_thread(_listen_from_start, shared)
+            await asyncio.to_thread(listen_from_start, TOOL, shared.port)
             assert shlex.split(handed.read_text(encoding="utf-8").splitlines()[1])[1:3] == ["-m", "tex_mcp_web.waiter"]
             async with client.post(f"{base}/review-request") as response:
                 assert (await response.json())["calls"] == 1

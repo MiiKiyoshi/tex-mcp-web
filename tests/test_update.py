@@ -17,7 +17,9 @@ from tex_mcp_web.tool import TOOL
 # The real ones, which the no_update fixture replaces for every other test.
 NEWS = Update.news
 RUN = Update._run
-CLONED = Tool(name="tex-mcp-web", package="tex_mcp_web", server="review server", event="[event]", extras="[mcp]")
+CLONED = Tool(name="tex-mcp-web", package="tex_mcp_web", server="review server", event="[event]",
+              plugin="tex-mcp", page="review page", person="reviewer", work="review", press="[review]",
+              extras="[mcp]")
 
 
 def commit(folder) -> str:

@@ -25,18 +25,15 @@ import asyncio
 import json
 import os
 import re
-import secrets
 import shlex
 import sys
 import threading
-import time
-import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
 from . import page_token
-from .shared import agents, plugin_monitor, shared_file, waiter
+from .shared import listening, shared_file
 from .tool import TOOL
 
 try:
@@ -587,57 +584,6 @@ def _overleaf_thread_add(store, watch_dir: Path, text: str, anchor: "CommentAnch
 # ---------------------------------------------------------------------------
 
 
-def _wait_method(ctx: "Context", command: str, lane: str | None = None) -> str:
-    name = ctx.session.client_params.clientInfo.name.casefold()
-    if lane is not None:
-        return (
-            "Run <command> as a background shell command, then end the turn and do not poll. "
-            f"It shows {lane} as waiting on the review page and ends as soon as the reviewer "
-            f"presses Call agent for {lane}, printing the [review] line, which may end with "
-            "[model=M effort=E], the model and effort the reviewer picked. After handling "
-            "that press, start the command again; otherwise leave it stopped and tell the user "
-            "in one line. Stop a running one when the review is finished or the user asks."
-        )
-    if "claude" in name:
-        if plugin_monitor.hand_over(TOOL, command):
-            return (
-                "The tex-mcp plugin's monitor runs the command for this session and turns each "
-                "line it prints into a notification for as long as the session lasts. Do not "
-                "start the command yourself, and end the turn."
-            )
-        return (
-            'Run the command with Monitor(command=<command>, description="tex-mcp review", '
-            "timeout_ms=1800000), then end the turn. When it expires, leave it stopped and tell the "
-            "user in one line that listening has stopped and that they can ask again to resume it. "
-            "Nothing is lost while it is stopped: new "
-            "comments wait for read_comments(new=True), and a Call agent press waits for the next "
-            "waiter. Stop an active Monitor when the review is finished or the user asks. "
-            "Start another copy only after the previous process has ended."
-        )
-    if "codex" in name:
-        return (
-            'Run <command> --codex "$CODEX_THREAD_ID" with '
-            'exec_command(yield_time_ms=1000, sandbox_permissions="require_escalated", '
-            'justification="Allow the TeX review waiter to deliver events to this Codex thread?"). '
-            "Once it is running, end the turn and do not poll. "
-            "The waiter uses codex queue to deliver events as labeled user messages, "
-            "even while the thread is idle; delivery may take about 10 seconds. "
-            "It requires codex queue on PATH and CODEX_THREAD_ID in the agent's shell. "
-            "Run one waiter at a time. "
-            "Stop its process when the review is finished or the user asks. "
-            "Start another copy only after the previous process has ended."
-        )
-    return (
-        "Run the command with your shell tool and read its output. If the tool returns a "
-        "running session, read the later output with the tool that reads from that session. "
-        "After handling an event, stop the command; listening resumes when the user asks again. "
-        "Start another copy only after the previous process has ended."
-    )
-
-
-# The id this process's session listens by. One per process, so a session asked to listen
-# again restarts its waiter without that waiter hearing that another session took over.
-LISTENER = secrets.token_hex(8)
 
 
 def create_server(binding: "ProjectBinding") -> "FastMCP":
@@ -1297,29 +1243,12 @@ def create_server(binding: "ProjectBinding") -> "FastMCP":
                 "change port in that config once they agree, and call listen() again."
             ) from error
         cfg, watch_dir, _ = _load_project(binding)
-        import httpx
-
-        lane = agents.lane_of(ctx.session.client_params.clientInfo.name, cfg.agents)
-        if lane is not None:
-            # An agent the configuration names waits in a lane of its own and takes no presses
-            # from the listening session.
-            command = waiter.lane_command(TOOL, shared.port, lane)
-        else:
-            session = plugin_monitor.claude_pid()
-            async with httpx.AsyncClient(timeout=10.0, headers=page_token.headers()) as client:
-                response = await client.post(f"{binding.base_url()}/wait-review/listen", params={
-                    "listener": LISTENER, **({"session": session} if session is not None else {})})
-            response.raise_for_status()
-            command = waiter.command(TOOL, shared.port, LISTENER)
+        client = ctx.session.client_params.clientInfo.name
+        command, lane = await asyncio.to_thread(listening.command, TOOL, shared.port, client, cfg.agents)
         return _ok({
             "command": command,
-            "how": (
-                _wait_method(ctx, command, lane)
-                + " On [review], call read_comments(new=True) and handle the review. "
-                "[gone] means the review server is unreachable; the waiter keeps retrying. "
-                "[back] means it is reachable again. [moved] means a newer waiter took over "
-                "listening, in another session or in this one as the line says, and this waiter has ended."
-            ),
+            "how": listening.how(TOOL, client, command, lane)
+            + " On [review], call read_comments(new=True) and handle the review.",
         })
 
     @mcp.tool(structured_output=False)
@@ -1412,40 +1341,8 @@ def check(start_dir: Path) -> list[str]:
     return sorted(tool.name for tool in asyncio.run(server.list_tools()))
 
 
-# How long the startup waits for the plugin's monitor, which Claude Code starts beside it.
-MONITOR_START = 30.0
-
-
-def _listen_from_start(shared: "SharedProjectServer") -> None:
-    """In a session the plugin's monitor serves, listen from the start, unless another
-    session listens to this paper already."""
-    if plugin_monitor.claude_pid() is None:
-        return
-    deadline = time.monotonic() + MONITOR_START
-    while (session := plugin_monitor.monitored_session(TOOL)) is None:
-        if time.monotonic() > deadline:
-            return
-        time.sleep(1)
-    request = urllib.request.Request(
-        f"http://127.0.0.1:{shared.port}/wait-review/listen?listener={LISTENER}&if_free=1&session={session}",
-        headers=page_token.headers(), method="POST")
-    with urllib.request.urlopen(request, timeout=10) as response:
-        if not json.loads(response.read())["listening"]:
-            return
-    plugin_monitor.hand_over(TOOL, waiter.command(TOOL, shared.port, LISTENER))
-
-
 def _listen_in_background(shared: "SharedProjectServer") -> None:
-    """Listen from the start beside whatever came to the server: the first connection, or a
-    tool call that started the server again once the session serving it had gone, taking
-    that session's waiter with it."""
-    def listen() -> None:
-        try:
-            _listen_from_start(shared)
-        except (OSError, KeyError, ValueError) as error:
-            print(f"tex-mcp-web did not start listening: {error}", file=sys.stderr)
-
-    threading.Thread(target=listen, daemon=True).start()
+    listening.listen_in_background(TOOL, shared.port)
 
 
 def _connect_in_background(binding: "ProjectBinding") -> None:
